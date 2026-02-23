@@ -42,7 +42,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 pass
 
     def send_screenshot_file(self):
-        filename = os.path.basename(self.path.split("/")[-1])
+        raw = self.path.split("?")[0]  # strip query params
+        filename = os.path.basename(raw)
         if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
             return self.send_error(403)
         filepath = os.path.join(STATE_DIR, filename)

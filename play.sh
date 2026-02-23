@@ -2,6 +2,7 @@
 # Autonomous Kaetram gameplay loop
 # Runs Claude Code (Sonnet) in headless mode with Playwright MCP
 set -euo pipefail
+unset CLAUDECODE  # Allow nested claude invocations
 
 PROJECT_DIR="$HOME/projects/kaetram-agent"
 STATE_FILE="$PROJECT_DIR/state/progress.json"
@@ -49,6 +50,7 @@ Play aggressively. Narrate with dark humor. Take screenshots constantly."
     --model sonnet \
     --max-turns "$MAX_TURNS" \
     --append-system-prompt "$SYSTEM" \
+    --dangerously-skip-permissions \
     2>&1 | tee "$LOG_FILE" || true
 
   echo "=== Session $SESSION ended at $(date) ==="

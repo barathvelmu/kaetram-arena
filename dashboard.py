@@ -7,14 +7,15 @@ import os
 import glob
 import mimetypes
 import threading
+import subprocess
 from datetime import datetime
 
-STATE_DIR = os.path.expanduser("~/projects/kaetram-agent/state")
-LOG_DIR = os.path.expanduser("~/projects/kaetram-agent/logs")
+PROJECT_DIR = os.path.expanduser("~/projects/kaetram-agent")
+STATE_DIR = os.path.join(PROJECT_DIR, "state")
+LOG_DIR = os.path.join(PROJECT_DIR, "logs")
+
 
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
-    """Handles all dashboard HTTP requests."""
-
     def do_GET(self):
         try:
             if self.path == "/" or self.path == "/index.html":
@@ -25,40 +26,41 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self.send_sessions()
             elif self.path == "/api/screenshots":
                 self.send_screenshot_list()
+            elif self.path == "/api/live":
+                self.send_live_status()
             elif self.path.startswith("/screenshots/"):
                 self.send_screenshot_file()
             else:
                 self.send_error(404)
         except Exception as e:
-            self.send_response(500)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.wfile.write(f"Error: {e}".encode())
+            try:
+                self.send_response(500)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(f"Error: {e}".encode())
+            except Exception:
+                pass
 
     def send_screenshot_file(self):
-        """Serve screenshot images from state dir."""
         filename = os.path.basename(self.path.split("/")[-1])
         if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
-            self.send_error(403)
-            return
+            return self.send_error(403)
         filepath = os.path.join(STATE_DIR, filename)
         if not os.path.isfile(filepath):
-            self.send_error(404)
-            return
+            return self.send_error(404)
         mime, _ = mimetypes.guess_type(filepath)
         size = os.path.getsize(filepath)
         self.send_response(200)
         self.send_header("Content-Type", mime or "image/png")
         self.send_header("Content-Length", str(size))
-        self.send_header("Cache-Control", "public, max-age=30")
+        self.send_header("Cache-Control", "public, max-age=5")
         self.end_headers()
         with open(filepath, "rb") as f:
             self.wfile.write(f.read())
 
     def send_screenshot_list(self):
-        """Return list of screenshot filenames."""
         images = []
-        for ext in ('*.png', '*.jpg', '*.jpeg', '*.webp'):
+        for ext in ('*.png',):
             images.extend(glob.glob(os.path.join(STATE_DIR, ext)))
         images.sort(key=os.path.getmtime, reverse=True)
         result = []
@@ -69,7 +71,6 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self._send_json(result)
 
     def send_json_state(self):
-        """Return the latest state JSON file."""
         state_file = os.path.join(STATE_DIR, "progress.json")
         data = {}
         if os.path.isfile(state_file):
@@ -80,22 +81,69 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 pass
         self._send_json(data)
 
+    def send_live_status(self):
+        """Return live agent status — is claude running, latest screenshot age, etc."""
+        # Check if claude process is running
+        try:
+            result = subprocess.run(["pgrep", "-f", "claude.*sonnet"], capture_output=True, text=True, timeout=3)
+            agent_running = result.returncode == 0
+        except Exception:
+            agent_running = False
+
+        # Check latest screenshot age
+        screenshot = os.path.join(STATE_DIR, "screenshot.png")
+        screenshot_age = -1
+        screenshot_time = ""
+        if os.path.isfile(screenshot):
+            mtime = os.path.getmtime(screenshot)
+            screenshot_age = int(datetime.now().timestamp() - mtime)
+            screenshot_time = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
+
+        # Check game server
+        try:
+            result = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True, timeout=3)
+            game_server_up = ":9000" in result.stdout and ":9001" in result.stdout
+        except Exception:
+            game_server_up = False
+
+        # Count sessions from logs
+        logs = glob.glob(os.path.join(LOG_DIR, "session_*.log"))
+        total_sessions = len(logs)
+
+        # Get highlights
+        highlights_file = os.path.join(STATE_DIR, "highlights.jsonl")
+        highlights = []
+        if os.path.isfile(highlights_file):
+            try:
+                with open(highlights_file) as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if line:
+                            highlights.append(json.loads(line))
+            except Exception:
+                pass
+
+        self._send_json({
+            "agent_running": agent_running,
+            "game_server_up": game_server_up,
+            "screenshot_age_seconds": screenshot_age,
+            "screenshot_time": screenshot_time,
+            "total_sessions": total_sessions,
+            "highlights": highlights[-10:],
+        })
+
     def send_sessions(self):
-        """Return recent log and state files."""
+        logs = sorted(glob.glob(os.path.join(LOG_DIR, "*.log")), key=os.path.getmtime, reverse=True)
         entries = []
-        for log in sorted(glob.glob(os.path.join(LOG_DIR, "*.log")), key=os.path.getmtime, reverse=True)[:10]:
+        for log in logs[:20]:
             name = os.path.basename(log)
             size = os.path.getsize(log)
             mtime = datetime.fromtimestamp(os.path.getmtime(log)).strftime("%Y-%m-%d %H:%M:%S")
-            entries.append(f"[{mtime}] {name} ({size} bytes)")
-        for s in sorted(glob.glob(os.path.join(STATE_DIR, "*.json")), key=os.path.getmtime, reverse=True)[:5]:
-            name = os.path.basename(s)
-            mtime = datetime.fromtimestamp(os.path.getmtime(s)).strftime("%Y-%m-%d %H:%M:%S")
-            entries.append(f"[{mtime}] {name}")
-        self._send_json(sorted(entries, reverse=True))
+            entries.append({"name": name, "time": mtime, "size": size})
+        self._send_json(entries)
 
     def _send_json(self, data):
-        body = json.dumps(data, indent=2).encode()
+        body = json.dumps(data).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -112,16 +160,14 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
 
     def log_message(self, format, *args):
-        pass  # Suppress request logging
+        pass
 
 
 class ThreadedHTTPServer(http.server.HTTPServer):
-    """Handle each request in a separate thread to prevent blocking."""
     def process_request(self, request, client_address):
         thread = threading.Thread(target=self._handle, args=(request, client_address))
         thread.daemon = True
@@ -131,81 +177,146 @@ class ThreadedHTTPServer(http.server.HTTPServer):
         try:
             self.finish_request(request, client_address)
         except Exception:
-            self.handle_error(request, client_address)
+            pass
         finally:
             self.shutdown_request(request)
 
 
 DASHBOARD_HTML = """<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Kaetram AI Agent</title>
+<title>Kaetram AI Agent — Live Dashboard</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+  :root { --bg: #0a0a0a; --card: #111; --border: #222; --green: #00ff41; --amber: #ffaa00; --red: #ff4141; --blue: #00aaff; --dim: #555; --text: #ccc; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Courier New', monospace; background: #0a0a0a; color: #00ff41; padding: 20px; }
-  h1 { color: #00ff41; border-bottom: 2px solid #00ff41; padding-bottom: 10px; margin-bottom: 10px; font-size: 24px; }
-  h2 { color: #ffaa00; margin: 15px 0 10px; font-size: 18px; }
-  .topbar { color: #888; font-size: 12px; margin-bottom: 20px; display: flex; gap: 15px; flex-wrap: wrap; align-items: center; }
-  .topbar a { color: #00aaff; text-decoration: none; border: 1px solid #333; padding: 3px 8px; border-radius: 4px; }
-  .topbar a:hover { border-color: #00ff41; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+  body { font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace; background: var(--bg); color: var(--text); }
+
+  /* Header */
+  header { background: #0d0d0d; border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  header h1 { color: var(--green); font-size: 20px; letter-spacing: 1px; }
+  header h1 span { font-weight: normal; color: var(--dim); font-size: 14px; }
+  .header-links { display: flex; gap: 10px; }
+  .header-links a { color: var(--blue); text-decoration: none; border: 1px solid #333; padding: 4px 12px; border-radius: 4px; font-size: 12px; transition: all 0.2s; }
+  .header-links a:hover { border-color: var(--green); color: var(--green); }
+
+  /* Status bar */
+  .status-bar { background: #0d0d0d; border-bottom: 1px solid var(--border); padding: 8px 24px; display: flex; gap: 24px; font-size: 12px; flex-wrap: wrap; }
+  .status-item { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+  /* Main layout */
+  main { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+  /* Hero screenshot */
+  .hero { margin-bottom: 20px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .hero img { width: 100%; max-height: 500px; object-fit: contain; background: #000; display: block; cursor: pointer; }
+  .hero .caption { padding: 10px 16px; font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; }
+
+  /* Grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
   @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
-  .card { background: #111; border: 1px solid #333; border-radius: 8px; padding: 15px; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h2 { color: var(--amber); font-size: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
   .card.full { grid-column: 1 / -1; }
-  .stat { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #222; }
-  .stat-label { color: #888; }
-  .stat-value { color: #00ff41; font-weight: bold; }
-  pre { background: #0d0d0d; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
-  .log-entry { padding: 4px 0; border-bottom: 1px solid #1a1a1a; font-size: 13px; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px; }
-  .badge.online { background: #003300; color: #00ff41; border: 1px solid #00ff41; }
-  .badge.offline { background: #330000; color: #ff4141; border: 1px solid #ff4141; }
-  .badge.idle { background: #332200; color: #ffaa00; border: 1px solid #ffaa00; }
-  .screenshots { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
-  .screenshot-card { background: #0d0d0d; border: 1px solid #333; border-radius: 6px; overflow: hidden; }
-  .screenshot-card img { width: 100%; display: block; cursor: pointer; transition: opacity 0.15s; }
-  .screenshot-card img:hover { opacity: 0.85; }
-  .screenshot-card .meta { padding: 8px 10px; font-size: 11px; color: #888; }
-  .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.92); z-index: 100; justify-content: center; align-items: center; cursor: pointer; }
+
+  .stat { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #1a1a1a; font-size: 13px; }
+  .stat:last-child { border-bottom: none; }
+  .stat-label { color: var(--dim); }
+  .stat-value { color: var(--green); font-weight: bold; }
+
+  /* Screenshot gallery */
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .thumb { background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; transition: border-color 0.2s; }
+  .thumb:hover { border-color: var(--green); }
+  .thumb img { width: 100%; display: block; cursor: pointer; }
+  .thumb .meta { padding: 6px 10px; font-size: 10px; color: var(--dim); }
+
+  /* Session log */
+  .session-entry { padding: 5px 0; border-bottom: 1px solid #1a1a1a; font-size: 12px; display: flex; justify-content: space-between; }
+  .session-entry .name { color: var(--text); }
+  .session-entry .time { color: var(--dim); }
+  .session-entry .size { color: var(--amber); min-width: 60px; text-align: right; }
+
+  /* Highlights */
+  .highlight { padding: 6px 10px; margin-bottom: 4px; border-radius: 4px; font-size: 12px; border-left: 3px solid var(--amber); background: #1a1500; }
+  .highlight.death { border-color: var(--red); background: #1a0500; }
+  .highlight.levelup { border-color: var(--green); background: #001a05; }
+  .highlight.loot { border-color: var(--amber); background: #1a1500; }
+  .highlight.quest { border-color: var(--blue); background: #001a2a; }
+
+  /* Lightbox */
+  .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 100; justify-content: center; align-items: center; cursor: pointer; }
   .modal.active { display: flex; }
-  .modal img { max-width: 95vw; max-height: 95vh; border: 2px solid #333; }
-  .no-data { color: #666; font-style: italic; padding: 20px; text-align: center; }
-  .refresh-indicator { color: #333; font-size: 11px; }
+  .modal img { max-width: 95vw; max-height: 95vh; }
+
+  .empty { color: #333; font-style: italic; padding: 20px; text-align: center; }
+  .pulse { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>
 </head>
 <body>
-<h1>Kaetram AI Agent <span class="badge idle" id="status-badge">LOADING</span></h1>
-<div class="topbar">
-  <span class="refresh-indicator" id="refresh-time">Auto-refreshes every 5s</span>
-  <a href="/api/state">State JSON</a>
-  <a href="/api/screenshots">Screenshots API</a>
-  <a href="http://__GAME_HOST__:9000" target="_blank">Play Kaetram</a>
+
+<header>
+  <h1>KAETRAM AI AGENT <span>// autonomous MMORPG player</span></h1>
+  <div class="header-links">
+    <a href="http://__GAME_HOST__:9000" target="_blank">Play Game</a>
+    <a href="/api/state">API: State</a>
+    <a href="/api/live">API: Live</a>
+    <a href="https://github.com/patnir411/kaetram-arena" target="_blank">GitHub</a>
+  </div>
+</header>
+
+<div class="status-bar">
+  <div class="status-item"><span class="dot amber" id="dot-agent"></span> Agent: <span id="status-agent">checking...</span></div>
+  <div class="status-item"><span class="dot amber" id="dot-server"></span> Game Server: <span id="status-server">checking...</span></div>
+  <div class="status-item">Sessions: <span id="status-sessions" style="color:var(--green)">-</span></div>
+  <div class="status-item">Screenshot: <span id="status-screenshot-age" style="color:var(--green)">-</span></div>
+  <div class="status-item refresh-info" style="color:#333">Refreshes every 5s</div>
 </div>
 
-<div class="grid">
-  <div class="card">
-    <h2>Player Status</h2>
-    <div id="player-stats"><div class="no-data">Waiting for agent...</div></div>
+<main>
+  <div class="hero" id="hero">
+    <img id="hero-img" src="/screenshots/screenshot.png" alt="Latest game screenshot" onclick="openLightbox(this.src)">
+    <div class="caption">
+      <span id="hero-caption">Latest agent view</span>
+      <span id="hero-time">-</span>
+    </div>
   </div>
-  <div class="card">
-    <h2>Session Info</h2>
-    <div id="session-stats"><div class="no-data">Waiting for agent...</div></div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Player Status</h2>
+      <div id="player-stats"><div class="empty">Waiting for agent data...</div></div>
+    </div>
+    <div class="card">
+      <h2>Mission Progress</h2>
+      <div id="mission-stats"><div class="empty">Waiting for agent data...</div></div>
+    </div>
   </div>
-  <div class="card full">
-    <h2>Latest Screenshots</h2>
-    <div class="screenshots" id="screenshots"><div class="no-data">No screenshots yet</div></div>
+
+  <div class="card full" style="margin-bottom:16px" id="highlights-card">
+    <h2>Highlights</h2>
+    <div id="highlights"><div class="empty">No highlights yet — kills, deaths, loot, and quests appear here</div></div>
   </div>
-  <div class="card full">
-    <h2>State Data</h2>
-    <pre id="observations">Loading...</pre>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Screenshot History</h2>
+      <div class="gallery" id="gallery"><div class="empty">No screenshots yet</div></div>
+    </div>
+    <div class="card">
+      <h2>Session Log</h2>
+      <div id="sessions"><div class="empty">No sessions yet</div></div>
+    </div>
   </div>
-  <div class="card full">
-    <h2>Recent Files</h2>
-    <div id="sessions"><div class="no-data">No session files yet</div></div>
-  </div>
-</div>
+</main>
 
 <div class="modal" id="lightbox" onclick="this.classList.remove('active')">
   <img id="lightbox-img" src="">
@@ -217,81 +328,109 @@ function openLightbox(src) {
   document.getElementById('lightbox').classList.add('active');
 }
 
+function humanTime(seconds) {
+  if (seconds < 0) return 'never';
+  if (seconds < 60) return seconds + 's ago';
+  if (seconds < 3600) return Math.floor(seconds/60) + 'm ago';
+  return Math.floor(seconds/3600) + 'h ago';
+}
+
 async function refresh() {
-  const now = new Date().toLocaleTimeString();
-  document.getElementById('refresh-time').textContent = `Last refresh: ${now}`;
+  // Live status
+  try {
+    const live = await (await fetch('/api/live')).json();
+
+    const agentDot = document.getElementById('dot-agent');
+    const agentText = document.getElementById('status-agent');
+    if (live.agent_running) {
+      agentDot.className = 'dot green';
+      agentText.textContent = 'PLAYING';
+      agentText.style.color = 'var(--green)';
+    } else {
+      agentDot.className = 'dot red';
+      agentText.textContent = 'STOPPED';
+      agentText.style.color = 'var(--red)';
+    }
+
+    const serverDot = document.getElementById('dot-server');
+    const serverText = document.getElementById('status-server');
+    if (live.game_server_up) {
+      serverDot.className = 'dot green';
+      serverText.textContent = 'ONLINE';
+      serverText.style.color = 'var(--green)';
+    } else {
+      serverDot.className = 'dot red';
+      serverText.textContent = 'DOWN';
+      serverText.style.color = 'var(--red)';
+    }
+
+    document.getElementById('status-sessions').textContent = live.total_sessions;
+    document.getElementById('status-screenshot-age').textContent = humanTime(live.screenshot_age_seconds);
+    document.getElementById('hero-time').textContent = live.screenshot_time || '-';
+
+    // Highlights
+    if (live.highlights && live.highlights.length > 0) {
+      let hhtml = '';
+      for (const h of live.highlights.reverse()) {
+        const cls = h.type || '';
+        hhtml += '<div class="highlight ' + cls + '"><strong>Session ' + (h.session||'?') + '</strong> [' + (h.type||'event') + '] ' + (h.desc||'') + '</div>';
+      }
+      document.getElementById('highlights').innerHTML = hhtml;
+    }
+  } catch(e) {}
 
   // State
   try {
-    const res = await fetch('/api/state');
-    const data = await res.json();
+    const state = await (await fetch('/api/state')).json();
+    if (state && Object.keys(state).length > 0) {
+      const name = state.character?.name || state.login?.actual_username || '-';
+      const level = state.character?.level || state.level || '-';
+      const hp = state.character?.hp || '-';
+      const hpMax = state.character?.hp_max || '-';
+      const loc = state.location || state.coordinates || state.world?.location || '-';
 
-    if (!data || Object.keys(data).length === 0) {
-      document.getElementById('status-badge').className = 'badge idle';
-      document.getElementById('status-badge').textContent = 'NO DATA';
-    } else {
-      document.getElementById('status-badge').className = 'badge online';
-      document.getElementById('status-badge').textContent = 'LIVE';
+      document.getElementById('player-stats').innerHTML =
+        '<div class="stat"><span class="stat-label">Name</span><span class="stat-value">' + name + '</span></div>' +
+        '<div class="stat"><span class="stat-label">Level</span><span class="stat-value">' + level + '</span></div>' +
+        '<div class="stat"><span class="stat-label">HP</span><span class="stat-value">' + hp + ' / ' + hpMax + '</span></div>' +
+        '<div class="stat"><span class="stat-label">Location</span><span class="stat-value">' + loc + '</span></div>';
 
-      // Player stats — handle both old and new state formats
-      const name = data.character?.name || data.login?.actual_username || 'Unknown';
-      const level = data.character?.level || data.level || '?';
-      const hp = data.character?.hp || '?';
-      const hpMax = data.character?.hp_max || '?';
-      const mana = data.character?.mana || '?';
-      const manaMax = data.character?.mana_max || '?';
-      const location = data.location || data.world?.location || data.coordinates || '?';
-
-      document.getElementById('player-stats').innerHTML = `
-        <div class="stat"><span class="stat-label">Name</span><span class="stat-value">${name}</span></div>
-        <div class="stat"><span class="stat-label">Level</span><span class="stat-value">${level}</span></div>
-        <div class="stat"><span class="stat-label">HP</span><span class="stat-value">${hp} / ${hpMax}</span></div>
-        <div class="stat"><span class="stat-label">Mana</span><span class="stat-value">${mana} / ${manaMax}</span></div>
-        <div class="stat"><span class="stat-label">Location</span><span class="stat-value">${location}</span></div>
-      `;
-
-      // Session stats
-      const sessions = data.sessions || data.session || '?';
-      const milestone = data.milestone || '?';
-      const notes = data.notes || '';
-      document.getElementById('session-stats').innerHTML = `
-        <div class="stat"><span class="stat-label">Sessions</span><span class="stat-value">${sessions}</span></div>
-        <div class="stat"><span class="stat-label">Milestone</span><span class="stat-value">${milestone}</span></div>
-        <div class="stat"><span class="stat-label">Notes</span><span class="stat-value" style="max-width:300px;text-align:right">${notes.substring(0, 120)}${notes.length > 120 ? '...' : ''}</span></div>
-      `;
-
-      document.getElementById('observations').textContent = JSON.stringify(data, null, 2);
+      const sessions = state.sessions || '-';
+      const milestone = state.milestone || '-';
+      const notes = state.notes || '-';
+      document.getElementById('mission-stats').innerHTML =
+        '<div class="stat"><span class="stat-label">Sessions</span><span class="stat-value">' + sessions + '</span></div>' +
+        '<div class="stat"><span class="stat-label">Milestone</span><span class="stat-value">' + milestone + '</span></div>' +
+        '<div class="stat"><span class="stat-label">Notes</span><span class="stat-value" style="max-width:280px;text-align:right;font-size:11px">' + (notes.length > 150 ? notes.substring(0,150) + '...' : notes) + '</span></div>';
     }
-  } catch(e) {
-    document.getElementById('status-badge').className = 'badge offline';
-    document.getElementById('status-badge').textContent = 'ERROR';
-  }
+  } catch(e) {}
+
+  // Hero image cache bust
+  document.getElementById('hero-img').src = '/screenshots/screenshot.png?t=' + Date.now();
 
   // Screenshots
   try {
-    const res2 = await fetch('/api/screenshots');
-    const shots = await res2.json();
+    const shots = await (await fetch('/api/screenshots')).json();
     if (shots.length > 0) {
       let html = '';
-      for (const s of shots) {
-        html += `<div class="screenshot-card">
-          <img src="/screenshots/${s.name}" alt="${s.name}" onclick="openLightbox(this.src)" loading="lazy">
-          <div class="meta">${s.name} | ${s.time} | ${Math.round(s.size/1024)}KB</div>
-        </div>`;
+      for (const s of shots.slice(0, 12)) {
+        html += '<div class="thumb"><img src="/screenshots/' + s.name + '?t=' + Date.now() + '" alt="' + s.name + '" onclick="openLightbox(this.src)" loading="lazy"><div class="meta">' + s.name + ' | ' + s.time + '</div></div>';
       }
-      document.getElementById('screenshots').innerHTML = html;
+      document.getElementById('gallery').innerHTML = html;
     }
   } catch(e) {}
 
   // Sessions
   try {
-    const res3 = await fetch('/api/sessions');
-    const sessions = await res3.json();
-    let html = '';
-    for (const s of sessions.slice(0, 15)) {
-      html += `<div class="log-entry">${s}</div>`;
+    const sessions = await (await fetch('/api/sessions')).json();
+    if (sessions.length > 0) {
+      let html = '';
+      for (const s of sessions.slice(0, 20)) {
+        const sizeStr = s.size > 0 ? (s.size > 1024 ? Math.round(s.size/1024) + ' KB' : s.size + ' B') : 'running...';
+        html += '<div class="session-entry"><span class="name">' + s.name + '</span><span class="time">' + s.time + '</span><span class="size">' + sizeStr + '</span></div>';
+      }
+      document.getElementById('sessions').innerHTML = html;
     }
-    document.getElementById('sessions').innerHTML = html || '<div class="no-data">No session files yet</div>';
   } catch(e) {}
 }
 

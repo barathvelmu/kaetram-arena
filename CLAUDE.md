@@ -20,6 +20,9 @@ play.sh → Claude Code (this process) → Playwright MCP → browser @ localhos
 
 ```bash
 # Terminal 1 — Kaetram game server (Node 20 required — see gotchas)
+# Use scripts/start-kaetram.sh — handles both Homebrew and manual nvm installs
+./scripts/start-kaetram.sh
+# or manually:
 export NVM_DIR="$HOME/.nvm" && source "$(brew --prefix nvm)/nvm.sh" && nvm use 20
 cd ~/projects/Kaetram-Open
 ACCEPT_LICENSE=true SKIP_DATABASE=true yarn start
@@ -105,7 +108,14 @@ python3 test_logger.py        # simulated 5-turn logger test
 
 Kaetram-Open is ~1.3–2 GB installed. See `TEARDOWN.md` for full uninstall steps and a "keep but trim" option (~1 GB reclaimed by deleting node_modules/dist while keeping source).
 
-## What's NOT yet E2E tested
+## Portability note
 
-- `logger.py` running alongside a live `play.sh` session (unit tested with simulation only)
-- Full pipeline: `play.sh` + `ws_observer.py` + `logger.py` all running together, verifying `steps.jsonl` records include `nearby_entities` from ws_observer
+`prompts/system.md` uses `__PROJECT_DIR__` as a placeholder for absolute paths. `play.sh` substitutes the real path at runtime via `sed` — so it works on any machine regardless of where the repo is cloned. Never hardcode absolute paths in `system.md`.
+
+## E2E verified (live Kaetram server)
+
+Full pipeline tested live: `play.sh` + `ws_observer.py` + `logger.py` all running together.
+- Claude logs in, teleports to Mudwich via `/teleport 188 157`, finds and attacks rats, reaches level 2, writes `progress.json`
+- `ws_observer` maintains 40+ nearby entities in `game_state.json` throughout
+- `logger` records steps with `nearby_entities` count in every `steps.jsonl` entry
+- Screenshot frames saved correctly alongside each step

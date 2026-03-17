@@ -24,27 +24,27 @@ try:
 except ImportError:
     raise SystemExit("Missing dependency: pip install websockets")
 
-BASE           = Path(__file__).parent
+BASE = Path(__file__).parent
 GAME_STATE_OUT = BASE / "state" / "game_state.json"
 
 # ---------------------------------------------------------------------------
 # Top-level Packets enum (packages/common/network/packets.ts, 0-indexed)
 # ---------------------------------------------------------------------------
-PKT_CONNECTED  = 0
-PKT_HANDSHAKE  = 1
-PKT_LOGIN      = 2
-PKT_WELCOME    = 3
-PKT_SPAWN      = 5
-PKT_LIST       = 6   # Entity list — server sends IDs, client replies with Who
-PKT_WHO        = 7   # Client requests spawn data for a list of entity IDs
-PKT_READY      = 9
-PKT_SYNC       = 10
-PKT_MOVEMENT   = 11
-PKT_DESPAWN    = 13
-PKT_COMBAT     = 15
-PKT_POINTS     = 17
+PKT_CONNECTED = 0
+PKT_HANDSHAKE = 1
+PKT_LOGIN = 2
+PKT_WELCOME = 3
+PKT_SPAWN = 5
+PKT_LIST = 6    # Entity list — server sends IDs, client replies with Who
+PKT_WHO = 7     # Client requests spawn data for a list of entity IDs
+PKT_READY = 9
+PKT_SYNC = 10
+PKT_MOVEMENT = 11
+PKT_DESPAWN = 13
+PKT_COMBAT = 15
+PKT_POINTS = 17
 PKT_EXPERIENCE = 28
-PKT_DEATH      = 29
+PKT_DEATH = 29
 
 # Game version — must match server GVER (.env.defaults)
 GVER = "0.5.5-beta"
@@ -111,12 +111,12 @@ def handle_spawn(data: dict | list, state: GameState) -> bool:
         if not eid:
             continue
         state.nearby_entities[eid] = {
-            "id":     eid,
-            "type":   ent.get("type", "unknown"),
-            "name":   ent.get("name", ""),
-            "x":      ent.get("x", 0),
-            "y":      ent.get("y", 0),
-            "hp":     ent.get("hitPoints", ent.get("hp", 0)),
+            "id": eid,
+            "type": ent.get("type", "unknown"),
+            "name": ent.get("name", ""),
+            "x": ent.get("x", 0),
+            "y": ent.get("y", 0),
+            "hp": ent.get("hitPoints", ent.get("hp", 0)),
             "max_hp": ent.get("maxHitPoints", 0),
         }
         changed = True
@@ -154,8 +154,8 @@ def handle_combat(data: dict, state: GameState) -> bool:
     hit = data.get("hit", {}) or {}
     state.last_combat = {
         "attacker": data.get("instance", ""),
-        "target":   data.get("target", ""),
-        "damage":   hit.get("damage", 0),
+        "target": data.get("target", ""),
+        "damage": hit.get("damage", 0),
     }
     return True
 
@@ -190,8 +190,8 @@ def handle_experience(data: dict, state: GameState) -> bool:
         return False
     state.last_xp_event = {
         "amount": data.get("amount", 0),
-        "skill":  data.get("skill", "unknown"),
-        "level":  data.get("level"),
+        "skill": data.get("skill", "unknown"),
+        "level": data.get("level"),
     }
     return True
 
@@ -314,11 +314,11 @@ async def main_async(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Kaetram WebSocket observer")
-    parser.add_argument("--host",     default="localhost")
-    parser.add_argument("--port",     type=int, default=9001)
+    parser.add_argument("--host", default="localhost")
+    parser.add_argument("--port", type=int, default=9001)
     parser.add_argument("--username", default="ObserverBot")
     parser.add_argument("--password", default="observer")
-    parser.add_argument("--debug",    action="store_true", help="Print every raw packet")
+    parser.add_argument("--debug", action="store_true", help="Print every raw packet")
     args = parser.parse_args()
     asyncio.run(main_async(args))
 

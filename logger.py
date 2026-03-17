@@ -13,21 +13,20 @@ Output:
 """
 
 import json
-import os
 import shutil
 import time
 from pathlib import Path
 
-BASE        = Path(__file__).parent
-SCREENSHOT  = BASE / "state/screenshot.png"
-STATE_FILE  = BASE / "state/progress.json"
-LOGS_DIR    = BASE / "logs"
+BASE = Path(__file__).parent
+SCREENSHOT = BASE / "state/screenshot.png"
+STATE_FILE = BASE / "state/progress.json"
+WS_STATE_FILE = BASE / "state/game_state.json"
+LOGS_DIR = BASE / "logs"
 DATASET_DIR = BASE / "dataset"
 
 
 def latest_log():
-    logs = sorted(LOGS_DIR.glob("session_*.log"), key=os.path.getmtime)
-    return logs[-1] if logs else None
+    return max(LOGS_DIR.glob("session_*.log"), key=lambda p: p.stat().st_mtime, default=None)
 
 
 def session_id(log: Path) -> str:
@@ -64,10 +63,18 @@ def last_game_action(log: Path):
 
 
 def read_state():
+    state = {}
     try:
-        return json.loads(STATE_FILE.read_text())
+        state = json.loads(STATE_FILE.read_text())
     except (OSError, json.JSONDecodeError):
-        return {}
+        pass
+    try:
+        ws_state = json.loads(WS_STATE_FILE.read_text())
+        ws_state.pop("timestamp", None)  # don't shadow progress_state timestamp
+        state = {**state, **ws_state}
+    except (OSError, json.JSONDecodeError):
+        pass
+    return state
 
 
 def compute_reward(prev, curr):
@@ -75,8 +82,8 @@ def compute_reward(prev, curr):
 
     # XP gained
     try:
-        curr_xp  = float(str(curr.get("xp_estimate", 0)).replace(",", "") or 0)
-        prev_xp  = float(str(prev.get("xp_estimate", 0)).replace(",", "") or 0)
+        curr_xp = float(str(curr.get("xp_estimate", 0)).replace(",", "") or 0)
+        prev_xp = float(str(prev.get("xp_estimate", 0)).replace(",", "") or 0)
         xp_delta = curr_xp - prev_xp
         r += max(0.0, xp_delta) * 0.01
     except (ValueError, TypeError):
@@ -96,11 +103,11 @@ def compute_reward(prev, curr):
 def main():
     DATASET_DIR.mkdir(exist_ok=True)
 
-    sid       = None
-    step      = 0
-    frames    = None
-    jsonl     = None
-    prev_st   = {}
+    sid = None
+    step = 0
+    frames = None
+    jsonl = None
+    prev_st = {}
     prev_mtime = 0.0
 
     print("logger: watching for gameplay… (ctrl-c to stop)")
@@ -125,12 +132,12 @@ def main():
             # New session?
             current_sid = session_id(log)
             if current_sid != sid:
-                sid    = current_sid
-                step   = 0
-                sdir   = DATASET_DIR / sid
+                sid = current_sid
+                step = 0
+                sdir = DATASET_DIR / sid
                 frames = sdir / "frames"
                 frames.mkdir(parents=True, exist_ok=True)
-                jsonl  = sdir / "steps.jsonl"
+                jsonl = sdir / "steps.jsonl"
                 prev_st = read_state()
                 print(f"logger: session → {sid}")
 
@@ -139,25 +146,25 @@ def main():
             shutil.copy2(SCREENSHOT, frame)
 
             curr_st = read_state()
-            action  = last_game_action(log)
-            r       = compute_reward(prev_st, curr_st)
+            action = last_game_action(log)
+            r = compute_reward(prev_st, curr_st)
 
             record = {
-                "session":    sid,
-                "step":       step,
-                "timestamp":  mtime,
+                "session": sid,
+                "step": step,
+                "timestamp": mtime,
                 "screenshot": str(frame),
-                "state":      curr_st,
-                "action":     action,
-                "done":       False,
-                "reward":     r,
+                "state": curr_st,
+                "action": action,
+                "done": False,
+                "reward": r,
             }
 
             with open(jsonl, "a") as f:
                 f.write(json.dumps(record) + "\n")
 
             prev_st = curr_st
-            label   = action["tool"].split("__")[-1] if action else "?"
+            label = action["tool"].split("__")[-1] if action else "?"
             print(f"  [{step:04d}]  reward={r:+.3f}  {label}")
 
         except KeyboardInterrupt:

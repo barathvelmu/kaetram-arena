@@ -3,7 +3,7 @@
 set -euo pipefail
 unset CLAUDECODE
 
-PROJECT_DIR="$HOME/projects/kaetram-agent"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_FILE="$PROJECT_DIR/state/progress.json"
 SYSTEM_PROMPT_FILE="$PROJECT_DIR/prompts/system.md"
 LOG_DIR="$PROJECT_DIR/logs"
@@ -24,7 +24,7 @@ while true; do
 
   echo "=== Session $SESSION starting at $(date) ==="
 
-  SYSTEM=$(cat "$SYSTEM_PROMPT_FILE")
+  SYSTEM=$(sed "s|__PROJECT_DIR__|${PROJECT_DIR}|g" "$SYSTEM_PROMPT_FILE")
 
   # Read previous progress and include in prompt
   PROGRESS=$(cat "$STATE_FILE" 2>/dev/null || echo '{}')

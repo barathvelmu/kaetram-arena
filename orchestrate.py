@@ -31,6 +31,9 @@ KAETRAM_DIR = Path.home() / "projects" / "Kaetram-Open"
 KAETRAM_SERVER_DIR = KAETRAM_DIR / "packages" / "server"
 NVM_SH = Path.home() / ".nvm" / "nvm.sh"
 SYSTEM_PROMPT_FILE = PROJECT_DIR / "prompts" / "system.md"
+GAME_KNOWLEDGE_FILE = PROJECT_DIR / "prompts" / "game_knowledge.md"
+PERSONALITY_DIR = PROJECT_DIR / "prompts" / "personalities"
+VALID_PERSONALITIES = ("warrior", "gatherer", "explorer", "quester")
 MCP_JSON = PROJECT_DIR / ".mcp.json"
 STATE_TEMPLATE = {
     "sessions": 0,
@@ -119,6 +122,7 @@ class AgentInstance:
     server_port: int
     sandbox_dir: Path
     log_dir: Path
+    personality: str = "quester"    # "warrior", "gatherer", "explorer", "quester"
     process: subprocess.Popen | None = None
     session: int = 0
     max_turns: int = 10000
@@ -138,6 +142,24 @@ class AgentInstance:
         if not state_file.exists():
             state_file.write_text(json.dumps(STATE_TEMPLATE))
 
+        # Write personality metadata for dashboard
+        metadata = {
+            "agent_id": self.agent_id,
+            "personality": self.personality,
+            "mode": self.personality,  # backward compat for dashboard
+            "username": self.username,
+            "server_port": self.server_port,
+        }
+        (self.sandbox_dir / "metadata.json").write_text(json.dumps(metadata))
+
+        # Restore session counter if resuming
+        counter_file = self.sandbox_dir / "state" / ".session_counter"
+        if counter_file.exists():
+            try:
+                self.session = int(counter_file.read_text().strip())
+            except (ValueError, OSError):
+                pass
+
     def _build_system_prompt(self) -> str:
         """Build the system prompt with substituted placeholders.
 
@@ -153,6 +175,19 @@ class AgentInstance:
         prompt = prompt.replace("__PROJECT_DIR__", str(PROJECT_DIR))
         prompt = prompt.replace("__USERNAME__", self.username)
         prompt = prompt.replace("__SERVER_PORT__", str(self.server_port))
+
+        # Inject personality block
+        personality_file = PERSONALITY_DIR / f"{self.personality}.md"
+        if personality_file.exists():
+            personality_block = personality_file.read_text()
+        else:
+            personality_block = ""
+        prompt = prompt.replace("__PERSONALITY_BLOCK__", personality_block)
+
+        # All agents get game knowledge
+        if GAME_KNOWLEDGE_FILE.exists():
+            prompt += "\n\n---\n\n" + GAME_KNOWLEDGE_FILE.read_text()
+
         return prompt
 
     def _build_user_prompt(self) -> str:
@@ -181,20 +216,30 @@ class AgentInstance:
         except (OSError, json.JSONDecodeError):
             pass
 
+        playstyle_hint = {
+            "warrior": "You play AGGRESSIVE — fight hard mobs, push into new zones, attempt bosses. Combat is your priority.",
+            "gatherer": "You play METHODICAL — prepare thoroughly, gather resources, craft items, build skills before advancing.",
+            "explorer": "You play CURIOUS — talk to every NPC, enter every building, discover hidden paths, accept all quests.",
+            "quester": "You play EFFICIENT — shortest path through quest chain, minimal waste, turn in immediately.",
+        }.get(self.personality, "")
+
         return (
+            f"{playstyle_hint}\n\n"
             "IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. "
             "Your ONLY job is to play the game via the browser. "
             "Start IMMEDIATELY with the login code block in your system instructions.\n\n"
             f"Session #{self.session}. Your previous progress: {progress}"
             f"{game_state_block}\n"
             "Follow your system instructions exactly. Load tools, then login, "
-            "then run the OBSERVE-ACT loop: kill mobs, progress quests, explore. "
-            "Write progress.json before session ends."
+            "then run the OBSERVE-ACT loop. Write progress.json before session ends."
         )
 
     def start_session(self):
         """Launch a new Claude agent session."""
         self.session += 1
+        # Persist session counter to disk for resume support
+        counter_file = self.sandbox_dir / "state" / ".session_counter"
+        counter_file.write_text(str(self.session))
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         log_file = self.log_dir / f"session_{self.session}_{timestamp}.log"
 
@@ -220,7 +265,8 @@ class AgentInstance:
             "--disallowedTools",
             "Glob Grep Agent Edit WebFetch WebSearch Write Skill "
             "mcp__playwright__browser_evaluate mcp__playwright__browser_snapshot "
-            "mcp__playwright__browser_console_messages",
+            "mcp__playwright__browser_console_messages "
+            "mcp__playwright__browser_take_screenshot mcp__playwright__browser_click",
             "--output-format",
             "stream-json",
             "--verbose",
@@ -252,6 +298,19 @@ class AgentInstance:
     def is_alive(self) -> bool:
         return self.process is not None and self.process.poll() is None
 
+    def is_stale(self, threshold_seconds: int = 900) -> bool:
+        """True if agent process is alive but log hasn't grown in N seconds."""
+        if not self.is_alive():
+            return False
+        try:
+            logs = sorted(self.log_dir.glob("session_*.log"),
+                          key=lambda p: p.stat().st_mtime, reverse=True)
+            if not logs:
+                return False
+            return (time.time() - logs[0].stat().st_mtime) > threshold_seconds
+        except OSError:
+            return False
+
     def maybe_restart_session(self) -> bool:
         """If the session exited, start a new one after a pause. Returns True if restarted."""
         if self.is_alive():
@@ -261,10 +320,21 @@ class AgentInstance:
         self.start_session()
         return True
 
+    def maybe_restart_if_stale(self, threshold_seconds: int = 900) -> bool:
+        """Kill and restart if log is stale (Playwright hang). Returns True if restarted."""
+        if not self.is_stale(threshold_seconds):
+            return False
+        self.stop()
+        time.sleep(self.pause_between)
+        self.start_session()
+        return True
+
 
 class Orchestrator:
-    def __init__(self, n_agents: int, hours: float | None = None):
+    def __init__(self, n_agents: int, hours: float | None = None,
+                 personality_counts: dict[str, int] | None = None):
         self.n_agents = n_agents
+        self.personality_counts = personality_counts
         self.deadline = time.time() + hours * 3600 if hours else None
         self.servers: list[GameServer] = []
         self.agents: list[AgentInstance] = []
@@ -273,11 +343,23 @@ class Orchestrator:
 
     def setup(self):
         """Create all server and agent instances."""
+        # Build personality assignment list
+        if self.personality_counts:
+            assignments = []
+            for p in VALID_PERSONALITIES:
+                count = self.personality_counts.get(p, 0)
+                assignments.extend([p] * count)
+        else:
+            # Default: round-robin across all 4 personalities
+            assignments = [VALID_PERSONALITIES[i % len(VALID_PERSONALITIES)]
+                           for i in range(self.n_agents)]
+
         for i in range(self.n_agents):
             port = BASE_SERVER_PORT + i * PORT_STRIDE
             server = GameServer(agent_id=i, port=port)
             self.servers.append(server)
 
+            personality = assignments[i] if i < len(assignments) else "quester"
             sandbox = Path(f"/tmp/kaetram_agent_{i}")
             log_dir = PROJECT_DIR / "dataset" / "raw" / f"agent_{i}" / "logs"
             agent = AgentInstance(
@@ -286,6 +368,7 @@ class Orchestrator:
                 server_port=port,
                 sandbox_dir=sandbox,
                 log_dir=log_dir,
+                personality=personality,
             )
             agent.setup()
             self.agents.append(agent)
@@ -316,7 +399,7 @@ class Orchestrator:
         for agent in self.agents:
             agent.start_session()
             print(
-                f"  Agent {agent.agent_id} ({agent.username}): "
+                f"  Agent {agent.agent_id} ({agent.username}) [{agent.personality}]: "
                 f"server :{agent.server_port}, session {agent.session}"
             )
 
@@ -356,6 +439,11 @@ class Orchestrator:
                         f"  [>] Agent {agent.agent_id} ({agent.username}): "
                         f"new session #{agent.session}"
                     )
+                elif agent.maybe_restart_if_stale(threshold_seconds=900):
+                    print(
+                        f"  [!] Agent {agent.agent_id} ({agent.username}): "
+                        f"stale 15min, restarted → session #{agent.session}"
+                    )
 
             # Periodic status
             if time.time() - last_status > status_interval:
@@ -368,14 +456,14 @@ class Orchestrator:
         h, m = divmod(int(elapsed), 3600)
         m, s = divmod(m, 60)
         print(f"\n--- Status ({h:02d}:{m:02d}:{s:02d} elapsed) ---")
-        print(f"{'Agent':>6} {'Server':>8} {'Health':>8} {'Session':>8} {'Status':>10}")
+        print(f"{'Agent':>10} {'Personality':>12} {'Server':>8} {'Health':>8} {'Session':>8} {'Status':>10}")
         for i in range(self.n_agents):
             srv = self.servers[i]
             agt = self.agents[i]
             srv_health = "OK" if srv.health_check() else "DOWN"
             agt_status = "running" if agt.is_alive() else "exited"
             print(
-                f"{agt.username:>6} :{srv.port:>5} {srv_health:>8} "
+                f"{agt.username:>10} {agt.personality:>12} :{srv.port:>5} {srv_health:>8} "
                 f"#{agt.session:>6} {agt_status:>10}"
             )
 
@@ -418,12 +506,41 @@ def main():
     parser.add_argument(
         "--hours", type=float, default=None, help="Auto-stop after N hours (default: run forever)"
     )
+    parser.add_argument(
+        "--warrior", type=int, default=0, help="Number of warrior-personality agents"
+    )
+    parser.add_argument(
+        "--gatherer", type=int, default=0, help="Number of gatherer-personality agents"
+    )
+    parser.add_argument(
+        "--explorer", type=int, default=0, help="Number of explorer-personality agents"
+    )
+    parser.add_argument(
+        "--quester", type=int, default=0, help="Number of quester-personality agents"
+    )
     args = parser.parse_args()
 
-    if args.agents < 1 or args.agents > 8:
-        parser.error("Agent count must be 1-8")
+    personality_counts = {
+        "warrior": args.warrior,
+        "gatherer": args.gatherer,
+        "explorer": args.explorer,
+        "quester": args.quester,
+    }
+    explicit_total = sum(personality_counts.values())
 
-    orch = Orchestrator(n_agents=args.agents, hours=args.hours)
+    if explicit_total:
+        n_total = explicit_total
+    else:
+        n_total = args.agents
+        personality_counts = None  # round-robin default
+
+    if n_total < 1 or n_total > 8:
+        parser.error("Total agent count must be 1-8")
+
+    orch = Orchestrator(
+        n_agents=n_total, hours=args.hours,
+        personality_counts=personality_counts,
+    )
 
     # Handle SIGINT/SIGTERM gracefully
     def signal_handler(sig, frame):

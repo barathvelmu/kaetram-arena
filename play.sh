@@ -6,6 +6,17 @@ unset CLAUDECODE
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_FILE="$PROJECT_DIR/state/progress.json"
 SYSTEM_PROMPT_FILE="$PROJECT_DIR/prompts/system.md"
+
+# Parse personality flag
+PERSONALITY=""
+for arg in "$@"; do
+  case "$arg" in
+    --warrior)   PERSONALITY="warrior";;
+    --gatherer)  PERSONALITY="gatherer";;
+    --explorer)  PERSONALITY="explorer";;
+    --quester)   PERSONALITY="quester";;
+  esac
+done
 LOG_DIR="$PROJECT_DIR/logs"
 MAX_TURNS=10000
 PAUSE_BETWEEN=10
@@ -28,6 +39,30 @@ while true; do
                -e "s|__USERNAME__|ClaudeBot|g" \
                -e "s|__SERVER_PORT__||g" \
                "$SYSTEM_PROMPT_FILE")
+
+  # Inject personality block
+  if [ -n "$PERSONALITY" ] && [ -f "$PROJECT_DIR/prompts/personalities/${PERSONALITY}.md" ]; then
+    PFILE="$PROJECT_DIR/prompts/personalities/${PERSONALITY}.md"
+  else
+    PFILE=""
+  fi
+  SYSTEM=$(python3 -c "
+import sys
+s = sys.stdin.read()
+pfile = '$PFILE'
+p = open(pfile).read() if pfile else ''
+sys.stdout.write(s.replace('__PERSONALITY_BLOCK__', p))
+" <<< "$SYSTEM")
+
+  # All agents get game knowledge
+  if [ -f "$PROJECT_DIR/prompts/game_knowledge.md" ]; then
+    KNOWLEDGE=$(cat "$PROJECT_DIR/prompts/game_knowledge.md")
+    SYSTEM="${SYSTEM}
+
+---
+
+${KNOWLEDGE}"
+  fi
 
   # Read previous progress and include in prompt
   PROGRESS=$(cat "$STATE_FILE" 2>/dev/null || echo '{}')
@@ -69,7 +104,7 @@ Follow your system instructions exactly. Load tools, then login, then run the OB
     --max-turns "$MAX_TURNS" \
     --append-system-prompt "$SYSTEM" \
     --dangerously-skip-permissions \
-    --disallowedTools "Glob Grep Agent Edit WebFetch WebSearch Write Skill mcp__playwright__browser_evaluate mcp__playwright__browser_snapshot mcp__playwright__browser_console_messages" \
+    --disallowedTools "Glob Grep Agent Edit WebFetch WebSearch Write Skill mcp__playwright__browser_evaluate mcp__playwright__browser_snapshot mcp__playwright__browser_console_messages mcp__playwright__browser_take_screenshot mcp__playwright__browser_click" \
     --output-format stream-json \
     --verbose) \
     2>&1 | tee "$LOG_FILE" || true

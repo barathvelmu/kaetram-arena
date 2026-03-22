@@ -4,6 +4,7 @@
 Supports both single-agent (play.sh) and multi-agent (orchestrate.py) modes.
 """
 
+import asyncio
 import http.server
 import json
 import os
@@ -16,6 +17,8 @@ import re
 import time
 import urllib.parse
 from datetime import datetime
+
+import websockets
 
 # Patterns to redact from public-facing output
 SENSITIVE_PATTERNS = re.compile(
@@ -37,6 +40,8 @@ DATASET_DIR = os.path.join(PROJECT_DIR, "dataset")
 BASE_SERVER_PORT = 9001
 PORT_STRIDE = 10
 MAX_AGENTS = 8
+WS_PORT = 8081
+SCREENSHOT_POLL_INTERVAL = 0.2  # seconds between mtime checks
 
 
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
@@ -79,7 +84,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 self.send_agents()
             elif path == "/api/raw":
                 which = qs.get("file", [None])[0]
-                self.send_raw_file(which)
+                self.send_raw_file(which, qs)
             elif path.startswith("/screenshots/"):
                 self.send_screenshot_file()
             else:
@@ -246,16 +251,17 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         return {"cost_usd": round(cost, 4), "turns": turns, "model": model, "duration_ms": duration_ms}
 
     def _live_session_stats(self, filepath):
-        """Read turn count + latest context tokens from a running session log.
+        """Read turn count, context tokens, cost, and model from a session log.
 
-        Scans the last ~100KB for tool_use events (turn count) and the most recent
-        assistant usage block (context window size). Works on in-progress sessions
-        that don't yet have a 'result' event.
+        Single-pass scan of the last ~100KB. Returns all fields needed by the
+        agent card, replacing the need to also call _quick_session_summary.
         """
         turns = 0
         context_tokens = 0
         output_tokens_total = 0
         model = ""
+        cost = 0
+        duration_ms = 0
         seen_msg_ids = set()
         try:
             with open(filepath) as fh:
@@ -291,8 +297,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                             if isinstance(c, dict) and c.get("type") == "tool_use":
                                 turns += 1
                     elif t == "result":
-                        # Completed session — use its data
                         turns = obj.get("num_turns", turns)
+                        cost = obj.get("total_cost_usd", 0)
+                        duration_ms = obj.get("duration_ms", 0)
+                        for m in (obj.get("modelUsage") or {}):
+                            model = m
+                            break
         except Exception:
             pass
         return {
@@ -300,9 +310,24 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             "context_tokens": context_tokens,
             "output_tokens": output_tokens_total,
             "model": model,
+            "cost_usd": round(cost, 4),
+            "duration_ms": duration_ms,
         }
 
     # ── Screenshot serving ──
+
+    @staticmethod
+    def _newest_screenshot(state_dir):
+        """Return the path of the most recently modified screenshot in a state dir."""
+        candidates = []
+        for name in ("live_screen.png", "screenshot.png"):
+            p = os.path.join(state_dir, name)
+            if os.path.isfile(p):
+                candidates.append((os.path.getmtime(p), p))
+        if candidates:
+            candidates.sort(reverse=True)
+            return candidates[0][1]
+        return os.path.join(state_dir, "screenshot.png")  # fallback (may 404)
 
     def send_screenshot_file(self):
         raw = self.path.split("?")[0]
@@ -314,16 +339,20 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             filename = os.path.basename(parts[3])
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
                 return self.send_error(403)
-            filepath = os.path.join("/tmp", f"kaetram_agent_{idx}", "state", filename)
-            if filename == "live_screen.png" and not os.path.isfile(filepath):
-                filepath = os.path.join("/tmp", f"kaetram_agent_{idx}", "state", "screenshot.png")
+            # Serve whichever screenshot is newest (agents write to different filenames)
+            state_dir = os.path.join("/tmp", f"kaetram_agent_{idx}", "state")
+            if filename in ("live_screen.png", "screenshot.png"):
+                filepath = self._newest_screenshot(state_dir)
+            else:
+                filepath = os.path.join(state_dir, filename)
         else:
             filename = os.path.basename(raw)
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
                 return self.send_error(403)
-            filepath = os.path.join(STATE_DIR, filename)
-            if filename == "live_screen.png" and not os.path.isfile(filepath):
-                filepath = os.path.join(STATE_DIR, "screenshot.png")
+            if filename in ("live_screen.png", "screenshot.png"):
+                filepath = self._newest_screenshot(STATE_DIR)
+            else:
+                filepath = os.path.join(STATE_DIR, filename)
 
         if not os.path.isfile(filepath):
             return self.send_error(404)
@@ -343,14 +372,24 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def send_screenshot_list(self):
         images = []
-        for ext in ('*.png',):
-            images.extend(glob.glob(os.path.join(STATE_DIR, ext)))
-        images.sort(key=os.path.getmtime, reverse=True)
+        # Single-agent screenshots
+        for p in glob.glob(os.path.join(STATE_DIR, "*.png")):
+            images.append((None, p))
+        # Multi-agent screenshots
+        for i in range(MAX_AGENTS):
+            agent_state = os.path.join("/tmp", f"kaetram_agent_{i}", "state")
+            if os.path.isdir(agent_state):
+                for p in glob.glob(os.path.join(agent_state, "*.png")):
+                    images.append((i, p))
+        images.sort(key=lambda x: os.path.getmtime(x[1]), reverse=True)
         result = []
-        for img in images[:50]:
+        for agent_id, img in images[:50]:
             name = os.path.basename(img)
             mtime = datetime.fromtimestamp(os.path.getmtime(img)).strftime("%Y-%m-%d %H:%M:%S")
-            result.append({"name": name, "time": mtime, "size": os.path.getsize(img)})
+            entry = {"name": name, "time": mtime, "size": os.path.getsize(img)}
+            if agent_id is not None:
+                entry["agent"] = agent_id
+            result.append(entry)
         self._send_json(result)
 
     # ── State endpoints ──
@@ -380,8 +419,130 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 freshness = round(time.time() - mtime, 1)
             except Exception:
                 pass
+        # Fallback: extract game state from the latest session log
+        if not data or data.get("error"):
+            extracted = self._extract_game_state_from_log(qs)
+            if extracted:
+                data = extracted
+                freshness = data.pop("_freshness", -1)
         data["freshness_seconds"] = freshness
         self._send_json(data)
+
+    def _extract_game_state_from_log(self, qs=None):
+        """Extract latest game state from session log tool results.
+
+        The agent's OBSERVE step returns JSON with player_stats, nearby_entities, etc.
+        as a browser_run_code result. Parse the latest session log (last 200KB) to find it.
+        """
+        agent_id = qs.get("agent", [None])[0] if qs else None
+        if agent_id is not None:
+            log_dir = os.path.join(DATASET_DIR, "raw", f"agent_{agent_id}", "logs")
+        else:
+            log_dir = LOG_DIR
+        logs = sorted(glob.glob(os.path.join(log_dir, "session_*.log")),
+                       key=os.path.getmtime)
+        if not logs:
+            return None
+        latest = logs[-1]
+        last_state = None
+        last_mtime = None
+        try:
+            with open(latest) as fh:
+                fh.seek(0, 2)
+                size = fh.tell()
+                fh.seek(max(0, size - 204800))  # last 200KB
+                if size > 204800:
+                    fh.readline()  # skip partial first line
+                for line in fh:
+                    line = line.strip()
+                    if not line or not line.startswith("{"):
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except Exception:
+                        continue
+                    if obj.get("type") != "user":
+                        continue
+                    msg = obj.get("message", {})
+                    content = msg.get("content", msg)
+                    if not isinstance(content, list):
+                        continue
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get("type") != "tool_result":
+                            continue
+                        c = block.get("content", "")
+                        # Handle nested list format
+                        if isinstance(c, list):
+                            for item in c:
+                                if isinstance(item, dict):
+                                    c = item.get("text", "")
+                                    break
+                            else:
+                                continue
+                        if not isinstance(c, str):
+                            continue
+                        # Must look like game state (standard or agent-improvised format)
+                        if "player_stats" not in c and '"hp"' not in c and '"pos"' not in c:
+                            continue
+                        # Extract JSON from the result text (may have markdown wrapper)
+                        text = c
+                        # Strip markdown: ### Result\n"..."\n### Ran Playwright
+                        if text.startswith("### Result"):
+                            lines = text.split("\n")
+                            json_line = lines[1].strip() if len(lines) > 1 else ""
+                            if json_line.startswith('"') and json_line.endswith('"'):
+                                try:
+                                    text = json.loads(json_line)
+                                except Exception:
+                                    pass
+                        # Try to parse as JSON — may have ASCII_MAP or SYMBOLS appended
+                        for sep in ("\n\nASCII_MAP:", "\n\nASCII:", "\n\nSYMBOLS:"):
+                            if sep in text:
+                                text = text.split(sep)[0]
+                        try:
+                            parsed = json.loads(text)
+                            if not isinstance(parsed, dict):
+                                continue
+                            # Normalize agent-improvised formats to standard keys
+                            if "player_stats" not in parsed and ("hp" in parsed or "pos" in parsed):
+                                pos = parsed.get("pos", {})
+                                hp_raw = parsed.get("hp", 0)
+                                # hp can be int (just current hp) or object {"hp":99,"max_hp":99,"level":4,...}
+                                if isinstance(hp_raw, dict):
+                                    parsed["player_stats"] = {
+                                        "hp": hp_raw.get("hp", 0),
+                                        "max_hp": hp_raw.get("max_hp", 0),
+                                        "level": hp_raw.get("level", 0),
+                                        "experience": hp_raw.get("experience", 0),
+                                        "mana": hp_raw.get("mana", 0),
+                                        "max_mana": hp_raw.get("max_mana", 0),
+                                    }
+                                else:
+                                    parsed["player_stats"] = {
+                                        "hp": hp_raw,
+                                        "max_hp": parsed.get("maxHp", parsed.get("max_hp", hp_raw)),
+                                        "level": parsed.get("level", 0),
+                                        "experience": parsed.get("experience", 0),
+                                        "mana": 0, "max_mana": 0,
+                                    }
+                                if pos and "player_position" not in parsed:
+                                    parsed["player_position"] = pos
+                                for ent_key in ("mobs", "entities", "nearbyMobs", "allEntities"):
+                                    if ent_key in parsed and "nearby_entities" not in parsed:
+                                        parsed["nearby_entities"] = parsed[ent_key]
+                                        break
+                            if "player_stats" in parsed or "player_position" in parsed:
+                                last_state = parsed
+                                last_mtime = os.path.getmtime(latest)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        if last_state:
+            last_state["_freshness"] = round(time.time() - last_mtime, 1) if last_mtime else -1
+        return last_state
 
     def _resolve_state_dir(self, qs):
         """Return state directory — either default or per-agent sandbox."""
@@ -402,7 +563,36 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     text = fh.read()
             except Exception:
                 text = "(error reading file)"
-        self._send_json({"content": sanitize(text), "file": "prompts/system.md"})
+
+        # Read game knowledge
+        gk_file = os.path.join(PROJECT_DIR, "prompts", "game_knowledge.md")
+        game_knowledge = ""
+        if os.path.isfile(gk_file):
+            try:
+                with open(gk_file) as fh:
+                    game_knowledge = fh.read()
+            except Exception:
+                pass
+
+        # Read personality files
+        personalities = {}
+        pdir = os.path.join(PROJECT_DIR, "prompts", "personalities")
+        if os.path.isdir(pdir):
+            for name in ("warrior", "gatherer", "explorer", "quester"):
+                pfile = os.path.join(pdir, f"{name}.md")
+                if os.path.isfile(pfile):
+                    try:
+                        with open(pfile) as fh:
+                            personalities[name] = sanitize(fh.read())
+                    except Exception:
+                        pass
+
+        self._send_json({
+            "content": sanitize(text),
+            "file": "prompts/system.md",
+            "game_knowledge": sanitize(game_knowledge),
+            "personalities": personalities,
+        })
 
     def send_session_log(self):
         log_file = os.path.join(PROJECT_DIR, "session_log.md")
@@ -419,10 +609,15 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         if not name:
             return self._send_json({"error": "missing name param"})
         safe = os.path.basename(name)
-        # Support multi-agent log dirs
         if log_dir:
-            safe_dir = os.path.basename(os.path.dirname(log_dir)) if log_dir.endswith("/") else os.path.basename(log_dir)
-            filepath = os.path.join(log_dir, safe)
+            # Validate log_dir is an allowed path
+            allowed_dirs = [LOG_DIR]
+            for i in range(MAX_AGENTS):
+                allowed_dirs.append(os.path.join(DATASET_DIR, "raw", f"agent_{i}", "logs"))
+            resolved = os.path.realpath(log_dir)
+            if not any(os.path.realpath(d) == resolved for d in allowed_dirs):
+                return self._send_json({"error": "invalid log directory"})
+            filepath = os.path.join(resolved, safe)
         else:
             filepath = os.path.join(LOG_DIR, safe)
         if not os.path.isfile(filepath):
@@ -491,7 +686,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         self._send_json(stats)
 
     def send_sft_stats(self):
-        """SFT pipeline output stats: extracted turns + Qwen SFT records."""
+        """SFT pipeline output stats: extracted turns + Qwen3.5 SFT records."""
         stats = {"extracted": {"files": 0, "total_turns": 0}, "qwen_sft": {"train": 0, "val": 0, "total": 0}}
 
         extracted_dir = os.path.join(DATASET_DIR, "extracted")
@@ -521,10 +716,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     # ── Raw file viewer ──
 
-    def send_raw_file(self, which):
+    def send_raw_file(self, which, qs=None):
+        state_dir = self._resolve_state_dir(qs)
         allowed = {
-            "progress": os.path.join(STATE_DIR, "progress.json"),
-            "game_state": os.path.join(STATE_DIR, "game_state.json"),
+            "progress": os.path.join(state_dir, "progress.json"),
+            "game_state": os.path.join(state_dir, "game_state.json"),
             "session_log": os.path.join(PROJECT_DIR, "session_log.md"),
             "claude_md": os.path.join(PROJECT_DIR, "CLAUDE.md"),
             "state_extractor": os.path.join(PROJECT_DIR, "state_extractor.js"),
@@ -547,7 +743,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         mode = "none"
         agent_count = 0
         try:
-            result = subprocess.run(["pgrep", "-f", "orchestrate.py"], capture_output=True, text=True, timeout=3)
+            result = subprocess.run(["pgrep", "-f", "python3 orchestrate.py"], capture_output=True, text=True, timeout=3)
             if result.returncode == 0:
                 mode = "multi"
                 try:
@@ -568,24 +764,44 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         agent_running = mode != "none"
 
-        # Game state freshness (single-agent state dir)
-        gs_file = os.path.join(STATE_DIR, "game_state.json")
+        # Game state freshness — check per-agent sandboxes in multi mode, fall back to single
         gs_fresh = False
         game_state_age = -1
-        if os.path.isfile(gs_file):
-            game_state_age = int(time.time() - os.path.getmtime(gs_file))
-            gs_fresh = game_state_age < 30
+        if mode == "multi":
+            for i in range(MAX_AGENTS):
+                gs_file = os.path.join("/tmp", f"kaetram_agent_{i}", "state", "game_state.json")
+                if os.path.isfile(gs_file):
+                    age = int(time.time() - os.path.getmtime(gs_file))
+                    if game_state_age < 0 or age < game_state_age:
+                        game_state_age = age
+        else:
+            gs_file = os.path.join(STATE_DIR, "game_state.json")
+            if os.path.isfile(gs_file):
+                game_state_age = int(time.time() - os.path.getmtime(gs_file))
+        gs_fresh = 0 <= game_state_age < 30
 
-        # Screenshot age
-        screenshot = os.path.join(STATE_DIR, "live_screen.png")
-        if not os.path.isfile(screenshot):
-            screenshot = os.path.join(STATE_DIR, "screenshot.png")
+        # Screenshot age — check per-agent sandboxes in multi mode
         screenshot_age = -1
         screenshot_time = ""
-        if os.path.isfile(screenshot):
-            mtime = os.path.getmtime(screenshot)
-            screenshot_age = int(datetime.now().timestamp() - mtime)
-            screenshot_time = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
+        if mode == "multi":
+            for i in range(MAX_AGENTS):
+                for ss_name in ("live_screen.png", "screenshot.png"):
+                    ss = os.path.join("/tmp", f"kaetram_agent_{i}", "state", ss_name)
+                    if os.path.isfile(ss):
+                        mtime = os.path.getmtime(ss)
+                        age = int(time.time() - mtime)
+                        if screenshot_age < 0 or age < screenshot_age:
+                            screenshot_age = age
+                            screenshot_time = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
+                        break
+        else:
+            screenshot = os.path.join(STATE_DIR, "live_screen.png")
+            if not os.path.isfile(screenshot):
+                screenshot = os.path.join(STATE_DIR, "screenshot.png")
+            if os.path.isfile(screenshot):
+                mtime = os.path.getmtime(screenshot)
+                screenshot_age = int(time.time() - mtime)
+                screenshot_time = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
 
         # Check all relevant server ports in one ss call
         active_ports = []
@@ -635,6 +851,18 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             state_dir = os.path.join(sandbox, "state")
             agent = {"id": i, "username": f"ClaudeBot{i}", "server_port": BASE_SERVER_PORT + i * PORT_STRIDE}
 
+            # Read personality/mode from metadata.json
+            metadata_file = os.path.join(sandbox, "metadata.json")
+            if os.path.isfile(metadata_file):
+                try:
+                    with open(metadata_file) as mf:
+                        meta = json.load(mf)
+                    agent["mode"] = meta.get("personality", meta.get("mode", "quester"))
+                except Exception:
+                    agent["mode"] = "quester"
+            else:
+                agent["mode"] = "quester"
+
             # Read progress.json
             progress_file = os.path.join(state_dir, "progress.json")
             if os.path.isfile(progress_file):
@@ -644,21 +872,26 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 except Exception:
                     agent["progress"] = {}
 
-            # Read game_state.json
+            # Read game_state.json, fall back to session log extraction
+            gs = None
             gs_file = os.path.join(state_dir, "game_state.json")
             if os.path.isfile(gs_file):
                 try:
                     gs = json.load(open(gs_file))
-                    agent["game_state"] = {
-                        "player_stats": gs.get("player_stats"),
-                        "player_position": gs.get("player_position"),
-                        "current_target": gs.get("current_target"),
-                        "nearest_mob": gs.get("nearest_mob"),
-                        "entity_count": len(gs.get("nearby_entities", [])),
-                    }
-                    agent["gs_age"] = int(time.time() - os.path.getmtime(gs_file))
                 except Exception:
                     pass
+            if not gs:
+                gs = self._extract_game_state_from_log({"agent": [str(i)]})
+                if gs:
+                    gs.pop("_freshness", None)
+            if gs:
+                agent["game_state"] = {
+                    "player_stats": gs.get("player_stats"),
+                    "player_position": gs.get("player_position"),
+                    "current_target": gs.get("current_target"),
+                    "nearest_mob": gs.get("nearest_mob"),
+                    "entity_count": len(gs.get("nearby_entities", [])),
+                }
 
             # Screenshot age
             for ss_name in ("live_screen.png", "screenshot.png"):
@@ -683,11 +916,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 agent["session_count"] = len(logs)
                 if logs:
                     latest = max(logs, key=os.path.getmtime)
-                    summary = self._quick_session_summary(latest)
-                    agent["latest_cost"] = summary["cost_usd"]
-                    agent["latest_model"] = summary["model"]
-                    # Live stats: turns + context tokens
+                    agent["last_active"] = int(time.time() - os.path.getmtime(latest))
                     live = self._live_session_stats(latest)
+                    agent["latest_cost"] = live["cost_usd"]
+                    agent["latest_model"] = live["model"]
                     agent["turns"] = live["turns"]
                     agent["context_tokens"] = live["context_tokens"]
                     agent["output_tokens"] = live["output_tokens"]
@@ -803,6 +1035,94 @@ class ThreadedHTTPServer(http.server.HTTPServer):
             self.shutdown_request(request)
 
 
+class ScreenshotWatcher:
+    """Polls screenshot file mtimes and calls a callback on change."""
+
+    def __init__(self, on_change):
+        """on_change(agent_id, filepath, mtime) — agent_id is None for single-agent, int for multi."""
+        self.on_change = on_change
+        self._mtimes = {}
+        self._running = False
+
+    def _get_watch_paths(self):
+        paths = []
+        for name in ("live_screen.png", "screenshot.png"):
+            paths.append((None, os.path.join(STATE_DIR, name)))
+        for i in range(MAX_AGENTS):
+            for name in ("live_screen.png", "screenshot.png"):
+                paths.append((i, os.path.join("/tmp", f"kaetram_agent_{i}", "state", name)))
+        return paths
+
+    def run(self):
+        self._running = True
+        while self._running:
+            for agent_id, filepath in self._get_watch_paths():
+                try:
+                    mtime = os.path.getmtime(filepath)
+                    prev = self._mtimes.get(filepath)
+                    if prev is None:
+                        self._mtimes[filepath] = mtime
+                    elif mtime != prev:
+                        self._mtimes[filepath] = mtime
+                        self.on_change(agent_id, filepath, mtime)
+                except OSError:
+                    pass
+            time.sleep(SCREENSHOT_POLL_INTERVAL)
+
+    def stop(self):
+        self._running = False
+
+
+class WebSocketRelay:
+    """Manages WebSocket connections and broadcasts screenshot notifications."""
+
+    def __init__(self, host="0.0.0.0", port=WS_PORT):
+        self.host = host
+        self.port = port
+        self.connections = set()
+        self._loop = None
+
+    async def handler(self, websocket):
+        self.connections.add(websocket)
+        try:
+            await websocket.send(json.dumps({"type": "connected", "ws_version": 1}))
+            async for _ in websocket:
+                pass  # drain client messages
+        except websockets.ConnectionClosed:
+            pass
+        finally:
+            self.connections.discard(websocket)
+
+    def notify_screenshot(self, agent_id, mtime):
+        if self._loop is None or self._loop.is_closed():
+            return
+        msg = json.dumps({"type": "screenshot", "agent": agent_id, "ts": mtime})
+        asyncio.run_coroutine_threadsafe(self._broadcast(msg), self._loop)
+
+    async def _broadcast(self, message):
+        if self.connections:
+            websockets.broadcast(self.connections, message)
+
+    async def _run(self):
+        async with websockets.serve(
+            self.handler, self.host, self.port,
+            ping_interval=30, ping_timeout=10, compression=None,
+        ):
+            await asyncio.Future()  # run forever
+
+    def run_in_thread(self):
+        def _thread_main():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            try:
+                self._loop.run_until_complete(self._run())
+            except Exception:
+                pass
+        t = threading.Thread(target=_thread_main, daemon=True, name="ws-relay")
+        t.start()
+        return t
+
+
 DASHBOARD_HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -810,7 +1130,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root { --bg: #0a0a0a; --card: #111; --border: #222; --green: #00ff41; --amber: #ffaa00; --red: #ff4141; --blue: #00aaff; --purple: #c084fc; --dim: #555; --text: #ccc; --card-hover: #161616; }
+  :root { --bg: #0a0a0a; --card: #111; --border: #222; --green: #00ff41; --amber: #ffaa00; --red: #ff4141; --blue: #00aaff; --purple: #c084fc; --cyan: #00e5ff; --dim: #555; --text: #ccc; --card-hover: #161616; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace; background: var(--bg); color: var(--text); font-size: 13px; }
 
@@ -873,18 +1193,37 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .thumb .meta { padding: 4px 8px; font-size: 9px; color: var(--dim); }
 
   /* Activity feed */
-  .activity-event { padding: 4px 10px; margin-bottom: 1px; font-size: 11px; border-left: 2px solid #333; cursor: pointer; transition: background 0.1s; }
+  .activity-event { padding: 5px 10px; margin-bottom: 1px; font-size: 11px; border-left: 3px solid #333; cursor: pointer; transition: background 0.15s, border-color 0.15s, opacity 0.3s; display: flex; align-items: baseline; gap: 6px; }
   .activity-event:hover { background: #1a1a1a; }
-  .activity-event .turn-num { color: var(--dim); margin-right: 6px; min-width: 30px; display: inline-block; }
-  .activity-event .tool-name { color: var(--blue); font-weight: bold; }
-  .activity-event .summary { color: var(--text); margin-left: 6px; }
+  .activity-event .ev-icon { min-width: 16px; text-align: center; font-size: 12px; opacity: 0.8; }
+  .activity-event .turn-num { color: #444; font-size: 9px; min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
+  .activity-event .tool-name { color: var(--blue); font-weight: bold; font-size: 10px; }
+  .activity-event .summary { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity-event .ev-time { color: #333; font-size: 9px; min-width: 32px; text-align: right; white-space: nowrap; }
   .activity-event.text-event { border-left-color: var(--green); }
-  .activity-event.text-event .agent-text { color: var(--green); }
-  .activity-event.thinking-event { border-left-color: var(--purple); }
-  .activity-event.thinking-event .think-text { color: var(--purple); font-style: italic; }
-  .activity-feed { max-height: 500px; overflow-y: auto; }
-  .event-detail { display: none; padding: 6px 10px 6px 40px; background: #0d0d0d; font-size: 10px; color: var(--dim); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; border-left: 2px solid #222; }
+  .activity-event.text-event .agent-text { color: var(--green); flex: 1; }
+  .activity-event.thinking-event { border-left-color: var(--purple); background: #0d0a14; }
+  .activity-event.thinking-event .think-text { color: var(--purple); font-style: italic; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity-event.observe-event { border-left-color: var(--cyan); }
+  .activity-event.attack-event { border-left-color: var(--red); }
+  .activity-event.move-event { border-left-color: var(--amber); }
+  .activity-event.login-event { border-left-color: #66ff66; }
+  .activity-event.save-event { border-left-color: var(--amber); }
+  .activity-feed { max-height: 500px; overflow-y: auto; position: relative; scroll-behavior: smooth; }
+  .event-detail { display: none; padding: 6px 10px 6px 40px; background: #0d0d0d; font-size: 10px; color: var(--dim); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; border-left: 3px solid #222; }
   .event-detail.open { display: block; }
+
+  /* New event entrance animation */
+  @keyframes eventSlideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes eventFlash { 0% { border-left-color: var(--green); background: rgba(0,255,65,0.06); } 100% { background: transparent; } }
+  .activity-event.ev-new { animation: eventSlideIn 0.3s ease-out, eventFlash 1.2s ease-out; }
+
+  /* Follow button */
+  .feed-follow { position: sticky; bottom: 0; text-align: center; z-index: 2; }
+  .feed-follow button { background: #111; border: 1px solid var(--border); color: var(--dim); padding: 3px 14px; border-radius: 12px; cursor: pointer; font-family: inherit; font-size: 10px; transition: all 0.2s; }
+  .feed-follow button:hover { border-color: var(--green); color: var(--green); }
+  .feed-follow button.following { border-color: var(--green); color: var(--green); }
+  .feed-follow .new-count { background: var(--green); color: #000; font-size: 9px; padding: 1px 6px; border-radius: 8px; margin-left: 4px; font-weight: bold; }
 
   /* Entity table */
   .entity-table { width: 100%; border-collapse: collapse; font-size: 11px; }
@@ -904,10 +1243,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .hp-bar-fill.low { background: var(--red); }
 
   /* Combat/XP */
-  .combat-entry { font-size: 11px; padding: 6px 8px; background: #1a1111; border-left: 3px solid var(--red); border-radius: 4px; margin-bottom: 6px; }
-  .combat-entry .label { color: var(--dim); font-size: 9px; text-transform: uppercase; }
-  .xp-entry { font-size: 11px; padding: 6px 8px; background: #111a11; border-left: 3px solid var(--green); border-radius: 4px; }
-  .xp-entry .label { color: var(--dim); font-size: 9px; text-transform: uppercase; }
+
 
   /* Session list */
   .session-entry { padding: 6px 10px; border-bottom: 1px solid #1a1a1a; font-size: 11px; display: flex; justify-content: space-between; cursor: pointer; transition: background 0.1s; align-items: center; gap: 8px; }
@@ -923,8 +1259,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   /* Code/text blocks */
   .code-block { background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 11px; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; color: var(--text); }
   .md-block { background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 11px; line-height: 1.7; overflow-y: auto; max-height: 600px; }
-  .md-block h1, .md-block h2, .md-block h3 { color: var(--amber); margin: 12px 0 6px 0; }
+  .md-block h1, .md-block h2, .md-block h3 { color: var(--amber); margin: 14px 0 6px 0; }
+  .md-block h1:first-child, .md-block h2:first-child, .md-block h3:first-child { margin-top: 0; }
   .md-block h1 { font-size: 16px; } .md-block h2 { font-size: 14px; } .md-block h3 { font-size: 12px; }
+  .md-block p { margin: 6px 0; }
+  .md-block p:first-child { margin-top: 0; }
+  .md-block p:last-child { margin-bottom: 0; }
   .md-block code { background: #1a1a1a; padding: 1px 4px; border-radius: 3px; color: var(--green); font-size: 11px; }
   .md-block pre { background: #0a0a0a; padding: 10px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }
   .md-block pre code { background: none; padding: 0; }
@@ -1015,9 +1355,17 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 
   /* Agent grid (multi-agent) */
   .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-bottom: 14px; }
-  .agent-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px; cursor: pointer; transition: border-color 0.2s; }
+  .agent-card { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 8px; padding: 10px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s; }
+  .agent-card.mode-warrior { border-left-color: var(--red); background: #140a0a; }
+  .agent-card.mode-gatherer { border-left-color: var(--amber); background: #14120a; }
+  .agent-card.mode-explorer { border-left-color: var(--blue); background: #0a0e14; }
+  .agent-card.mode-quester { border-left-color: var(--purple); background: #0e0a14; }
   .agent-card:hover { border-color: #444; }
-  .agent-card.selected { border-color: var(--green); box-shadow: 0 0 8px rgba(0,255,65,0.15); }
+  .agent-card.selected { border-color: var(--green); box-shadow: 0 0 8px rgba(0,255,65,0.15); border-left-color: var(--green); }
+  .agent-card.selected.mode-warrior { border-color: var(--red); box-shadow: 0 0 8px rgba(255,65,65,0.15); border-left-color: var(--red); }
+  .agent-card.selected.mode-gatherer { border-color: var(--amber); box-shadow: 0 0 8px rgba(255,170,0,0.15); border-left-color: var(--amber); }
+  .agent-card.selected.mode-explorer { border-color: var(--blue); box-shadow: 0 0 8px rgba(0,170,255,0.15); border-left-color: var(--blue); }
+  .agent-card.selected.mode-quester { border-color: var(--purple); box-shadow: 0 0 8px rgba(192,132,252,0.15); border-left-color: var(--purple); }
   .agent-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
   .agent-card-name { font-weight: bold; font-size: 12px; }
   .agent-card-thumb { width: 100%; height: 120px; object-fit: contain; background: #000; border-radius: 4px; margin-top: 6px; }
@@ -1044,12 +1392,8 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <div class="status-bar">
   <div class="status-item"><span class="dot amber" id="dot-agent"></span> Agent: <span id="status-agent">...</span></div>
   <div class="status-item"><span class="dot amber" id="dot-server"></span> Server: <span id="status-server">...</span></div>
-  <div class="status-item">State: <span id="status-gs-age" style="color:var(--green)">-</span></div>
-  <div class="status-item">Shot: <span id="status-screenshot-age" style="color:var(--green)">-</span></div>
   <div class="status-item">Turn: <span id="status-turn" style="color:var(--green)">-</span></div>
   <div class="status-item">Tokens: <span id="status-tokens" style="color:var(--purple)">-</span></div>
-  <div class="status-item">Cost: $<span id="status-cost" style="color:var(--amber)">-</span></div>
-  <div class="status-item" style="color:#333;margin-left:auto" id="refresh-indicator">2s</div>
 </div>
 
 <div class="tabs">
@@ -1074,18 +1418,13 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <span id="hero-time">-</span>
       </div>
     </div>
-    <div class="grid-4">
+    <div class="grid-3">
       <div class="card">
         <h2>Player Status</h2>
         <div id="player-vitals"></div>
         <div id="player-stats"><div class="empty">Waiting...</div></div>
         <div id="player-target"></div>
         <div id="player-objective"></div>
-      </div>
-      <div class="card">
-        <h2>Combat & XP</h2>
-        <div id="combat-log"><div class="empty">No combat</div></div>
-        <div style="margin-top:8px" id="xp-tracker"><div class="empty">No XP</div></div>
       </div>
       <div class="card">
         <h2>Mission Progress</h2>
@@ -1099,6 +1438,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="card full">
       <h2>Live Activity <span class="badge" id="activity-log-name">-</span></h2>
       <div class="activity-feed" id="activity-feed-overview"><div class="empty">Waiting for agent...</div></div>
+      <div class="feed-follow"><button id="follow-btn-ov" class="following" onclick="toggleFollow('ov')">Follow</button></div>
     </div>
   </div>
 
@@ -1109,6 +1449,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       <div id="activity-agent-selector" class="agent-selector" style="display:none"></div>
       <p style="font-size:10px;color:var(--dim);margin-bottom:8px">Click any event to expand details. Tool calls show input code/params.</p>
       <div class="activity-feed" id="activity-feed-full" style="max-height:none"><div class="empty">Waiting for agent...</div></div>
+      <div class="feed-follow"><button id="follow-btn-full" class="following" onclick="toggleFollow('full')">Follow</button></div>
     </div>
   </div>
 
@@ -1155,6 +1496,11 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     <div class="card full">
       <h2>System Prompt <span class="badge">prompts/system.md</span></h2>
       <div id="prompt-content" class="md-block"><div class="empty">Loading...</div></div>
+    </div>
+    <div class="agent-grid" id="personality-grid" style="margin-top:14px"></div>
+    <div class="card full" style="margin-top:14px">
+      <h2>Game Knowledge <span class="badge">prompts/game_knowledge.md</span></h2>
+      <div id="gk-content" class="md-block" style="max-height:400px"><div class="empty">Loading...</div></div>
     </div>
   </div>
 
@@ -1208,6 +1554,77 @@ let currentMode = 'none';   // 'single', 'multi', 'none'
 let selectedAgent = null;   // null = default (single-agent), or agent ID for multi
 let agentList = [];         // cached /api/agents response
 
+// === WebSocket for realtime screenshot push ===
+let ws = null;
+let wsConnected = false;
+let wsReconnectTimer = null;
+
+function connectWebSocket() {
+  const wsHost = location.hostname || 'localhost';
+  const wsUrl = 'ws://' + wsHost + ':8081';
+  try { ws = new WebSocket(wsUrl); } catch(e) { return; }
+
+  ws.onopen = () => {
+    wsConnected = true;
+  };
+
+  ws.onclose = () => {
+    wsConnected = false;
+    ws = null;
+    if (!wsReconnectTimer) {
+      wsReconnectTimer = setTimeout(() => { wsReconnectTimer = null; connectWebSocket(); }, 3000);
+    }
+  };
+
+  ws.onerror = () => {};
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'screenshot') onScreenshotNotification(msg.agent, msg.ts);
+    } catch(e) {}
+  };
+}
+
+function onScreenshotNotification(agentId, ts) {
+  const img = document.getElementById('hero-img');
+  let shouldUpdateHero = false;
+  let screenshotBase;
+
+  if (currentMode === 'multi' && selectedAgent !== null) {
+    if (agentId === selectedAgent) {
+      shouldUpdateHero = true;
+      screenshotBase = '/screenshots/agent_' + agentId + '/live_screen.png';
+    }
+  } else if (currentMode !== 'multi' && agentId === null) {
+    shouldUpdateHero = true;
+    screenshotBase = '/screenshots/live_screen.png';
+  }
+
+  // Always update agent thumbnail in multi-agent grid
+  if (agentId !== null) {
+    const thumb = document.querySelector('#agent-card-' + agentId + ' .agent-card-thumb');
+    if (thumb) {
+      const thumbUrl = '/screenshots/agent_' + agentId + '/live_screen.png?t=' + ts;
+      const pre = new Image();
+      pre.onload = () => { thumb.src = thumbUrl; thumb.style.display = ''; };
+      pre.src = thumbUrl;
+    }
+  }
+
+  if (shouldUpdateHero && screenshotBase) {
+    const newUrl = screenshotBase + '?t=' + ts;
+    const preload = new Image();
+    preload.onload = () => { img.src = newUrl; };
+    preload.src = newUrl;
+    const d = new Date(ts * 1000);
+    document.getElementById('hero-time').textContent = d.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  }
+
+}
+
+connectWebSocket();
+
 // === Tab switching ===
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -1217,7 +1634,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'prompt' && !promptLoaded) loadPrompt();
     if (tab.dataset.tab === 'sessions') { loadSessionNotes(); loadDatasetStats(); loadSftStats(); }
-    if (tab.dataset.tab === 'data' && !rawLoaded) loadRawData();
+    if (tab.dataset.tab === 'data') loadRawData();
   });
 });
 
@@ -1256,51 +1673,140 @@ function sizeStr(bytes) {
   return bytes + ' B';
 }
 function simpleMarkdown(text) {
-  return text
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    .replace(/^---$/gm, '<hr>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
-    .replace(/\n\n/g, '<br><br>')
-    .replace(/\n/g, '<br>');
+  // Normalize: collapse 3+ newlines into 2
+  text = text.replace(/\n{3,}/g, '\n\n');
+  // Extract fenced code blocks first to protect them
+  var codeBlocks = [];
+  text = text.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
+    codeBlocks.push('<pre><code>' + code.replace(/\n$/,'') + '</code></pre>');
+    return '\x00CODE' + (codeBlocks.length - 1) + '\x00';
+  });
+  // Split into paragraphs on double newline
+  var paragraphs = text.split(/\n\n/);
+  var html = paragraphs.map(function(block) {
+    block = block.trim();
+    if (!block) return '';
+    // Code block placeholder
+    var m = block.match(/^\x00CODE(\d+)\x00$/);
+    if (m) return codeBlocks[parseInt(m[1])];
+    // Heading
+    if (/^###\s/.test(block)) return block.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    if (/^##\s/.test(block)) return block.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    if (/^#\s/.test(block)) return block.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    // HR
+    if (/^---$/.test(block)) return '<hr>';
+    // List block (all lines start with -)
+    if (/^- /m.test(block)) {
+      var items = block.split('\n').map(function(line) {
+        var li = line.replace(/^- /, '');
+        li = li.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        li = li.replace(/`([^`]+)`/g, '<code>$1</code>');
+        return '<li>' + li + '</li>';
+      }).join('');
+      return '<ul>' + items + '</ul>';
+    }
+    // Table
+    if (/^\|/.test(block)) {
+      var rows = block.split('\n').filter(function(r) { return !/^\|\s*[-:]+/.test(r); });
+      var tableHtml = '<table>';
+      rows.forEach(function(row, i) {
+        var cells = row.split('|').filter(function(c, j, a) { return j > 0 && j < a.length; });
+        var tag = i === 0 ? 'th' : 'td';
+        tableHtml += '<tr>' + cells.map(function(c) { return '<' + tag + '>' + c.trim() + '</' + tag + '>'; }).join('') + '</tr>';
+      });
+      tableHtml += '</table>';
+      return tableHtml;
+    }
+    // Regular paragraph — inline formatting + soft line breaks
+    block = block.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    block = block.replace(/`([^`]+)`/g, '<code>$1</code>');
+    block = block.replace(/\n/g, '<br>');
+    return '<p>' + block + '</p>';
+  }).join('\n');
+  return html;
 }
 
-const typeMap = {0:'player',1:'npc',2:'npc',3:'mob',4:'item',player:'player',mob:'mob',npc:'npc',item:'item'};
+const typeMap = {0:'player',1:'npc',2:'item',3:'mob',4:'item',8:'item',12:'npc',player:'player',mob:'mob',npc:'npc',item:'item'};
 
-// === Build activity HTML ===
-function buildActivityHTML(events, withDetails, prefix='ev') {
+// === Semantic action classifier ===
+function classifyAction(ev) {
+  if (ev.type === 'thinking') return { icon: '\ud83e\udde0', cls: 'thinking-event', label: 'Think' };
+  if (ev.type === 'text') return { icon: '\ud83d\udcac', cls: 'text-event', label: 'Say' };
+  const tool = (ev.tool || '').toLowerCase();
+  const sum = (ev.summary || '').toLowerCase();
+  const detail = (ev.detail || '').toLowerCase();
+  if (tool.includes('browser_run_code')) {
+    if (detail.includes('page.goto') || detail.includes('login') || sum.includes('login'))
+      return { icon: '\ud83d\udee1', cls: 'login-event', label: 'Login' };
+    if (detail.includes('__extractgamestate') || detail.includes('__generateasciimap') || detail.includes('__latestgamestate'))
+      return { icon: '\ud83d\udc41', cls: 'observe-event', label: 'Observe' };
+    if (detail.includes('__clickentity') || detail.includes('dispatchevent') || sum.includes('click'))
+      return { icon: '\u2694\ufe0f', cls: 'attack-event', label: 'Click' };
+    if (detail.includes('__clicktile') || detail.includes('keyboard'))
+      return { icon: '\ud83d\udeb6', cls: 'move-event', label: 'Move' };
+    if (detail.includes('warp'))
+      return { icon: '\u26a1', cls: 'move-event', label: 'Warp' };
+    if (detail.includes('__talktonpc') || detail.includes('__acceptquest'))
+      return { icon: '\ud83d\udde3', cls: 'text-event', label: 'NPC' };
+    return { icon: '\ud83c\udfae', cls: '', label: 'Code' };
+  }
+  if (tool.includes('bash'))
+    return { icon: '\ud83d\udcbe', cls: 'save-event', label: 'Shell' };
+  if (tool.includes('read'))
+    return { icon: '\ud83d\udcc4', cls: 'observe-event', label: 'Read' };
+  if (tool.includes('toolsearch'))
+    return { icon: '\ud83d\udd0d', cls: '', label: 'Search' };
+  return { icon: '\u25b6', cls: '', label: tool.split(':').pop().substring(0,10) };
+}
+
+// === Build single event HTML ===
+function buildEventHTML(ev, idx, prefix, withDetails, isNew) {
+  const id = prefix + '-' + idx;
+  const cls = classifyAction(ev);
+  const newCls = isNew ? ' ev-new' : '';
+  let html = '';
+
+  if (ev.type === 'tool') {
+    html += '<div class="activity-event ' + cls.cls + newCls + '" data-ev-idx="' + idx + '" onclick="toggleDetail(\'' + id + '\')">'
+      + '<span class="ev-icon">' + cls.icon + '</span>'
+      + '<span class="turn-num">#' + ev.turn + '</span>'
+      + '<span class="tool-name">' + esc(cls.label) + '</span>'
+      + '<span class="summary">' + esc(ev.summary) + '</span>'
+      + '<span class="ev-time" data-ev-turn="' + ev.turn + '"></span>'
+      + '</div>';
+    if (withDetails && ev.detail) {
+      html += '<div class="event-detail" id="' + id + '">' + esc(ev.detail) + '</div>';
+    }
+  } else if (ev.type === 'text') {
+    html += '<div class="activity-event text-event' + newCls + '" data-ev-idx="' + idx + '" onclick="toggleDetail(\'' + id + '\')">'
+      + '<span class="ev-icon">' + cls.icon + '</span>'
+      + '<span class="turn-num">#' + ev.turn + '</span>'
+      + '<span class="agent-text">' + esc(ev.text).substring(0, 200) + '</span>'
+      + '<span class="ev-time" data-ev-turn="' + ev.turn + '"></span>'
+      + '</div>';
+    if (withDetails) {
+      html += '<div class="event-detail" id="' + id + '">' + esc(ev.text) + '</div>';
+    }
+  } else if (ev.type === 'thinking') {
+    html += '<div class="activity-event thinking-event' + newCls + '" data-ev-idx="' + idx + '" onclick="toggleDetail(\'' + id + '\')">'
+      + '<span class="ev-icon">' + cls.icon + '</span>'
+      + '<span class="turn-num">#' + ev.turn + '</span>'
+      + '<span class="think-text">' + esc(ev.text).substring(0, 140) + '</span>'
+      + '<span class="ev-time" data-ev-turn="' + ev.turn + '"></span>'
+      + '</div>';
+    if (withDetails) {
+      html += '<div class="event-detail" id="' + id + '">' + esc(ev.text) + '</div>';
+    }
+  }
+  return html;
+}
+
+// === Build full activity HTML (used for drawer and initial render) ===
+function buildActivityHTML(events, withDetails, prefix) {
   if (!events || !events.length) return '<div class="empty">No events yet</div>';
   let html = '';
   for (let i = 0; i < events.length; i++) {
-    const ev = events[i];
-    const id = prefix + '-' + i;
-    if (ev.type === 'tool') {
-      html += '<div class="activity-event" onclick="toggleDetail(\'' + id + '\')">'
-        + '<span class="turn-num">#' + ev.turn + '</span>'
-        + '<span class="tool-name">' + esc(ev.tool) + '</span>'
-        + '<span class="summary">' + esc(ev.summary) + '</span></div>';
-      if (withDetails && ev.detail) {
-        html += '<div class="event-detail" id="' + id + '">' + esc(ev.detail) + '</div>';
-      }
-    } else if (ev.type === 'text') {
-      html += '<div class="activity-event text-event" onclick="toggleDetail(\'' + id + '\')">'
-        + '<span class="turn-num">#' + ev.turn + '</span>'
-        + '<span class="agent-text">' + esc(ev.text).substring(0, 200) + '</span></div>';
-      if (withDetails) {
-        html += '<div class="event-detail" id="' + id + '">' + esc(ev.text) + '</div>';
-      }
-    } else if (ev.type === 'thinking') {
-      html += '<div class="activity-event thinking-event" onclick="toggleDetail(\'' + id + '\')">'
-        + '<span class="turn-num">#' + ev.turn + '</span>'
-        + '<span class="think-text">[thinking] ' + esc(ev.text).substring(0, 120) + '...</span></div>';
-      if (withDetails) {
-        html += '<div class="event-detail" id="' + id + '">' + esc(ev.text) + '</div>';
-      }
-    }
+    html += buildEventHTML(events[i], i, prefix || 'ev', withDetails, false);
   }
   return html;
 }
@@ -1308,6 +1814,109 @@ function buildActivityHTML(events, withDetails, prefix='ev') {
 function toggleDetail(id) {
   const el = document.getElementById(id);
   if (el) el.classList.toggle('open');
+}
+
+// === Follow / auto-scroll system ===
+let followState = { ov: true, full: true };
+let feedEventCounts = { ov: 0, full: 0 };
+let missedCounts = { ov: 0, full: 0 };
+
+function toggleFollow(feedId) {
+  followState[feedId] = !followState[feedId];
+  const btn = document.getElementById('follow-btn-' + feedId);
+  if (btn) {
+    btn.classList.toggle('following', followState[feedId]);
+    btn.innerHTML = followState[feedId] ? 'Follow' : 'Follow';
+    missedCounts[feedId] = 0;
+  }
+  if (followState[feedId]) {
+    const feed = document.getElementById('activity-feed-' + (feedId === 'ov' ? 'overview' : 'full'));
+    if (feed) feed.scrollTop = feed.scrollHeight;
+  }
+}
+
+// Detect manual scroll-up to disengage follow
+['activity-feed-overview', 'activity-feed-full'].forEach(feedElId => {
+  const feedId = feedElId.includes('overview') ? 'ov' : 'full';
+  const el = document.getElementById(feedElId);
+  if (el) {
+    el.addEventListener('scroll', () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      if (!atBottom && followState[feedId]) {
+        followState[feedId] = false;
+        const btn = document.getElementById('follow-btn-' + feedId);
+        if (btn) btn.classList.remove('following');
+      } else if (atBottom && !followState[feedId]) {
+        followState[feedId] = true;
+        missedCounts[feedId] = 0;
+        const btn = document.getElementById('follow-btn-' + feedId);
+        if (btn) { btn.classList.add('following'); btn.innerHTML = 'Follow'; }
+      }
+    });
+  }
+});
+
+// === Incremental feed updater ===
+function updateFeedIncremental(feedElId, events, withDetails, prefix) {
+  const feedId = feedElId.includes('overview') ? 'ov' : 'full';
+  const feed = document.getElementById(feedElId);
+  if (!feed || !events || !events.length) return;
+
+  const prevCount = feedEventCounts[feedId];
+  const isOverview = feedId === 'ov';
+  const displayEvents = isOverview ? events.slice(-30) : events;
+  const totalNew = displayEvents.length;
+
+  // If the log file changed (event count went down), or first render — full rebuild
+  if (prevCount === 0 || totalNew < prevCount || (isOverview && prevCount > 30)) {
+    feed.innerHTML = buildActivityHTML(displayEvents, withDetails, prefix);
+    feedEventCounts[feedId] = totalNew;
+    if (followState[feedId]) feed.scrollTop = feed.scrollHeight;
+    return;
+  }
+
+  // Append only new events
+  const newCount = totalNew - prevCount;
+  if (newCount <= 0) return;
+
+  // Remove empty placeholder if present
+  const emptyEl = feed.querySelector('.empty');
+  if (emptyEl) emptyEl.remove();
+
+  const startIdx = isOverview ? displayEvents.length - newCount : prevCount;
+  let fragment = '';
+  for (let i = startIdx; i < displayEvents.length; i++) {
+    fragment += buildEventHTML(displayEvents[i], i, prefix, withDetails, true);
+  }
+
+  // For overview, trim old events if over 30
+  if (isOverview) {
+    const existing = feed.querySelectorAll('.activity-event');
+    const toRemove = existing.length + newCount - 30;
+    for (let i = 0; i < toRemove && i < existing.length; i++) {
+      const next = existing[i].nextElementSibling;
+      existing[i].remove();
+      if (next && next.classList.contains('event-detail')) next.remove();
+    }
+  }
+
+  feed.insertAdjacentHTML('beforeend', fragment);
+  feedEventCounts[feedId] = totalNew;
+
+  // Strip animation class after it plays
+  setTimeout(() => {
+    feed.querySelectorAll('.ev-new').forEach(el => el.classList.remove('ev-new'));
+  }, 1300);
+
+  if (followState[feedId]) {
+    feed.scrollTop = feed.scrollHeight;
+  } else {
+    missedCounts[feedId] += newCount;
+    const btn = document.getElementById('follow-btn-' + feedId);
+    if (btn && missedCounts[feedId] > 0) {
+      btn.innerHTML = 'Follow <span class="new-count">' + missedCounts[feedId] + '</span>';
+    }
+  }
 }
 
 // === HP bar helper ===
@@ -1328,6 +1937,29 @@ async function loadPrompt() {
   try {
     const data = await (await fetch('/api/prompt')).json();
     document.getElementById('prompt-content').innerHTML = simpleMarkdown(esc(data.content || ''));
+
+    // Render personality cards
+    const PCOLORS = { warrior: 'var(--red)', gatherer: 'var(--amber)', explorer: 'var(--blue)', quester: 'var(--purple)' };
+    const PBGS = { warrior: '#140a0a', gatherer: '#14120a', explorer: '#0a0e14', quester: '#0e0a14' };
+    const grid = document.getElementById('personality-grid');
+    if (data.personalities && Object.keys(data.personalities).length > 0) {
+      let html = '';
+      for (const [name, content] of Object.entries(data.personalities)) {
+        const color = PCOLORS[name] || 'var(--green)';
+        const bg = PBGS[name] || 'var(--card)';
+        html += '<div class="card" style="border-left:3px solid ' + color + ';background:' + bg + '">';
+        html += '<h2 style="color:' + color + '">' + name.toUpperCase() + ' <span class="badge" style="color:' + color + '">prompts/personalities/' + name + '.md</span></h2>';
+        html += '<div class="md-block" style="max-height:300px">' + simpleMarkdown(esc(content)) + '</div>';
+        html += '</div>';
+      }
+      grid.innerHTML = html;
+    }
+
+    // Render game knowledge
+    if (data.game_knowledge) {
+      document.getElementById('gk-content').innerHTML = simpleMarkdown(esc(data.game_knowledge));
+    }
+
     promptLoaded = true;
   } catch(e) {}
 }
@@ -1389,7 +2021,7 @@ async function loadSftStats() {
       html += '<div class="stat"><span class="stat-label">Turn Files</span><span class="stat-value">' + (ext.files || 0) + '</span></div>';
       html += '<div class="stat"><span class="stat-label">Total Turns</span><span class="stat-value">' + (ext.total_turns || 0) + '</span></div>';
       if (qw.total > 0) {
-        html += '<div class="section-label" style="margin-top:8px">Qwen SFT Dataset</div>';
+        html += '<div class="section-label" style="margin-top:8px">Qwen3.5 SFT Dataset</div>';
         html += '<div class="stat"><span class="stat-label">Train Records</span><span class="stat-value">' + qw.train + '</span></div>';
         html += '<div class="stat"><span class="stat-label">Val Records</span><span class="stat-value">' + qw.val + '</span></div>';
         html += '<div class="stat"><span class="stat-label">Total</span><span class="stat-value" style="color:var(--purple)">' + qw.total + '</span></div>';
@@ -1435,9 +2067,10 @@ function drawSparkline(canvasId, values) {
 
 async function loadRawData() {
   try {
+    const agentParam = selectedAgent !== null ? '&agent=' + selectedAgent : '';
     const [prog, gs, cmd, se, orch] = await Promise.all([
-      fetch('/api/raw?file=progress').then(r => r.json()),
-      fetch('/api/raw?file=game_state').then(r => r.json()),
+      fetch('/api/raw?file=progress' + agentParam).then(r => r.json()),
+      fetch('/api/raw?file=game_state' + agentParam).then(r => r.json()),
       fetch('/api/raw?file=claude_md').then(r => r.json()),
       fetch('/api/raw?file=state_extractor').then(r => r.json()),
       fetch('/api/raw?file=orchestrate').then(r => r.json()),
@@ -1487,6 +2120,9 @@ async function openSession(name, logDir) {
 // === Multi-agent: select agent ===
 function selectAgent(id) {
   selectedAgent = id;
+  rawLoaded = false;
+  feedEventCounts = { ov: 0, full: 0 };
+  missedCounts = { ov: 0, full: 0 };
   document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
   const el = document.getElementById('agent-card-' + id);
   if (el) el.classList.add('selected');
@@ -1502,27 +2138,28 @@ function selectAgent(id) {
 // === Refresh loops ===
 
 async function refreshFast() {
-  // Screenshot — only update when file has actually changed (use mtime as cache key)
-  const img = document.getElementById('hero-img');
-  let screenshotBase;
-  if (currentMode === 'multi' && selectedAgent !== null) {
-    screenshotBase = '/screenshots/agent_' + selectedAgent + '/live_screen.png';
-  } else {
-    screenshotBase = '/screenshots/live_screen.png';
-  }
-  // Fetch HEAD to get Last-Modified, only reload if changed
-  try {
-    const headResp = await fetch(screenshotBase, { method: 'HEAD' });
-    const lastMod = headResp.headers.get('Last-Modified') || '';
-    const cacheKey = lastMod || Date.now();
-    const newUrl = screenshotBase + '?v=' + encodeURIComponent(cacheKey);
-    if (img.src !== newUrl && img.dataset.lastMod !== lastMod) {
-      img.dataset.lastMod = lastMod;
-      const preload = new Image();
-      preload.onload = () => { img.src = newUrl; };
-      preload.src = newUrl;
+  // Screenshot — skip HTTP polling when WebSocket is delivering updates
+  if (!wsConnected) {
+    const img = document.getElementById('hero-img');
+    let screenshotBase;
+    if (currentMode === 'multi' && selectedAgent !== null) {
+      screenshotBase = '/screenshots/agent_' + selectedAgent + '/live_screen.png';
+    } else {
+      screenshotBase = '/screenshots/live_screen.png';
     }
-  } catch(e) {}
+    try {
+      const headResp = await fetch(screenshotBase, { method: 'HEAD' });
+      const lastMod = headResp.headers.get('Last-Modified') || '';
+      const cacheKey = lastMod || Date.now();
+      const newUrl = screenshotBase + '?v=' + encodeURIComponent(cacheKey);
+      if (img.src !== newUrl && img.dataset.lastMod !== lastMod) {
+        img.dataset.lastMod = lastMod;
+        const preload = new Image();
+        preload.onload = () => { img.src = newUrl; };
+        preload.src = newUrl;
+      }
+    } catch(e) {}
+  }
 
   // Live status
   try {
@@ -1553,30 +2190,7 @@ async function refreshFast() {
     }
     statusServer.style.color = live.game_server_up ? 'var(--green)' : 'var(--red)';
 
-    // Screenshot age
-    const ssAge = live.screenshot_age_seconds;
-    const ssAgeEl = document.getElementById('status-screenshot-age');
-    ssAgeEl.textContent = humanTime(ssAge);
-    ssAgeEl.style.color = ssAge > 30 ? 'var(--red)' : 'var(--green)';
     document.getElementById('hero-time').textContent = live.screenshot_time || '-';
-    // Stale warning on hero
-    const captionEl = document.getElementById('hero-caption');
-    if (ssAge > 30) {
-      captionEl.innerHTML = '<span style="color:var(--red)">STALE</span> \u2014 last update ' + humanTime(ssAge);
-    } else {
-      captionEl.textContent = 'Latest agent view';
-    }
-
-    // Game state age
-    const gsAge = live.game_state_age_seconds;
-    const gsAgeEl = document.getElementById('status-gs-age');
-    if (gsAge >= 0) {
-      gsAgeEl.textContent = humanTime(gsAge);
-      gsAgeEl.style.color = gsAge > 30 ? 'var(--red)' : gsAge > 10 ? 'var(--amber)' : 'var(--green)';
-    } else {
-      gsAgeEl.textContent = 'none';
-      gsAgeEl.style.color = 'var(--red)';
-    }
   } catch(e) {}
 
   // Game state (respects selected agent)
@@ -1659,13 +2273,14 @@ async function refreshFast() {
       if (quests.length > 0) {
         qhtml += '<div class="section-label">Quests</div>';
         for (const q of quests) {
-          const statusCls = q.finished ? 'done' : q.started ? 'active' : 'not-started';
-          const statusTxt = q.finished ? 'DONE' : q.started ? (q.stage + '/' + q.stageCount) : 'NEW';
+          const started = q.started !== undefined ? q.started : true;
+          const statusCls = q.finished ? 'done' : started ? 'active' : 'not-started';
+          const statusTxt = q.finished ? 'DONE' : started ? (q.stage + '/' + q.stageCount) : 'NEW';
           const pct = q.stageCount > 0 ? Math.round(q.stage / q.stageCount * 100) : 0;
           qhtml += '<div class="quest-row"><div class="quest-header"><span class="quest-name">' + esc(q.name || q.key) + '</span>';
           qhtml += '<span class="quest-status ' + statusCls + '">' + statusTxt + '</span></div>';
           if (q.description) qhtml += '<div class="quest-desc">' + esc(q.description) + '</div>';
-          if (q.started && !q.finished && q.stageCount > 0) {
+          if (started && !q.finished && q.stageCount > 0) {
             qhtml += '<div class="quest-progress"><div class="quest-progress-track"><div class="quest-progress-fill" style="width:' + pct + '%"></div></div></div>';
           }
           qhtml += '</div>';
@@ -1674,8 +2289,9 @@ async function refreshFast() {
       if (achievements.length > 0) {
         qhtml += '<div class="section-label">Achievements</div>';
         for (const a of achievements) {
-          const statusCls = a.finished ? 'done' : a.started ? 'active' : 'not-started';
-          const statusTxt = a.finished ? 'DONE' : a.started ? (a.stage + '/' + a.stageCount) : '';
+          const aStarted = a.started !== undefined ? a.started : true;
+          const statusCls = a.finished ? 'done' : aStarted ? 'active' : 'not-started';
+          const statusTxt = a.finished ? 'DONE' : aStarted ? (a.stage + '/' + a.stageCount) : '';
           qhtml += '<div class="quest-row"><div class="quest-header"><span class="quest-name">' + esc(a.name || a.key) + '</span>';
           qhtml += '<span class="quest-status ' + statusCls + '">' + statusTxt + '</span></div></div>';
         }
@@ -1710,26 +2326,6 @@ async function refreshFast() {
       document.getElementById('entity-list').innerHTML = '<div class="empty">No entities nearby</div>';
     }
 
-    // Combat
-    const combat = gs.last_combat;
-    if (combat) {
-      document.getElementById('combat-log').innerHTML =
-        '<div class="combat-entry"><div class="label">Last Combat</div>' +
-        '<span style="color:var(--blue)">' + esc(combat.attacker) + '</span> hit ' +
-        '<span style="color:var(--red)">' + esc(combat.target) + '</span> for ' +
-        '<span style="color:var(--amber)">' + (combat.damage??'?') + '</span> dmg</div>';
-    }
-
-    // XP
-    const xp = gs.last_xp_event;
-    if (xp) {
-      const amt = xp.amount ?? xp.experience ?? '?';
-      document.getElementById('xp-tracker').innerHTML =
-        '<div class="xp-entry"><div class="label">Last XP</div>+' +
-        '<span style="color:var(--green);font-weight:bold">' + amt + '</span> XP' +
-        (xp.skill ? ' (' + xp.skill + ')' : '') +
-        (xp.level ? ' Lvl ' + xp.level : '') + '</div>';
-    }
   } catch(e) {}
 
   // Multi-agent grid (Phase 4A) — update in-place to avoid flicker
@@ -1740,22 +2336,32 @@ async function refreshFast() {
       const container = document.getElementById('agent-grid-container');
       container.style.display = '';
       if (agents.length > 0) {
+        // Auto-select first agent if none selected
+        if (selectedAgent === null) { selectAgent(agents[0].id); }
         // Check if we need to rebuild (agent count changed)
         const existingIds = new Set([...container.querySelectorAll('.agent-card')].map(c => c.dataset.agentId));
         const newIds = new Set(agents.map(a => String(a.id)));
         const needRebuild = existingIds.size !== newIds.size || [...newIds].some(id => !existingIds.has(id));
 
+        const PERSONALITY_COLORS = { warrior: 'var(--red)', gatherer: 'var(--amber)', explorer: 'var(--blue)', quester: 'var(--purple)' };
+        const PERSONALITY_LABELS = { warrior: 'WARRIOR', gatherer: 'GATHERER', explorer: 'EXPLORER', quester: 'QUESTER' };
+
         if (needRebuild) {
           // Full rebuild — only when agents are added/removed
           let html = '';
           for (const a of agents) {
-            html += '<div class="agent-card" data-agent-id="' + a.id + '" id="agent-card-' + a.id + '" onclick="selectAgent(' + a.id + ')">';
-            html += '<div class="agent-card-header"><span class="agent-card-name" style="color:var(--green)">' + esc(a.username) + '</span><span class="agent-server-dot"></span></div>';
+            const personality = a.mode || 'quester';
+            const modeClass = ' mode-' + personality;
+            const modeColor = PERSONALITY_COLORS[personality] || 'var(--green)';
+            const modeLabel = PERSONALITY_LABELS[personality] || personality.toUpperCase();
+            html += '<div class="agent-card' + modeClass + '" data-agent-id="' + a.id + '" data-mode="' + personality + '" id="agent-card-' + a.id + '" onclick="selectAgent(' + a.id + ')">';
+            html += '<div class="agent-card-header"><span class="agent-card-name" style="color:' + modeColor + '">' + esc(a.username) + '</span>';
+            html += '<span style="font-size:9px;color:' + modeColor + ';border:1px solid ' + modeColor + ';padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:0.5px">' + modeLabel + '</span>';
+            html += '<span class="agent-server-dot"></span></div>';
             html += '<div class="agent-info-line" style="font-size:10px;color:var(--dim)"></div>';
-            html += '<div class="agent-turns-line" style="font-size:10px;margin-top:3px"></div>';
             html += '<div class="agent-hp-line" style="margin-top:4px"></div>';
-            html += '<div class="agent-target-line" style="font-size:10px;margin-top:4px"></div>';
-            html += '<div class="agent-gs-age" style="font-size:9px"></div>';
+
+            html += '<div class="agent-last-active" style="font-size:9px"></div>';
             html += '<img class="agent-card-thumb" src="" style="display:none">';
             html += '</div>';
           }
@@ -1771,23 +2377,24 @@ async function refreshFast() {
           if (selectedAgent === a.id) card.classList.add('selected');
           else card.classList.remove('selected');
 
+          // Personality class
+          for (const cls of ['mode-warrior', 'mode-gatherer', 'mode-explorer', 'mode-quester', 'mode-blind']) {
+            card.classList.remove(cls);
+          }
+          const personality = a.mode || 'quester';
+          card.classList.add('mode-' + personality);
+
           const ps = (a.game_state || {}).player_stats || {};
           const level = ps.level || (a.progress || {}).level || '?';
-          const target = (a.game_state || {}).current_target;
-          const targetStr = target ? '\u2694 ' + esc(target.name) : '<span style="color:var(--dim)">idle</span>';
 
           // Server dot
           const dotEl = card.querySelector('.agent-server-dot');
           dotEl.innerHTML = a.server_healthy ? '<span class="dot green"></span>' : '<span class="dot red"></span>';
 
-          // Info line
-          card.querySelector('.agent-info-line').textContent = 'Lvl ' + level + ' | ' + (a.session_count || 0) + ' sessions | :' + a.server_port;
-
-          // Turns + context tokens
-          const turns = a.turns || 0;
+          // Info line (personality already shown in header badge)
           const ctxTok = a.context_tokens || 0;
           const ctxLabel = ctxTok >= 1e6 ? (ctxTok / 1e6).toFixed(1) + 'M' : ctxTok >= 1e3 ? Math.round(ctxTok / 1e3) + 'K' : ctxTok;
-          card.querySelector('.agent-turns-line').innerHTML = '<span style="color:var(--amber)">T' + turns + '</span> <span style="color:var(--dim)">\u2502</span> <span style="color:var(--purple)">' + ctxLabel + ' ctx</span>';
+          card.querySelector('.agent-info-line').innerHTML = 'Lvl ' + level + ' | <span style="color:var(--purple)">' + ctxLabel + ' ctx</span> | :' + a.server_port;
 
           // HP bar
           const hpLine = card.querySelector('.agent-hp-line');
@@ -1798,26 +2405,24 @@ async function refreshFast() {
             hpLine.style.display = 'none';
           }
 
-          // Target
-          card.querySelector('.agent-target-line').innerHTML = targetStr;
-
-          // Game state age
-          const gsEl = card.querySelector('.agent-gs-age');
-          if (a.gs_age !== undefined) {
-            const gsColor = a.gs_age > 30 ? 'var(--red)' : a.gs_age > 10 ? 'var(--amber)' : 'var(--green)';
-            gsEl.style.color = gsColor;
-            gsEl.textContent = 'state: ' + humanTime(a.gs_age);
+          // Last active (based on latest log file mtime)
+          const laEl = card.querySelector('.agent-last-active');
+          if (a.last_active !== undefined) {
+            const laColor = a.last_active > 60 ? 'var(--red)' : a.last_active > 15 ? 'var(--amber)' : 'var(--green)';
+            laEl.style.color = laColor;
+            laEl.textContent = 'active ' + humanTime(a.last_active);
           } else {
-            gsEl.textContent = '';
+            laEl.textContent = '';
           }
 
-          // Thumbnail — preload, only swap when loaded, never blank
-          const thumb = card.querySelector('.agent-card-thumb');
-          const thumbUrl = '/screenshots/agent_' + a.id + '/live_screen.png?t=' + Date.now();
-          const pre = new Image();
-          pre.onload = () => { thumb.src = thumbUrl; thumb.style.display = ''; };
-          // Don't set onerror to hide — keep showing the last valid frame
-          pre.src = thumbUrl;
+          // Thumbnail — skip when WS is pushing updates
+          if (!wsConnected) {
+            const thumb = card.querySelector('.agent-card-thumb');
+            const thumbUrl = '/screenshots/agent_' + a.id + '/live_screen.png?t=' + Date.now();
+            const pre = new Image();
+            pre.onload = () => { thumb.src = thumbUrl; thumb.style.display = ''; };
+            pre.src = thumbUrl;
+          }
         }
       }
     } catch(e) {}
@@ -1825,10 +2430,6 @@ async function refreshFast() {
     document.getElementById('agent-grid-container').style.display = 'none';
   }
 
-  // Tick refresh indicator
-  const ri = document.getElementById('refresh-indicator');
-  ri.style.color = 'var(--green)';
-  setTimeout(() => ri.style.color = '#333', 300);
 }
 
 // Slow loop: activity feed, progress, sessions, screenshots
@@ -1842,14 +2443,14 @@ async function refreshSlow() {
 
     // In multi-agent mode, show aggregate turns/tokens across all agents
     if (currentMode === 'multi' && agentList.length > 0 && selectedAgent === null) {
-      let totalTurns = 0, maxCtx = 0;
+      let totalTurns = 0, totalCtx = 0;
       for (const a of agentList) {
         totalTurns += a.turns || 0;
-        maxCtx = Math.max(maxCtx, a.context_tokens || 0);
+        totalCtx += a.context_tokens || 0;
       }
       document.getElementById('status-turn').textContent = totalTurns + ' (' + agentList.length + ' agents)';
-      const ctxLabel = maxCtx >= 1e6 ? (maxCtx / 1e6).toFixed(1) + 'M' : maxCtx >= 1e3 ? Math.round(maxCtx / 1e3) + 'K' : maxCtx;
-      document.getElementById('status-tokens').textContent = ctxLabel + ' max';
+      const ctxLabel = totalCtx >= 1e6 ? (totalCtx / 1e6).toFixed(1) + 'M' : totalCtx >= 1e3 ? Math.round(totalCtx / 1e3) + 'K' : totalCtx;
+      document.getElementById('status-tokens').textContent = ctxLabel;
     } else {
       document.getElementById('status-turn').textContent = turn;
       const tok = activity.tokens;
@@ -1859,22 +2460,13 @@ async function refreshSlow() {
         document.getElementById('status-tokens').textContent = label;
       }
     }
-    document.getElementById('status-cost').textContent = cost.toFixed(2);
-
     const logName = activity.log_file || '-';
     document.getElementById('activity-log-name').textContent = logName;
     document.getElementById('activity-log-name-full').textContent = logName;
 
     if (activity.events && activity.events.length > 0) {
-      const overviewHtml = buildActivityHTML(activity.events.slice(-25), true, 'ov');
-      const feed1 = document.getElementById('activity-feed-overview');
-      feed1.innerHTML = overviewHtml;
-      feed1.scrollTop = feed1.scrollHeight;
-
-      const fullHtml = buildActivityHTML(activity.events, true, 'full');
-      const feed2 = document.getElementById('activity-feed-full');
-      feed2.innerHTML = fullHtml;
-      feed2.scrollTop = feed2.scrollHeight;
+      updateFeedIncremental('activity-feed-overview', activity.events, true, 'ov');
+      updateFeedIncremental('activity-feed-full', activity.events, true, 'full');
     }
 
     // Multi-agent: agent selector on Activity tab (Phase 4C)
@@ -1923,8 +2515,9 @@ async function refreshSlow() {
         let mhtml = '';
         const quests_s = (state.quests_started || state.active_quests || []);
         const quests_c = (state.quests_completed || state.completed_quests || []);
-        mhtml += '<div class="stat"><span class="stat-label">Quests Started</span><span class="stat-value">' + (quests_s.length ? quests_s.join(', ') : 'none') + '</span></div>';
-        mhtml += '<div class="stat"><span class="stat-label">Quests Done</span><span class="stat-value">' + (quests_c.length ? quests_c.join(', ') : 'none') + '</span></div>';
+        const qNames = arr => arr.map(q => typeof q === 'string' ? q : (q.name || q.key || '?')).join(', ');
+        mhtml += '<div class="stat"><span class="stat-label">Quests Started</span><span class="stat-value">' + (quests_s.length ? esc(qNames(quests_s)) : 'none') + '</span></div>';
+        mhtml += '<div class="stat"><span class="stat-label">Quests Done</span><span class="stat-value">' + (quests_c.length ? esc(qNames(quests_c)) : 'none') + '</span></div>';
         const ach_s = (state.active_achievements || []);
         const ach_c = (state.completed_achievements || []);
         if (ach_s.length || ach_c.length) {
@@ -1946,9 +2539,11 @@ async function refreshSlow() {
         lastGalleryKey = newKey;
         let html = '';
         for (const s of shots.slice(0, 20)) {
-          html += '<div class="thumb" onclick="openLightbox(\'/screenshots/' + s.name + '?t=' + Date.now() + '\')">'
-            + '<img src="/screenshots/' + s.name + '" alt="' + esc(s.name) + '" loading="lazy">'
-            + '<div class="meta">' + esc(s.name) + '<br>' + s.time + '</div></div>';
+          const urlBase = s.agent !== undefined ? '/screenshots/agent_' + s.agent + '/' : '/screenshots/';
+          const label = (s.agent !== undefined ? 'agent_' + s.agent + '/' : '') + esc(s.name);
+          html += '<div class="thumb" onclick="openLightbox(\'' + urlBase + s.name + '?t=' + Date.now() + '\')">'
+            + '<img src="' + urlBase + s.name + '" alt="' + esc(s.name) + '" loading="lazy">'
+            + '<div class="meta">' + label + '<br>' + s.time + '</div></div>';
         }
         document.getElementById('gallery').innerHTML = html;
       }
@@ -1998,6 +2593,16 @@ setInterval(refreshSlow, 5000);
 
 
 if __name__ == "__main__":
-    server = ThreadedHTTPServer(("0.0.0.0", 8080), DashboardHandler)
+    ws_relay = WebSocketRelay()
+    ws_relay.run_in_thread()
+
+    watcher = ScreenshotWatcher(
+        on_change=lambda aid, fp, mt: ws_relay.notify_screenshot(aid, mt)
+    )
+    watcher_thread = threading.Thread(target=watcher.run, daemon=True, name="screenshot-watcher")
+    watcher_thread.start()
+
     print(f"Dashboard running at http://0.0.0.0:8080")
+    print(f"WebSocket relay on ws://0.0.0.0:{WS_PORT}")
+    server = ThreadedHTTPServer(("0.0.0.0", 8080), DashboardHandler)
     server.serve_forever()

@@ -14,23 +14,75 @@
 #   ./scripts/restart-agent.sh 2            # 2 agents, 24 hours
 #   ./scripts/restart-agent.sh 4 8          # 4 agents, 8 hours
 #   ./scripts/restart-agent.sh 4 0          # 4 agents, no time limit
+#   ./scripts/restart-agent.sh --warrior 1 --gatherer 1 --explorer 1 --quester 1
+#   ./scripts/restart-agent.sh --warrior 2 --quester 2 --hours 0
 
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-N_AGENTS="${1:-4}"
-HOURS="${2:-24}"
+
+# Defaults
+N_AGENTS=""
+HOURS="24"
+N_WARRIOR=""
+N_GATHERER=""
+N_EXPLORER=""
+N_QUESTER=""
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --warrior)   N_WARRIOR="$2"; shift 2;;
+    --gatherer)  N_GATHERER="$2"; shift 2;;
+    --explorer)  N_EXPLORER="$2"; shift 2;;
+    --quester)   N_QUESTER="$2"; shift 2;;
+    --hours)     HOURS="$2"; shift 2;;
+    *)
+      # Positional: first=agents, second=hours
+      if [ -z "$N_AGENTS" ]; then N_AGENTS="$1"
+      else HOURS="$1"; fi
+      shift;;
+  esac
+done
+
+# Determine total agent count for cleanup and orchestrator
+HAS_PERSONALITY=false
+PERSONALITY_ARGS=""
+TOTAL_AGENTS=0
+for p in warrior gatherer explorer quester; do
+  eval "count=\$N_$(echo $p | tr '[:lower:]' '[:upper:]')"
+  if [ -n "$count" ] && [ "$count" -gt 0 ]; then
+    HAS_PERSONALITY=true
+    PERSONALITY_ARGS="$PERSONALITY_ARGS --$p $count"
+    TOTAL_AGENTS=$((TOTAL_AGENTS + count))
+  fi
+done
+
+if ! $HAS_PERSONALITY; then
+  N_AGENTS="${N_AGENTS:-4}"
+  TOTAL_AGENTS="$N_AGENTS"
+fi
 
 echo "=== Restarting Kaetram training run ==="
-echo "  Agents: $N_AGENTS"
+if $HAS_PERSONALITY; then
+  [ -n "$N_WARRIOR" ] && [ "$N_WARRIOR" -gt 0 ] && echo "  Warrior:  $N_WARRIOR"
+  [ -n "$N_GATHERER" ] && [ "$N_GATHERER" -gt 0 ] && echo "  Gatherer: $N_GATHERER"
+  [ -n "$N_EXPLORER" ] && [ "$N_EXPLORER" -gt 0 ] && echo "  Explorer: $N_EXPLORER"
+  [ -n "$N_QUESTER" ] && [ "$N_QUESTER" -gt 0 ] && echo "  Quester:  $N_QUESTER"
+  echo "  Total:    $TOTAL_AGENTS"
+else
+  echo "  Agents: $TOTAL_AGENTS (round-robin personalities)"
+fi
 echo "  Hours:  ${HOURS}"
 echo ""
 
 # ── Step 1: Kill orchestrator + agents ──
 echo "Stopping orchestrator and agents..."
-# Kill orchestrate.py and its child claude processes
-pkill -f "orchestrate.py" 2>/dev/null || true
+# Kill orchestrate.py process specifically (not tmux/shell wrappers)
+pkill -f "python3 orchestrate.py" 2>/dev/null || true
 sleep 1
+# Kill the datacol tmux session (holds shell wrappers)
+tmux kill-session -t datacol 2>/dev/null || true
 # Kill any remaining claude -p agent processes
 pkill -f "claude.*-p.*IMPORTANT.*play the game" 2>/dev/null || true
 # Also kill single-agent mode processes
@@ -49,15 +101,43 @@ for port in $(seq 9001 10 9071); do
 done
 sleep 1
 
-# ── Step 3: Preserve logs, clear transient state ──
+# ── Step 3: Reset MongoDB player data (fresh characters) ──
+MONGO_CONTAINER="kaetram-mongo"
+MONGO_DB="kaetram_devlopment"
+COLLECTIONS=(player_info player_skills player_equipment player_inventory player_bank player_quests player_achievements player_statistics player_abilities)
+
+if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
+  USER_JS_ARRAY=""
+  for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
+    [ -n "$USER_JS_ARRAY" ] && USER_JS_ARRAY="${USER_JS_ARRAY},"
+    USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}'"
+  done
+
+  echo "Resetting player data in MongoDB..."
+  for coll in "${COLLECTIONS[@]}"; do
+    result=$(docker exec "$MONGO_CONTAINER" mongosh "$MONGO_DB" --quiet --eval '
+      var r = db.'"$coll"'.deleteMany({username: {$in: ['"$USER_JS_ARRAY"']}});
+      print(r.deletedCount);
+    ' 2>/dev/null)
+    [ "$result" != "0" ] && echo "  ${coll}: deleted ${result}"
+  done
+  echo "  Players will start fresh on login."
+else
+  echo "WARNING: MongoDB container not running — skipping DB reset"
+fi
+echo ""
+
+# ── Step 4: Preserve logs, clear transient state ──
 echo "Clearing agent sandbox state (logs preserved)..."
-for i in $(seq 0 $((N_AGENTS - 1))); do
+for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
   sandbox="/tmp/kaetram_agent_$i/state"
   if [ -d "$sandbox" ]; then
     rm -f "$sandbox/screenshot.png" \
           "$sandbox/live_screen.png" \
           "$sandbox/game_state.json" \
-          "$sandbox/progress.json"
+          "$sandbox/progress.json" \
+          "$sandbox/.session_counter"
+    find "$sandbox" -name "*.png" -delete 2>/dev/null || true
     echo "  Cleared /tmp/kaetram_agent_$i/state/"
   fi
 done
@@ -72,7 +152,7 @@ LOG_COUNT=$(find "$PROJECT_DIR/dataset/raw" -name "session_*.log" 2>/dev/null | 
 echo "  Preserved $LOG_COUNT session logs in dataset/raw/"
 echo ""
 
-# ── Step 4: Ensure Kaetram client is running on :9000 ──
+# ── Step 5: Ensure Kaetram client is running on :9000 ──
 if ! ss -tlnp "sport = :9000" 2>/dev/null | grep -q 9000; then
   echo "WARNING: Kaetram client not running on :9000"
   echo "  Start it first:  ./scripts/start-kaetram.sh"
@@ -80,7 +160,7 @@ if ! ss -tlnp "sport = :9000" 2>/dev/null | grep -q 9000; then
   echo ""
 fi
 
-# ── Step 5: Restart dashboard if not running ──
+# ── Step 6: Restart dashboard if not running ──
 if ! ss -tlnp "sport = :8080" 2>/dev/null | grep -q 8080; then
   echo "Starting dashboard on :8080..."
   cd "$PROJECT_DIR"
@@ -90,10 +170,14 @@ else
   echo "Dashboard already running on :8080"
 fi
 
-# ── Step 6: Launch orchestrator in datacol tmux session ──
-echo "Launching orchestrator ($N_AGENTS agents, $HOURS hours)..."
+# ── Step 7: Launch orchestrator in datacol tmux session ──
+echo "Launching orchestrator ($TOTAL_AGENTS agents, $HOURS hours)..."
 
-ORCH_CMD="cd $PROJECT_DIR && python3 orchestrate.py --agents $N_AGENTS"
+if $HAS_PERSONALITY; then
+  ORCH_CMD="cd $PROJECT_DIR && python3 orchestrate.py $PERSONALITY_ARGS"
+else
+  ORCH_CMD="cd $PROJECT_DIR && python3 orchestrate.py --agents $N_AGENTS"
+fi
 if [ "$HOURS" != "0" ]; then
   ORCH_CMD="$ORCH_CMD --hours $HOURS"
 fi

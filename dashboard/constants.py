@@ -1,0 +1,34 @@
+"""Constants shared across dashboard modules."""
+
+import os
+import re
+
+# Patterns to redact from public-facing output
+SENSITIVE_PATTERNS = re.compile(
+    r'(GEMINI_API_KEY|API_KEY|SECRET|TOKEN|PASSWORD|CREDENTIALS|Authorization|Bearer\s+\S+)'
+    r'|([A-Za-z0-9_-]{30,}(?=[\s"\']))',  # long token-like strings
+    re.IGNORECASE
+)
+
+
+def sanitize(text):
+    """Remove API keys and sensitive strings from text before serving."""
+    return SENSITIVE_PATTERNS.sub('[REDACTED]', text)
+
+
+PROJECT_DIR = os.path.expanduser("~/projects/kaetram-agent")
+STATE_DIR = os.path.join(PROJECT_DIR, "state")
+LOG_DIR = os.path.join(PROJECT_DIR, "logs")
+DATASET_DIR = os.path.join(PROJECT_DIR, "dataset")
+
+# Multi-agent constants (must match orchestrate.py)
+BASE_SERVER_PORT = 9001
+PORT_STRIDE = 10
+MAX_AGENTS = 8
+WS_PORT = 8081
+SCREENSHOT_POLL_INTERVAL = 1.0  # seconds between mtime checks (was 0.2 — too aggressive)
+
+# MongoDB (Kaetram game server database)
+MONGO_HOST = os.environ.get("KAETRAM_MONGO_HOST", "127.0.0.1")
+MONGO_PORT = int(os.environ.get("KAETRAM_MONGO_PORT", "27017"))
+MONGO_DB = os.environ.get("KAETRAM_MONGO_DB", "kaetram_devlopment")

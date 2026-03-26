@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Kaetram AI Agent — Live Dashboard</title>
+<link rel="icon" type="image/png" href="/favicon.ico">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg: #0a0a0a; --card: #111; --border: #222; --green: #00ff41; --amber: #ffaa00; --red: #ff4141; --blue: #00aaff; --purple: #c084fc; --cyan: #00e5ff; --dim: #999; --text: #ccc; --card-hover: #161616; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace; background: var(--bg); color: var(--text); font-size: 13px; }
+
+  /* Header */
+  header { background: #0d0d0d; border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+  header h1 { color: var(--green); font-size: 18px; letter-spacing: 1px; }
+  header h1 span { font-weight: normal; color: var(--text); font-size: 12px; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .header-links a { color: var(--blue); text-decoration: none; border: 1px solid #333; padding: 3px 10px; border-radius: 4px; font-size: 11px; transition: all 0.2s; }
+  .header-links a:hover { border-color: var(--green); color: var(--green); }
+
+  /* Status bar */
+  .status-bar { background: #0d0d0d; border-bottom: 1px solid var(--border); padding: 6px 24px; display: flex; gap: 20px; font-size: 11px; flex-wrap: wrap; align-items: center; }
+  .status-item { display: flex; align-items: center; gap: 5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+
+  /* Tabs */
+  .tabs { background: #0d0d0d; border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; gap: 0; }
+  .tab { padding: 10px 20px; font-size: 12px; color: var(--text); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.5px; }
+  .tab:hover { color: var(--text); background: #151515; }
+  .tab.active { color: var(--green); border-bottom-color: var(--green); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* Main layout */
+  main { max-width: 1600px; margin: 0 auto; padding: 16px; }
+
+  /* Grid */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .card h2 { color: var(--amber); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+  .card h2 .badge { font-size: 10px; background: #1a1a1a; padding: 2px 8px; border-radius: 10px; color: var(--green); font-weight: normal; }
+  .card.full { grid-column: 1 / -1; }
+  .card.clickable { cursor: pointer; transition: border-color 0.2s; }
+  .card.clickable:hover { border-color: #444; }
+
+  .stat { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #1a1a1a; font-size: 12px; }
+  .stat:last-child { border-bottom: none; }
+  .stat-label { color: var(--text); }
+  .stat-value { color: var(--green); font-weight: bold; }
+
+  /* Hero screenshot */
+  .hero { margin-bottom: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .hero img { width: 100%; max-height: 450px; object-fit: contain; background: #000; display: block; cursor: pointer; }
+  .hero .caption { padding: 8px 14px; font-size: 11px; color: var(--text); display: flex; justify-content: space-between; }
+
+  /* Screenshot gallery */
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .thumb { background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; transition: border-color 0.2s; cursor: pointer; }
+  .thumb:hover { border-color: var(--green); }
+  .thumb img { width: 100%; display: block; }
+  .thumb .meta { padding: 4px 8px; font-size: 9px; color: var(--text); }
+
+  /* Activity feed */
+  .activity-event { padding: 5px 10px; margin-bottom: 1px; font-size: 11px; border-left: 3px solid #333; cursor: pointer; transition: background 0.15s, border-color 0.15s, opacity 0.3s; display: flex; align-items: baseline; gap: 6px; }
+  .activity-event:hover { background: #1a1a1a; }
+  .activity-event .ev-icon { min-width: 16px; text-align: center; font-size: 12px; opacity: 0.8; }
+  .activity-event .turn-num { color: #444; font-size: 9px; min-width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
+  .activity-event .tool-name { color: var(--blue); font-weight: bold; font-size: 10px; }
+  .activity-event .summary { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity-event .ev-time { color: #333; font-size: 9px; min-width: 32px; text-align: right; white-space: nowrap; }
+  .activity-event.text-event { border-left-color: var(--green); }
+  .activity-event.text-event .agent-text { color: var(--green); flex: 1; }
+  .activity-event.thinking-event { border-left-color: var(--purple); background: #0d0a14; }
+  .activity-event.thinking-event .think-text { color: var(--purple); font-style: italic; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .activity-event.observe-event { border-left-color: var(--cyan); }
+  .activity-event.attack-event { border-left-color: var(--red); }
+  .activity-event.move-event { border-left-color: var(--amber); }
+  .activity-event.login-event { border-left-color: #66ff66; }
+  .activity-event.save-event { border-left-color: var(--amber); }
+  .activity-feed { max-height: 500px; overflow-y: auto; position: relative; scroll-behavior: smooth; }
+  .event-detail { display: none; padding: 6px 10px 6px 40px; background: #0d0d0d; font-size: 10px; color: var(--text); white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; border-left: 3px solid #222; }
+  .event-detail.open { display: block; }
+
+  /* New event entrance animation */
+  @keyframes eventSlideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes eventFlash { 0% { border-left-color: var(--green); background: rgba(0,255,65,0.06); } 100% { background: transparent; } }
+  .activity-event.ev-new { animation: eventSlideIn 0.3s ease-out, eventFlash 1.2s ease-out; }
+
+  /* Follow button */
+
+  /* Entity table */
+  .entity-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .entity-table th { text-align: left; color: var(--text); font-weight: normal; padding: 4px 6px; border-bottom: 1px solid #222; font-size: 10px; text-transform: uppercase; cursor: pointer; }
+  .entity-table th:hover { color: var(--text); }
+  .entity-table td { padding: 3px 6px; border-bottom: 1px solid #1a1a1a; }
+  .entity-table tr:hover { background: #1a1a1a; }
+  .entity-type { font-size: 9px; padding: 1px 5px; border-radius: 3px; }
+  .entity-type.mob { background: #3a1a1a; color: var(--red); }
+  .entity-type.player { background: #1a2a3a; color: var(--blue); }
+  .entity-type.npc { background: #2a2a1a; color: var(--amber); }
+  .entity-type.item { background: #1a3a1a; color: var(--green); }
+  .hp-bar-bg { width: 50px; height: 6px; background: #222; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; }
+  .hp-bar-fill { height: 100%; border-radius: 3px; }
+  .hp-bar-fill.high { background: var(--green); }
+  .hp-bar-fill.mid { background: var(--amber); }
+  .hp-bar-fill.low { background: var(--red); }
+
+  /* Combat/XP */
+
+
+  /* Session list */
+  .session-entry { padding: 6px 10px; border-bottom: 1px solid #1a1a1a; font-size: 11px; display: flex; justify-content: space-between; cursor: pointer; transition: background 0.1s; align-items: center; gap: 8px; }
+  .session-entry:hover { background: #1a1a1a; }
+  .session-entry .name { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .session-entry .time { color: var(--text); font-size: 10px; }
+  .session-entry .size { color: var(--amber); min-width: 50px; text-align: right; font-size: 10px; }
+  .session-entry .arrow { color: var(--text); }
+  .session-entry .agent-badge { font-size: 8px; padding: 1px 5px; border-radius: 3px; background: #1a2a3a; color: var(--blue); white-space: nowrap; }
+  .session-entry .cost-badge { color: var(--amber); font-size: 10px; min-width: 45px; text-align: right; }
+  .session-entry .turns-badge { color: var(--purple); font-size: 10px; min-width: 30px; text-align: right; }
+
+  /* Code/text blocks */
+  .code-block { background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 11px; line-height: 1.6; overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 600px; overflow-y: auto; color: var(--text); }
+  .md-block { background: #0d0d0d; border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-size: 11px; line-height: 1.7; overflow-y: auto; max-height: 600px; }
+  .md-block h1, .md-block h2, .md-block h3 { color: var(--amber); margin: 14px 0 6px 0; }
+  .md-block h1:first-child, .md-block h2:first-child, .md-block h3:first-child { margin-top: 0; }
+  .md-block h1 { font-size: 16px; } .md-block h2 { font-size: 14px; } .md-block h3 { font-size: 12px; }
+  .md-block p { margin: 6px 0; }
+  .md-block p:first-child { margin-top: 0; }
+  .md-block p:last-child { margin-bottom: 0; }
+  .md-block code { background: #1a1a1a; padding: 1px 4px; border-radius: 3px; color: var(--green); font-size: 11px; }
+  .md-block pre { background: #0a0a0a; padding: 10px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }
+  .md-block pre code { background: none; padding: 0; }
+  .md-block ul, .md-block ol { padding-left: 20px; margin: 6px 0; }
+  .md-block li { margin: 3px 0; }
+  .md-block hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+  .md-block strong { color: var(--text); }
+  .md-block table { border-collapse: collapse; margin: 8px 0; }
+  .md-block th, .md-block td { border: 1px solid var(--border); padding: 4px 8px; font-size: 11px; }
+  .md-block th { background: #1a1a1a; color: var(--amber); }
+
+  /* Modal / Lightbox */
+  .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); z-index: 100; justify-content: center; align-items: center; cursor: pointer; }
+  .modal.active { display: flex; }
+  .modal img { max-width: 95vw; max-height: 95vh; }
+
+  /* Detail drawer */
+  .drawer { display: none; position: fixed; top: 0; right: 0; width: 55%; max-width: 800px; height: 100%; background: var(--bg); border-left: 1px solid var(--border); z-index: 90; overflow-y: auto; padding: 20px; }
+  .drawer.open { display: block; }
+  .drawer-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 89; }
+  .drawer-overlay.open { display: block; }
+  .drawer-close { position: sticky; top: 0; background: var(--bg); padding: 8px 0; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+  .drawer-close button { background: none; border: 1px solid var(--border); color: var(--text); padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 11px; }
+  .drawer-close button:hover { border-color: var(--red); color: var(--red); }
+  .drawer-title { color: var(--amber); font-size: 14px; }
+
+  .empty { color: #333; font-style: italic; padding: 20px; text-align: center; }
+  .pulse { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .badge-count { background: var(--green); color: #000; font-size: 9px; padding: 1px 6px; border-radius: 8px; font-weight: bold; margin-left: 6px; }
+
+
+  /* Quest/achievement rows */
+  .quest-row { padding: 5px 0; border-bottom: 1px solid #1a1a1a; font-size: 11px; }
+  .quest-row:last-child { border-bottom: none; }
+  .quest-header { display: flex; justify-content: space-between; align-items: center; }
+  .quest-name { color: var(--text); }
+  .quest-status { font-size: 9px; padding: 1px 6px; border-radius: 3px; }
+  .quest-status.active { background: #1a2a1a; color: var(--green); }
+  .quest-status.done { background: #1a1a2a; color: var(--blue); }
+  .quest-status.not-started { background: #1a1a1a; color: var(--text); }
+  .quest-desc { color: var(--dim); font-size: 10px; margin-top: 2px; }
+  .quest-progress { margin-top: 3px; }
+  .quest-progress-track { width: 100%; height: 4px; background: #1a1a1a; border-radius: 2px; overflow: hidden; }
+  .quest-progress-fill { height: 100%; background: var(--green); border-radius: 2px; }
+  .section-label { color: var(--amber); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin: 8px 0 4px 0; padding-bottom: 3px; border-bottom: 1px solid #1a1a1a; }
+  .section-label:first-child { margin-top: 0; }
+
+  /* Inventory grid */
+  .inv-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .inv-slot { background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 4px; padding: 4px; text-align: center; font-size: 9px; min-height: 36px; display: flex; flex-direction: column; justify-content: center; transition: border-color 0.2s; }
+  .inv-slot:hover { border-color: #333; }
+  .inv-slot .inv-name { color: var(--text); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .inv-slot .inv-count { color: var(--amber); font-size: 9px; }
+  .inv-slot .inv-tags { margin-top: 1px; }
+  .inv-slot .inv-tag { font-size: 7px; padding: 0 3px; border-radius: 2px; display: inline-block; }
+  .inv-tag.edible { background: #1a2a1a; color: var(--green); }
+  .inv-tag.equip { background: #1a1a2a; color: var(--blue); }
+
+  /* Reward sparkline */
+  .sparkline-container { margin-top: 8px; }
+  .sparkline-canvas { width: 100%; height: 60px; background: #0d0d0d; border: 1px solid #1a1a1a; border-radius: 4px; }
+
+  /* Grid 4 */
+  .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 1200px) { .grid-4 { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 800px) { .grid-4 { grid-template-columns: 1fr; } }
+
+  /* Grid 2 */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+  @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  /* Agent grid (multi-agent) */
+  .agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .agent-card { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 8px; padding: 10px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s; }
+  .agent-card.mode-aggressive { border-left-color: var(--red); background: #140a0a; }
+  .agent-card.mode-methodical { border-left-color: var(--amber); background: #14120a; }
+  .agent-card.mode-curious { border-left-color: var(--blue); background: #0a0e14; }
+  .agent-card.mode-efficient { border-left-color: var(--purple); background: #0e0a14; }
+  .agent-card.mode-qwen { border-left-color: var(--cyan); background: #0a1214; }
+  .agent-card:hover { border-color: #444; }
+  .agent-card.selected { border-color: var(--green); box-shadow: 0 0 8px rgba(0,255,65,0.15); border-left-color: var(--green); }
+  .agent-card.selected.mode-aggressive { border-color: var(--red); box-shadow: 0 0 8px rgba(255,65,65,0.15); border-left-color: var(--red); }
+  .agent-card.selected.mode-methodical { border-color: var(--amber); box-shadow: 0 0 8px rgba(255,170,0,0.15); border-left-color: var(--amber); }
+  .agent-card.selected.mode-curious { border-color: var(--blue); box-shadow: 0 0 8px rgba(0,170,255,0.15); border-left-color: var(--blue); }
+  .agent-card.selected.mode-efficient { border-color: var(--purple); box-shadow: 0 0 8px rgba(192,132,252,0.15); border-left-color: var(--purple); }
+  .agent-card.selected.mode-qwen { border-color: var(--cyan); box-shadow: 0 0 8px rgba(0,229,255,0.2); border-left-color: var(--cyan); }
+  .agent-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .agent-card-name { font-weight: bold; font-size: 12px; }
+  .agent-card-thumb { width: 100%; height: 120px; object-fit: contain; background: #000; border-radius: 4px; margin-top: 6px; }
+
+  /* Agent activity selector */
+  .agent-selector { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .agent-selector button { background: #1a1a1a; border: 1px solid var(--border); color: var(--text); padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 11px; transition: all 0.2s; }
+  .agent-selector button:hover { border-color: #444; }
+  .agent-selector button.active { border-color: var(--green); color: var(--green); }
+
+  /* Qwen Live tab */
+  .qwen-container { display: grid; grid-template-columns: 1fr 340px; height: calc(100vh - 130px); gap: 0; }
+  .qwen-stream { position: relative; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .qwen-stream img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .qwen-stream .no-signal { color: #555; font-size: 24px; font-family: inherit; position: absolute; }
+  .qwen-overlay { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.85); padding: 10px 16px; display: flex; gap: 20px; align-items: center; font-size: 13px; z-index: 10; }
+  .qwen-overlay .qstat { display: flex; align-items: center; gap: 6px; }
+  .qwen-overlay .qlabel { color: #888; font-size: 11px; }
+  .qwen-overlay .qval { color: var(--cyan); font-weight: bold; }
+  .qwen-overlay .qhp-bar { width: 120px; height: 10px; background: #333; border-radius: 5px; overflow: hidden; }
+  .qwen-overlay .qhp-fill { height: 100%; background: #4caf50; transition: width 0.3s; }
+  .qwen-overlay .qhp-fill.low { background: var(--red); }
+  .qwen-overlay .qhp-fill.mid { background: var(--amber); }
+  .qwen-badge { background: var(--cyan); color: #000; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; }
+  .qwen-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .qwen-status-dot.live { background: #4caf50; animation: qpulse 1.5s infinite; }
+  .qwen-status-dot.stale { background: var(--red); }
+  @keyframes qpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  .qwen-side { background: #111; border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .qwen-side-header { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; font-weight: bold; color: var(--cyan); }
+  .qwen-think { padding: 12px 16px; border-bottom: 1px solid var(--border); max-height: 200px; overflow-y: auto; }
+  .qwen-think .qt-label { color: #888; font-size: 11px; margin-bottom: 4px; }
+  .qwen-think .qt-text { color: #ccc; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .qwen-actions { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .qwen-action { padding: 6px 16px; border-bottom: 1px solid #1a1a1a; font-size: 12px; }
+  .qwen-action .qa-turn { color: #555; margin-right: 8px; }
+  .qwen-action .qa-text { color: #81c784; }
+  .qwen-action .qa-text.mem { color: #ce93d8; }
+  .qwen-action .qa-text.heal { color: #ef5350; }
+  .qwen-action .qa-text.warp { color: var(--cyan); }
+  .qwen-action .qa-pos { color: #666; font-size: 11px; }
+  .qwen-mem { padding: 12px 16px; border-top: 1px solid var(--border); max-height: 150px; overflow-y: auto; }
+  .qwen-mem .qm-label { color: #888; font-size: 11px; margin-bottom: 4px; }
+  .qwen-mem .qm-text { color: #aaa; font-size: 11px; line-height: 1.4; white-space: pre-wrap; }
+  .tab[data-tab="qwen"].active { color: var(--cyan) !important; border-bottom-color: var(--cyan) !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>KAETRAM AI AGENT <span>// live observability</span></h1>
+  <div class="header-right">
+    <div class="header-links">
+      <a href="http://__GAME_HOST__:9000" target="_blank">Play Game</a>
+      <a href="/api/live">API</a>
+    </div>
+  </div>
+</header>
+
+<div class="status-bar">
+  <div class="status-item"><span class="dot amber" id="dot-agent"></span> Agent: <span id="status-agent">...</span></div>
+  <div class="status-item"><span class="dot amber" id="dot-server"></span> Server: <span id="status-server">...</span></div>
+  <div class="status-item">Turn: <span id="status-turn" style="color:var(--green)">-</span></div>
+  <div class="status-item">Tokens: <span id="status-tokens" style="color:var(--purple)">-</span></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="overview">Overview</div>
+  <div class="tab" data-tab="activity">Activity</div>
+  <div class="tab" data-tab="world">World</div>
+  <div class="tab" data-tab="sessions">Sessions</div>
+  <div class="tab" data-tab="prompt">Prompt</div>
+  <div class="tab" data-tab="qwen" style="color:var(--cyan);border-bottom-color:transparent" onclick="this.style.borderBottomColor=this.classList.contains('active')?'var(--cyan)':'transparent'">QWEN LIVE</div>
+</div>
+
+<main>
+  <!-- ===== OVERVIEW TAB ===== -->
+  <div class="tab-content active" id="tab-overview">
+    <!-- Multi-agent grid (hidden in single-agent mode) -->
+    <div id="agent-grid-container" class="agent-grid" style="display:none"></div>
+
+    <div class="hero" id="hero">
+      <img id="hero-img" src="/screenshots/live_screen.png" alt="Latest game screenshot" onclick="openLightbox(this.src)">
+      <div class="caption">
+        <span id="hero-caption">Latest agent view</span>
+        <span id="hero-time">-</span>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h2>Quests</h2>
+        <div id="mission-stats"><div class="empty">Waiting for game state...</div></div>
+      </div>
+      <div class="card">
+        <h2>Inventory <span class="badge" id="inv-count">0</span></h2>
+        <div id="inventory-panel"><div class="empty">No items</div></div>
+      </div>
+    </div>
+    <div class="card full">
+      <h2>Live Activity <span style="color:var(--text);font-size:10px;font-weight:normal">newest first</span> <span class="badge" id="activity-log-name">-</span></h2>
+      <div class="activity-feed" id="activity-feed-overview"><div class="empty">Waiting for agent...</div></div>
+    </div>
+  </div>
+
+  <!-- ===== ACTIVITY TAB ===== -->
+  <div class="tab-content" id="tab-activity">
+    <div class="card full">
+      <h2>Full Activity Feed <span style="color:var(--text);font-size:10px;font-weight:normal">newest first</span> <span class="badge" id="activity-log-name-full">-</span></h2>
+      <div id="activity-agent-selector" class="agent-selector" style="display:none"></div>
+      <p style="font-size:10px;color:var(--text);margin-bottom:8px">Click any event to expand details. Tool calls show input code/params.</p>
+      <div class="activity-feed" id="activity-feed-full" style="max-height:none"><div class="empty">Waiting for agent...</div></div>
+    </div>
+  </div>
+
+  <!-- ===== WORLD TAB ===== -->
+  <div class="tab-content" id="tab-world">
+    <div class="grid">
+      <div class="card">
+        <h2>Nearby Entities <span class="badge" id="entity-count">0</span></h2>
+        <div id="entity-list" style="max-height:500px;overflow-y:auto"><div class="empty">Waiting for game state...</div></div>
+      </div>
+      <div class="card">
+        <h2>Screenshots <span class="badge" id="shot-count">0</span></h2>
+        <div class="gallery" id="gallery"><div class="empty">No screenshots</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SESSIONS TAB ===== -->
+  <div class="tab-content" id="tab-sessions">
+    <div class="grid">
+      <div class="card">
+        <h2>Session History</h2>
+        <div id="sessions-list"><div class="empty">No sessions</div></div>
+      </div>
+      <div class="card">
+        <h2>Session Notes <span class="badge">session_log.md</span></h2>
+        <div id="session-notes" class="md-block" style="max-height:500px"><div class="empty">Loading...</div></div>
+      </div>
+    </div>
+    <div class="grid" style="margin-top:14px">
+      <div class="card">
+        <h2>Dataset Stats</h2>
+        <div id="dataset-stats"><div class="empty">No dataset recorded yet</div></div>
+      </div>
+      <div class="card">
+        <h2>SFT Pipeline</h2>
+        <div id="sft-stats"><div class="empty">No SFT data yet</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PROMPT TAB ===== -->
+  <div class="tab-content" id="tab-prompt">
+    <div class="card full">
+      <h2>System Prompt <span class="badge">prompts/system.md</span></h2>
+      <div id="prompt-content" class="md-block"><div class="empty">Loading...</div></div>
+    </div>
+    <div class="agent-grid" id="personality-grid" style="margin-top:14px"></div>
+    <div class="card full" style="margin-top:14px">
+      <h2>Game Knowledge <span class="badge">prompts/game_knowledge.md</span></h2>
+      <div id="gk-content" class="md-block" style="max-height:400px"><div class="empty">Loading...</div></div>
+    </div>
+    <div class="card full" style="margin-top:14px">
+      <h2>CLAUDE.md <span class="badge">project config</span></h2>
+      <div id="prompt-claude-md" class="md-block" style="max-height:500px"><div class="empty">Loading...</div></div>
+    </div>
+  </div>
+
+  <!-- ===== QWEN LIVE TAB ===== -->
+  <div class="tab-content" id="tab-qwen">
+    <div class="qwen-container">
+      <div class="qwen-stream">
+        <img id="qwen-stream-img" src="" alt="Qwen stream">
+        <div class="no-signal" id="qwen-no-signal">QWEN AGENT — WAITING FOR STREAM</div>
+        <div class="qwen-overlay">
+          <span class="qwen-status-dot stale" id="qwen-dot"></span>
+          <span class="qwen-badge">QWEN 3.5-9B</span>
+          <div class="qstat"><span class="qlabel">HP</span>
+            <div class="qhp-bar"><div class="qhp-fill" id="qwen-hp-fill" style="width:100%"></div></div>
+            <span class="qval" id="qwen-hp-text">?/?</span>
+          </div>
+          <div class="qstat"><span class="qlabel">LVL</span><span class="qval" id="qwen-level">?</span></div>
+          <div class="qstat"><span class="qlabel">POS</span><span class="qval" id="qwen-pos">?,?</span></div>
+          <div class="qstat"><span class="qlabel">TURN</span><span class="qval" id="qwen-turn">0</span></div>
+        </div>
+      </div>
+      <div class="qwen-side">
+        <div class="qwen-side-header">Qwen Agent — Live Feed</div>
+        <div class="qwen-think">
+          <div class="qt-label">THINKING</div>
+          <div class="qt-text" id="qwen-think-text">Waiting for agent...</div>
+        </div>
+        <div class="qwen-actions" id="qwen-action-log"></div>
+        <div class="qwen-mem">
+          <div class="qm-label">MEMORY (progress.json)</div>
+          <div class="qm-text" id="qwen-mem-text">No memory yet</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Lightbox -->
+<div class="modal" id="lightbox" onclick="this.classList.remove('active')">
+  <img id="lightbox-img" src="">
+</div>
+
+<!-- Session detail drawer -->
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-close">
+    <span class="drawer-title" id="drawer-title">Session Detail</span>
+    <button onclick="closeDrawer()">Close (Esc)</button>
+  </div>
+  <div id="drawer-body"></div>
+</div>
+
+<script>
+// === Global state ===
+let currentMode = 'none';   // 'single', 'multi', 'none'
+let selectedAgent = null;   // null = default (single-agent), or agent ID for multi
+let agentList = [];         // cached /api/agents response
+
+// === WebSocket for realtime screenshot push ===
+let ws = null;
+let wsConnected = false;
+let wsReconnectTimer = null;
+
+function connectWebSocket() {
+  const wsHost = location.hostname || 'localhost';
+  const wsUrl = 'ws://' + wsHost + ':8081';
+  try { ws = new WebSocket(wsUrl); } catch(e) { return; }
+
+  ws.onopen = () => {
+    wsConnected = true;
+  };
+
+  ws.onclose = () => {
+    wsConnected = false;
+    ws = null;
+    if (!wsReconnectTimer) {
+      wsReconnectTimer = setTimeout(() => { wsReconnectTimer = null; connectWebSocket(); }, 3000);
+    }
+  };
+
+  ws.onerror = () => {};
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'screenshot') onScreenshotNotification(msg.agent, msg.ts);
+    } catch(e) {}
+  };
+}
+
+function onScreenshotNotification(agentId, ts) {
+  const img = document.getElementById('hero-img');
+  let shouldUpdateHero = false;
+  let screenshotBase;
+
+  if (currentMode === 'multi' && selectedAgent !== null) {
+    if (agentId === selectedAgent) {
+      shouldUpdateHero = true;
+      screenshotBase = '/screenshots/agent_' + agentId + '/live_screen.png';
+    }
+  } else if (currentMode !== 'multi' && agentId === null) {
+    shouldUpdateHero = true;
+    screenshotBase = '/screenshots/live_screen.png';
+  }
+
+  // Always update agent thumbnail in multi-agent grid
+  if (agentId !== null) {
+    const thumb = document.querySelector('#agent-card-' + agentId + ' .agent-card-thumb');
+    if (thumb) {
+      const thumbUrl = '/screenshots/agent_' + agentId + '/live_screen.png?t=' + ts;
+      const pre = new Image();
+      pre.onload = () => { thumb.src = thumbUrl; thumb.style.display = ''; };
+      pre.src = thumbUrl;
+    }
+  }
+
+  if (shouldUpdateHero && screenshotBase) {
+    const newUrl = screenshotBase + '?t=' + ts;
+    const preload = new Image();
+    preload.onload = () => { img.src = newUrl; };
+    preload.src = newUrl;
+    const d = new Date(ts * 1000);
+    document.getElementById('hero-time').textContent = d.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  }
+
+}
+
+connectWebSocket();
+
+// === Tab switching ===
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    if (tab.dataset.tab === 'prompt' && !promptLoaded) loadPrompt();
+    if (tab.dataset.tab === 'sessions') { loadSessionNotes(); loadDatasetStats(); loadSftStats(); }
+  });
+});
+
+// === Lightbox ===
+function openLightbox(src) {
+  document.getElementById('lightbox-img').src = src;
+  document.getElementById('lightbox').classList.add('active');
+}
+
+// === Drawer ===
+function openDrawer(title, html) {
+  document.getElementById('drawer-title').textContent = title;
+  document.getElementById('drawer-body').innerHTML = html;
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-overlay').classList.add('open');
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.remove('open');
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeDrawer(); document.getElementById('lightbox').classList.remove('active'); }
+});
+
+// === Helpers ===
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function humanTime(s) {
+  if (s < 0) return 'never';
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  return Math.floor(s/3600) + 'h ago';
+}
+function sizeStr(bytes) {
+  if (bytes > 1048576) return (bytes/1048576).toFixed(1) + ' MB';
+  if (bytes > 1024) return Math.round(bytes/1024) + ' KB';
+  return bytes + ' B';
+}
+function simpleMarkdown(text) {
+  // Normalize: collapse 3+ newlines into 2
+  text = text.replace(/\n{3,}/g, '\n\n');
+  // Extract fenced code blocks first to protect them
+  var codeBlocks = [];
+  text = text.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
+    codeBlocks.push('<pre><code>' + code.replace(/\n$/,'') + '</code></pre>');
+    return '\x00CODE' + (codeBlocks.length - 1) + '\x00';
+  });
+  // Split into paragraphs on double newline
+  var paragraphs = text.split(/\n\n/);
+  var html = paragraphs.map(function(block) {
+    block = block.trim();
+    if (!block) return '';
+    // Code block placeholder
+    var m = block.match(/^\x00CODE(\d+)\x00$/);
+    if (m) return codeBlocks[parseInt(m[1])];
+    // Heading
+    if (/^###\s/.test(block)) return block.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    if (/^##\s/.test(block)) return block.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    if (/^#\s/.test(block)) return block.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    // HR
+    if (/^---$/.test(block)) return '<hr>';
+    // List block (all lines start with -)
+    if (/^- /m.test(block)) {
+      var items = block.split('\n').map(function(line) {
+        var li = line.replace(/^- /, '');
+        li = li.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        li = li.replace(/`([^`]+)`/g, '<code>$1</code>');
+        return '<li>' + li + '</li>';
+      }).join('');
+      return '<ul>' + items + '</ul>';
+    }
+    // Table
+    if (/^\|/.test(block)) {
+      var rows = block.split('\n').filter(function(r) { return !/^\|\s*[-:]+/.test(r); });
+      var tableHtml = '<table>';
+      rows.forEach(function(row, i) {
+        var cells = row.split('|').filter(function(c, j, a) { return j > 0 && j < a.length; });
+        var tag = i === 0 ? 'th' : 'td';
+        tableHtml += '<tr>' + cells.map(function(c) { return '<' + tag + '>' + c.trim() + '</' + tag + '>'; }).join('') + '</tr>';
+      });
+      tableHtml += '</table>';
+      return tableHtml;
+    }
+    // Regular paragraph — inline formatting + soft line breaks
+    block = block.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    block = block.replace(/`([^`]+)`/g, '<code>$1</code>');
+    block = block.replace(/\n/g, '<br>');
+    return '<p>' + block + '</p>';
+  }).join('\n');
+  return html;
+}
+
+const typeMap = {0:'player',1:'npc',2:'item',3:'mob',4:'item',8:'item',12:'npc',player:'player',mob:'mob',npc:'npc',item:'item'};
+
+// === Semantic action classifier ===
+function classifyAction(ev) {
+  if (ev.type === 'thinking') return { icon: '\ud83e\udde0', cls: 'thinking-event', label: 'Think' };
+  if (ev.type === 'text') return { icon: '\ud83d\udcac', cls: 'text-event', label: 'Say' };
+  const tool = (ev.tool || '').toLowerCase();
+  const sum = (ev.summary || '').toLowerCase();
+  const detail = (ev.detail || '').toLowerCase();
+  if (tool.includes('browser_run_code')) {
+    if (detail.includes('page.goto') || detail.includes('login') || sum.includes('login'))
+      return { icon: '\ud83d\udee1', cls: 'login-event', label: 'Login' };
+    if (detail.includes('__extractgamestate') || detail.includes('__generateasciimap') || detail.includes('__latestgamestate'))
+      return { icon: '\ud83d\udc41', cls: 'observe-event', label: 'Observe' };
+    if (detail.includes('__clickentity') || detail.includes('dispatchevent') || sum.includes('click'))
+      return { icon: '\u2694\ufe0f', cls: 'attack-event', label: 'Click' };
+    if (detail.includes('__clicktile') || detail.includes('keyboard'))
+      return { icon: '\ud83d\udeb6', cls: 'move-event', label: 'Move' };
+    if (detail.includes('warp'))
+      return { icon: '\u26a1', cls: 'move-event', label: 'Warp' };
+    if (detail.includes('__talktonpc') || detail.includes('__acceptquest'))
+      return { icon: '\ud83d\udde3', cls: 'text-event', label: 'NPC' };
+    return { icon: '\ud83c\udfae', cls: '', label: 'Code' };
+  }
+  if (tool.includes('bash'))
+    return { icon: '\ud83d\udcbe', cls: 'save-event', label: 'Shell' };
+  if (tool.includes('read'))
+    return { icon: '\ud83d\udcc4', cls: 'observe-event', label: 'Read' };
+  if (tool.includes('toolsearch'))
+    return { icon: '\ud83d\udd0d', cls: '', label: 'Search' };
+  return { icon: '\u25b6', cls: '', label: tool.split(':').pop().substring(0,10) };
+}
+
+// === Build single event HTML ===
+function buildEventHTML(ev, idx, prefix, withDetails, isNew) {
+  const id = prefix + '-' + idx;
+  const cls = classifyAction(ev);
+  const newCls = isNew ? ' ev-new' : '';
+  let html = '';
+
+  if (ev.type === 'tool') {
+    html += '<div class="activity-event ' + cls.cls + newCls + '" data-ev-idx="' + idx + '" onclick="toggleDetail(\'' + id + '\')">'
+      + '<span class="ev-icon">' + cls.icon + '</span>'
+      + '<span class="turn-num">#' + ev.turn + '</span>'
+      + '<span class="tool-name">' + esc(cls.label) + '</span>'
+      + '<span class="summary">' + esc(ev.summary) + '</span>'
+      + '<span class="ev-time" data-ev-turn="' + ev.turn + '"></span>'
+      + '</div>';
+    if (withDetails && ev.detail) {
+      html += '<div class="event-detail" id="' + id + '">' + esc(ev.detail) + '</div>';
+    }
+  } else if (ev.type === 'text') {
+    html += '<div class="activity-event text-event' + newCls + '" data-ev-idx="' + idx + '" onclick="toggleDetail(\'' + id + '\')">'
+      + '<span class="ev-icon">' + cls.icon + '</span>'
+      + '<span class="turn-num">#' + ev.turn + '</span>'
+      + '<span class="agent-text">' + esc(ev.text).substring(0, 200) + '</span>'
+      + '<span class="ev-time" data-ev-turn="' + ev.turn + '"></span>'
+      + '</div>';
+    if (withDetails) {
+      html += '<div class="event-detail" id="' + id + '">' + esc(ev.text) + '</div>';
+    }
+  } else if (ev.type === 'thinking') {
+    html += '<div class="activity-event thinking-event' + newCls + '" data-ev-idx="' + idx + '" onclick="toggleDetail(\'' + id + '\')">'
+      + '<span class="ev-icon">' + cls.icon + '</span>'
+      + '<span class="turn-num">#' + ev.turn + '</span>'
+      + '<span class="think-text">' + esc(ev.text).substring(0, 140) + '</span>'
+      + '<span class="ev-time" data-ev-turn="' + ev.turn + '"></span>'
+      + '</div>';
+    if (withDetails) {
+      html += '<div class="event-detail" id="' + id + '">' + esc(ev.text) + '</div>';
+    }
+  }
+  return html;
+}
+
+// === Build full activity HTML (used for drawer and initial render) ===
+function buildActivityHTML(events, withDetails, prefix) {
+  if (!events || !events.length) return '<div class="empty">No events yet</div>';
+  let html = '';
+  for (let i = events.length - 1; i >= 0; i--) {
+    html += buildEventHTML(events[i], i, prefix || 'ev', withDetails, false);
+  }
+  return html;
+}
+
+function toggleDetail(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('open');
+}
+
+// === Follow / auto-scroll system ===
+let feedEventCounts = { ov: 0, full: 0 };
+
+
+// === Incremental feed updater (newest-first) ===
+function updateFeedIncremental(feedElId, events, withDetails, prefix) {
+  const feedId = feedElId.includes('overview') ? 'ov' : 'full';
+  const feed = document.getElementById(feedElId);
+  if (!feed || !events || !events.length) return;
+
+  const prevCount = feedEventCounts[feedId];
+  const isOverview = feedId === 'ov';
+  const displayEvents = isOverview ? events.slice(-30) : events;
+  const totalNew = displayEvents.length;
+
+  // If the log file changed (event count went down), or first render — full rebuild
+  if (prevCount === 0 || totalNew < prevCount || (isOverview && prevCount > 30)) {
+    feed.innerHTML = buildActivityHTML(displayEvents, withDetails, prefix);
+    feedEventCounts[feedId] = totalNew;
+    return;
+  }
+
+  // Prepend only new events (newest first, at top)
+  const newCount = totalNew - prevCount;
+  if (newCount <= 0) return;
+
+  // Remove empty placeholder if present
+  const emptyEl = feed.querySelector('.empty');
+  if (emptyEl) emptyEl.remove();
+
+  // Build new events in reverse order (newest first)
+  let fragment = '';
+  for (let i = displayEvents.length - 1; i >= displayEvents.length - newCount; i--) {
+    fragment += buildEventHTML(displayEvents[i], i, prefix, withDetails, true);
+  }
+
+  feed.insertAdjacentHTML('afterbegin', fragment);
+
+  // For overview, trim old events from the bottom if over 30
+  if (isOverview) {
+    const existing = feed.querySelectorAll('.activity-event');
+    const toRemove = existing.length - 30;
+    for (let i = 0; i < toRemove; i++) {
+      const last = existing[existing.length - 1 - i];
+      const next = last.nextElementSibling;
+      if (next && next.classList.contains('event-detail')) next.remove();
+      last.remove();
+    }
+  }
+
+  feedEventCounts[feedId] = totalNew;
+
+  // Strip animation class after it plays
+  setTimeout(() => {
+    feed.querySelectorAll('.ev-new').forEach(el => el.classList.remove('ev-new'));
+  }, 1300);
+}
+
+// === HP bar helper ===
+function hpBar(hp, maxHp, width) {
+  if (!maxHp || maxHp <= 0) return '';
+  const pct = Math.max(0, Math.min(100, Math.round(hp / maxHp * 100)));
+  const cls = pct > 60 ? 'high' : pct > 25 ? 'mid' : 'low';
+  const w = width || 50;
+  return '<div class="hp-bar-bg" style="width:' + w + 'px"><div class="hp-bar-fill ' + cls + '" style="width:' + pct + '%"></div></div> <span style="font-size:9px">' + hp + '/' + maxHp + '</span>';
+}
+
+// === Lazy-loaded tabs ===
+let promptLoaded = false;
+let lastGalleryKey = '';
+
+async function loadPrompt() {
+  try {
+    const data = await (await fetch('/api/prompt')).json();
+    document.getElementById('prompt-content').innerHTML = simpleMarkdown(esc(data.content || ''));
+
+    // Render personality cards
+    const PCOLORS = { aggressive: 'var(--red)', methodical: 'var(--amber)', curious: 'var(--blue)', efficient: 'var(--purple)', qwen: 'var(--cyan)' };
+    const PBGS = { aggressive: '#140a0a', methodical: '#14120a', curious: '#0a0e14', efficient: '#0e0a14', qwen: '#0a1214' };
+    const PLABELS = { aggressive: 'AGGRESSIVE', methodical: 'METHODICAL', curious: 'CURIOUS', efficient: 'EFFICIENT', qwen: 'QWEN 3.5-9B' };
+    const grid = document.getElementById('personality-grid');
+    if (data.personalities && Object.keys(data.personalities).length > 0) {
+      let html = '';
+      for (const [name, content] of Object.entries(data.personalities)) {
+        const color = PCOLORS[name] || 'var(--green)';
+        const bg = PBGS[name] || 'var(--card)';
+        html += '<div class="card" style="border-left:3px solid ' + color + ';background:' + bg + '">';
+        html += '<h2 style="color:' + color + '">' + (PLABELS[name] || name.toUpperCase()) + ' <span class="badge" style="color:' + color + '">prompts/personalities/' + name + '.md</span></h2>';
+        html += '<div class="md-block" style="max-height:300px">' + simpleMarkdown(esc(content)) + '</div>';
+        html += '</div>';
+      }
+      grid.innerHTML = html;
+    }
+
+    // Render game knowledge
+    if (data.game_knowledge) {
+      document.getElementById('gk-content').innerHTML = simpleMarkdown(esc(data.game_knowledge));
+    }
+
+    // Load CLAUDE.md
+    try {
+      const cmd = await (await fetch('/api/raw?file=claude_md')).json();
+      document.getElementById('prompt-claude-md').innerHTML = simpleMarkdown(esc(cmd.content || cmd.error || ''));
+    } catch(e2) {}
+
+    promptLoaded = true;
+  } catch(e) {}
+}
+
+async function loadSessionNotes() {
+  try {
+    const data = await (await fetch('/api/session-log')).json();
+    document.getElementById('session-notes').innerHTML = simpleMarkdown(esc(data.content || ''));
+  } catch(e) {}
+}
+
+async function loadDatasetStats() {
+  try {
+    const data = await (await fetch('/api/dataset-stats')).json();
+    let html = '';
+    if (data.sessions && data.sessions.length > 0) {
+      html += '<div class="stat"><span class="stat-label">Total Steps</span><span class="stat-value">' + data.total_steps + '</span></div>';
+      html += '<div class="stat"><span class="stat-label">Total Reward</span><span class="stat-value">' + data.total_reward + '</span></div>';
+      if (data.actions && Object.keys(data.actions).length > 0) {
+        const sorted = Object.entries(data.actions).sort((a,b) => b[1] - a[1]);
+        html += '<div class="section-label" style="margin-top:10px">Action Breakdown</div>';
+        for (const [tool, count] of sorted) {
+          const pct = Math.round(count / data.total_steps * 100);
+          html += '<div class="stat"><span class="stat-label">' + esc(tool) + '</span><span class="stat-value">' + count + ' (' + pct + '%)</span></div>';
+        }
+      }
+      html += '<div class="section-label" style="margin-top:10px">Sessions</div>';
+      for (const s of data.sessions) {
+        const avgR = s.steps > 0 ? (s.total_reward / s.steps).toFixed(3) : '0';
+        html += '<div class="stat"><span class="stat-label">' + esc(s.name) + '</span><span class="stat-value">' + s.steps + ' steps, R=' + s.total_reward + ' (avg ' + avgR + ')</span></div>';
+      }
+      if (data.rewards && data.rewards.length > 1) {
+        html += '<div class="section-label" style="margin-top:10px">Reward Trend</div>';
+        html += '<div class="sparkline-container"><canvas class="sparkline-canvas" id="reward-sparkline"></canvas></div>';
+      }
+    }
+    // Multi-agent raw sessions
+    if (data.raw_sessions > 0) {
+      html += '<div class="section-label" style="margin-top:10px">Multi-Agent Raw Logs</div>';
+      html += '<div class="stat"><span class="stat-label">Raw Sessions</span><span class="stat-value">' + data.raw_sessions + '</span></div>';
+      html += '<div class="stat"><span class="stat-label">Raw Size</span><span class="stat-value">' + sizeStr(data.raw_total_size) + '</span></div>';
+    }
+    if (!html) html = '<div class="empty">No dataset recorded yet</div>';
+    document.getElementById('dataset-stats').innerHTML = html;
+    if (data.rewards && data.rewards.length > 1) {
+      setTimeout(() => drawSparkline('reward-sparkline', data.rewards), 50);
+    }
+  } catch(e) {}
+}
+
+async function loadSftStats() {
+  try {
+    const data = await (await fetch('/api/sft-stats')).json();
+    let html = '';
+    const ext = data.extracted || {};
+    const qw = data.qwen_sft || {};
+    if (ext.total_turns > 0 || qw.total > 0) {
+      html += '<div class="section-label">Extracted Turns</div>';
+      html += '<div class="stat"><span class="stat-label">Turn Files</span><span class="stat-value">' + (ext.files || 0) + '</span></div>';
+      html += '<div class="stat"><span class="stat-label">Total Turns</span><span class="stat-value">' + (ext.total_turns || 0) + '</span></div>';
+      if (qw.total > 0) {
+        html += '<div class="section-label" style="margin-top:8px">Qwen3.5 SFT Dataset</div>';
+        html += '<div class="stat"><span class="stat-label">Train Records</span><span class="stat-value">' + qw.train + '</span></div>';
+        html += '<div class="stat"><span class="stat-label">Val Records</span><span class="stat-value">' + qw.val + '</span></div>';
+        html += '<div class="stat"><span class="stat-label">Total</span><span class="stat-value" style="color:var(--purple)">' + qw.total + '</span></div>';
+      }
+    } else {
+      html = '<div class="empty">No SFT data yet. Run extract_turns.py + convert_to_qwen.py</div>';
+    }
+    document.getElementById('sft-stats').innerHTML = html;
+  } catch(e) {}
+}
+
+function drawSparkline(canvasId, values) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const w = rect.width, h = rect.height;
+  const pad = 4;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const zeroY = h - pad - ((0 - min) / range) * (h - pad * 2);
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, zeroY); ctx.lineTo(w - pad, zeroY); ctx.stroke();
+  ctx.strokeStyle = '#00ff41'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < values.length; i++) {
+    const x = pad + (i / (values.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((values[i] - min) / range) * (h - pad * 2);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.lineTo(w - pad, h - pad); ctx.lineTo(pad, h - pad); ctx.closePath();
+  ctx.fillStyle = 'rgba(0, 255, 65, 0.05)'; ctx.fill();
+  ctx.fillStyle = '#555'; ctx.font = '9px monospace';
+  ctx.fillText(max.toFixed(2), pad + 2, pad + 8);
+  ctx.fillText(min.toFixed(2), pad + 2, h - pad - 2);
+}
+
+
+// === Load session detail in drawer ===
+async function openSession(name, logDir) {
+  openDrawer('Loading ' + name + '...', '<div class="empty pulse">Parsing session log...</div>');
+  try {
+    let url = '/api/session-detail?name=' + encodeURIComponent(name);
+    if (logDir) url += '&log_dir=' + encodeURIComponent(logDir);
+    const data = await (await fetch(url)).json();
+    let html = '<div style="margin-bottom:12px">';
+    html += '<div class="stat"><span class="stat-label">Model</span><span class="stat-value">' + esc(data.model) + '</span></div>';
+    html += '<div class="stat"><span class="stat-label">Turns</span><span class="stat-value">' + data.turn + '</span></div>';
+    html += '<div class="stat"><span class="stat-label">Cost</span><span class="stat-value">$' + data.cost_usd + '</span></div>';
+    if (data.duration_ms > 0) {
+      html += '<div class="stat"><span class="stat-label">Duration</span><span class="stat-value">' + Math.round(data.duration_ms / 1000) + 's</span></div>';
+    }
+    // Token breakdown
+    const tok = data.tokens || {};
+    if (tok.input > 0 || tok.output > 0) {
+      html += '<div class="section-label" style="margin-top:8px">Token Breakdown</div>';
+      html += '<div class="stat"><span class="stat-label">Input</span><span class="stat-value">' + (tok.input || 0).toLocaleString() + '</span></div>';
+      html += '<div class="stat"><span class="stat-label">Cache Read</span><span class="stat-value">' + (tok.cache_read || 0).toLocaleString() + '</span></div>';
+      html += '<div class="stat"><span class="stat-label">Cache Create</span><span class="stat-value">' + (tok.cache_create || 0).toLocaleString() + '</span></div>';
+      html += '<div class="stat"><span class="stat-label">Output</span><span class="stat-value">' + (tok.output || 0).toLocaleString() + '</span></div>';
+      html += '<div class="stat"><span class="stat-label">Context (last)</span><span class="stat-value">' + (tok.context || 0).toLocaleString() + '</span></div>';
+    }
+    html += '</div>';
+    html += buildActivityHTML(data.events, true);
+    document.getElementById('drawer-title').textContent = data.name;
+    document.getElementById('drawer-body').innerHTML = html;
+  } catch(e) {
+    document.getElementById('drawer-body').innerHTML = '<div class="empty">Error loading session</div>';
+  }
+}
+
+// === Multi-agent: select agent ===
+function selectAgent(id) {
+  selectedAgent = id;
+  feedEventCounts = { ov: 0, full: 0 };
+  document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
+  const el = document.getElementById('agent-card-' + id);
+  if (el) el.classList.add('selected');
+  // Preload before swapping to avoid black flash
+  const img = document.getElementById('hero-img');
+  const newSrc = '/screenshots/agent_' + id + '/live_screen.png?t=' + Date.now();
+  const pre = new Image();
+  pre.onload = () => { img.src = newSrc; };
+  pre.src = newSrc;
+  refreshSlow();
+}
+
+// === Refresh loops ===
+
+async function refreshFast() {
+  // Screenshot — skip HTTP polling when WebSocket is delivering updates
+  if (!wsConnected) {
+    const img = document.getElementById('hero-img');
+    let screenshotBase;
+    if (currentMode === 'multi' && selectedAgent !== null) {
+      screenshotBase = '/screenshots/agent_' + selectedAgent + '/live_screen.png';
+    } else {
+      screenshotBase = '/screenshots/live_screen.png';
+    }
+    try {
+      const headResp = await fetch(screenshotBase, { method: 'HEAD' });
+      const lastMod = headResp.headers.get('Last-Modified') || '';
+      const cacheKey = lastMod || Date.now();
+      const newUrl = screenshotBase + '?v=' + encodeURIComponent(cacheKey);
+      if (img.src !== newUrl && img.dataset.lastMod !== lastMod) {
+        img.dataset.lastMod = lastMod;
+        const preload = new Image();
+        preload.onload = () => { img.src = newUrl; };
+        preload.src = newUrl;
+      }
+    } catch(e) {}
+  }
+
+  // Live status
+  try {
+    const live = await (await fetch('/api/live')).json();
+    currentMode = live.mode || 'none';
+
+    // Agent status
+    const dotAgent = document.getElementById('dot-agent');
+    const statusAgent = document.getElementById('status-agent');
+    if (live.mode === 'multi') {
+      dotAgent.className = 'dot ' + (live.agent_count > 0 ? 'green' : 'red');
+      statusAgent.textContent = live.agent_count + ' AGENTS';
+      statusAgent.style.color = live.agent_count > 0 ? 'var(--green)' : 'var(--red)';
+    } else {
+      dotAgent.className = 'dot ' + (live.agent_running ? 'green' : 'red');
+      statusAgent.textContent = live.agent_running ? 'PLAYING' : 'STOPPED';
+      statusAgent.style.color = live.agent_running ? 'var(--green)' : 'var(--red)';
+    }
+
+    // Server status
+    const dotServer = document.getElementById('dot-server');
+    const statusServer = document.getElementById('status-server');
+    dotServer.className = 'dot ' + (live.game_server_up ? 'green' : 'red');
+    if (live.active_ports && live.active_ports.length > 0) {
+      statusServer.textContent = 'ONLINE (' + live.active_ports.join(', ') + ')';
+    } else {
+      statusServer.textContent = live.game_server_up ? 'ONLINE' : 'DOWN';
+    }
+    statusServer.style.color = live.game_server_up ? 'var(--green)' : 'var(--red)';
+
+    document.getElementById('hero-time').textContent = live.screenshot_time || '-';
+  } catch(e) {}
+
+  // Game state (respects selected agent)
+  try {
+    const gsUrl = selectedAgent !== null ? '/api/game-state?agent=' + selectedAgent : '/api/game-state';
+    const gs = await (await fetch(gsUrl)).json();
+    const entities = gs.nearby_entities || [];
+    document.getElementById('entity-count').textContent = entities.length;
+
+    const fresh = gs.freshness_seconds;
+
+    // Inventory
+    const inv = gs.inventory || [];
+    document.getElementById('inv-count').textContent = inv.length;
+    if (inv.length > 0) {
+      let ihtml = '<div class="inv-grid">';
+      for (const item of inv) {
+        let tags = '';
+        if (item.edible) tags += '<span class="inv-tag edible">eat</span> ';
+        if (item.equippable) tags += '<span class="inv-tag equip">equip</span>';
+        ihtml += '<div class="inv-slot" title="' + esc(item.name || item.key) + '">' +
+          '<div class="inv-name">' + esc(item.name || item.key || '?') + '</div>' +
+          (item.count > 1 ? '<div class="inv-count">x' + item.count + '</div>' : '') +
+          (tags ? '<div class="inv-tags">' + tags + '</div>' : '') + '</div>';
+      }
+      ihtml += '</div>';
+      document.getElementById('inventory-panel').innerHTML = ihtml;
+    } else if (gs.freshness_seconds >= 0) {
+      document.getElementById('inventory-panel').innerHTML = '<div class="empty">Empty inventory</div>';
+    }
+
+    // Quests (from game state only — handles both object and string formats)
+    const quests = gs.quests || [];
+    if (quests.length > 0) {
+      let qhtml = '';
+      for (const q of quests) {
+        if (typeof q === 'string') {
+          // String format: "foresting stage:3 done:true"
+          const isDone = /done:true|finished:true/i.test(q);
+          const statusCls = isDone ? 'done' : 'active';
+          const statusTxt = isDone ? 'DONE' : 'ACTIVE';
+          qhtml += '<div class="quest-row"><div class="quest-header"><span class="quest-name">' + esc(q.replace(/\s*stage:\d+\s*done:\w+/i, '')) + '</span>';
+          qhtml += '<span class="quest-status ' + statusCls + '">' + statusTxt + '</span></div></div>';
+        } else {
+          const started = q.started !== undefined ? q.started : true;
+          const statusCls = q.finished ? 'done' : started ? 'active' : 'not-started';
+          const statusTxt = q.finished ? 'DONE' : started ? (q.stage + '/' + q.stageCount) : 'NEW';
+          const pct = q.stageCount > 0 ? Math.round(q.stage / q.stageCount * 100) : 0;
+          qhtml += '<div class="quest-row"><div class="quest-header"><span class="quest-name">' + esc(q.name || q.key) + '</span>';
+          qhtml += '<span class="quest-status ' + statusCls + '">' + statusTxt + '</span></div>';
+          if (q.description) qhtml += '<div class="quest-desc">' + esc(q.description) + '</div>';
+          if (started && !q.finished && q.stageCount > 0) {
+            qhtml += '<div class="quest-progress"><div class="quest-progress-track"><div class="quest-progress-fill" style="width:' + pct + '%"></div></div></div>';
+          }
+          qhtml += '</div>';
+        }
+      }
+      document.getElementById('mission-stats').innerHTML = qhtml;
+    } else if (fresh >= 0) {
+      document.getElementById('mission-stats').innerHTML = '<div class="empty">No active quests</div>';
+    }
+
+    // Entity table (Phase 1C: fix HP field priority)
+    if (entities.length > 0) {
+      entities.sort((a,b) => (a.distance??9999) - (b.distance??9999));
+      let ehtml = '<table class="entity-table"><tr><th>Name</th><th>Type</th><th>HP</th><th>Dist</th><th>Click</th><th>Pos</th></tr>';
+      for (const e of entities) {
+        const name = esc(e.name || e.id || '?');
+        const tc = typeMap[e.type] || '';
+        const tn = typeMap[e.type] || String(e.type);
+        const hp = e.hp ?? e.hitPoints ?? '';
+        const hpMax = e.max_hp ?? e.maxHitPoints ?? '';
+        let hpBarHtml = '';
+        if (hp !== '' && hpMax !== '' && hpMax > 0) {
+          hpBarHtml = hpBar(hp, hpMax, 50);
+        }
+        const dist = e.distance !== undefined ? e.distance : '';
+        let clickInfo = '';
+        if (e.on_screen === true) clickInfo = '<span style="color:var(--green)">' + e.click_x + ',' + e.click_y + '</span>';
+        else if (e.on_screen === false) clickInfo = '<span style="color:var(--text)">off</span>';
+        const pos = (e.x !== undefined && e.y !== undefined) ? e.x + ',' + e.y : '';
+        ehtml += '<tr><td>' + name + '</td><td><span class="entity-type ' + tc + '">' + tn + '</span></td><td>' + hpBarHtml + '</td><td style="color:var(--amber)">' + dist + '</td><td>' + clickInfo + '</td><td style="color:var(--text);font-size:9px">' + pos + '</td></tr>';
+      }
+      ehtml += '</table>';
+      document.getElementById('entity-list').innerHTML = ehtml;
+    } else if (gs.freshness_seconds >= 0) {
+      document.getElementById('entity-list').innerHTML = '<div class="empty">No entities nearby</div>';
+    }
+
+  } catch(e) {}
+
+  // Multi-agent grid — uses cached agentList (updated by refreshSlow every 5s)
+  if (currentMode === 'multi') {
+    try {
+      const agents = agentList;
+      const container = document.getElementById('agent-grid-container');
+      container.style.display = '';
+      if (agents.length > 0) {
+        // Auto-select first agent if none selected
+        if (selectedAgent === null) { selectAgent(agents[0].id); }
+        // Check if we need to rebuild (agent count changed)
+        const existingIds = new Set([...container.querySelectorAll('.agent-card')].map(c => c.dataset.agentId));
+        const newIds = new Set(agents.map(a => String(a.id)));
+        const needRebuild = existingIds.size !== newIds.size || [...newIds].some(id => !existingIds.has(id));
+
+        const PERSONALITY_COLORS = { aggressive: 'var(--red)', methodical: 'var(--amber)', curious: 'var(--blue)', efficient: 'var(--purple)', qwen: 'var(--cyan)' };
+        const PERSONALITY_LABELS = { aggressive: 'AGGRESSIVE', methodical: 'METHODICAL', curious: 'CURIOUS', efficient: 'EFFICIENT', qwen: 'QWEN 3.5-9B' };
+
+        if (needRebuild) {
+          // Full rebuild — only when agents are added/removed
+          let html = '';
+          for (const a of agents) {
+            const personality = a.mode || 'efficient';
+            const modeClass = ' mode-' + personality;
+            const modeColor = PERSONALITY_COLORS[personality] || 'var(--green)';
+            const modeLabel = PERSONALITY_LABELS[personality] || personality.toUpperCase();
+            html += '<div class="agent-card' + modeClass + '" data-agent-id="' + a.id + '" data-mode="' + personality + '" id="agent-card-' + a.id + '" onclick="selectAgent(' + a.id + ')">';
+            html += '<div class="agent-card-header"><span class="agent-card-name" style="color:' + modeColor + '">' + esc(a.username) + '</span>';
+            html += '<span style="font-size:9px;color:' + modeColor + ';border:1px solid ' + modeColor + ';padding:1px 5px;border-radius:3px;margin-left:6px;letter-spacing:0.5px">' + modeLabel + '</span>';
+            html += '<span class="agent-server-dot"></span></div>';
+            html += '<div class="agent-info-line" style="font-size:10px;color:var(--text)"></div>';
+            html += '<div class="agent-hp-line" style="margin-top:4px"></div>';
+
+            html += '<div class="agent-last-active" style="font-size:9px"></div>';
+            html += '<img class="agent-card-thumb" src="" style="display:none">';
+            html += '</div>';
+          }
+          container.innerHTML = html;
+        }
+
+        // In-place update of each card (no DOM destruction = no flicker)
+        for (const a of agents) {
+          const card = document.getElementById('agent-card-' + a.id);
+          if (!card) continue;
+
+          // Selected state
+          if (selectedAgent === a.id) card.classList.add('selected');
+          else card.classList.remove('selected');
+
+          // Personality class
+          for (const cls of ['mode-aggressive', 'mode-methodical', 'mode-curious', 'mode-efficient', 'mode-qwen', 'mode-blind']) {
+            card.classList.remove(cls);
+          }
+          const personality = a.mode || 'efficient';
+          card.classList.add('mode-' + personality);
+
+          const ps = (a.game_state || {}).player_stats || {};
+          const level = ps.level || '?';
+
+          // Server dot
+          const dotEl = card.querySelector('.agent-server-dot');
+          dotEl.innerHTML = a.server_healthy ? '<span class="dot green"></span>' : '<span class="dot red"></span>';
+
+          // Info line (personality already shown in header badge)
+          const ctxTok = a.context_tokens || 0;
+          const ctxLabel = ctxTok >= 1e6 ? (ctxTok / 1e6).toFixed(1) + 'M' : ctxTok >= 1e3 ? Math.round(ctxTok / 1e3) + 'K' : ctxTok;
+          card.querySelector('.agent-info-line').innerHTML = 'Lvl ' + level + ' | <span style="color:var(--purple)">' + ctxLabel + ' ctx</span> | :' + a.server_port;
+
+          // HP bar
+          const hpLine = card.querySelector('.agent-hp-line');
+          if (ps.max_hp > 0) {
+            hpLine.innerHTML = hpBar(ps.hp, ps.max_hp, 80);
+            hpLine.style.display = '';
+          } else {
+            hpLine.style.display = 'none';
+          }
+
+          // Last active (based on latest log file mtime)
+          const laEl = card.querySelector('.agent-last-active');
+          if (a.last_active !== undefined) {
+            const laColor = a.last_active > 60 ? 'var(--red)' : a.last_active > 15 ? 'var(--amber)' : 'var(--green)';
+            laEl.style.color = laColor;
+            laEl.textContent = 'active ' + humanTime(a.last_active);
+          } else {
+            laEl.textContent = '';
+          }
+
+          // Thumbnail — skip when WS is pushing updates
+          if (!wsConnected) {
+            const thumb = card.querySelector('.agent-card-thumb');
+            const thumbUrl = '/screenshots/agent_' + a.id + '/live_screen.png?t=' + Date.now();
+            const pre = new Image();
+            pre.onload = () => { thumb.src = thumbUrl; thumb.style.display = ''; };
+            pre.src = thumbUrl;
+          }
+        }
+      }
+    } catch(e) {}
+  } else {
+    document.getElementById('agent-grid-container').style.display = 'none';
+  }
+
+}
+
+// Slow loop: activity feed, progress, sessions, agent grid, screenshots
+async function refreshSlow() {
+  // Refresh agent list (heavy endpoint — parses logs, checks ports)
+  if (currentMode === 'multi') {
+    try {
+      const agents = await (await fetch('/api/agents')).json();
+      agentList = agents;
+      if (agents.length > 0 && selectedAgent === null) { selectAgent(agents[0].id); }
+    } catch(e) {}
+  }
+
+  // Activity feed
+  try {
+    const agentParam = (currentMode === 'multi' && selectedAgent !== null) ? '?agent=' + selectedAgent : '';
+    const activity = await (await fetch('/api/activity' + agentParam)).json();
+    const turn = activity.turn || 0;
+    const cost = activity.cost_usd || 0;
+
+    // In multi-agent mode, show aggregate turns/tokens across all agents
+    if (currentMode === 'multi' && agentList.length > 0 && selectedAgent === null) {
+      let totalTurns = 0, totalCtx = 0;
+      for (const a of agentList) {
+        totalTurns += a.turns || 0;
+        totalCtx += a.context_tokens || 0;
+      }
+      document.getElementById('status-turn').textContent = totalTurns + ' (' + agentList.length + ' agents)';
+      const ctxLabel = totalCtx >= 1e6 ? (totalCtx / 1e6).toFixed(1) + 'M' : totalCtx >= 1e3 ? Math.round(totalCtx / 1e3) + 'K' : totalCtx;
+      document.getElementById('status-tokens').textContent = ctxLabel;
+    } else {
+      document.getElementById('status-turn').textContent = turn;
+      const tok = activity.tokens;
+      if (tok && tok.context > 0) {
+        const t = tok.context;
+        const label = t >= 1e6 ? (t / 1e6).toFixed(1) + 'M' : Math.round(t / 1e3) + 'K';
+        document.getElementById('status-tokens').textContent = label;
+      }
+    }
+    const logName = activity.log_file || '-';
+    document.getElementById('activity-log-name').textContent = logName;
+    document.getElementById('activity-log-name-full').textContent = logName;
+
+    if (activity.events && activity.events.length > 0) {
+      updateFeedIncremental('activity-feed-overview', activity.events, true, 'ov');
+      updateFeedIncremental('activity-feed-full', activity.events, true, 'full');
+    }
+
+    // Multi-agent: agent selector on Activity tab (Phase 4C)
+    const selectorEl = document.getElementById('activity-agent-selector');
+    if (currentMode === 'multi' && agentList.length > 0) {
+      selectorEl.style.display = '';
+      let shtml = '<button class="' + (selectedAgent === null ? 'active' : '') + '" onclick="selectedAgent=null;refreshSlow()">Default</button>';
+      for (const a of agentList) {
+        shtml += '<button class="' + (selectedAgent === a.id ? 'active' : '') + '" onclick="selectAgent(' + a.id + ')">' + esc(a.username) + '</button>';
+      }
+      selectorEl.innerHTML = shtml;
+    } else {
+      selectorEl.style.display = 'none';
+    }
+  } catch(e) {}
+
+  // (progress.json stats removed — unreliable data source)
+
+  // Screenshots (world tab) — only rebuild when list changes
+  try {
+    const shots = await (await fetch('/api/screenshots')).json();
+    document.getElementById('shot-count').textContent = shots.length;
+    if (shots.length > 0) {
+      const newKey = shots.slice(0, 20).map(s => s.name + s.time).join('|');
+      if (newKey !== lastGalleryKey) {
+        lastGalleryKey = newKey;
+        let html = '';
+        for (const s of shots.slice(0, 20)) {
+          const urlBase = s.agent !== undefined ? '/screenshots/agent_' + s.agent + '/' : '/screenshots/';
+          const label = (s.agent !== undefined ? 'agent_' + s.agent + '/' : '') + esc(s.name);
+          html += '<div class="thumb" onclick="openLightbox(\'' + urlBase + s.name + '?t=' + Date.now() + '\')">'
+            + '<img src="' + urlBase + s.name + '" alt="' + esc(s.name) + '" loading="lazy">'
+            + '<div class="meta">' + label + '<br>' + s.time + '</div></div>';
+        }
+        document.getElementById('gallery').innerHTML = html;
+      }
+    }
+  } catch(e) {}
+
+  // Sessions list (Phase 5A: with cost/turns/model)
+  try {
+    const source = currentMode === 'multi' ? 'all' : 'single';
+    const sessions = await (await fetch('/api/sessions?source=' + source)).json();
+    if (sessions.length > 0) {
+      let html = '';
+      for (const s of sessions) {
+        const agentBadge = s.agent && s.agent !== 'single' ? '<span class="agent-badge">' + esc(s.agent) + '</span>' : '';
+        const turnsBadge = s.turns ? '<span class="turns-badge">' + s.turns + 't</span>' : '';
+        const costBadge = s.cost_usd ? '<span class="cost-badge">$' + s.cost_usd + '</span>' : '';
+        const logDir = s.log_dir || '';
+        html += '<div class="session-entry" onclick="openSession(\'' + esc(s.name) + '\', \'' + esc(logDir) + '\')">'
+          + agentBadge
+          + '<span class="name">' + esc(s.name) + '</span>'
+          + turnsBadge
+          + costBadge
+          + '<span class="time">' + s.time + '</span>'
+          + '<span class="size">' + sizeStr(s.size) + '</span>'
+          + '<span class="arrow">&rarr;</span></div>';
+      }
+      document.getElementById('sessions-list').innerHTML = html;
+    }
+  } catch(e) {}
+
+  // Auto-refresh dataset stats when Sessions tab is active (Phase 5C)
+  const sessTab = document.getElementById('tab-sessions');
+  if (sessTab.classList.contains('active')) {
+    loadDatasetStats();
+    loadSftStats();
+  }
+}
+
+// Boot both loops
+refreshFast();
+refreshSlow();
+setInterval(refreshFast, 3000);
+setInterval(refreshSlow, 8000);
+
+// ── Qwen Live Tab ──
+(function() {
+  const QWEN_AGENT = 4;
+  let qwenStreamActive = false;
+  let qwenActionCount = 0;
+  const streamImg = document.getElementById('qwen-stream-img');
+  const noSignal = document.getElementById('qwen-no-signal');
+
+  // Start/stop MJPEG stream when tab is shown/hidden
+  const origTabClick = document.querySelectorAll('.tab');
+  origTabClick.forEach(tab => {
+    tab.addEventListener('click', () => {
+      if (tab.dataset.tab === 'qwen') {
+        startQwenStream();
+      } else {
+        stopQwenStream();
+      }
+    });
+  });
+
+  function startQwenStream() {
+    if (qwenStreamActive) return;
+    qwenStreamActive = true;
+    streamImg.src = '/stream/agent_' + QWEN_AGENT + '?t=' + Date.now();
+    streamImg.style.display = '';
+    noSignal.style.display = 'none';
+    streamImg.onerror = function() {
+      noSignal.style.display = '';
+      streamImg.style.display = 'none';
+      // Retry after 3s
+      setTimeout(() => {
+        if (qwenStreamActive) {
+          streamImg.src = '/stream/agent_' + QWEN_AGENT + '?t=' + Date.now();
+          streamImg.style.display = '';
+        }
+      }, 3000);
+    };
+  }
+
+  function stopQwenStream() {
+    qwenStreamActive = false;
+    streamImg.src = '';
+  }
+
+  // Poll game state for overlay
+  async function pollQwenState() {
+    if (!qwenStreamActive) return;
+    try {
+      const res = await fetch('/api/qwen-log');
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Game state overlay
+      const gs = data.game_state || {};
+      const ps = gs.player_stats || {};
+      const pp = gs.player_position || {};
+      const hp = ps.hp || 0, maxHp = ps.max_hp || 1;
+      const pct = Math.round(hp / maxHp * 100);
+      document.getElementById('qwen-hp-text').textContent = hp + '/' + maxHp;
+      const fill = document.getElementById('qwen-hp-fill');
+      fill.style.width = pct + '%';
+      fill.className = 'qhp-fill' + (pct < 30 ? ' low' : pct < 60 ? ' mid' : '');
+      document.getElementById('qwen-level').textContent = ps.level || '?';
+      document.getElementById('qwen-pos').textContent = (pp.x||'?') + ',' + (pp.y||'?');
+
+      // Status dot
+      document.getElementById('qwen-dot').className = 'qwen-status-dot ' + (data.screenshot_age < 30 ? 'live' : 'stale');
+
+      // Log entries
+      const entries = data.entries || [];
+      if (entries.length > qwenActionCount) {
+        const log = document.getElementById('qwen-action-log');
+        for (let i = qwenActionCount; i < entries.length; i++) {
+          const e = entries[i];
+          const div = document.createElement('div');
+          div.className = 'qwen-action';
+          const text = e.content || e.action || '';
+          const role = e.role || '';
+          let cls = 'qa-text';
+          if (role === 'tool') cls += ' warp';
+          else if (text.includes('browser_run_code')) cls += ' mem';
+          else if (text.includes('Bash')) cls += ' heal';
+          const label = role === 'tool' ? 'TOOL' : role === 'assistant' ? 'AI' : role.toUpperCase();
+          div.innerHTML = '<span class="qa-turn">[' + (e.turn || i) + '] ' + label + '</span> <span class="' + cls + '">' + esc(text.slice(0, 200)) + '</span>';
+          log.appendChild(div);
+        }
+        log.scrollTop = log.scrollHeight;
+        while (log.children.length > 200) log.removeChild(log.firstChild);
+        qwenActionCount = entries.length;
+
+        // Thinking: last assistant message
+        for (let i = entries.length - 1; i >= 0; i--) {
+          if (entries[i].role === 'assistant' && entries[i].content) {
+            document.getElementById('qwen-think-text').textContent = entries[i].content.slice(0, 500);
+            break;
+          }
+        }
+        document.getElementById('qwen-turn').textContent = entries.length;
+      }
+
+      // Memory
+      const m = data.memory || {};
+      if (m.level || m.sessions) {
+        let text = 'Level: ' + (m.level||'?') + ' | Sessions: ' + (m.sessions||0);
+        if (m.next_objective) text += '\nObjective: ' + m.next_objective;
+        if (m.notes) text += '\nNotes: ' + m.notes;
+        document.getElementById('qwen-mem-text').textContent = text;
+      }
+    } catch(e) {}
+  }
+
+  setInterval(pollQwenState, 1500);
+})();
+</script>
+</body>
+</html>

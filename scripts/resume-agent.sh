@@ -22,13 +22,45 @@ N_METHODICAL=""
 N_CURIOUS=""
 N_EFFICIENT=""
 HOURS=""
+N_CLAUDE=""
+N_CODEX=""
+N_KIMI=""
+N_QWEN_CODE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --aggressive)  N_AGGRESSIVE="$2"; shift 2;;
     --methodical)  N_METHODICAL="$2"; shift 2;;
     --curious)     N_CURIOUS="$2"; shift 2;;
     --efficient)   N_EFFICIENT="$2"; shift 2;;
-    --hours)     HOURS="$2"; shift 2;;
+    --hours)       HOURS="$2"; shift 2;;
+    --claude)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_CLAUDE="$2"; shift 2
+      else
+        N_CLAUDE="-1"; shift
+      fi
+      ;;
+    --codex)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_CODEX="$2"; shift 2
+      else
+        N_CODEX="-1"; shift
+      fi
+      ;;
+    --kimi)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_KIMI="$2"; shift 2
+      else
+        N_KIMI="-1"; shift
+      fi
+      ;;
+    --qwen-code)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_QWEN_CODE="$2"; shift 2
+      else
+        N_QWEN_CODE="-1"; shift
+      fi
+      ;;
     *) shift;;
   esac
 done
@@ -131,6 +163,10 @@ fi
 if [ -n "$HOURS" ]; then
   ORCH_ARGS="$ORCH_ARGS --hours $HOURS"
 fi
+[ -n "$N_CLAUDE" ] && ORCH_ARGS="$ORCH_ARGS --claude $N_CLAUDE"
+[ -n "$N_CODEX" ] && ORCH_ARGS="$ORCH_ARGS --codex $N_CODEX"
+[ -n "$N_KIMI" ] && ORCH_ARGS="$ORCH_ARGS --kimi $N_KIMI"
+[ -n "$N_QWEN_CODE" ] && ORCH_ARGS="$ORCH_ARGS --qwen-code $N_QWEN_CODE"
 
 ORCH_CMD="cd $PROJECT_DIR && python3 orchestrate.py $ORCH_ARGS 2>&1 | tee /tmp/orchestrate.log"
 

@@ -28,6 +28,10 @@ N_AGGRESSIVE=""
 N_METHODICAL=""
 N_CURIOUS=""
 N_EFFICIENT=""
+N_CLAUDE=""
+N_CODEX=""
+N_KIMI=""
+N_QWEN_CODE=""
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -36,7 +40,35 @@ while [[ $# -gt 0 ]]; do
     --methodical)  N_METHODICAL="$2"; shift 2;;
     --curious)     N_CURIOUS="$2"; shift 2;;
     --efficient)   N_EFFICIENT="$2"; shift 2;;
-    --hours)     HOURS="$2"; shift 2;;
+    --hours)       HOURS="$2"; shift 2;;
+    --claude)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_CLAUDE="$2"; shift 2
+      else
+        N_CLAUDE="-1"; shift  # bare --claude = all agents
+      fi
+      ;;
+    --codex)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_CODEX="$2"; shift 2
+      else
+        N_CODEX="-1"; shift  # bare --codex = all agents
+      fi
+      ;;
+    --kimi)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_KIMI="$2"; shift 2
+      else
+        N_KIMI="-1"; shift  # bare --kimi = all agents
+      fi
+      ;;
+    --qwen-code)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_QWEN_CODE="$2"; shift 2
+      else
+        N_QWEN_CODE="-1"; shift  # bare --qwen-code = all agents
+      fi
+      ;;
     *)
       # Positional: first=agents, second=hours
       if [ -z "$N_AGENTS" ]; then N_AGENTS="$1"
@@ -73,6 +105,17 @@ if $HAS_PERSONALITY; then
 else
   echo "  Agents: $TOTAL_AGENTS (round-robin personalities)"
 fi
+# Show harness breakdown
+HARNESS_DESC=""
+[ -n "$N_CLAUDE" ] && [ "$N_CLAUDE" != "-1" ] && [ "$N_CLAUDE" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_CLAUDE Claude"
+[ -n "$N_CODEX" ] && [ "$N_CODEX" != "-1" ] && [ "$N_CODEX" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_CODEX Codex"
+[ -n "$N_KIMI" ] && [ "$N_KIMI" != "-1" ] && [ "$N_KIMI" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_KIMI Kimi"
+[ -n "$N_QWEN_CODE" ] && [ "$N_QWEN_CODE" != "-1" ] && [ "$N_QWEN_CODE" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_QWEN_CODE Qwen Code"
+[ "$N_CODEX" = "-1" ] && HARNESS_DESC="all Codex"
+[ "$N_KIMI" = "-1" ] && HARNESS_DESC="all Kimi"
+[ "$N_QWEN_CODE" = "-1" ] && HARNESS_DESC="all Qwen Code"
+[ -z "$HARNESS_DESC" ] && HARNESS_DESC="all Claude"
+echo "  Harness: $HARNESS_DESC"
 echo "  Hours:  ${HOURS}"
 echo ""
 
@@ -83,8 +126,9 @@ pkill -f "python3 orchestrate.py" 2>/dev/null || true
 sleep 1
 # Kill the datacol tmux session (holds shell wrappers)
 tmux kill-session -t datacol 2>/dev/null || true
-# Kill any remaining claude -p agent processes
+# Kill any remaining claude -p or codex exec agent processes
 pkill -f "claude.*-p.*IMPORTANT.*play the game" 2>/dev/null || true
+pkill -f "codex.*exec" 2>/dev/null || true
 # Also kill single-agent mode processes
 pkill -f "play.sh" 2>/dev/null || true
 pkill -f "claude -p.*Login" 2>/dev/null || true
@@ -110,7 +154,7 @@ if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
   USER_JS_ARRAY=""
   for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
     [ -n "$USER_JS_ARRAY" ] && USER_JS_ARRAY="${USER_JS_ARRAY},"
-    USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}'"
+    USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}','codexbot${i}','kimibot${i}','qwencodebot${i}'"
   done
 
   echo "Resetting player data in MongoDB..."
@@ -181,6 +225,10 @@ fi
 if [ "$HOURS" != "0" ]; then
   ORCH_CMD="$ORCH_CMD --hours $HOURS"
 fi
+[ -n "$N_CLAUDE" ] && ORCH_CMD="$ORCH_CMD --claude $N_CLAUDE"
+[ -n "$N_CODEX" ] && ORCH_CMD="$ORCH_CMD --codex $N_CODEX"
+[ -n "$N_KIMI" ] && ORCH_CMD="$ORCH_CMD --kimi $N_KIMI"
+[ -n "$N_QWEN_CODE" ] && ORCH_CMD="$ORCH_CMD --qwen-code $N_QWEN_CODE"
 ORCH_CMD="$ORCH_CMD 2>&1 | tee /tmp/orchestrate.log"
 
 # Send to existing datacol session, or create one

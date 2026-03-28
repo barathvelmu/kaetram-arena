@@ -50,16 +50,26 @@ fi
 # Kill the datacol tmux session (holds shell wrappers around orchestrator)
 tmux kill-session -t datacol 2>/dev/null || true
 
-# ── Step 2: Clean up any orphaned claude -p processes ──
+# ── Step 2: Clean up any orphaned claude -p or codex exec processes ──
 CLAUDE_PIDS=$(pgrep -f "claude.*-p.*play the game" 2>/dev/null || true)
 if [ -n "$CLAUDE_PIDS" ]; then
   echo "Stopping orphaned claude agent processes..."
   kill -TERM $CLAUDE_PIDS 2>/dev/null || true
   sleep 3
-  # Force kill any remaining
   CLAUDE_PIDS=$(pgrep -f "claude.*-p.*play the game" 2>/dev/null || true)
   if [ -n "$CLAUDE_PIDS" ]; then
     kill -9 $CLAUDE_PIDS 2>/dev/null || true
+  fi
+fi
+
+CODEX_PIDS=$(pgrep -f "codex.*exec" 2>/dev/null || true)
+if [ -n "$CODEX_PIDS" ]; then
+  echo "Stopping orphaned codex agent processes..."
+  kill -TERM $CODEX_PIDS 2>/dev/null || true
+  sleep 3
+  CODEX_PIDS=$(pgrep -f "codex.*exec" 2>/dev/null || true)
+  if [ -n "$CODEX_PIDS" ]; then
+    kill -9 $CODEX_PIDS 2>/dev/null || true
   fi
 fi
 

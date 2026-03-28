@@ -3,7 +3,7 @@
 > **This file is for the human developer using Claude Code interactively.**
 > The agent subprocess launched by `play.sh` does NOT read this file — its instructions live exclusively in `prompts/system.md`. Do not add agent behavioral instructions here.
 
-This is an autonomous AI agent that plays Kaetram (a 2D pixel MMORPG) using Claude Code + Playwright browser automation. It collects gameplay data for finetuning a text model (Qwen3.5 9B).
+This is an autonomous AI agent that plays Kaetram (a 2D pixel MMORPG) using swappable CLI harnesses (Claude, Codex, Kimi, Qwen Code) + Playwright browser automation. It collects gameplay data for finetuning text models (Qwen3.5 9B, Qwen3-Coder).
 
 ---
 
@@ -39,42 +39,80 @@ At the end of every session, update `session_log.md` (under 30 lines).
 
 | Script | Purpose |
 |--------|---------|
-| `./scripts/restart-agent.sh [N] [H]` | **Primary command.** Kills everything, resets DB (fresh Level 1 characters), clears state, relaunches N agents for H hours. Default: 4 agents, 24h. Use `0` for no time limit. Supports `--aggressive N --methodical N --curious N --efficient N`. |
+| `./scripts/restart-agent.sh [N] [H]` | **Primary command.** Kills everything, resets DB (fresh Level 1), clears state, relaunches N agents for H hours. Default: 4 agents, 24h. Use `0` for no time limit. Supports personality and harness flags. |
+| `./scripts/resume-agent.sh` | Resume agents without DB reset. Preserves character progress. Supports personality and harness flags. |
+| `./scripts/restart-single-agent.sh <ID>` | Restart one running agent (agent 0-3) without affecting others. Clears session counter for fresh start. Supports `--reset`, personality, and harness switches. |
 | `./scripts/stop-agent.sh` | Stop orchestrator + all agents gracefully. Preserves logs. |
-| `./scripts/resume-agent.sh` | Resume agents without DB reset. Preserves character progress. Supports `--aggressive N --methodical N --curious N --efficient N --hours H`. |
 | `./scripts/reset-state.sh [N] [--force]` | Reset MongoDB player data only (no restart). Use `--force` to skip safety check. |
 | `./scripts/start-kaetram.sh` | Start Kaetram game server (single-agent mode, Node 20 required). |
+
+### Harness Flags
+
+All scripts support harness selection via `--claude [N]`, `--codex [N]`, `--kimi [N]`, `--qwen-code [N]` (bare flag = all agents).
+
+**Default models:**
+- `--claude` → Sonnet (Claude Code)
+- `--codex` → GPT-5.4 (OpenAI Codex)
+- `--kimi` → Kimi K2 with `--thinking` enabled
+- `--qwen-code` → Qwen3-Coder with stream-json output
 
 ### Quick start (multi-agent)
 
 ```bash
-# Restart fresh: 4 agents, no time limit (round-robin personalities)
+# Default: 4 Claude agents, 24h
 ./scripts/restart-agent.sh 4 0
 
-# One of each playstyle
-./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --efficient 1 --hours 0
+# Mixed harnesses
+./scripts/restart-agent.sh --claude 1 --codex 1 --kimi 1 --qwen-code 1 --hours 0
 
-# Custom mix: 2 aggressive + 2 efficient
-./scripts/restart-agent.sh --aggressive 2 --efficient 2 --hours 0
+# With personalities
+./scripts/restart-agent.sh --aggressive 2 --curious 2 --kimi 4 --hours 24
+
+# Resume without reset
+./scripts/resume-agent.sh --qwen-code 2 --hours 8
+
+# Restart single agent (preserves others)
+./scripts/restart-single-agent.sh 2 --kimi --reset
 
 # Monitor
-tail -f /tmp/orchestrate.log        # orchestrator status
-tmux attach -t datacol               # orchestrator tmux session
-# Dashboard at http://localhost:8080 (WebSocket screenshots on :8081)
+tail -f /tmp/orchestrate.log
+tmux attach -t datacol
+# Dashboard: http://localhost:8080
 ```
 
 ### What restart-agent.sh does
 
-1. Kills orchestrator + all claude agent processes
+1. Kills orchestrator + all agent processes
 2. Kills game server instances (preserves client on :9000)
 3. **Resets MongoDB player data** — agents start fresh Level 1 with Bronze Axe
 4. Clears sandbox state (screenshots, progress.json, game_state.json)
 5. Ensures dashboard is running on :8080
 6. Launches orchestrator in `datacol` tmux session
 
+### What restart-single-agent.sh does
+
+Restart a single running agent (0-3) without affecting others. Useful for:
+- Switching one agent's harness (Claude → Kimi, etc.)
+- Changing personality
+- Resetting a stuck agent while others continue
+
+Flags:
+- `--reset` — Reset Level 1 + clear state (default: preserve progress)
+- `--claude`, `--codex`, `--kimi`, `--qwen-code` — Change harness
+- `--personality {aggressive,methodical,curious,efficient}` — Change playstyle
+
+**Important:** Always clears `.session_counter` to ensure fresh session starts (not resumption).
+
+Examples:
+```bash
+./scripts/restart-single-agent.sh 2 --kimi --reset           # Agent 2: switch to Kimi, reset Level 1
+./scripts/restart-single-agent.sh 0 --qwen-code              # Agent 0: switch to Qwen Code, preserve progress
+./scripts/restart-single-agent.sh 3 --personality curious    # Agent 3: change to curious playstyle
+```
+
 ### Single-agent mode (development/testing)
 
-Run each in its own terminal, in order:
+Run each in its own terminal:
 
 1. **Terminal 1 — Kaetram server** (Node 20 required)
    ```bash
@@ -86,9 +124,12 @@ Run each in its own terminal, in order:
    python3 dashboard.py
    ```
 
-3. **Terminal 3 — Agent loop** — MUST be a separate terminal, never a subprocess
+3. **Terminal 3 — Agent loop** — MUST be separate terminal (never subprocess)
    ```bash
-   ./play.sh
+   ./play.sh                    # Claude (default)
+   ./play.sh --kimi --curious   # Kimi with thinking
+   ./play.sh --qwen-code        # Qwen Code
+   ./play.sh --codex            # Codex
    ```
 
 ### Multi-agent mode (scaled data collection)
@@ -179,8 +220,9 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 
 **Finetune DONE.** Qwen3.5-9B finetuned on 3,844 gameplay turns via Modal H100 (27min). Model loaded in Ollama on RTX 3060 GPU machine.
 
-**Qwen agent harness DONE.** Two modes available:
-- `play_qwen.py` / `play_qwen.sh` — lightweight 2-tool loop (browser_run_code + bash) driving Playwright directly
+**Qwen agent harness DONE.** Three modes available:
+- `QwenCodeAdapter` in `cli_adapter.py` — wraps the `qwen` CLI (a Claude Code / Gemini CLI fork). Uses Playwright MCP, `stream-json` output, `--yolo` mode. Same architecture as Claude/Kimi/Codex adapters. Used by `orchestrate.py` and `play.sh --qwen-code`. **This is NOT the finetuned model** — it calls the Qwen Code CLI which hits the Qwen API.
+- `play_qwen.py` / `play_qwen.sh` — lightweight custom 2-tool loop (browser_run_code + bash) driving Playwright directly via Python. Calls an OpenAI-compatible endpoint (Modal/Ollama). **This IS the finetuned model** harness.
 - `play_opencode.sh` + `opencode.json` — OpenCode + Playwright MCP with Ollama/Modal endpoint
 
 **World model DONE.** 2.2M param Transformer forward dynamics model trained on gameplay transitions. Used for MCTS planning and GRPO reward shaping. See `world/README.md`.
@@ -201,41 +243,30 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 ## Architecture
 
 ```
-Claude Code agent (data collection):
-play.sh ─────► Claude Code (Sonnet) ─────► Playwright MCP ──► browser @ localhost:9000
-                     │                          │                        │
-               reads/writes               page.evaluate()         window.game
-               state/, prompts/           extracts game state    (Kaetram client)
-                     │                          │
-                     └──► logs/session_N_*.log (auto-logged JSONL)
+CLI Harnesses (swappable backends):
+  play.sh / orchestrate.py ──► Claude / Codex / Kimi / Qwen Code ──► Playwright MCP ──► browser
+                                      │                                     │
+                              (via cli_adapter.py)                   page.evaluate()
+                              stream-json or raw                  extracts game state
+                                      │
+                                      └──► logs/session_N_*.log (JSONL with thinking blocks)
 
-Qwen agent (finetuned model):
-play_qwen.sh ──► play_qwen.py (2-tool loop) ──► Playwright ──► browser @ <game-server>:9000
-                     │                                                    │
-               Ollama/Modal API                                    window.game
-               (Qwen3.5-9B)                                      (Kaetram client)
-
-Multi-agent mode:
+Multi-agent orchestration:
 orchestrate.py ──► N × (GameServer + AgentInstance)
-                   each agent gets own server port, sandbox, and log directory
+                   each agent with own CLI harness, sandbox, log directory
                         │
                    dataset/raw/agent_N/logs/session_*.log
                         │
-                   extract_turns.py → convert_to_qwen.py → dataset/qwen_sft/
-                        │                                        │
-                   finetune/train_modal.py (SFT)        finetune/train_grpo_modal.py (GRPO)
-                        │                                        │
-                   world/extract_transitions.py → world/train.py → world/mcts.py (planning)
+         extract_turns.py (parses all harness formats) → turns.jsonl
+                        │
+         convert_to_qwen.py (reasoning + <think> blocks) → dataset/qwen_sft/{train,val}.json
+                        │
+              finetune/train_modal.py (SFT) / train_grpo_modal.py (GRPO)
 
-Dashboard reads player state directly from MongoDB (authoritative, fast).
-Falls back to session log parsing if MongoDB is unavailable.
-
-                          ┌─────────────────────┐
-  dashboard/api.py ──────►│  MongoDB (27017)     │──► player stats, skills, quests,
-                          │  kaetram_devlopment  │    equipment, inventory, achievements
-                          └─────────────────────┘
-                                   ▲
-                          kaetram-mongo Docker container
+Dashboard:
+  dashboard/api.py ──► MongoDB (player state) or session log parsing
+                      ├─ /api/game-state (agent levels, stats, quests)
+                      └─ /api/agents (harness badges, session counts)
 ```
 
 ## Ports
@@ -253,15 +284,16 @@ Falls back to session log parsing if MongoDB is unavailable.
 
 | File | Purpose |
 |------|---------|
-| `play.sh` | Claude Code agent loop (150 turns/session) |
-| `play_qwen.py` | Qwen agent loop — lightweight 2-tool harness for finetuned model |
-| `play_qwen.sh` | Qwen agent session launcher (system prompt substitution) |
+| `play.sh` | Single-agent loop (supports `--claude`, `--kimi`, `--qwen-code`, `--codex` flags) |
+| `cli_adapter.py` | **Harness abstraction layer** — ClaudeAdapter, CodexAdapter, KimiAdapter, QwenCodeAdapter |
+| `orchestrate.py` | Multi-agent launcher + health monitor (mixes harnesses per agent) |
+| `extract_turns.py` | JSONL log → clean OODA turn extraction (all harness formats) |
+| `convert_to_qwen.py` | Turns → Qwen3.5 9B SFT/GRPO format with `<think>` blocks |
+| `play_qwen.py` | **Finetuned Qwen3.5-9B** agent loop — custom 2-tool harness calling OpenAI-compatible API (Modal/Ollama). NOT the Qwen Code CLI. |
+| `play_qwen.sh` | Session launcher for `play_qwen.py` (system prompt substitution, Modal endpoint) |
 | `play_opencode.sh` | OpenCode + Playwright MCP agent launcher |
-| `qwen_dashboard.py` | Lightweight MJPEG dashboard for Qwen agent (port 8082) |
 | `opencode.json` | OpenCode provider config (Modal/Ollama endpoints) |
-| `orchestrate.py` | Multi-agent launcher + health monitor |
-| `extract_turns.py` | JSONL log → clean OODA turn extraction |
-| `convert_to_qwen.py` | Turns → Qwen3.5 9B SFT/GRPO format (single/multi/mixed modes) |
+| `qwen_dashboard.py` | Lightweight MJPEG dashboard for Qwen agent (port 8082) |
 | `scripts/collect_sft_data.sh` | End-to-end pipeline wrapper |
 | `prompts/system.md` | Base system prompt with `__PERSONALITY_BLOCK__` and `__GAME_KNOWLEDGE_BLOCK__` placeholders |
 | `prompts/game_knowledge.md` | Game-specific knowledge (mob stats, quest guides, NPC coords) — appended for all agents |

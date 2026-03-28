@@ -2,12 +2,15 @@
 """
 orchestrate.py — Multi-agent launcher and monitor for Kaetram SFT data collection.
 
-Launches N independent (Kaetram server + Claude agent) pairs, monitors health,
+Launches N independent (Kaetram server + AI agent) pairs, monitors health,
 auto-restarts on crash, and collects logs for post-processing.
 
 Usage:
-    python3 orchestrate.py --agents 4               # run until ctrl-c
-    python3 orchestrate.py --agents 2 --hours 8     # auto-stop after 8h
+    python3 orchestrate.py --agents 4                     # 4 Claude agents (default)
+    python3 orchestrate.py --agents 2 --hours 8           # auto-stop after 8h
+    python3 orchestrate.py --codex                        # all agents use Codex
+    python3 orchestrate.py --claude 2 --codex 2           # mixed: 2 Claude + 2 Codex
+    python3 orchestrate.py --claude 2 --codex 2 --aggressive 2 --efficient 2
 """
 
 import argparse
@@ -27,6 +30,8 @@ print = functools.partial(print, flush=True)
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from cli_adapter import CLIAdapter, get_adapter
+
 PROJECT_DIR = Path(__file__).parent
 KAETRAM_DIR = Path.home() / "projects" / "Kaetram-Open"
 KAETRAM_SERVER_DIR = KAETRAM_DIR / "packages" / "server"
@@ -35,7 +40,6 @@ SYSTEM_PROMPT_FILE = PROJECT_DIR / "prompts" / "system.md"
 GAME_KNOWLEDGE_FILE = PROJECT_DIR / "prompts" / "game_knowledge.md"
 PERSONALITY_DIR = PROJECT_DIR / "prompts" / "personalities"
 VALID_PERSONALITIES = ("aggressive", "methodical", "curious", "efficient")
-MCP_JSON = PROJECT_DIR / ".mcp.json"
 STATE_TEMPLATE = {
     "sessions": 0,
     "level": 1,
@@ -126,6 +130,7 @@ class AgentInstance:
     server_port: int
     sandbox_dir: Path
     log_dir: Path
+    adapter: CLIAdapter
     personality: str = "efficient"    # "aggressive", "methodical", "curious", "efficient"
     process: subprocess.Popen | None = None
     session: int = 0
@@ -133,13 +138,13 @@ class AgentInstance:
     pause_between: int = 10
 
     def setup(self):
-        """Create sandbox directory with .mcp.json and state/."""
+        """Create sandbox directory with CLI config and state/."""
         self.sandbox_dir.mkdir(parents=True, exist_ok=True)
         (self.sandbox_dir / "state").mkdir(exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Copy .mcp.json
-        shutil.copy2(MCP_JSON, self.sandbox_dir / ".mcp.json")
+        # Write CLI-specific config (e.g. .mcp.json for Claude, .codex/config.toml for Codex)
+        self.adapter.setup_sandbox(self.sandbox_dir)
 
         # Initialize progress.json
         state_file = self.sandbox_dir / "state" / "progress.json"
@@ -153,6 +158,8 @@ class AgentInstance:
             "mode": self.personality,  # backward compat for dashboard
             "username": self.username,
             "server_port": self.server_port,
+            "harness": self.adapter.name,
+            "model": self.adapter.model,
         }
         (self.sandbox_dir / "metadata.json").write_text(json.dumps(metadata))
 
@@ -198,37 +205,8 @@ class AgentInstance:
                           key=lambda p: p.stat().st_mtime, reverse=True)
             if not logs:
                 return None
-            # Read last 1MB to avoid scanning huge files
-            log_path = logs[0]
-            size = log_path.stat().st_size
-            tail_size = min(size, 1_048_576)
-            with open(log_path, "rb") as f:
-                if size > tail_size:
-                    f.seek(size - tail_size)
-                data = f.read().decode("utf-8", errors="replace")
-            last_state = None
-            for line in data.splitlines():
-                if "player_position" in line and "nearby_entities" in line:
-                    # Find JSON substring in the line
-                    try:
-                        obj = json.loads(line)
-                        # browser_run_code results contain game state as a string in content
-                        for block in obj.get("message", {}).get("content", []):
-                            text = block.get("text", "") if isinstance(block, dict) else ""
-                            if "player_position" in text and "nearby_entities" in text:
-                                last_state = text
-                    except (json.JSONDecodeError, AttributeError):
-                        pass
-            if not last_state:
-                return None
-            # Truncate arrays for prompt size
-            d = json.loads(last_state)
-            d["nearby_entities"] = d.get("nearby_entities", [])[:15]
-            d["inventory"] = d.get("inventory", [])[:15]
-            d["quests"] = d.get("quests", [])[:10]
-            d["achievements"] = d.get("achievements", [])[:10]
-            return json.dumps(d, separators=(",", ":"))
-        except (OSError, json.JSONDecodeError):
+            return self.adapter.parse_game_state_from_log(logs[0])
+        except OSError:
             return None
 
     def _build_user_prompt(self) -> str:
@@ -268,7 +246,7 @@ class AgentInstance:
         )
 
     def start_session(self):
-        """Launch a new Claude agent session."""
+        """Launch a new agent session (Claude or Codex, depending on adapter)."""
         self.session += 1
         # Persist session counter to disk for resume support
         counter_file = self.sandbox_dir / "state" / ".session_counter"
@@ -284,26 +262,14 @@ class AgentInstance:
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt()
 
-        cmd = [
-            "claude",
-            "-p",
-            user_prompt,
-            "--model",
-            "sonnet",
-            "--max-turns",
-            str(self.max_turns),
-            "--append-system-prompt",
-            system_prompt,
-            "--dangerously-skip-permissions",
-            "--disallowedTools",
-            "Glob Grep Agent Edit WebFetch WebSearch Write Skill "
-            "mcp__playwright__browser_evaluate mcp__playwright__browser_snapshot "
-            "mcp__playwright__browser_console_messages "
-            "mcp__playwright__browser_take_screenshot mcp__playwright__browser_click",
-            "--output-format",
-            "stream-json",
-            "--verbose",
-        ]
+        # Write CLI-specific files (e.g. AGENTS.md for Codex, refreshed each session)
+        self.adapter.setup_sandbox(self.sandbox_dir, system_prompt)
+
+        cmd = self.adapter.build_command(
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
+            max_turns=self.max_turns,
+        )
 
         log_fh = open(log_file, "w")
         self.process = subprocess.Popen(
@@ -311,7 +277,7 @@ class AgentInstance:
             cwd=str(self.sandbox_dir),
             stdout=log_fh,
             stderr=subprocess.STDOUT,
-            env={**os.environ, "CLAUDECODE": ""},
+            env={**os.environ, **self.adapter.get_env()},
         )
         self._log_fh = log_fh
 
@@ -478,9 +444,13 @@ class AgentInstance:
 
 class Orchestrator:
     def __init__(self, n_agents: int, hours: float | None = None,
-                 personality_counts: dict[str, int] | None = None):
+                 personality_counts: dict[str, int] | None = None,
+                 harness_counts: dict[str, int] | None = None,
+                 model: str | None = None):
         self.n_agents = n_agents
         self.personality_counts = personality_counts
+        self.harness_counts = harness_counts or {"claude": n_agents}
+        self.model = model
         self.deadline = time.time() + hours * 3600 if hours else None
         self.servers: list[GameServer] = []
         self.agents: list[AgentInstance] = []
@@ -489,12 +459,27 @@ class Orchestrator:
 
     def setup(self):
         """Create all server and agent instances."""
+        # Build per-agent harness assignment list
+        harness_list = []
+        for h in ("claude", "codex", "kimi", "qwen-code"):
+            harness_list.extend([h] * self.harness_counts.get(h, 0))
+
         # Build personality assignment list
         if self.personality_counts:
-            assignments = []
+            base_pattern = []
             for p in VALID_PERSONALITIES:
                 count = self.personality_counts.get(p, 0)
-                assignments.extend([p] * count)
+                base_pattern.extend([p] * count)
+            # If more agents than personalities (e.g. 2 personalities × 2 harness groups),
+            # repeat the pattern so each harness group gets the same personality set.
+            if len(base_pattern) < self.n_agents:
+                n_harness_groups = sum(1 for v in self.harness_counts.values() if v > 0)
+                if n_harness_groups > 1:
+                    assignments = base_pattern * n_harness_groups
+                else:
+                    assignments = base_pattern
+            else:
+                assignments = base_pattern
         else:
             # Default: round-robin across all 4 personalities
             assignments = [VALID_PERSONALITIES[i % len(VALID_PERSONALITIES)]
@@ -505,15 +490,21 @@ class Orchestrator:
             server = GameServer(agent_id=i, port=port)
             self.servers.append(server)
 
+            harness = harness_list[i] if i < len(harness_list) else "claude"
+            adapter = get_adapter(harness=harness, model=self.model)
+            prefix_map = {"codex": "CodexBot", "kimi": "KimiBot", "qwen-code": "QwenBot"}
+            bot_prefix = prefix_map.get(harness, "ClaudeBot")
+
             personality = assignments[i] if i < len(assignments) else "efficient"
             sandbox = Path(f"/tmp/kaetram_agent_{i}")
             log_dir = PROJECT_DIR / "dataset" / "raw" / f"agent_{i}" / "logs"
             agent = AgentInstance(
                 agent_id=i,
-                username=f"ClaudeBot{i}",
+                username=f"{bot_prefix}{i}",
                 server_port=port,
                 sandbox_dir=sandbox,
                 log_dir=log_dir,
+                adapter=adapter,
                 personality=personality,
             )
             agent.setup()
@@ -521,7 +512,13 @@ class Orchestrator:
 
     def start(self):
         """Start all servers, wait for health, then start all agents."""
-        print(f"Starting {self.n_agents} game servers...")
+        harness_parts = []
+        for h, count in [("Claude", "claude"), ("Codex", "codex"), ("Kimi", "kimi"), ("Qwen Code", "qwen-code")]:
+            n = self.harness_counts.get(count, 0)
+            if n > 0:
+                harness_parts.append(f"{n} {h}")
+        mix_label = " + ".join(harness_parts) if harness_parts else "Claude"
+        print(f"Starting {self.n_agents} game servers ({mix_label})...")
         for server in self.servers:
             server.start()
             print(f"  Server {server.agent_id}: port {server.port} (PID {server.process.pid})")
@@ -545,7 +542,7 @@ class Orchestrator:
         for agent in self.agents:
             agent.start_session()
             print(
-                f"  Agent {agent.agent_id} ({agent.username}) [{agent.personality}]: "
+                f"  Agent {agent.agent_id} ({agent.username}) [{agent.adapter.name}/{agent.personality}]: "
                 f"server :{agent.server_port}, session {agent.session}"
             )
 
@@ -604,14 +601,14 @@ class Orchestrator:
         h, m = divmod(int(elapsed), 3600)
         m, s = divmod(m, 60)
         print(f"\n--- Status ({h:02d}:{m:02d}:{s:02d} elapsed) ---")
-        print(f"{'Agent':>10} {'Personality':>12} {'Server':>8} {'Health':>8} {'Session':>8} {'Status':>10}")
+        print(f"{'Agent':>10} {'Harness':>8} {'Personality':>12} {'Server':>8} {'Health':>8} {'Session':>8} {'Status':>10}")
         for i in range(self.n_agents):
             srv = self.servers[i]
             agt = self.agents[i]
             srv_health = "OK" if srv.health_check() else "DOWN"
             agt_status = "running" if agt.is_alive() else "exited"
             print(
-                f"{agt.username:>10} {agt.personality:>12} :{srv.port:>5} {srv_health:>8} "
+                f"{agt.username:>10} {agt.adapter.name:>8} {agt.personality:>12} :{srv.port:>5} {srv_health:>8} "
                 f"#{agt.session:>6} {agt_status:>10}"
             )
 
@@ -666,6 +663,26 @@ def main():
     parser.add_argument(
         "--efficient", type=int, default=0, help="Number of efficient-playstyle agents"
     )
+    parser.add_argument(
+        "--claude", type=int, nargs="?", const=-1, default=0,
+        help="Number of Claude agents (bare --claude = all agents)"
+    )
+    parser.add_argument(
+        "--codex", type=int, nargs="?", const=-1, default=0,
+        help="Number of Codex agents (bare --codex = all agents)"
+    )
+    parser.add_argument(
+        "--kimi", type=int, nargs="?", const=-1, default=0,
+        help="Number of Kimi agents (bare --kimi = all agents)"
+    )
+    parser.add_argument(
+        "--qwen-code", type=int, nargs="?", const=-1, default=0,
+        help="Number of Qwen Code agents (bare --qwen-code = all agents)"
+    )
+    parser.add_argument(
+        "--model", type=str, default=None,
+        help="Model name override (default: sonnet for Claude, gpt-5.4 for Codex)"
+    )
     args = parser.parse_args()
 
     personality_counts = {
@@ -685,9 +702,54 @@ def main():
     if n_total < 1 or n_total > 8:
         parser.error("Total agent count must be 1-8")
 
+    # Resolve harness counts (--claude N / --codex N / --kimi N / --qwen-code N)
+    claude_n = args.claude or 0
+    codex_n = args.codex or 0
+    kimi_n = args.kimi or 0
+    qwen_code_n = args.qwen_code or 0
+
+    bare_flags = sum(1 for v in [claude_n, codex_n, kimi_n, qwen_code_n] if v == -1)
+    if bare_flags > 1:
+        parser.error("Cannot use multiple bare harness flags (--claude, --codex, --kimi, --qwen-code) without counts")
+
+    # Handle bare flags (e.g. --codex alone means all agents)
+    if qwen_code_n == -1:
+        qwen_code_n = n_total
+        claude_n = codex_n = kimi_n = 0
+    elif kimi_n == -1:
+        kimi_n = n_total
+        claude_n = codex_n = qwen_code_n = 0
+    elif codex_n == -1:
+        codex_n = n_total
+        claude_n = kimi_n = qwen_code_n = 0
+    elif claude_n == -1:
+        claude_n = n_total
+        codex_n = kimi_n = qwen_code_n = 0
+    elif claude_n == 0 and codex_n == 0 and kimi_n == 0 and qwen_code_n == 0:
+        # No harness specified: default all Claude
+        claude_n = n_total
+    else:
+        # Explicit counts: fill remainder with Claude
+        explicit_total = claude_n + codex_n + kimi_n + qwen_code_n
+        if explicit_total < n_total:
+            claude_n = n_total - explicit_total
+        elif explicit_total > n_total:
+            n_total = explicit_total
+
+    harness_counts = {"claude": claude_n, "codex": codex_n, "kimi": kimi_n, "qwen-code": qwen_code_n}
+
+    # Check for required CLIs
+    if codex_n > 0 and shutil.which("codex") is None:
+        parser.error("codex CLI not found. Install with: npm install -g @openai/codex")
+    if kimi_n > 0 and shutil.which("kimi") is None:
+        parser.error("kimi CLI not found. Install with: curl -LsSf https://code.kimi.com/install.sh | bash")
+    if qwen_code_n > 0 and shutil.which("qwen") is None:
+        parser.error("qwen-code CLI not found. Install with: npm install -g @qwen-code/qwen-code")
+
     orch = Orchestrator(
         n_agents=n_total, hours=args.hours,
         personality_counts=personality_counts,
+        harness_counts=harness_counts, model=args.model,
     )
 
     # Handle SIGINT/SIGTERM gracefully

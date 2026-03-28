@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Autonomous Kaetram gameplay loop
+# Autonomous Kaetram gameplay loop — supports Claude Code and Codex CLI
 set -euo pipefail
 unset CLAUDECODE
 
@@ -7,19 +7,55 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_FILE="$PROJECT_DIR/state/progress.json"
 SYSTEM_PROMPT_FILE="$PROJECT_DIR/prompts/system.md"
 
-# Parse personality flag
+# Parse flags
 PERSONALITY=""
+HARNESS="claude"
+CLAUDE_MODEL="sonnet"
+CODEX_MODEL="gpt-5.4"
+KIMI_MODEL="kimi-k2"
+QWEN_CODE_MODEL="qwen3-coder"
 for arg in "$@"; do
   case "$arg" in
     --aggressive)  PERSONALITY="aggressive";;
     --methodical)  PERSONALITY="methodical";;
     --curious)     PERSONALITY="curious";;
     --efficient)   PERSONALITY="efficient";;
+    --codex)       HARNESS="codex";;
+    --kimi)        HARNESS="kimi";;
+    --qwen-code)   HARNESS="qwen-code";;
   esac
 done
 LOG_DIR="$PROJECT_DIR/logs"
 MAX_TURNS=150
 PAUSE_BETWEEN=10
+
+# Check for required CLI
+case "$HARNESS" in
+  codex)
+    if ! command -v codex &>/dev/null; then
+      echo "ERROR: codex CLI not found. Install with: npm install -g @openai/codex"
+      exit 1
+    fi
+    echo "Using Codex CLI (model: $CODEX_MODEL)"
+    ;;
+  kimi)
+    if ! command -v kimi &>/dev/null; then
+      echo "ERROR: kimi CLI not found. Install with: curl -LsSf https://code.kimi.com/install.sh | bash"
+      exit 1
+    fi
+    echo "Using Kimi CLI (model: $KIMI_MODEL)"
+    ;;
+  qwen-code)
+    if ! command -v qwen &>/dev/null; then
+      echo "ERROR: qwen-code CLI not found. Install with: npm install -g @qwen-code/qwen-code"
+      exit 1
+    fi
+    echo "Using Qwen Code CLI (model: $QWEN_CODE_MODEL)"
+    ;;
+  *)
+    echo "Using Claude Code CLI (model: $CLAUDE_MODEL)"
+    ;;
+esac
 
 mkdir -p "$LOG_DIR" "$PROJECT_DIR/state"
 
@@ -97,42 +133,81 @@ Session #${SESSION}. Your previous progress: ${PROGRESS}
 ${GAME_STATE_BLOCK}
 Follow your system instructions exactly. Load tools, then login, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore. Write progress.json before session ends."
 
-  # Run from isolated dir to prevent claude from reading this project's CLAUDE.md
+  # Run from isolated dir to prevent the CLI from reading this project's CLAUDE.md / AGENTS.md
   SANDBOX="/tmp/kaetram_session_${SESSION}_$$"
   mkdir -p "$SANDBOX"
-  cp "$PROJECT_DIR/.mcp.json" "$SANDBOX/.mcp.json"
-  (cd "$SANDBOX" && claude -p "$PROMPT" \
-    --model sonnet \
-    --max-turns "$MAX_TURNS" \
-    --append-system-prompt "$SYSTEM" \
-    --dangerously-skip-permissions \
-    --disallowedTools "Glob Grep Agent Edit WebFetch WebSearch Write Skill mcp__playwright__browser_evaluate mcp__playwright__browser_snapshot mcp__playwright__browser_console_messages mcp__playwright__browser_take_screenshot mcp__playwright__browser_click" \
-    --output-format stream-json \
-    --verbose) \
-    2>&1 | tee "$LOG_FILE" || true
+
+  case "$HARNESS" in
+    codex)
+      # Codex: write system prompt file + AGENTS.md, init git repo
+      echo "$SYSTEM" > "$SANDBOX/AGENTS.md"
+      echo "$SYSTEM" > "$SANDBOX/system_prompt.md"
+      git -C "$SANDBOX" init -q
+
+      TIMEOUT_SECS=$((MAX_TURNS * 30))
+      (cd "$SANDBOX" && timeout "${TIMEOUT_SECS}s" codex exec "$PROMPT" \
+        --model "$CODEX_MODEL" \
+        --dangerously-bypass-approvals-and-sandbox \
+        --json \
+        -c 'model_instructions_file="system_prompt.md"') \
+        2>&1 | tee "$LOG_FILE" || true
+      ;;
+
+    kimi)
+      # Kimi: copy .mcp.json to sandbox, enable thinking and stream-json output
+      cp "$PROJECT_DIR/.mcp.json" "$SANDBOX/.mcp.json"
+
+      # Increased timeout for thinking: ~60s per turn
+      TIMEOUT_SECS=$((MAX_TURNS * 60))
+      (cd "$SANDBOX" && timeout "${TIMEOUT_SECS}s" kimi -p "$PROMPT" \
+        --model "$KIMI_MODEL" \
+        --yolo \
+        --thinking \
+        --output-format stream-json \
+        --append-system-prompt "$SYSTEM") \
+        2>&1 | tee "$LOG_FILE" || true
+      ;;
+
+    qwen-code)
+      # Qwen Code: copy .mcp.json to sandbox (same as Claude)
+      cp "$PROJECT_DIR/.mcp.json" "$SANDBOX/.mcp.json"
+
+      (cd "$SANDBOX" && qwen -p "$PROMPT" \
+        --model "$QWEN_CODE_MODEL" \
+        --yolo \
+        --output-format stream-json \
+        --append-system-prompt "$SYSTEM") \
+        2>&1 | tee "$LOG_FILE" || true
+      ;;
+
+    *)
+      # Claude: copy .mcp.json and run with standard flags
+      cp "$PROJECT_DIR/.mcp.json" "$SANDBOX/.mcp.json"
+      (cd "$SANDBOX" && claude -p "$PROMPT" \
+        --model "$CLAUDE_MODEL" \
+        --max-turns "$MAX_TURNS" \
+        --append-system-prompt "$SYSTEM" \
+        --dangerously-skip-permissions \
+        --disallowedTools "Glob Grep Agent Edit WebFetch WebSearch Write Skill mcp__playwright__browser_evaluate mcp__playwright__browser_snapshot mcp__playwright__browser_console_messages mcp__playwright__browser_take_screenshot mcp__playwright__browser_click" \
+        --output-format stream-json \
+        --verbose) \
+        2>&1 | tee "$LOG_FILE" || true
+      ;;
+  esac
 
   rm -rf "$SANDBOX"
 
-  # Auto-extract last game state from session log (no agent Bash call needed)
+  # Auto-extract last game state from session log using the CLI adapter
   python3 -c "
-import json
-last_state = None
-for line in open('$LOG_FILE'):
-    try:
-        obj = json.loads(line)
-        # browser_run_code results contain game state JSON as a string
-        msg = obj.get('message', {})
-        for block in msg.get('content', []):
-            text = block.get('text', '') if isinstance(block, dict) else ''
-            if 'player_position' in text and 'nearby_entities' in text:
-                last_state = text
-    except: pass
-if last_state:
-    try:
-        d = json.loads(last_state)
-        with open('$PROJECT_DIR/state/game_state.json', 'w') as f:
-            json.dump(d, f, separators=(',',':'))
-    except: pass
+import sys
+sys.path.insert(0, '$PROJECT_DIR')
+from cli_adapter import get_adapter
+adapter = get_adapter(harness='$HARNESS')
+state = adapter.parse_game_state_from_log(__import__('pathlib').Path('$LOG_FILE'))
+if state:
+    import json
+    with open('$PROJECT_DIR/state/game_state.json', 'w') as f:
+        f.write(state)
 " 2>/dev/null || true
 
   echo "=== Session $SESSION ended at $(date) ==="

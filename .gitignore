@@ -32,3 +32,4 @@ logs/
 dataset/extracted*/
 dataset/qwen_sft*/
 dataset/raw/
+dataset/session*/

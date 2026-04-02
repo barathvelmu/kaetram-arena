@@ -15,14 +15,25 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).parent
 MCP_JSON = PROJECT_DIR / ".mcp.json"
 
-# Disallowed tools for the game agent (prevent filesystem exploration, force
-# browser_run_code for all game interaction).
-CLAUDE_DISALLOWED_TOOLS = (
-    "Glob Grep Agent Edit WebFetch WebSearch Write Skill "
-    "mcp__playwright__browser_evaluate mcp__playwright__browser_snapshot "
-    "mcp__playwright__browser_console_messages "
-    "mcp__playwright__browser_take_screenshot mcp__playwright__browser_click"
-)
+# Disallowed tools for the game agent (prevent filesystem exploration;
+# agent should only use mcp__kaetram__* tools + Bash for progress.json).
+CLAUDE_DISALLOWED_TOOLS = "Glob Grep Agent Edit WebFetch WebSearch Write Skill"
+
+# Venv python path for MCP server subprocess
+VENV_PYTHON = str(PROJECT_DIR / ".venv" / "bin" / "python3")
+
+
+def _resolve_mcp_template(sandbox_dir: Path, port: str = "", username: str = "ClaudeBot") -> str:
+    """Resolve .mcp.json template variables for a given sandbox directory."""
+    text = MCP_JSON.read_text()
+    screenshot_dir = str(sandbox_dir / "state")
+    return (text
+            .replace("__VENV_PYTHON__", VENV_PYTHON)
+            .replace("__PROJECT_DIR__", str(PROJECT_DIR))
+            .replace("__SCREENSHOT_DIR__", screenshot_dir)
+            .replace("__SERVER_PORT__", str(port))
+            .replace("__USERNAME__", username)
+            )
 
 
 class CLIAdapter(ABC):
@@ -37,7 +48,8 @@ class CLIAdapter(ABC):
         """Short identifier for this adapter (e.g. 'claude', 'codex')."""
 
     @abstractmethod
-    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None) -> None:
+    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
+                      port: str = "", username: str = "ClaudeBot") -> None:
         """Write CLI-specific config files to the agent sandbox.
 
         Called each session so that dynamic content (like AGENTS.md for Codex)
@@ -50,6 +62,8 @@ class CLIAdapter(ABC):
         user_prompt: str,
         system_prompt: str,
         max_turns: int,
+        max_budget_usd: float | None = None,
+        auth_mode: str = "subscription",
     ) -> list[str]:
         """Build the CLI command to launch an agent session."""
 
@@ -105,21 +119,28 @@ class ClaudeAdapter(CLIAdapter):
 
     def __init__(self, model: str = "sonnet"):
         super().__init__(model)
+        self._mcp_config_path: str | None = None
 
     @property
     def name(self) -> str:
         return "claude"
 
-    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None) -> None:
-        shutil.copy2(MCP_JSON, sandbox_dir / ".mcp.json")
+    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
+                      port: str = "", username: str = "ClaudeBot") -> None:
+        mcp_text = _resolve_mcp_template(sandbox_dir, port=port, username=username)
+        mcp_path = sandbox_dir / ".mcp.json"
+        mcp_path.write_text(mcp_text)
+        self._mcp_config_path = str(mcp_path)
 
     def build_command(
         self,
         user_prompt: str,
         system_prompt: str,
         max_turns: int,
+        max_budget_usd: float | None = None,
+        auth_mode: str = "subscription",
     ) -> list[str]:
-        return [
+        cmd = [
             "claude",
             "-p",
             user_prompt,
@@ -136,9 +157,18 @@ class ClaudeAdapter(CLIAdapter):
             "stream-json",
             "--verbose",
         ]
+        # Use sandbox MCP config (not project-level .mcp.json)
+        if self._mcp_config_path:
+            cmd.extend(["--mcp-config", self._mcp_config_path, "--strict-mcp-config"])
+        if max_budget_usd is not None and auth_mode == "api_key":
+            cmd.extend(["--max-budget-usd", str(max_budget_usd)])
+        return cmd
 
     def get_env(self) -> dict[str, str]:
-        return {"CLAUDECODE": ""}
+        return {
+            "CLAUDECODE": "",
+            "MCP_TIMEOUT": "30000",  # 30s timeout for MCP server startup (browser launch)
+        }
 
     def _extract_state_text_from_line(self, line: str) -> str | None:
         """Claude stream-json: state is in message.content[].text."""
@@ -163,7 +193,8 @@ class CodexAdapter(CLIAdapter):
     def name(self) -> str:
         return "codex"
 
-    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None) -> None:
+    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
+                      port: str = "", username: str = "ClaudeBot") -> None:
         # Write system prompt to a file that we'll reference via -c model_instructions_file.
         # AGENTS.md alone is too weak — Codex treats it as "guidance" not strict instructions.
         # model_instructions_file is injected as developer instructions and is respected.
@@ -189,6 +220,8 @@ class CodexAdapter(CLIAdapter):
         user_prompt: str,
         system_prompt: str,
         max_turns: int,
+        max_budget_usd: float | None = None,
+        auth_mode: str = "subscription",
     ) -> list[str]:
         # Codex has no --max-turns; use timeout (estimate ~30s per turn)
         timeout_seconds = max(max_turns * 30, 600)
@@ -291,18 +324,18 @@ class QwenCodeAdapter(CLIAdapter):
     def name(self) -> str:
         return "qwen-code"
 
-    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None) -> None:
+    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
+                      port: str = "", username: str = "ClaudeBot") -> None:
         # Qwen Code uses its own MCP registry (qwen mcp add), not .mcp.json.
-        # Ensure Playwright MCP is registered globally.
+        # Register custom kaetram MCP server globally.
         result = subprocess.run(
             ["qwen", "mcp", "list"], capture_output=True, text=True, timeout=10
         )
-        if "playwright" not in result.stdout:
+        if "kaetram" not in result.stdout:
+            screenshot_dir = str(sandbox_dir / "state")
             subprocess.run(
-                ["qwen", "mcp", "add", "playwright", "npx",
-                 "@playwright/mcp@latest", "--caps", "core,vision",
-                 "--viewport-size", "1280x720", "--browser", "chromium",
-                 "--no-sandbox"],
+                ["qwen", "mcp", "add", "kaetram", VENV_PYTHON,
+                 str(PROJECT_DIR / "mcp_game_server.py")],
                 capture_output=True, text=True, timeout=10
             )
 
@@ -311,6 +344,8 @@ class QwenCodeAdapter(CLIAdapter):
         user_prompt: str,
         system_prompt: str,
         max_turns: int,
+        max_budget_usd: float | None = None,
+        auth_mode: str = "subscription",
     ) -> list[str]:
         # Qwen Code is a Gemini CLI fork — similar to Claude Code interface
         return [
@@ -363,15 +398,19 @@ class KimiAdapter(CLIAdapter):
     def name(self) -> str:
         return "kimi"
 
-    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None) -> None:
-        # Copy MCP config to sandbox (Kimi uses --mcp-config-file flag to specify path)
-        shutil.copy2(MCP_JSON, sandbox_dir / ".mcp.json")
+    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
+                      port: str = "", username: str = "ClaudeBot") -> None:
+        # Resolve MCP config template to sandbox
+        mcp_text = _resolve_mcp_template(sandbox_dir, port=port, username=username)
+        (sandbox_dir / ".mcp.json").write_text(mcp_text)
 
     def build_command(
         self,
         user_prompt: str,
         system_prompt: str,
         max_turns: int,
+        max_budget_usd: float | None = None,
+        auth_mode: str = "subscription",
     ) -> list[str]:
         # Kimi K2 supports extended thinking (--thinking) and structured JSON output (--output-format stream-json)
         # This gives us thinking blocks in the same format as Claude for easy parsing

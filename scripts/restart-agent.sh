@@ -24,6 +24,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Defaults
 N_AGENTS=""
 HOURS="24"
+MAX_BUDGET=""
 N_AGGRESSIVE=""
 N_METHODICAL=""
 N_CURIOUS=""
@@ -41,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     --curious)     N_CURIOUS="$2"; shift 2;;
     --efficient)   N_EFFICIENT="$2"; shift 2;;
     --hours)       HOURS="$2"; shift 2;;
+    --max-budget-usd) MAX_BUDGET="$2"; shift 2;;
     --claude)
       if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
         N_CLAUDE="$2"; shift 2
@@ -171,20 +173,28 @@ else
 fi
 echo ""
 
-# ── Step 4: Preserve logs, clear transient state ──
+# ── Step 4: Preserve logs, clear transient state + stale sandbox files ──
 echo "Clearing agent sandbox state (logs preserved)..."
 for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
-  sandbox="/tmp/kaetram_agent_$i/state"
-  if [ -d "$sandbox" ]; then
-    rm -f "$sandbox/screenshot.png" \
-          "$sandbox/live_screen.png" \
-          "$sandbox/game_state.json" \
-          "$sandbox/progress.json" \
-          "$sandbox/.session_counter"
-    find "$sandbox" -name "*.png" -delete 2>/dev/null || true
-    echo "  Cleared /tmp/kaetram_agent_$i/state/"
+  sandbox="/tmp/kaetram_agent_$i"
+  if [ -d "$sandbox/state" ]; then
+    rm -f "$sandbox/state/screenshot.png" \
+          "$sandbox/state/live_screen.png" \
+          "$sandbox/state/game_state.json" \
+          "$sandbox/state/progress.json" \
+          "$sandbox/state/.session_counter"
+    find "$sandbox/state" -name "*.png" -delete 2>/dev/null || true
   fi
+  # Clean stale files from previous architectures (old scripts, workarounds)
+  rm -f "$sandbox"/*.js "$sandbox"/*.py "$sandbox"/package.json "$sandbox"/package-lock.json 2>/dev/null
+  rm -rf "$sandbox"/node_modules "$sandbox"/ipc 2>/dev/null
+  echo "  Cleared /tmp/kaetram_agent_$i/"
 done
+
+# Clean stale Claude Code project memory for agent sandboxes (prevents MCP bypass behavior)
+rm -rf /home/patnir41/.claude/projects/-tmp-kaetram-agent-*/memory/ 2>/dev/null && echo "  Cleared agent project memories"
+# Kill orphaned Chrome/chromium processes from agent sandboxes
+pkill -f "chromium.*kaetram" 2>/dev/null || true
 
 # Also clear single-agent state
 rm -f "$PROJECT_DIR/state/screenshot.png" \
@@ -225,6 +235,7 @@ fi
 if [ "$HOURS" != "0" ]; then
   ORCH_CMD="$ORCH_CMD --hours $HOURS"
 fi
+[ -n "$MAX_BUDGET" ] && ORCH_CMD="$ORCH_CMD --max-budget-usd $MAX_BUDGET"
 [ -n "$N_CLAUDE" ] && ORCH_CMD="$ORCH_CMD --claude $N_CLAUDE"
 [ -n "$N_CODEX" ] && ORCH_CMD="$ORCH_CMD --codex $N_CODEX"
 [ -n "$N_KIMI" ] && ORCH_CMD="$ORCH_CMD --kimi $N_KIMI"

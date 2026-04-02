@@ -10,6 +10,46 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from cli_adapter import detect_log_format
 
 
+def _kaetram_tool_summary(tool: str, inp: dict) -> str:
+    """Generate a readable summary for a Kaetram MCP tool call."""
+    action = tool.split("__")[-1]
+    if action == "attack":
+        return f"Attack {inp.get('mob_name', '?')}"
+    if action == "navigate":
+        return f"Navigate to ({inp.get('x', '?')}, {inp.get('y', '?')})"
+    if action == "move":
+        return f"Move to ({inp.get('x', '?')}, {inp.get('y', '?')})"
+    if action == "warp":
+        return f"Warp to {inp.get('location', 'mudwich').title()}"
+    if action == "interact_npc":
+        return f"Talk to {inp.get('npc_name', '?')}"
+    if action == "talk_npc":
+        return f"Advance dialogue ({inp.get('instance_id', '?')[:12]})"
+    if action == "accept_quest":
+        return "Accept quest"
+    if action == "eat_food":
+        return f"Eat food (slot {inp.get('slot', '?')})"
+    if action == "equip_item":
+        return f"Equip (slot {inp.get('slot', '?')})"
+    if action == "set_attack_style":
+        return f"Style: {inp.get('style', 'hack')}"
+    if action == "click_tile":
+        return f"Click tile ({inp.get('x', '?')}, {inp.get('y', '?')})"
+    if action == "observe":
+        return "Read game state"
+    if action == "login":
+        return "Login to Kaetram"
+    if action == "clear_combat":
+        return "Clear combat state"
+    if action == "stuck_reset":
+        return "Reset stuck detection"
+    if action == "cancel_nav":
+        return "Cancel navigation"
+    if action == "respawn":
+        return "Respawn + warp"
+    return action
+
+
 def parse_session_log(filepath):
     """Parse a session log (auto-detecting Claude or Codex format).
 
@@ -66,11 +106,15 @@ def _parse_claude_session_log(filepath):
                         ct = c.get("type", "")
                         if ct == "tool_use":
                             tool = c.get("name", "unknown")
-                            tool_display = tool.replace("mcp__playwright__", "pw:")
+                            tool_display = tool.replace("mcp__playwright__", "pw:").replace("mcp__kaetram__", "")
                             inp = c.get("input", {})
                             summary = ""
                             detail = ""
-                            if "code" in inp:
+                            # Kaetram MCP tools — generate readable summaries
+                            if tool.startswith("mcp__kaetram__"):
+                                summary = _kaetram_tool_summary(tool, inp)
+                                detail = json.dumps(inp)[:500] if inp else ""
+                            elif "code" in inp:
                                 detail = inp["code"][:500]
                                 code = inp["code"][:120]
                                 summary = code.split("return ")[1].split("'")[1] if "return '" in code else code[:80]
@@ -415,6 +459,8 @@ def live_session_stats(filepath):
     model = ""
     cost = 0
     duration_ms = 0
+    rate_limit = None
+    is_overage = False
     seen_msg_ids = set()
     try:
         with open(filepath) as fh:
@@ -482,6 +528,16 @@ def live_session_stats(filepath):
                         for c in msg.get("content", []):
                             if isinstance(c, dict) and c.get("type") == "tool_use":
                                 turns += 1
+                    elif t == "rate_limit_event":
+                        info = obj.get("rate_limit_info", {})
+                        rate_limit = {
+                            "status": info.get("overageStatus"),
+                            "type": info.get("rateLimitType"),
+                            "resets_at": info.get("resetsAt"),
+                            "using_overage": info.get("isUsingOverage", False),
+                        }
+                        if info.get("isUsingOverage"):
+                            is_overage = True
                     elif t == "result":
                         turns = obj.get("num_turns", turns)
                         cost = obj.get("total_cost_usd", 0)
@@ -497,5 +553,7 @@ def live_session_stats(filepath):
         "output_tokens": output_tokens_total,
         "model": model or (fmt if fmt != "unknown" else ""),
         "cost_usd": round(cost, 4),
+        "rate_limit": rate_limit,
+        "is_overage": is_overage,
         "duration_ms": duration_ms,
     }

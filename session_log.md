@@ -3,22 +3,26 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-02 — NPC Interaction Fix + Prompt Rewrite
+
+**Critical bugs fixed:**
+- `interact_npc` 95% failure → 100% success (when NPC reachable). Root cause: Chebyshev vs Manhattan adjacency + walking to NPC tile instead of orthogonal neighbor.
+- Wife NPC unreachable: wrong door (194,218 = Sorcerer, not Wife). Correct: (310,264).
+- Warp cooldown spam: tool now auto-waits internally (up to 25s).
+- equip_item: now verifies result, returns equipped true/false with reason.
+- MCP "pending" detection: orchestrator auto-restarts stuck sessions.
+- Added `drop_item` tool, eat_food HP-full check, login retry loop.
+
+**Prompt rewrite (research-informed):**
+- XML tags, calm language (Claude 4.6 over-triggers on aggressive phrasing), WHY clauses on rules.
+- Added SEEK QUEST rule: agents actively seek NPCs when no quest is active.
+- Removed Methodical food-before-ACCEPT gate, added Efficient NPC-seeking trigger.
+- Trimmed game_knowledge ~800 tokens. Total prompt ~2,340 tokens (under 3K threshold).
+- Nav snap radius 10→25 (fixes 54% Lakesworld wall failures).
+
+**Results:** Agent 0 completed full Desert Quest (first multi-stage completion). 365+ sessions collected.
+
 ## 2026-04-01 — Data Audit + Cleanup Session
 
-**What was done:**
-- Full deep audit of all 5 agents' logs via SSH into GCP VM (35.224.227.251)
-- agent_4 deleted entirely (all 39 sessions were Codex API usage-limit failures)
-- ~260 dead stub files (<5KB) deleted across agents 0-3
-- Determined quality threshold: March 28 is the cutoff (personality system finalized + "best run yet" prompt commit)
-- Deleted all pre-March-28 data; backlogged top 3 sessions per agent from March 19-21 to `dataset/raw/backlog/`
-- Rebuilt training data: `qwen_sft/` — 1,233 train / 158 val, personality-only, 88% structured actions
-- Added `.meta.json` sidecar tagging to all 253 existing sessions + auto-write in `orchestrate.py` going forward
-- Created `dataset/DATA.md` documenting data layout, decisions, pipeline, stats
-- Updated `.gitignore` to exclude dataset from git
-- Fixed inventory type bug in `convert_to_qwen.py`
-- Pushed all code changes to main (commit 8c72110)
-
-**Current state:**
-- 253 clean personality sessions on VM, agents still running and collecting
-- Training data is small (1,233 records) but clean — needs more collection time before distillation
-- Next: let agents run ~1 more week, then rebuild qwen_sft with more volume
+- Deleted agent_4 (39 dead Codex sessions), ~260 stub files, pre-March-28 data
+- Rebuilt qwen_sft: 1,233 train / 158 val. Created DATA.md.

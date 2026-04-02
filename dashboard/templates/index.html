@@ -627,6 +627,33 @@ function classifyAction(ev) {
   const tool = (ev.tool || '').toLowerCase();
   const sum = (ev.summary || '').toLowerCase();
   const detail = (ev.detail || '').toLowerCase();
+
+  // Custom Kaetram MCP tools (structured game actions)
+  if (tool.includes('kaetram__')) {
+    const action = tool.split('__').pop();
+    const actionMap = {
+      login:            { icon: '\ud83d\udee1', cls: 'login-event', label: 'Login' },
+      observe:          { icon: '\ud83d\udc41', cls: 'observe-event', label: 'Observe' },
+      attack:           { icon: '\u2694\ufe0f', cls: 'attack-event', label: 'Attack' },
+      navigate:         { icon: '\ud83d\uddfa', cls: 'move-event', label: 'Navigate' },
+      move:             { icon: '\ud83d\udeb6', cls: 'move-event', label: 'Move' },
+      warp:             { icon: '\u26a1', cls: 'move-event', label: 'Warp' },
+      interact_npc:     { icon: '\ud83d\udde3', cls: 'text-event', label: 'NPC' },
+      talk_npc:         { icon: '\ud83d\udcac', cls: 'text-event', label: 'Talk' },
+      accept_quest:     { icon: '\ud83d\udcdc', cls: 'text-event', label: 'Quest' },
+      eat_food:         { icon: '\ud83c\udf4e', cls: '', label: 'Heal' },
+      equip_item:       { icon: '\ud83d\udee1', cls: '', label: 'Equip' },
+      set_attack_style: { icon: '\u2694\ufe0f', cls: '', label: 'Style' },
+      clear_combat:     { icon: '\ud83d\udeab', cls: '', label: 'ClearCombat' },
+      stuck_reset:      { icon: '\ud83d\udd04', cls: '', label: 'Unstick' },
+      cancel_nav:       { icon: '\u274c', cls: '', label: 'CancelNav' },
+      click_tile:       { icon: '\ud83d\udc46', cls: 'move-event', label: 'ClickTile' },
+      respawn:          { icon: '\ud83d\udc80', cls: '', label: 'Respawn' },
+    };
+    return actionMap[action] || { icon: '\ud83c\udfae', cls: '', label: action };
+  }
+
+  // Legacy: Playwright browser_run_code (for old logs)
   if (tool.includes('browser_run_code')) {
     if (detail.includes('page.goto') || detail.includes('login') || sum.includes('login'))
       return { icon: '\ud83d\udee1', cls: 'login-event', label: 'Login' };
@@ -648,7 +675,7 @@ function classifyAction(ev) {
     return { icon: '\ud83d\udcc4', cls: 'observe-event', label: 'Read' };
   if (tool.includes('toolsearch'))
     return { icon: '\ud83d\udd0d', cls: '', label: 'Search' };
-  return { icon: '\u25b6', cls: '', label: tool.split(':').pop().substring(0,10) };
+  return { icon: '\u25b6', cls: '', label: tool.split('__').pop().substring(0, 15) };
 }
 
 // === Build single event HTML ===

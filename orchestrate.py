@@ -33,6 +33,26 @@ from pathlib import Path
 from cli_adapter import CLIAdapter, get_adapter
 
 PROJECT_DIR = Path(__file__).parent
+
+
+def detect_auth_mode() -> str:
+    """Detect Claude Code auth mode via ``claude auth status``.
+
+    Returns ``"api_key"`` when an API key is active (env var, helper, or token),
+    ``"subscription"`` for OAuth/subscription login.
+    """
+    try:
+        result = subprocess.run(
+            ["claude", "auth", "status"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            info = json.loads(result.stdout)
+            if info.get("apiKeySource"):
+                return "api_key"
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, FileNotFoundError, OSError):
+        pass
+    return "subscription"
 KAETRAM_DIR = Path.home() / "projects" / "Kaetram-Open"
 KAETRAM_SERVER_DIR = KAETRAM_DIR / "packages" / "server"
 NVM_SH = Path.home() / ".nvm" / "nvm.sh"
@@ -135,6 +155,8 @@ class AgentInstance:
     process: subprocess.Popen | None = None
     session: int = 0
     max_turns: int = 150
+    max_budget_usd: float | None = None
+    auth_mode: str = "subscription"   # "api_key" or "subscription"
     pause_between: int = 10
 
     def setup(self):
@@ -143,8 +165,12 @@ class AgentInstance:
         (self.sandbox_dir / "state").mkdir(exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Write CLI-specific config (e.g. .mcp.json for Claude, .codex/config.toml for Codex)
-        self.adapter.setup_sandbox(self.sandbox_dir)
+        # Write CLI-specific config (e.g. .mcp.json for Claude)
+        self.adapter.setup_sandbox(
+            self.sandbox_dir,
+            port=str(self.server_port),
+            username=self.username,
+        )
 
         # Initialize progress.json
         state_file = self.sandbox_dir / "state" / "progress.json"
@@ -265,6 +291,8 @@ class AgentInstance:
             "session": self.session,
             "timestamp": timestamp,
             "log_file": log_file.name,
+            "auth_mode": self.auth_mode,
+            "max_budget_usd": self.max_budget_usd,
         }, indent=2))
 
         # Clear stale screenshots from previous session so dashboard doesn't show old frames
@@ -275,13 +303,18 @@ class AgentInstance:
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt()
 
-        # Write CLI-specific files (e.g. AGENTS.md for Codex, refreshed each session)
-        self.adapter.setup_sandbox(self.sandbox_dir, system_prompt)
+        # Write CLI-specific files (e.g. .mcp.json for game server, refreshed each session)
+        self.adapter.setup_sandbox(
+            self.sandbox_dir, system_prompt,
+            port=str(self.server_port), username=self.username,
+        )
 
         cmd = self.adapter.build_command(
             user_prompt=user_prompt,
             system_prompt=system_prompt,
             max_turns=self.max_turns,
+            max_budget_usd=self.max_budget_usd,
+            auth_mode=self.auth_mode,
         )
 
         log_fh = open(log_file, "w")
@@ -323,10 +356,12 @@ class AgentInstance:
         except OSError:
             return False
 
-    def _check_rate_limit(self) -> float | None:
-        """Check if the latest session log ended with a rate limit rejection.
+    def _check_rate_limit(self) -> dict | None:
+        """Check if the latest session log contains a rate limit rejection.
 
-        Returns the reset timestamp if rate-limited, None otherwise.
+        Returns dict with {reset_at, rate_limit_type, reason, source} if
+        rate-limited, None otherwise.  Handles both subscription
+        (rate_limit_event with overageStatus) and API key (429 errors).
         """
         try:
             logs = sorted(self.log_dir.glob("session_*.log"),
@@ -334,55 +369,180 @@ class AgentInstance:
             if not logs:
                 return None
             log_path = logs[0]
-            # Only check small logs (rate-limit kills produce <10KB logs)
-            if log_path.stat().st_size > 50_000:
-                return None
-            data = log_path.read_text(errors="replace")
-            if "overageStatus" not in data:
-                return None
+
+            # Read tail of log (200KB covers rate limit events in long sessions)
+            size = log_path.stat().st_size
+            with open(log_path, "r", errors="replace") as f:
+                if size > 200_000:
+                    f.seek(size - 200_000)
+                    f.readline()  # skip partial line
+                data = f.read()
+
+            # Strategy 1: Subscription — rate_limit_event with overageStatus=rejected
             for line in data.splitlines():
-                if '"rejected"' in line and "resetsAt" in line:
-                    try:
-                        obj = json.loads(line)
-                        # Navigate nested structure to find resetsAt
-                        content = obj.get("message", {}).get("content", [])
-                        for block in content:
-                            text = block.get("text", "") if isinstance(block, dict) else ""
-                            if "resetsAt" in text:
-                                match = re.search(r'"resetsAt"\s*:\s*(\d+)', text)
-                                if match:
-                                    return float(match.group(1))
-                    except (json.JSONDecodeError, AttributeError):
-                        pass
-                # Also check raw line for resetsAt pattern
-                if '"rejected"' in line:
-                    match = re.search(r'"resetsAt"\s*:\s*(\d+)', line)
-                    if match:
-                        return float(match.group(1))
+                if "rate_limit_event" not in line and "overageStatus" not in line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if obj.get("type") == "rate_limit_event":
+                        info = obj.get("rate_limit_info", {})
+                        if info.get("overageStatus") == "rejected":
+                            return {
+                                "reset_at": float(info.get("resetsAt", 0)),
+                                "rate_limit_type": info.get("rateLimitType", "unknown"),
+                                "reason": info.get("overageDisabledReason", "rejected"),
+                                "source": "subscription",
+                            }
+                except (json.JSONDecodeError, ValueError):
+                    # Fallback: regex for malformed JSON — only match overageStatus rejected,
+                    # NOT status rejected (which just means primary quota exhausted, overage may be active)
+                    if '"overageStatus":"rejected"' in line or '"overageStatus": "rejected"' in line:
+                        match = re.search(r'"resetsAt"\s*:\s*(\d+)', line)
+                        if match:
+                            return {
+                                "reset_at": float(match.group(1)),
+                                "rate_limit_type": "unknown",
+                                "reason": "rejected",
+                                "source": "subscription_fallback",
+                            }
+
+            # Strategy 2: API key — 429 errors or "rate_limit" error type
+            for line in data.splitlines():
+                if '"error"' not in line and "429" not in line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    err = obj.get("error", {})
+                    if isinstance(err, str):
+                        err = {"message": err}
+                    if not isinstance(err, dict):
+                        continue
+                    err_type = err.get("type", "")
+                    err_msg = err.get("message", "")
+                    if ("rate_limit" in err_type or "429" in str(obj.get("error", ""))
+                            or "rate limit" in err_msg.lower()):
+                        retry_after = err.get("retry_after", 60)
+                        return {
+                            "reset_at": time.time() + float(retry_after),
+                            "rate_limit_type": "api_rate_limit",
+                            "reason": err_msg or err_type,
+                            "source": "api",
+                        }
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
             return None
         except OSError:
             return None
+
+    def _check_session_cost(self) -> dict:
+        """Read cost and overage state from the latest session log.
+
+        Returns ``{"cost_usd": float, "is_overage": bool}`` extracted from
+        stream-json ``result`` events and ``rate_limit_event`` objects.
+        """
+        cost_usd = 0.0
+        is_overage = False
+        try:
+            logs = sorted(self.log_dir.glob("session_*.log"),
+                          key=lambda p: p.stat().st_mtime, reverse=True)
+            if not logs:
+                return {"cost_usd": 0.0, "is_overage": False}
+            log_path = logs[0]
+            size = log_path.stat().st_size
+            with open(log_path, "r", errors="replace") as f:
+                if size > 200_000:
+                    f.seek(size - 200_000)
+                    f.readline()
+                for line in f:
+                    line = line.strip()
+                    if not line or not line.startswith("{"):
+                        continue
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    t = obj.get("type", "")
+                    if t == "result":
+                        cost_usd = max(cost_usd, obj.get("total_cost_usd", 0.0))
+                    elif t == "rate_limit_event":
+                        info = obj.get("rate_limit_info", {})
+                        if info.get("isUsingOverage"):
+                            is_overage = True
+        except OSError:
+            pass
+        return {"cost_usd": cost_usd, "is_overage": is_overage}
+
+    def maybe_kill_if_over_budget(self) -> bool:
+        """Kill agent if session cost exceeds ``max_budget_usd``.
+
+        Works for both API key billing and subscription overage billing.
+        Returns True if killed.
+        """
+        if self.max_budget_usd is None or not self.is_alive():
+            return False
+        cost_info = self._check_session_cost()
+        if cost_info["cost_usd"] >= self.max_budget_usd:
+            print(
+                f"  [$] Agent {self.agent_id} ({self.username}): "
+                f"cost ${cost_info['cost_usd']:.2f} >= budget ${self.max_budget_usd:.2f}"
+                f"{' (overage)' if cost_info['is_overage'] else ''}, stopping session"
+            )
+            self.stop()
+            return True
+        return False
+
+    def _update_metadata_rate_limit(self, rate_info: dict | None):
+        """Write rate limit state to metadata.json for dashboard visibility."""
+        meta_path = self.sandbox_dir / "metadata.json"
+        try:
+            meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        except (json.JSONDecodeError, OSError):
+            meta = {}
+        if rate_info:
+            meta["rate_limited"] = True
+            meta["rate_limit_until"] = rate_info["reset_at"]
+            meta["rate_limit_type"] = rate_info["rate_limit_type"]
+            meta["rate_limit_reason"] = rate_info["reason"]
+            meta["rate_limit_source"] = rate_info["source"]
+        else:
+            meta["rate_limited"] = False
+            meta["rate_limit_until"] = None
+            meta.pop("rate_limit_type", None)
+            meta.pop("rate_limit_reason", None)
+            meta.pop("rate_limit_source", None)
+        try:
+            meta_path.write_text(json.dumps(meta, indent=2))
+        except OSError:
+            pass
 
     def maybe_restart_session(self) -> bool:
         """If the session exited, start a new one after a pause. Returns True if restarted."""
         if self.is_alive():
             return False
         # Check for rate limit before restarting
-        reset_at = self._check_rate_limit()
-        if reset_at:
+        rate_info = self._check_rate_limit()
+        if rate_info:
+            reset_at = rate_info["reset_at"]
             wait_seconds = max(0, reset_at - time.time())
             if wait_seconds > 0:
                 wait_minutes = int(wait_seconds / 60)
+                rl_type = rate_info.get("rate_limit_type", "")
                 print(
                     f"  [!] Agent {self.agent_id} ({self.username}): "
-                    f"rate-limited, waiting {wait_minutes}min until reset"
+                    f"rate-limited ({rl_type}), waiting {wait_minutes}min until reset"
                 )
-                # Don't restart — the orchestrator will check again next loop
                 self._rate_limit_until = reset_at
+                self._rate_limit_info = rate_info
+                self._update_metadata_rate_limit(rate_info)
                 return False
         # Respect rate limit backoff if previously set
         if hasattr(self, "_rate_limit_until") and time.time() < self._rate_limit_until:
             return False
+        # Rate limit expired — clear state
+        if hasattr(self, "_rate_limit_info") and self._rate_limit_info:
+            self._rate_limit_info = None
+            self._update_metadata_rate_limit(None)
         self._rate_limit_until = 0
         self.stop()  # clean up file handle
         time.sleep(self.pause_between)
@@ -454,21 +614,94 @@ class AgentInstance:
             pass
         return False
 
+    def maybe_restart_if_mcp_failed(self, grace_seconds: int = 90) -> bool:
+        """Kill and restart if MCP server is stuck in 'pending' or 'failed' status.
+
+        Only checks sessions younger than grace_seconds (default 90s) to avoid
+        false positives on sessions that are well underway. Reads the first line
+        (system init) of the latest log which contains mcp_servers status.
+        Returns True if restarted.
+        """
+        if not self.is_alive():
+            return False
+        # Only applies to harnesses that use MCP (claude)
+        if self.adapter.name != "claude":
+            return False
+        try:
+            logs = sorted(self.log_dir.glob("session_*.log"),
+                          key=lambda p: p.stat().st_mtime, reverse=True)
+            if not logs:
+                return False
+            log_path = logs[0]
+            age = time.time() - log_path.stat().st_mtime
+            # Only check young sessions (MCP should connect within first ~30s)
+            # but wait at least 30s to give it time to connect
+            if age > grace_seconds or log_path.stat().st_size < 100:
+                return False
+            # Session must be at least 30s old to give MCP time
+            session_age = time.time() - log_path.stat().st_ctime
+            if session_age < 30:
+                return False
+            # Read first line (system init event)
+            with open(log_path, "r") as f:
+                first_line = f.readline().strip()
+            if not first_line:
+                return False
+            init = json.loads(first_line)
+            mcp_servers = (init.get("message", {}).get("content", "") if isinstance(init.get("message", {}).get("content"), str) else "")
+            # Handle structured init format
+            if not mcp_servers:
+                # Try nested format: message.content may be list
+                content = init.get("message", {}).get("content", [])
+                if isinstance(content, list):
+                    for c in content:
+                        if isinstance(c, dict) and "text" in c:
+                            mcp_servers = c["text"]
+                            break
+            # Also check top-level mcp_servers field
+            if not mcp_servers:
+                mcp_servers = json.dumps(init.get("mcp_servers", []))
+            if '"kaetram"' in mcp_servers and ('"pending"' in mcp_servers or '"failed"' in mcp_servers):
+                # Confirm it hasn't connected since (check if any mcp tool calls exist)
+                with open(log_path, "r") as f:
+                    content = f.read(50000)  # first 50KB
+                if "mcp__kaetram__" not in content:
+                    print(
+                        f"  [!] Agent {self.agent_id} ({self.username}): "
+                        f"MCP stuck in pending/failed, restarting session"
+                    )
+                    self.stop()
+                    time.sleep(max(self.pause_between, 15))  # extra time for cleanup
+                    self.start_session()
+                    return True
+        except (json.JSONDecodeError, OSError, KeyError):
+            pass
+        return False
+
 
 class Orchestrator:
     def __init__(self, n_agents: int, hours: float | None = None,
                  personality_counts: dict[str, int] | None = None,
                  harness_counts: dict[str, int] | None = None,
-                 model: str | None = None):
+                 model: str | None = None,
+                 max_budget_usd: float | None = None):
         self.n_agents = n_agents
         self.personality_counts = personality_counts
         self.harness_counts = harness_counts or {"claude": n_agents}
         self.model = model
+        self.max_budget_usd = max_budget_usd
         self.deadline = time.time() + hours * 3600 if hours else None
         self.servers: list[GameServer] = []
         self.agents: list[AgentInstance] = []
         self.running = True
         self.start_time = time.time()
+        # Detect auth mode once at startup (cached for all agents)
+        self.auth_mode = detect_auth_mode()
+        if self.auth_mode == "api_key":
+            print(f"[i] Auth mode: API key (--max-budget-usd {'$' + str(max_budget_usd) if max_budget_usd else 'unlimited'})")
+        else:
+            print(f"[i] Auth mode: subscription"
+                  f"{' (budget enforcement via cost tracking: $' + str(max_budget_usd) + ')' if max_budget_usd else ''}")
 
     def setup(self):
         """Create all server and agent instances."""
@@ -519,6 +752,8 @@ class Orchestrator:
                 log_dir=log_dir,
                 adapter=adapter,
                 personality=personality,
+                max_budget_usd=self.max_budget_usd,
+                auth_mode=self.auth_mode,
             )
             agent.setup()
             self.agents.append(agent)
@@ -590,11 +825,15 @@ class Orchestrator:
 
             # Check agents
             for agent in self.agents:
-                if agent.maybe_restart_session():
+                if agent.maybe_kill_if_over_budget():
+                    pass  # already printed; agent will restart with new budget next loop
+                elif agent.maybe_restart_session():
                     print(
                         f"  [>] Agent {agent.agent_id} ({agent.username}): "
                         f"new session #{agent.session}"
                     )
+                elif agent.maybe_restart_if_mcp_failed():
+                    pass  # already printed inside the method
                 elif agent.maybe_restart_if_disconnected():
                     pass  # already printed inside the method
                 elif agent.maybe_restart_if_stale(threshold_seconds=900):
@@ -631,15 +870,22 @@ class Orchestrator:
         h, m = divmod(int(elapsed), 3600)
         m, s = divmod(m, 60)
         print(f"\n--- Status ({h:02d}:{m:02d}:{s:02d} elapsed) ---")
-        print(f"{'Agent':>10} {'Harness':>8} {'Personality':>12} {'Server':>8} {'Health':>8} {'Session':>8} {'Status':>10}")
+        print(f"{'Agent':>10} {'Harness':>8} {'Personality':>12} {'Server':>8} {'Health':>8} {'Session':>8} {'Status':>12}")
         for i in range(self.n_agents):
             srv = self.servers[i]
             agt = self.agents[i]
             srv_health = "OK" if srv.health_check() else "DOWN"
-            agt_status = "running" if agt.is_alive() else "exited"
+            rl = getattr(agt, "_rate_limit_until", 0)
+            if rl > time.time():
+                wait_min = int((rl - time.time()) / 60)
+                agt_status = f"rl_{wait_min}m"
+            elif agt.is_alive():
+                agt_status = "running"
+            else:
+                agt_status = "exited"
             print(
                 f"{agt.username:>10} {agt.adapter.name:>8} {agt.personality:>12} :{srv.port:>5} {srv_health:>8} "
-                f"#{agt.session:>6} {agt_status:>10}"
+                f"#{agt.session:>6} {agt_status:>12}"
             )
 
         # Count total logs
@@ -713,6 +959,10 @@ def main():
         "--model", type=str, default=None,
         help="Model name override (default: sonnet for Claude, gpt-5.4 for Codex)"
     )
+    parser.add_argument(
+        "--max-budget-usd", type=float, default=None,
+        help="Max USD budget per agent session (API key only, auto-detected). Default: no limit."
+    )
     args = parser.parse_args()
 
     personality_counts = {
@@ -780,6 +1030,7 @@ def main():
         n_agents=n_total, hours=args.hours,
         personality_counts=personality_counts,
         harness_counts=harness_counts, model=args.model,
+        max_budget_usd=args.max_budget_usd,
     )
 
     # Handle SIGINT/SIGTERM gracefully

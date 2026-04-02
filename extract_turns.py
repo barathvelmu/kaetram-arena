@@ -902,7 +902,52 @@ def extract_turns(log_path: Path) -> list[dict]:
                 repeat_count = 0
         deduped.append(t)
 
-    return deduped
+    # Navigation-aware filtering: use stuck_reason and reachable fields to
+    # keep informative failures and discard unproductive thrashing
+    filtered = []
+    timeout_nav_count = 0
+    for t in deduped:
+        gs = t.get("game_state", {})
+        nav = gs.get("navigation") or {}
+        stuck_reason = nav.get("stuck_reason")
+
+        # Keep first 'wall' stuck turn (teaches bail-out), discard repeats
+        if stuck_reason == "wall":
+            wall_turns = sum(
+                1 for prev in filtered
+                if (prev.get("game_state", {}).get("navigation") or {}).get("stuck_reason") == "wall"
+            )
+            if wall_turns >= 2:
+                continue
+
+        # Discard 'timeout' stuck turns (just slow, not informative)
+        if stuck_reason == "timeout":
+            timeout_nav_count += 1
+            if timeout_nav_count > 1:
+                continue
+
+        # Filter turns where agent navigated to an unreachable entity target
+        action_code = t.get("action_code", "")
+        if "navigateTo" in action_code or "moveTo" in action_code:
+            entities = gs.get("nearby_entities", [])
+            # Check if the navigation target matches an unreachable entity
+            for ent in entities:
+                if isinstance(ent, dict) and ent.get("reachable") is False:
+                    ent_name = ent.get("name", "").lower()
+                    if ent_name and ent_name in action_code.lower():
+                        break
+            else:
+                filtered.append(t)
+                continue
+            # Entity was unreachable — only keep if agent recognized it (bail/skip in reasoning)
+            reasoning = t.get("reasoning", "").lower()
+            if any(kw in reasoning for kw in ["unreachable", "skip", "bail", "can't reach", "blocked"]):
+                filtered.append(t)
+            continue
+
+        filtered.append(t)
+
+    return filtered
 
 
 def process_log(log_path: Path, output_dir: Path) -> int:

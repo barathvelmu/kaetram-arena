@@ -123,6 +123,10 @@
       const onScreen = sx > canvasLeft + TILE_PX && sx < canvasLeft + VW - TILE_PX &&
                        sy > canvasTop + TILE_PX && sy < canvasTop + VH - TILE_PX;
 
+      // Check if entity's tile is walkable (reachable by pathfinding)
+      const tileWalkable = !game.map.isColliding(ent.gridX, ent.gridY)
+          || !!_snapToWalkable(ent.gridX, ent.gridY, 3);
+
       const e = {
         id: inst, type: ent.type, name: getEntityName(ent),
         x: ent.gridX, y: ent.gridY,
@@ -130,6 +134,7 @@
         exhausted: (ent.type === 12 && (ent.hitPoints || 0) <= 0),  // depleted tree/rock
         has_achievement: !!ent.exclamation, quest_npc: !!ent.blueExclamation,
         distance: dist,
+        reachable: tileWalkable,
       };
       if (onScreen) {
         e.click_x = Math.round(sx);
@@ -351,6 +356,8 @@
         current_wp: window.__navState.currentWP,
         total_wps: window.__navState.waypoints ? window.__navState.waypoints.length : 0,
         target: window.__navState.active ? {x: window.__navState.targetX, y: window.__navState.targetY} : null,
+        stuck_reason: window.__navState.status === 'stuck' ? (window.__navState._stuckReason || 'unknown') : null,
+        pathfinding_method: window.__navState._pathfindingMethod || null,
       } : null,
       warp_status: window.__kaetramState.warpPending ? {
         pending: !window.__kaetramState.warpPending.confirmed && !window.__kaetramState.warpPending.failed,
@@ -459,8 +466,12 @@
     if (!el.edible) return { error: 'Item in slot ' + slot + ' is not edible (key: ' + (el.dataset && el.dataset.key || 'unknown') + ')' };
     var itemKey = (el.dataset && el.dataset.key) || 'unknown';
     var hpBefore = game.player ? game.player.hitPoints : 0;
-    // Use the inventory's select method which triggers the eat action for edibles
-    inv.select(el);
+    var maxHp = game.player ? game.player.maxHitPoints : 0;
+    if (hpBefore > 0 && maxHp > 0 && hpBefore >= maxHp) {
+      return { error: 'HP is full (' + hpBefore + '/' + maxHp + ') — cannot eat. Use drop_item to free inventory space.', slot: slot, item: itemKey };
+    }
+    // Use the inventory's select method with doubleClick=true which triggers eat for edibles
+    inv.select(slot, true);
     // Also try direct packet: Packets.Equipment = 17, Opcodes.Equipment.Eat = 3 (slot index)
     try { game.socket.send(17, [3, slot]); } catch(e) {}
     return { eating: true, slot: slot, item: itemKey, hp_before: hpBefore, dialogue_closed: dialogueClosed };
@@ -488,18 +499,18 @@
     // Check client-side combat state
     if (p.target) {
       return {
-        error: 'In combat — cannot warp. Call __clearCombatState() first, then wait 10+ seconds before retrying.',
+        error: 'In combat — cannot warp. Call __clearCombatState() first, then wait 20+ seconds before retrying.',
         has_target: true, target_name: p.target.name || 'unknown',
       };
     }
-    // Check server-side combat cooldown (10s after last hit)
+    // Check server-side combat cooldown (20s after last hit)
     var timeSinceCombat = Date.now() - window.__kaetramState.lastCombatTime;
-    if (timeSinceCombat < 10000 && window.__kaetramState.lastCombatTime > 0) {
-      var waitSeconds = Math.ceil((10000 - timeSinceCombat) / 1000);
+    if (timeSinceCombat < 20000 && window.__kaetramState.lastCombatTime > 0) {
+      var waitSeconds = Math.ceil((20000 - timeSinceCombat) / 1000);
       return {
         error: 'Server combat cooldown active — wait ' + waitSeconds + ' more seconds before warping.',
         cooldown_remaining_seconds: waitSeconds,
-        hint: 'Call __clearCombatState(), then wait ' + waitSeconds + 's (do 1-2 OBSERVE cycles), then retry.',
+        hint: 'Call __clearCombatState(), then wait ' + waitSeconds + 's (do 3-4 OBSERVE cycles), then retry.',
       };
     }
     // Check if mobs are targeting the player
@@ -514,7 +525,7 @@
     }
     if (attackerNames.length > 0) {
       return {
-        error: 'Mobs targeting you (' + attackerNames.join(', ') + ') — server blocks warp for 10s after combat. Move away from mobs first.',
+        error: 'Mobs targeting you (' + attackerNames.join(', ') + ') — server blocks warp for 20s after combat. Move away from mobs first.',
         attackers: attackerNames,
       };
     }
@@ -864,7 +875,7 @@
       return { error: 'Out of bounds', target: { x: gridX, y: gridY } };
 
     // Snap target to walkable tile if it's a wall
-    var target = _snapToWalkable(gridX, gridY, 5);
+    var target = _snapToWalkable(gridX, gridY, 25);
     if (!target)
       return { error: 'Target and all nearby tiles are walls', target: { x: gridX, y: gridY } };
     var targetX = target.x, targetY = target.y;
@@ -886,16 +897,24 @@
       // Fall through to waypoint mode if short path also fails (complex terrain)
     }
 
-    // Compute waypoints: interpolate every HOP_SIZE tiles along the line
-    var HOP_SIZE = 15;
-    var waypoints = [];
-    var steps = Math.ceil(totalDist / HOP_SIZE);
-    for (var i = 1; i <= steps; i++) {
-      var t = i / steps;
-      var wpX = Math.round(startX + (targetX - startX) * t);
-      var wpY = Math.round(startY + (targetY - startY) * t);
-      var snapped = _snapToWalkable(wpX, wpY, 5);
-      if (snapped) waypoints.push(snapped);
+    // PRIMARY: Use BFS pathfinding for wall-aware waypoints
+    var bfsMaxRadius = Math.min(Math.max(totalDist, 30), 80);
+    var bfsSample = Math.max(8, Math.min(15, Math.round(totalDist / 6)));
+    var waypoints = _bfsPath(startX, startY, targetX, targetY, bfsMaxRadius, bfsSample);
+    var usedBFS = !!(waypoints && waypoints.length > 0);
+
+    // FALLBACK: Linear interpolation if BFS fails (path too long or no route in bounded area)
+    if (!usedBFS) {
+      var HOP_SIZE = 15;
+      waypoints = [];
+      var steps = Math.ceil(totalDist / HOP_SIZE);
+      for (var i = 1; i <= steps; i++) {
+        var t = i / steps;
+        var wpX = Math.round(startX + (targetX - startX) * t);
+        var wpY = Math.round(startY + (targetY - startY) * t);
+        var snapped = _snapToWalkable(wpX, wpY, 10);
+        if (snapped) waypoints.push(snapped);
+      }
     }
     // Ensure final waypoint is the actual target
     if (waypoints.length === 0 || waypoints[waypoints.length - 1].x !== targetX ||
@@ -915,6 +934,8 @@
     nav.stuckCount = 0;
     nav.status = 'navigating';
     nav.error = null;
+    nav._pathfindingMethod = usedBFS ? 'bfs' : 'linear_fallback';
+    nav._stuckReason = null;
 
     // Start first hop
     p.disableAction = false;
@@ -922,6 +943,7 @@
 
     return {
       status: 'navigating',
+      pathfinding: nav._pathfindingMethod,
       waypoints_count: waypoints.length,
       player_pos: { x: startX, y: startY },
       target: { x: targetX, y: targetY },
@@ -1009,23 +1031,56 @@
     }
     if (!best) return { error: 'No NPC matching "' + name + '" found nearby' };
     var npc = best.entity;
+    // Server uses Manhattan distance < 2 for adjacency (orthogonal only, diagonals rejected)
+    var manhattan = Math.abs(npc.gridX - px) + Math.abs(npc.gridY - py);
     p.disableAction = false;
-    if (best.dist <= 1) {
-      // Adjacent — send talk packet (Packets.Target=14, Opcodes.Target.Talk=0)
+    if (manhattan < 2) {
+      // Orthogonally adjacent — send talk packet (Packets.Target=14, Opcodes.Target.Talk=0)
       game.socket.send(14, [0, best.instance, npc.gridX, npc.gridY]);
       return {
         talked: true, npc: getEntityName(npc), instance: best.instance,
-        npc_pos: { x: npc.gridX, y: npc.gridY }, distance: best.dist,
+        npc_pos: { x: npc.gridX, y: npc.gridY }, distance: manhattan,
         player_pos: { x: px, y: py },
       };
     }
-    // Not adjacent — walk toward NPC
-    p.go(npc.gridX, npc.gridY);
+    // Not adjacent — walk to nearest ORTHOGONAL neighbor of the NPC (not the NPC tile itself)
+    var neighbors = [
+      { x: npc.gridX, y: npc.gridY - 1 },  // North
+      { x: npc.gridX, y: npc.gridY + 1 },  // South
+      { x: npc.gridX - 1, y: npc.gridY },  // West
+      { x: npc.gridX + 1, y: npc.gridY },  // East
+    ];
+    var bestNeighbor = neighbors[0], bestNDist = Infinity;
+    for (var n = 0; n < neighbors.length; n++) {
+      var nd = Math.abs(neighbors[n].x - px) + Math.abs(neighbors[n].y - py);
+      if (nd < bestNDist) { bestNDist = nd; bestNeighbor = neighbors[n]; }
+    }
+    p.go(bestNeighbor.x, bestNeighbor.y);
+    var npcInst = best.instance;
+    var npcGX = npc.gridX, npcGY = npc.gridY;
+    var retryCount = 0;
+    // Clear any previous auto-talk interval to prevent leaks
+    if (window.__interactNPCInterval) clearInterval(window.__interactNPCInterval);
+    var retryInterval = setInterval(function () {
+      retryCount++;
+      if (retryCount > 20) { clearInterval(retryInterval); return; }
+      var pp = game.player;
+      if (!pp) { clearInterval(retryInterval); return; }
+      // Server adjacency: Manhattan distance < 2 (orthogonal only)
+      var dist = Math.abs(pp.gridX - npcGX) + Math.abs(pp.gridY - npcGY);
+      if (dist < 2) {
+        clearInterval(retryInterval);
+        game.socket.send(14, [0, npcInst, npcGX, npcGY]);
+      }
+    }, 500);
+    window.__interactNPCInterval = retryInterval;
     return {
       talked: false, walking_to: getEntityName(npc), instance: best.instance,
-      npc_pos: { x: npc.gridX, y: npc.gridY }, distance: best.dist,
+      npc_pos: { x: npc.gridX, y: npc.gridY }, distance: manhattan,
+      walk_target: { x: bestNeighbor.x, y: bestNeighbor.y },
       player_pos: { x: px, y: py },
-      hint: 'Walk closer then call again or use __talkToNPC("' + best.instance + '")',
+      auto_talk: true,
+      hint: 'Walking to orthogonal neighbor of NPC. Auto-talk fires when adjacent (Manhattan < 2).',
     };
   };
 
@@ -1105,13 +1160,22 @@
       if (game && game.player) {
         var p = game.player;
 
-        // Fix 5: Clear mob targeting during active navigation (prevents aggro oscillation)
-        if (p.target && p.target.type === 3) {
+        // Total navigation timeout (120s)
+        if (Date.now() - nav.startTime > 120000) {
+          nav.active = false;
+          nav.status = 'stuck';
+          nav._stuckReason = 'timeout';
+          nav.error = 'Navigation timed out after 120s';
+        }
+
+        // Clear mob targeting during active navigation (prevents aggro oscillation)
+        if (nav.active && p.target && p.target.type === 3) {
           nav._aggroClearCount = (nav._aggroClearCount || 0) + 1;
           if (nav._aggroClearCount >= 5) {
             // Too many aggro interrupts — area is too dangerous, abort navigation
             nav.active = false;
             nav.status = 'stuck';
+            nav._stuckReason = 'aggro';
             nav.error = 'Too many mob aggro interrupts during navigation — area too dangerous';
             nav._aggroClearCount = 0;
           } else {
@@ -1183,6 +1247,7 @@
               } else if (nav.stuckCount >= 4) {
                 nav.active = false;
                 nav.status = 'stuck';
+                nav._stuckReason = 'wall';
                 nav.error = 'Stuck after BFS + retries at (' + p.gridX + ',' + p.gridY + ')';
               } else {
                 // Retry: clear state and re-issue go()

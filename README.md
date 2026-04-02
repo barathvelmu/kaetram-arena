@@ -1,6 +1,6 @@
 # Kaetram AI Agent
 
-An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-Open), a 2D pixel MMORPG, using Claude Code (Sonnet) and Playwright browser automation. The agent plays the game, collects structured training data, and builds a dataset for finetuning a text model (Qwen3.5 9B).
+An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-Open), a 2D pixel MMORPG, using a custom MCP server with typed game tools. The agent calls structured tools (observe, attack, navigate, interact_npc, etc.) — never writes JavaScript. Gameplay sessions are collected as SFT training data for finetuning Qwen3.5 9B.
 
 ## What it does
 
@@ -14,31 +14,24 @@ An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-O
 ## Architecture
 
 ```
-play.sh ──────────► Claude Code (Sonnet) ──────► Playwright MCP ──► browser @ localhost:9000
-                          │                           │                        │
-                    reads/writes                page.evaluate()         window.game
-                    state/, prompts/            extracts game state    (Kaetram client)
-                          │                           │
-                          │                   returns state as tool result
-                          │                           │
+play.sh ──────────► Claude Code (Sonnet) ──► mcp_game_server.py (FastMCP) ──► Playwright ──► browser
+                          │                        │                              │
+                    reads system.md +         18 typed tools                 page.evaluate()
+                    game_knowledge.md         (observe, attack,              calls state_extractor.js
+                          │                   navigate, warp...)              helpers internally
+                          │                        │
                           └──► logs/session_N_*.log (auto-logged JSONL)
 
                      dashboard (port 8080) ◄─── MongoDB (kaetram_devlopment, port 27017)
-                              │                    authoritative player state:
-                              │                    level, HP, skills, quests,
-                              └── fallback ──►     equipment, inventory, achievements
-                                   session log parsing (if DB unavailable)
 ```
 
-**`play.sh`** — infinite loop, launches Claude Code sessions (150 turns max, 10s pause between)
+**`mcp_game_server.py`** — custom FastMCP server exposing 18 typed game tools. Manages Playwright browser internally. Agents call structured tools — never write JavaScript.
 
-**`state_extractor.js`** — injected into the browser during login; exposes `window.__extractGameState()` + `window.__generateAsciiMap()` which the agent calls each turn to read player position, nearby entities, combat target, HP, XP, and a text map of the viewport
+**`state_extractor.js`** — injected into browser via `context.add_init_script()`. Exposes `window.__extractGameState()`, `window.__attackMob()`, `window.__navigateTo()`, etc. Called by MCP server internally, never by the agent.
 
-**`dashboard.py`** — live web UI at port 8080. Reads player state directly from MongoDB (level, HP, mana, skills, quests, equipment, inventory, achievements) with session log parsing as fallback. Shows live screenshots, entity list, activity feed, and per-agent game state
+**`prompts/system.md`** — agent system prompt: OODA loop, decision tree, tool descriptions. Uses XML tags for structure. ~90 lines.
 
-**`prompts/system.md`** — base system prompt: login, OODA loop, targeting, healing, combat (generic, no game-specific knowledge)
-
-**`prompts/game_knowledge.md`** — game-specific knowledge (mob stats, quest walkthroughs, NPC coords) appended to all agents
+**`prompts/game_knowledge.md`** — game-specific knowledge (quest walkthroughs, NPC coords) appended to all agents
 
 ## Quick start
 
@@ -130,39 +123,44 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 }
 ```
 
-### Action vocabulary
+### MCP Tool Vocabulary (18 tools)
 
-| Action | Description |
-|--------|-------------|
-| `attack(mob_name)` | Target and attack a mob via helper |
-| `interact_npc(npc_name)` | Walk to and interact with NPC |
-| `navigate(x, y)` | Multi-step pathfinding to grid coordinates |
-| `move(x, y)` | Single-step movement to nearby tile |
-| `click(x, y)` | Click canvas at pixel coordinates (generic fallback) |
-| `click_entity(label)` | Click a specific entity by label |
-| `click_tile(x, y)` | Click a specific grid tile |
-| `talk_npc(instance_id)` | Open dialogue with NPC |
-| `warp(location)` | Fast travel (Mudwich, Crossroads, Lakesworld) |
-| `equip(slot=N)` | Equip item from inventory slot |
-| `heal(slot=N)` | Consume edible item |
-| `quest_accept()` | Accept/progress a quest |
-| `set_style(style)` | Change attack style (Hack=6, Chop=7, Defensive=3) |
-| `stuck_reset()` | Reset navigation when stuck |
-| `respawn()` | Respawn after death |
-| `wait(Ns)` | Wait for combat/regen |
+| Tool | Description |
+|------|-------------|
+| `login` | Log into the game |
+| `observe` | Game state JSON + ASCII map + stuck check |
+| `attack(mob_name)` | Attack nearest mob by name |
+| `navigate(x, y)` | BFS pathfinding to grid coords |
+| `move(x, y)` | Short-distance movement (< 15 tiles) |
+| `warp(location)` | Fast travel (mudwich, crossroads, lakesworld). Auto-waits combat cooldown. |
+| `interact_npc(npc_name)` | Walk to NPC, talk through all dialogue, auto-accept quest |
+| `talk_npc(instance_id)` | Continue dialogue with adjacent NPC |
+| `accept_quest` | Manual quest accept |
+| `eat_food(slot)` | Eat food to heal (fails at full HP) |
+| `drop_item(slot)` | Drop item to free inventory space |
+| `equip_item(slot)` | Equip item (returns success/failure with reason) |
+| `set_attack_style(style)` | hack, chop, or defensive |
+| `clear_combat` | Clear combat state |
+| `stuck_reset` | Reset stuck detection |
+| `cancel_nav` | Cancel navigation |
+| `click_tile(x, y)` | Click grid tile (fallback) |
+| `respawn` | Respawn after death |
 
 ## Project structure
 
 ```
 kaetram-agent/
-├── play.sh                  # Claude Code agent loop (150 turns/session)
+├── mcp_game_server.py       # Custom FastMCP server — 18 typed game tools via Playwright
+├── cli_adapter.py           # Harness abstraction (Claude, Codex, Kimi, Qwen Code adapters)
+├── play.sh                  # Claude Code agent loop (resolves .mcp.json template)
 ├── play_qwen.py             # Qwen agent loop — lightweight 2-tool harness
-├── play_qwen.sh             # Qwen agent session launcher (system prompt substitution)
+├── play_qwen.sh             # Qwen agent session launcher
 ├── play_opencode.sh         # OpenCode + Playwright MCP agent launcher
-├── orchestrate.py           # Multi-agent launcher + health monitor
+├── orchestrate.py           # Multi-agent launcher + health monitor + MCP detection
 ├── extract_turns.py         # JSONL log → clean OODA turn extraction
-├── convert_to_qwen.py       # Turns → Qwen3.5 9B SFT/GRPO format (single/multi/mixed modes)
-├── state_extractor.js       # Injected into browser — exposes window.__extractGameState()
+├── convert_to_qwen.py       # Turns → Qwen3.5 9B SFT/GRPO format
+├── state_extractor.js       # Injected into browser — game helpers (called by MCP server internally)
+├── .mcp.json                # MCP config template (placeholders resolved at launch)
 ├── dashboard.py             # Live web dashboard launcher (port 8080)
 ├── qwen_dashboard.py        # Lightweight MJPEG dashboard for Qwen agent (port 8082)
 ├── opencode.json            # OpenCode provider config (Modal/Ollama endpoints)

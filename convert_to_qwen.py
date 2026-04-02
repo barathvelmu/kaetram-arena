@@ -234,6 +234,8 @@ def prune_game_state(state: dict) -> dict:
             pe["quest_npc"] = True
         if e.get("has_achievement"):
             pe["has_achievement"] = True
+        if "reachable" in e:
+            pe["reachable"] = e["reachable"]
         pruned_ents.append(pe)
     if pruned_ents:
         pruned["nearby_entities"] = pruned_ents
@@ -258,7 +260,7 @@ def prune_game_state(state: dict) -> dict:
 
     # Inventory (non-empty)
     inventory = state.get("inventory", [])
-    if inventory:
+    if inventory and isinstance(inventory, list):
         pruned_inv = []
         for it in inventory[:15]:
             if not isinstance(it, dict):
@@ -317,14 +319,19 @@ def prune_game_state(state: dict) -> dict:
         if sk_pruned:
             pruned["skills"] = sk_pruned
 
-    # Navigation status
+    # Navigation status (include stuck_reason and pathfinding_method for training)
     nav = state.get("navigation")
-    if isinstance(nav, dict) and nav.get("active"):
-        pruned["navigation"] = {
+    if isinstance(nav, dict) and (nav.get("active") or nav.get("status") == "stuck"):
+        nav_pruned = {
             "status": nav.get("status"),
             "current_wp": nav.get("current_wp"),
             "total_wps": nav.get("total_wps"),
         }
+        if nav.get("stuck_reason"):
+            nav_pruned["stuck_reason"] = nav["stuck_reason"]
+        if nav.get("pathfinding_method"):
+            nav_pruned["pathfinding_method"] = nav["pathfinding_method"]
+        pruned["navigation"] = nav_pruned
 
     return pruned
 

@@ -86,16 +86,16 @@ Personality system being built and broken mid-run. Prompt changes mid-collection
 
 ---
 
-## Current Dataset Stats (as of April 1, 2026)
+## Current Dataset Stats (as of April 2, 2026)
 
 | | Value |
 |---|---|
-| Active sessions per agent | 56–72 |
-| Total active sessions | 253 |
-| Extracted turns | ~2,189 |
-| Training records (qwen_sft) | 1,233 train / 158 val |
-| Action vocab (top) | `__navigateTo`, `__attackMob`, `__moveTo`, `__safeWarp` |
-| Structured action rate | ~88% |
+| Active sessions per agent | 75–95 |
+| Total active sessions | ~365+ |
+| Extracted turns | ~2,189 (needs re-extraction for new sessions) |
+| Training records (qwen_sft) | needs rebuild |
+| Action vocab (MCP tools) | `observe`, `attack`, `navigate`, `interact_npc`, `warp`, `eat_food`, `equip_item` |
+| Architecture | Custom FastMCP server (18 typed tools), not Playwright MCP |
 
 Dataset is growing. Rebuild with `scripts/collect_sft_data.sh` or manually:
 ```bash

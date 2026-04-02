@@ -154,8 +154,11 @@ Follow your system instructions exactly. Load tools, then login, then run the OB
       ;;
 
     kimi)
-      # Kimi: copy .mcp.json to sandbox, enable thinking and stream-json output
-      cp "$PROJECT_DIR/.mcp.json" "$SANDBOX/.mcp.json"
+      # Kimi: resolve .mcp.json template to sandbox, enable thinking and stream-json output
+      sed -e "s|__VENV_PYTHON__|${PROJECT_DIR}/.venv/bin/python3|g" \
+          -e "s|__PROJECT_DIR__|${PROJECT_DIR}|g" \
+          -e "s|__SCREENSHOT_DIR__|${SANDBOX}/state|g" \
+          "$PROJECT_DIR/.mcp.json" > "$SANDBOX/.mcp.json"
 
       # Increased timeout for thinking: ~60s per turn
       TIMEOUT_SECS=$((MAX_TURNS * 60))
@@ -169,8 +172,11 @@ Follow your system instructions exactly. Load tools, then login, then run the OB
       ;;
 
     qwen-code)
-      # Qwen Code: copy .mcp.json to sandbox (same as Claude)
-      cp "$PROJECT_DIR/.mcp.json" "$SANDBOX/.mcp.json"
+      # Qwen Code: resolve .mcp.json template to sandbox
+      sed -e "s|__VENV_PYTHON__|${PROJECT_DIR}/.venv/bin/python3|g" \
+          -e "s|__PROJECT_DIR__|${PROJECT_DIR}|g" \
+          -e "s|__SCREENSHOT_DIR__|${SANDBOX}/state|g" \
+          "$PROJECT_DIR/.mcp.json" > "$SANDBOX/.mcp.json"
 
       (cd "$SANDBOX" && qwen -p "$PROMPT" \
         --model "$QWEN_CODE_MODEL" \
@@ -181,14 +187,21 @@ Follow your system instructions exactly. Load tools, then login, then run the OB
       ;;
 
     *)
-      # Claude: copy .mcp.json and run with standard flags
-      cp "$PROJECT_DIR/.mcp.json" "$SANDBOX/.mcp.json"
+      # Claude: resolve .mcp.json template and pass via --mcp-config (bypasses project .mcp.json)
+      sed -e "s|__VENV_PYTHON__|${PROJECT_DIR}/.venv/bin/python3|g" \
+          -e "s|__PROJECT_DIR__|${PROJECT_DIR}|g" \
+          -e "s|__SCREENSHOT_DIR__|${SANDBOX}/state|g" \
+          -e "s|__SERVER_PORT__||g" \
+          -e "s|__USERNAME__|ClaudeBot|g" \
+          "$PROJECT_DIR/.mcp.json" > "$SANDBOX/.mcp.json"
       (cd "$SANDBOX" && claude -p "$PROMPT" \
         --model "$CLAUDE_MODEL" \
         --max-turns "$MAX_TURNS" \
         --append-system-prompt "$SYSTEM" \
         --dangerously-skip-permissions \
-        --disallowedTools "Glob Grep Agent Edit WebFetch WebSearch Write Skill mcp__playwright__browser_evaluate mcp__playwright__browser_snapshot mcp__playwright__browser_console_messages mcp__playwright__browser_take_screenshot mcp__playwright__browser_click" \
+        --disallowedTools "Glob Grep Agent Edit WebFetch WebSearch Write Skill" \
+        --mcp-config "$SANDBOX/.mcp.json" \
+        --strict-mcp-config \
         --output-format stream-json \
         --verbose) \
         2>&1 | tee "$LOG_FILE" || true

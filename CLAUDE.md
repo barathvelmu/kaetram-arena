@@ -3,7 +3,7 @@
 > **This file is for the human developer using Claude Code interactively.**
 > The agent subprocess launched by `play.sh` does NOT read this file — its instructions live exclusively in `prompts/system.md`. Do not add agent behavioral instructions here.
 
-This is an autonomous AI agent that plays Kaetram (a 2D pixel MMORPG) using swappable CLI harnesses (Claude, Codex, Kimi, Qwen Code) + Playwright browser automation. It collects gameplay data for finetuning text models (Qwen3.5 9B, Qwen3-Coder).
+This is an autonomous AI agent that plays Kaetram (a 2D pixel MMORPG) using a **custom MCP server** (`mcp_game_server.py`) that exposes typed game tools (observe, attack, navigate, etc.). The agent calls structured tools — never writes JavaScript. Gameplay sessions are collected as SFT training data for Qwen3.5 9B.
 
 ---
 
@@ -21,15 +21,15 @@ At the end of every session, update `session_log.md` (under 30 lines).
 
 ## GOTCHAS
 
-**Playwright subprocess deadlock** — `play.sh` MUST be launched from a separate terminal. If you spawn `claude -p` as a subprocess of the current Claude Code session, both processes share the same Playwright MCP browser and deadlock. Symptoms: agent session freezes at ~0 CPU, screenshot stops updating, log file stays 0 bytes. Fix: `ps aux | grep "claude -p" | grep -v grep` then `kill <PID>`.
-
 **Node.js version** — Kaetram requires Node 16/18/20. Node 24/25 crashes on startup (uWS.js incompatibility). Always `nvm use 20` before starting the server.
 
 **Port conflicts** — If the server is restarted without killing old processes, the client binds to a random port instead of 9000. Kill all node processes first.
 
 **yarn build required** — After cloning, `yarn start` alone fails. Run `yarn build` first.
 
-**`require()` is not available in Playwright MCP `browser_run_code`** — The execution context is an ESM-like sandbox, not CommonJS Node.js. `require('fs')`, `require('path')`, etc. all fail with "require is not defined". Errors are silently swallowed by try/catch. Do NOT attempt to write files from `browser_run_code` — use a separate Bash tool call instead, or read data from the session log.
+**MCP server uses Python venv** — `mcp_game_server.py` requires `.venv` with `mcp[cli]` and `playwright` installed. The `.mcp.json` template references `__VENV_PYTHON__` which resolves to `.venv/bin/python3`.
+
+**`.mcp.json` is a template** — Contains placeholders (`__VENV_PYTHON__`, `__PROJECT_DIR__`, `__SERVER_PORT__`, `__USERNAME__`, `__SCREENSHOT_DIR__`). Resolved by `cli_adapter.py` or `play.sh` at launch time. Claude Code uses `--mcp-config` + `--strict-mcp-config` to read the resolved copy from the sandbox, NOT the project-level template.
 
 ---
 
@@ -243,30 +243,30 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 ## Architecture
 
 ```
-CLI Harnesses (swappable backends):
-  play.sh / orchestrate.py ──► Claude / Codex / Kimi / Qwen Code ──► Playwright MCP ──► browser
-                                      │                                     │
-                              (via cli_adapter.py)                   page.evaluate()
-                              stream-json or raw                  extracts game state
-                                      │
-                                      └──► logs/session_N_*.log (JSONL with thinking blocks)
+Custom MCP Server (current):
+  Claude CLI ──► mcp_game_server.py (FastMCP) ──► Playwright Python ──► browser
+                   │                                    │
+              16 typed tools                     page.evaluate()
+              (observe, attack,                  calls window.__helperFn()
+               navigate, warp...)                from state_extractor.js
+                   │
+              Agent NEVER writes JS — calls structured tools only
 
 Multi-agent orchestration:
-orchestrate.py ──► N × (GameServer + AgentInstance)
-                   each agent with own CLI harness, sandbox, log directory
-                        │
-                   dataset/raw/agent_N/logs/session_*.log
-                        │
-         extract_turns.py (parses all harness formats) → turns.jsonl
-                        │
-         convert_to_qwen.py (reasoning + <think> blocks) → dataset/qwen_sft/{train,val}.json
-                        │
-              finetune/train_modal.py (SFT) / train_grpo_modal.py (GRPO)
+  orchestrate.py ──► N × (GameServer + AgentInstance)
+                     each agent gets own MCP server process + browser
+                          │
+                     dataset/raw/agent_N/logs/session_*.log
+                          │
+           extract_turns.py (parses MCP tool calls) → turns.jsonl
+                          │
+           convert_to_qwen.py → dataset/qwen_sft/{train,val}.json
 
-Dashboard:
-  dashboard/api.py ──► MongoDB (player state) or session log parsing
-                      ├─ /api/game-state (agent levels, stats, quests)
-                      └─ /api/agents (harness badges, session counts)
+Rate limit / budget:
+  orchestrate.py detects auth mode via `claude auth status`
+  Subscription: parses rate_limit_event from stream-json (overageStatus)
+  API key: detects 429 errors + passes --max-budget-usd
+  Both: tracks cost via total_cost_usd, kills agent if over budget
 ```
 
 ## Ports
@@ -284,45 +284,51 @@ Dashboard:
 
 | File | Purpose |
 |------|---------|
-| `play.sh` | Single-agent loop (supports `--claude`, `--kimi`, `--qwen-code`, `--codex` flags) |
-| `cli_adapter.py` | **Harness abstraction layer** — ClaudeAdapter, CodexAdapter, KimiAdapter, QwenCodeAdapter |
-| `orchestrate.py` | Multi-agent launcher + health monitor (mixes harnesses per agent) |
-| `extract_turns.py` | JSONL log → clean OODA turn extraction (all harness formats) |
-| `convert_to_qwen.py` | Turns → Qwen3.5 9B SFT/GRPO format with `<think>` blocks |
-| `play_qwen.py` | **Finetuned Qwen3.5-9B** agent loop — custom 2-tool harness calling OpenAI-compatible API (Modal/Ollama). NOT the Qwen Code CLI. |
-| `play_qwen.sh` | Session launcher for `play_qwen.py` (system prompt substitution, Modal endpoint) |
-| `play_opencode.sh` | OpenCode + Playwright MCP agent launcher |
-| `opencode.json` | OpenCode provider config (Modal/Ollama endpoints) |
-| `qwen_dashboard.py` | Lightweight MJPEG dashboard for Qwen agent (port 8082) |
-| `scripts/collect_sft_data.sh` | End-to-end pipeline wrapper |
-| `prompts/system.md` | Base system prompt with `__PERSONALITY_BLOCK__` and `__GAME_KNOWLEDGE_BLOCK__` placeholders |
-| `prompts/game_knowledge.md` | Game-specific knowledge (mob stats, quest guides, NPC coords) — appended for all agents |
-| `prompts/personalities/*.md` | Playstyle DECIDE overrides (aggressive, methodical, curious, efficient) |
-| `state_extractor.js` | Injected into browser — exposes `window.__extractGameState()` + `window.__generateAsciiMap()` |
-| `dashboard.py` | Live web dashboard launcher (port 8080) |
-| `dashboard/db.py` | MongoDB reader — queries `kaetram_devlopment` DB for authoritative player state |
-| `dashboard/api.py` | API endpoints — `/api/game-state`, `/api/agents` (DB-first, log-fallback) |
-| `dashboard/game_state.py` | Game state extraction — DB-based + log-based fallback |
-| `finetune/train_modal.py` | SFT training on Modal (Unsloth + T4/L40S) |
-| `finetune/train_grpo_modal.py` | GRPO reinforcement learning on Modal |
-| `finetune/serve_modal.py` | vLLM serving endpoint (OpenAI-compatible API) |
-| `finetune/SETUP_3060.md` | RTX 3060 local deployment guide |
-| `world/model.py` | Transformer forward dynamics model (2.2M params, combat prediction) |
-| `world/mcts.py` | MCTS planner for multi-step action evaluation |
-| `world/extract_transitions.py` | Extract (state, action, next_state) triples from session logs |
-| `state/progress.json` | Agent-written cross-session scratchpad. Multi-agent: `/tmp/kaetram_agent_N/state/progress.json` |
-| `state/game_state.json` | Auto-extracted from session logs between sessions by play.sh/orchestrate.py |
-| `logs/session_N_*.log` | Claude Code JSONL session logs |
+| `mcp_game_server.py` | **Custom MCP server** — FastMCP Python, 18 typed game tools, manages Playwright browser. Agent calls these instead of writing JS. |
+| `.mcp.json` | MCP config **template** — placeholders resolved at launch. Claude uses `--mcp-config` + `--strict-mcp-config`. |
+| `play.sh` | Single-agent loop (resolves `.mcp.json` template via sed) |
+| `cli_adapter.py` | **Harness abstraction** — ClaudeAdapter resolves MCP config, passes `--mcp-config`/`--strict-mcp-config` |
+| `orchestrate.py` | Multi-agent launcher + health monitor + rate limit detection + budget enforcement |
+| `state_extractor.js` | Injected into browser via `context.add_init_script()` — exposes `window.__extractGameState()`, `window.__attackMob()`, etc. Called by MCP server internally, never by agent. |
+| `extract_turns.py` | JSONL log → OODA turn extraction (parses MCP tool calls) |
+| `convert_to_qwen.py` | Turns → Qwen3.5 9B SFT/GRPO format |
+| `prompts/system.md` | Agent system prompt (~100 lines, no JS — just tool names + decision tree) |
+| `prompts/game_knowledge.md` | Game knowledge (mob stats, quest guides, NPC coords) |
+| `prompts/personalities/*.md` | Playstyle overrides (aggressive, methodical, curious, efficient) |
+| `dashboard.py` | Live web dashboard (port 8080) |
+| `dashboard/parsers.py` | Session log parser — classifies MCP tool calls for activity feed |
+| `dashboard/api.py` | API endpoints — `/api/game-state`, `/api/agents`, `/api/activity` |
 
-## Placeholders in `prompts/system.md`
+### Session log format (stream-json)
 
-| Placeholder | Substituted by | Default (single-agent) |
-|-------------|----------------|----------------------|
-| `__PROJECT_DIR__` | `play.sh` via sed | repo root |
-| `__USERNAME__` | `play.sh` or `orchestrate.py` | `ClaudeBot` |
-| `__SERVER_PORT__` | `play.sh` or `orchestrate.py` | empty (no override) |
-| `__GAME_KNOWLEDGE_BLOCK__` | `play.sh` or `orchestrate.py` | contents of `prompts/game_knowledge.md` |
-| `__PERSONALITY_BLOCK__` | `play.sh` or `orchestrate.py` | empty (generic DECIDE) |
+Logs are JSONL at `dataset/raw/agent_N/logs/session_*.log`. Key event types:
+
+| `type` | Structure | How to parse |
+|--------|-----------|-------------|
+| `"system"` (line 1) | `mcp_servers[].status`, `tools[]` | Check `mcp_servers[0].status == "connected"` for MCP health |
+| `"assistant"` | `message.content[]` with `tool_use` blocks | Tool name: `c.name`, params: `c.input` |
+| `"user"` (tool results) | `message.content[].content` | For observe: split on `\n\nASCII_MAP:`, JSON.parse first part |
+| `"rate_limit_event"` | `rate_limit_info.overageStatus`, `.resetsAt` | Check `overageStatus == "rejected"` |
+| `"result"` (session end) | `total_cost_usd`, `num_turns`, `duration_ms` | Final session summary |
+
+### Parsing observe results from logs
+
+The observe tool returns game state as: `{"result": "<escaped JSON>\n\nASCII_MAP:\n..."}`. To extract:
+```python
+wrapper = json.loads(content_string)
+raw = wrapper["result"]
+state_json = raw.split("\n\nASCII_MAP:")[0]
+gs = json.loads(state_json)
+# gs["player_position"], gs["player_stats"], gs["quests"], gs["inventory"], etc.
+```
+
+## Placeholders
+
+**In `prompts/system.md`** (resolved by `play.sh` or `orchestrate.py`):
+`__PROJECT_DIR__`, `__USERNAME__`, `__SERVER_PORT__`, `__GAME_KNOWLEDGE_BLOCK__`, `__PERSONALITY_BLOCK__`
+
+**In `.mcp.json`** (resolved by `cli_adapter.py` or `play.sh` sed):
+`__VENV_PYTHON__`, `__PROJECT_DIR__`, `__SERVER_PORT__`, `__USERNAME__`, `__SCREENSHOT_DIR__`
 
 ## Skills (slash commands)
 
@@ -348,20 +354,31 @@ Three custom skills live in `.claude/commands/`:
 
 **yarn build required**: After cloning, `yarn start` alone fails ("Cannot find module dist/main.js"). Must run `yarn build` first.
 
-## Playwright gotchas
+## Agent prompt design principles
 
-**Screenshot paths must be absolute.** Relative paths cause Playwright MCP to navigate the browser to the path as a URL, losing the game page.
+When editing `prompts/system.md`, `prompts/game_knowledge.md`, or `prompts/personalities/*.md`, follow these research-backed guidelines:
 
-**WASD is hold-to-move.** Use `keyboard.down('w')` + wait + `keyboard.up('w')`. Tap = no movement.
+- **Total prompt under 3K tokens** (system.md + game_knowledge + personality). Reasoning degrades above this threshold (MLOps Community meta-analysis, RAG-MCP arXiv 2505.03275).
+- **XML tags over Markdown** for section structure. Claude is specifically trained on XML-tagged prompts (`<tools>`, `<rules>`, `<gameplay_loop>`). Anthropic official best practices.
+- **Calm language, not aggressive**. Claude 4.6 over-triggers on "CRITICAL", "MUST", "No exceptions". Use normal directives. (Anthropic: "dial back aggressive language").
+- **WHY, not just WHAT**. "Observe between attacks — game state changes, stale state causes deaths" beats "Never batch attacks". Explanations improve compliance.
+- **Reference data at top, instructions at end**. "Lost in the middle" effect: middle 40-60% of context is systematically ignored (Stanford NLP). Put game_knowledge above decision tree.
+- **Personality = priority modifiers only**. Don't add new rules — modify ordering/thresholds of existing decision tree. Keep under 10 lines each. (ACL 2025: personality via explicit behavioral instructions works; instruction dilution from rule proliferation doesn't.)
+- **One tool per turn is correct** for game agents. Validated by ReAct (Yao et al.), GamingAgent (ICLR 2026), Claude Code architecture.
+- **18 tools is near the limit**. Performance degrades beyond ~19 tools (RAG-MCP). Don't add tools without removing/combining others.
 
-**Keep all actions in `browser_run_code` blocks** to avoid browser page garbage collection between tool calls.
+## MCP server internals
 
-## Browser-side state extraction
+**`mcp_game_server.py`** uses Python Playwright (`playwright.async_api`) with FastMCP lifespan pattern. Browser is launched once on MCP server start and kept alive for the entire session. `state_extractor.js` is injected via `context.add_init_script()` (survives page reloads).
 
-**Game state is read via `page.evaluate()`** from `window.game` — the Kaetram client stores the full game object there (see `packages/client/src/main.ts` in Kaetram-Open). Key properties:
-- `window.game.player` — player instance (gridX, gridY, hitPoints, level, experience, target, etc.)
+**Game state** is read via `page.evaluate()` from `window.game`. Key properties:
+- `window.game.player` — player instance (gridX, gridY, hitPoints, level, experience, target)
 - `window.game.entities.entities` — dict of all loaded entities {instance: Entity}
-- `window.__kaetramState` — our injected hooks for combat/XP event tracking (installed during login)
+- `window.__kaetramState` — combat/XP event hooks (installed by state_extractor.js)
+- `window.__latestGameState` — auto-cached every 500ms by state_extractor.js
+- `window.__attackMob()`, `__navigateTo()`, `__interactNPC()`, etc. — helper functions called by MCP tools internally
+
+**`context.add_init_script()` with args** — Python Playwright does NOT accept a second argument for script parameters (unlike Node.js). Embed values directly in the script string via f-string. This was a launch-blocking bug.
 
 ## Storage / teardown
 

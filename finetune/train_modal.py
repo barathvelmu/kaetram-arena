@@ -47,7 +47,7 @@ train_image = (
         "trl>=0.19.1",
         "unsloth[cu128-torch270]>=2025.7.8",
         "unsloth_zoo>=2025.7.10",
-        "llama-cpp-python",  # Pre-install for GGUF export (avoids interactive prompt)
+        # llama-cpp-python removed — GGUF export not needed for Modal serving (SGLang uses safetensors)
     )
     .env({"HF_HOME": "/model_cache", "TOKENIZERS_PARALLELISM": "false"})
 )
@@ -57,9 +57,7 @@ with train_image.imports():
     import unsloth  # noqa: F401,I001
     import datasets
     import torch
-    from transformers import TrainingArguments, DataCollatorForLanguageModeling
-    from trl import SFTTrainer
-    from trl.trainer import DataCollatorForCompletionOnlyLM
+    from trl import SFTConfig, SFTTrainer
     from unsloth import FastLanguageModel
 
 # ---------------------------------------------------------------------------
@@ -93,7 +91,7 @@ MASK_INPUT_TOKENS = True  # zero loss on system/user messages (game state JSON)
 ACTION_TOKEN_WEIGHT = 3.0  # weight <action> tokens 3x vs <think> tokens
 
 # Output
-EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r4-lossmasked"
+EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r5-mcp-tools"
 GGUF_QUANT = "q4_k_m"  # fits in 12GB VRAM (RTX 3060) with room for context
 
 
@@ -224,9 +222,12 @@ def train(train_data: bytes, val_data: bytes):
     train_ds, val_ds = load_kaetram_dataset(train_data, val_data, tokenizer)
     print(f"Train: {len(train_ds)} records, Val: {len(val_ds)} records")
 
-    # Training arguments
+    # SFTConfig with completion_only_loss (replaces DataCollatorForCompletionOnlyLM removed in TRL 0.20)
+    # This implements Structured Agent Distillation (arxiv 2505.13820):
+    # zero gradient on game state tokens, only train on <think> and <action> tokens
     output_dir = f"/checkpoints/{EXPERIMENT_NAME}"
-    training_args = TrainingArguments(
+    print(f"Loss masking: completion_only_loss={MASK_INPUT_TOKENS}")
+    sft_config = SFTConfig(
         output_dir=output_dir,
         num_train_epochs=EPOCHS,
         max_steps=MAX_STEPS,
@@ -247,42 +248,21 @@ def train(train_data: bytes, val_data: bytes):
         save_total_limit=3,
         report_to="none",
         seed=42,
+        dataset_text_field="text",
+        max_seq_length=MAX_SEQ_LEN,
+        packing=False,
+        completion_only_loss=MASK_INPUT_TOKENS,
     )
-
-    # Loss masking: only compute loss on assistant responses, not input context
-    # This implements Structured Agent Distillation (arxiv 2505.13820):
-    # zero gradient on game state tokens, only train on <think> and <action> tokens
-    data_collator = None
-    if MASK_INPUT_TOKENS:
-        # DataCollatorForCompletionOnlyLM masks all tokens before the response template
-        # Qwen3.5 uses "<|im_start|>assistant" to mark assistant turns
-        response_template = "<|im_start|>assistant"
-        print(f"Loss masking enabled — zeroing loss on tokens before '{response_template}'")
-        try:
-            data_collator = DataCollatorForCompletionOnlyLM(
-                response_template=response_template,
-                tokenizer=tokenizer,
-            )
-            print("DataCollatorForCompletionOnlyLM initialized successfully")
-        except Exception as e:
-            print(f"WARNING: Loss masking failed ({e}), falling back to standard loss")
-            data_collator = None
 
     # Trainer
     print("Initializing SFTTrainer...")
-    trainer_kwargs = dict(
+    trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        dataset_text_field="text",
-        max_seq_length=MAX_SEQ_LEN,
-        packing=False,  # no packing — avoids mixing unrelated turns in same sequence
-        args=training_args,
+        args=sft_config,
     )
-    if data_collator is not None:
-        trainer_kwargs["data_collator"] = data_collator
-    trainer = SFTTrainer(**trainer_kwargs)
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -299,10 +279,10 @@ def train(train_data: bytes, val_data: bytes):
     model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)
 
-    # Export GGUF directly — Unsloth handles merge + quantize in one step
-    gguf_dir = f"{output_dir}/gguf"
-    print(f"Exporting GGUF ({GGUF_QUANT}) to {gguf_dir}...")
-    model.save_pretrained_gguf(gguf_dir, tokenizer, quantization_method=GGUF_QUANT)
+    # Save merged model (safetensors) for SGLang serving on Modal
+    merged_dir = f"{output_dir}/merged"
+    print(f"Saving merged safetensors to {merged_dir}...")
+    model.save_pretrained_merged(merged_dir, tokenizer, save_method="merged_16bit")
 
     # Save metrics
     metrics = {
@@ -314,7 +294,7 @@ def train(train_data: bytes, val_data: bytes):
         "model_id": MODEL_ID,
         "lora_r": LORA_R,
         "lora_alpha": LORA_ALPHA,
-        "gguf_quant": GGUF_QUANT,
+        "save_method": "merged_16bit",
         "max_seq_len": MAX_SEQ_LEN,
         "loss_masking": MASK_INPUT_TOKENS,
         "action_token_weight": ACTION_TOKEN_WEIGHT,
@@ -327,13 +307,10 @@ def train(train_data: bytes, val_data: bytes):
 
     print(f"\nDone! Files saved to Modal volume 'kaetram-model-vol':")
     print(f"  Adapter:  /checkpoints/{EXPERIMENT_NAME}/adapter/")
-    print(f"  GGUF:     /checkpoints/{EXPERIMENT_NAME}/gguf/")
+    print(f"  Merged:   /checkpoints/{EXPERIMENT_NAME}/merged/")
     print(f"  Metrics:  /checkpoints/{EXPERIMENT_NAME}/training_metrics.json")
-    print(f"\nDownload GGUF for your RTX 3060:")
-    print(f"  modal volume get kaetram-model-vol /checkpoints/{EXPERIMENT_NAME}/gguf ./kaetram-gguf")
-    print(f"\nThen run locally:")
-    print(f"  ollama create kaetram -f <(echo 'FROM ./kaetram-gguf/unsloth.Q4_K_M.gguf')")
-    print(f"  ollama run kaetram")
+    print(f"\nDeploy serving endpoint:")
+    print(f"  modal deploy finetune/serve_modal.py")
     return metrics
 
 
@@ -363,7 +340,7 @@ def main():
     print(f"  Val:   {len(val_data):,} bytes")
     print(f"  Model: {MODEL_ID}")
     print(f"  Method: bf16 LoRA (r={LORA_R}, alpha={LORA_ALPHA})")
-    print(f"  GGUF export: {GGUF_QUANT} (fits RTX 3060 12GB)")
+    print(f"  Export: merged safetensors (for Modal SGLang serving)")
     print(f"  Max seq len: {MAX_SEQ_LEN}")
     print(f"Launching on Modal H100...")
 
@@ -375,8 +352,5 @@ def main():
     print(f"  Loss:     {metrics.get('train_loss', '?'):.4f}")
     print(f"  Runtime:  {metrics.get('train_runtime', 0):.0f}s")
     print(f"  Records:  {metrics.get('train_records')} train / {metrics.get('val_records')} val")
-    print(f"\nDownload GGUF:")
-    print(f"  modal volume get kaetram-model-vol /checkpoints/{EXPERIMENT_NAME}/gguf ./kaetram-gguf")
-    print(f"\nRun on RTX 3060:")
-    print(f"  ollama create kaetram -f <(echo 'FROM ./kaetram-gguf/unsloth.Q4_K_M.gguf')")
-    print(f"  ollama run kaetram")
+    print(f"\nDeploy serving endpoint:")
+    print(f"  modal deploy finetune/serve_modal.py")

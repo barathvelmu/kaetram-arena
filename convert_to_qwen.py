@@ -28,42 +28,23 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-# Tool definitions for browser_run_code (Playwright MCP) and Bash
+# Typed MCP game tools — matches mcp_game_server.py tool signatures
 TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "browser_run_code",
-            "description": "Execute JavaScript code in the game browser. Use helper functions: __attackMob(name), __interactNPC(name), __talkToNPC(id), __navigateTo(x,y), __moveTo(x,y), __clickEntity(label), __clickTile(x,y), __safeWarp(id), __eatFood(slot), __stuckReset(), __navCancel(). Return values provide action results.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "JavaScript code to execute in the browser page context",
-                    }
-                },
-                "required": ["code"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "Bash",
-            "description": "Execute a shell command. Use ONLY for writing progress.json.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute",
-                    }
-                },
-                "required": ["command"],
-            },
-        },
-    },
+    {"type": "function", "function": {"name": "observe", "description": "Observe the current game state. Returns player stats, nearby entities, quests, inventory, and ASCII map.", "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {"name": "attack", "description": "Attack the nearest mob matching the given name. Auto-walks and auto-attacks.", "parameters": {"type": "object", "properties": {"mob_name": {"type": "string", "description": "Name of the mob to attack (e.g. 'Rat', 'Snek')"}}, "required": ["mob_name"]}}},
+    {"type": "function", "function": {"name": "navigate", "description": "Pathfind to grid coordinates using BFS. For long-distance movement.", "parameters": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}}},
+    {"type": "function", "function": {"name": "move", "description": "Short-distance movement to nearby grid coordinates (<15 tiles).", "parameters": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}}},
+    {"type": "function", "function": {"name": "interact_npc", "description": "Walk to an NPC and initiate dialogue.", "parameters": {"type": "object", "properties": {"npc_name": {"type": "string", "description": "Name of the NPC"}}, "required": ["npc_name"]}}},
+    {"type": "function", "function": {"name": "talk_npc", "description": "Advance NPC dialogue by one line.", "parameters": {"type": "object", "properties": {"instance_id": {"type": "string", "description": "NPC instance ID (e.g. '1-4266948')"}}, "required": ["instance_id"]}}},
+    {"type": "function", "function": {"name": "warp", "description": "Fast travel to a known location.", "parameters": {"type": "object", "properties": {"location": {"type": "string", "description": "Location name: mudwich, crossroads, lakesworld, patsow, crullfield, undersea"}}, "required": ["location"]}}},
+    {"type": "function", "function": {"name": "accept_quest", "description": "Click the quest accept/progress button.", "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {"name": "eat_food", "description": "Consume an edible item from inventory to restore HP.", "parameters": {"type": "object", "properties": {"slot": {"type": "integer", "description": "Inventory slot number"}}, "required": ["slot"]}}},
+    {"type": "function", "function": {"name": "equip_item", "description": "Equip an item from inventory.", "parameters": {"type": "object", "properties": {"slot": {"type": "integer", "description": "Inventory slot number"}}, "required": ["slot"]}}},
+    {"type": "function", "function": {"name": "set_attack_style", "description": "Change attack style.", "parameters": {"type": "object", "properties": {"style": {"type": "string", "description": "Style name: hack, chop, defensive, stab, slash"}}, "required": ["style"]}}},
+    {"type": "function", "function": {"name": "click_tile", "description": "Click a specific grid tile.", "parameters": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}}},
+    {"type": "function", "function": {"name": "cancel_nav", "description": "Cancel active navigation.", "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {"name": "stuck_reset", "description": "Reset navigation when stuck. Warps to safety.", "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {"name": "respawn", "description": "Respawn after death.", "parameters": {"type": "object", "properties": {}, "required": []}}},
 ]
 
 # Warp location IDs and attack style IDs
@@ -666,10 +647,66 @@ def build_user_message(turn: dict, prev_turn: dict | None = None, memory: dict |
     return "\n\n".join(parts)
 
 
-def build_assistant_message(turn: dict, include_thinking: bool = True) -> dict:
-    """Build assistant message dict with tool_calls for browser_run_code or Bash.
+def _safe_int(s, default=0):
+    """Parse int from string, return default on failure."""
+    try:
+        return int(s)
+    except (ValueError, TypeError):
+        return default
 
-    Returns a full message dict (not just text) because tool_calls need special structure.
+
+def _structured_action_to_tool_call(action: str, action_type: str) -> tuple[str, dict] | None:
+    """Convert structured action string to (tool_name, arguments) for native MCP tools.
+
+    Returns None for actions that can't be mapped (skip these turns).
+    """
+    m = re.match(r"(\w+)\((.*)\)", action, re.DOTALL)
+    if not m:
+        return None
+    name = m.group(1)
+    args_str = m.group(2).strip()
+    args = [a.strip().strip("'\"") for a in re.split(r",\s*", args_str)] if args_str else []
+
+    if name == "attack" and args and args[0] != "?":
+        return "attack", {"mob_name": args[0]}
+    if name == "interact_npc" and args and args[0] != "?":
+        return "interact_npc", {"npc_name": args[0]}
+    if name == "talk_npc" and args and args[0] != "?":
+        return "talk_npc", {"instance_id": args[0]}
+    if name == "navigate" and len(args) >= 2 and "?" not in args[:2]:
+        return "navigate", {"x": _safe_int(args[0]), "y": _safe_int(args[1])}
+    if name == "move" and len(args) >= 2 and "?" not in args[:2]:
+        return "move", {"x": _safe_int(args[0]), "y": _safe_int(args[1])}
+    if name == "click_tile" and len(args) >= 2 and "?" not in args[:2]:
+        return "click_tile", {"x": _safe_int(args[0]), "y": _safe_int(args[1])}
+    if name == "click" and len(args) >= 2 and "?" not in args[:2]:
+        return "click_tile", {"x": _safe_int(args[0]), "y": _safe_int(args[1])}
+    if name == "warp" and args:
+        return "warp", {"location": args[0].lower()}
+    if name == "heal" and args:
+        slot = re.search(r"(\d+)", args[0])
+        return "eat_food", {"slot": int(slot.group(1)) if slot else 0}
+    if name == "equip" and args:
+        slot = re.search(r"(\d+)", args[0])
+        return "equip_item", {"slot": int(slot.group(1)) if slot else 0}
+    if name == "quest_accept":
+        return "accept_quest", {}
+    if name == "set_style" and args:
+        return "set_attack_style", {"style": args[0].lower()}
+    if name == "respawn":
+        return "respawn", {}
+    if name == "stuck_reset":
+        return "stuck_reset", {}
+    if name == "nav_cancel":
+        return "cancel_nav", {}
+    # Skip unmappable actions (wait, click_entity with ?, other)
+    return None
+
+
+def build_assistant_message(turn: dict, include_thinking: bool = True) -> dict:
+    """Build assistant message dict with native MCP tool_calls.
+
+    Returns a full message dict with typed tool calls matching MCP server tools.
     """
     reasoning = turn.get("reasoning", "").strip()
     action = turn.get("action_structured", "")
@@ -683,33 +720,25 @@ def build_assistant_message(turn: dict, include_thinking: bool = True) -> dict:
     else:
         content = ""
 
-    # Build tool call
     call_id = f"call_{turn_id[-3:]}"
 
+    # Skip update_memory turns — no Bash tool in native MCP format
     if action_type == "update_memory":
-        # Memory writes use Bash tool
-        mem_content = turn.get("memory_content", {})
-        mem_json = json.dumps(mem_content, indent=2)
-        command = f"cat > state/progress.json << 'PROGRESS'\n{mem_json}\nPROGRESS"
-        tool_calls = [{
-            "id": call_id,
-            "type": "function",
-            "function": {
-                "name": "Bash",
-                "arguments": {"command": command},
-            },
-        }]
-    else:
-        # Game actions use browser_run_code
-        js_code = structured_action_to_js(action)
-        tool_calls = [{
-            "id": call_id,
-            "type": "function",
-            "function": {
-                "name": "browser_run_code",
-                "arguments": {"code": js_code},
-            },
-        }]
+        return None  # Signal to caller to skip this turn
+
+    # Convert structured action to native tool call
+    result = _structured_action_to_tool_call(action, action_type)
+    if result is None:
+        return None  # Skip unmappable actions
+    tool_name, tool_args = result
+    tool_calls = [{
+        "id": call_id,
+        "type": "function",
+        "function": {
+            "name": tool_name,
+            "arguments": tool_args,
+        },
+    }]
 
     msg = {"role": "assistant", "tool_calls": tool_calls}
     if content:
@@ -725,10 +754,14 @@ def build_tool_result_message(turn: dict) -> dict:
     call_id = f"call_{turn_id[-3:]}"
 
     if action_type == "update_memory":
-        return {"role": "tool", "content": "", "tool_call_id": call_id, "name": "Bash"}
-    else:
-        result = synthesize_tool_result(action)
-        return {"role": "tool", "content": result, "tool_call_id": call_id, "name": "browser_run_code"}
+        return None  # Skip — no Bash tool in native MCP format
+
+    tc_result = _structured_action_to_tool_call(action, action_type)
+    if tc_result is None:
+        return None
+    tool_name, _ = tc_result
+    result = synthesize_tool_result(action)
+    return {"role": "tool", "content": result, "tool_call_id": call_id, "name": tool_name}
 
 
 def build_multi_turn_records(
@@ -792,11 +825,15 @@ def build_multi_turn_records(
             # Qwen3.5 guidance: only include <think> on the LAST assistant turn
             is_last = i == len(valid_window) - 1
             asst_msg = build_assistant_message(turn, include_thinking=is_last)
+            if asst_msg is None:
+                continue  # Skip update_memory turns
+
             messages.append(asst_msg)
 
             # Tool result message (provides action feedback before next turn)
             tool_result = build_tool_result_message(turn)
-            messages.append(tool_result)
+            if tool_result is not None:
+                messages.append(tool_result)
 
         records.append({"messages": messages, "tools": TOOL_DEFINITIONS})
 
@@ -887,17 +924,19 @@ def turn_to_conversation(turn: dict, personality: str | None = None, min_score: 
         sys_prompt += PERSONALITY_SUFFIXES[personality]
 
     asst_msg = build_assistant_message(turn, include_thinking=True)
-    tool_result = build_tool_result_message(turn)
+    if asst_msg is None:
+        return None  # Skip update_memory turns
 
-    return {
-        "messages": [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_text},
-            asst_msg,
-            tool_result,
-        ],
-        "tools": TOOL_DEFINITIONS,
-    }
+    tool_result = build_tool_result_message(turn)
+    msgs = [
+        {"role": "system", "content": sys_prompt},
+        {"role": "user", "content": user_text},
+        asst_msg,
+    ]
+    if tool_result is not None:
+        msgs.append(tool_result)
+
+    return {"messages": msgs, "tools": TOOL_DEFINITIONS}
 
 
 def load_turns(input_dir: Path) -> list[tuple[str, dict]]:
@@ -1134,30 +1173,14 @@ def main():
     print(f"  Train: {len(train)} → {train_path}")
     print(f"  Val:   {len(val)} → {val_path}")
 
-    # Print action type distribution from tool_calls
+    # Print tool call distribution
     type_counts = Counter()
     for c in train + val:
         for msg in c["messages"]:
             if msg["role"] == "assistant" and "tool_calls" in msg:
                 for tc in msg["tool_calls"]:
                     func = tc.get("function", {})
-                    tool_name = func.get("name", "unknown")
-                    if tool_name == "browser_run_code":
-                        raw_args = func.get("arguments", {})
-                        args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
-                        code = args.get("code", "")
-                        # Extract helper function name from JS
-                        m = re.search(r"window\.(__\w+)\(", code)
-                        if m:
-                            type_counts[m.group(1)] += 1
-                        elif "MouseEvent" in code or "dispatchEvent" in code:
-                            type_counts["click"] += 1
-                        elif "quest-button" in code:
-                            type_counts["quest_accept"] += 1
-                        else:
-                            type_counts["other_js"] += 1
-                    elif tool_name == "Bash":
-                        type_counts["Bash(progress.json)"] += 1
+                    type_counts[func.get("name", "unknown")] += 1
     print("\nTool call distribution:")
     for action, count in type_counts.most_common():
         print(f"  {action}: {count}")

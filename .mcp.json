@@ -1,5 +1,9 @@
 {
   "mcpServers": {
+    "linear": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+    },
     "kaetram": {
       "command": "__VENV_PYTHON__",
       "args": ["__PROJECT_DIR__/mcp_game_server.py"],

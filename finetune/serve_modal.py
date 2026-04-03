@@ -56,7 +56,7 @@ serve_image = (
 # ---------------------------------------------------------------------------
 
 BASE_MODEL_ID = "Qwen/Qwen3.5-9B"  # HF model ID (not Unsloth wrapper)
-SFT_EXPERIMENT = "kaetram-qwen3.5-9b-r4-multiturn"
+SFT_EXPERIMENT = "kaetram-qwen3.5-9b-r4-lossmasked"
 GRPO_EXPERIMENT = "kaetram-qwen3.5-9b-grpo"
 MERGED_MODEL_DIR = "/model_cache/kaetram-merged-r4"
 
@@ -89,9 +89,9 @@ class Inference:
         import torch
         from pathlib import Path
 
-        # Check for pre-merged model (Unsloth saves merged safetensors in gguf dir)
-        sft_merged = f"/checkpoints/{SFT_EXPERIMENT}/gguf"
-        grpo_merged = f"/checkpoints/{GRPO_EXPERIMENT}/gguf"
+        # Check for pre-merged model (Unsloth saves merged safetensors)
+        sft_merged = f"/checkpoints/{SFT_EXPERIMENT}/merged"
+        grpo_merged = f"/checkpoints/{GRPO_EXPERIMENT}/merged"
         sft_adapter = f"/checkpoints/{SFT_EXPERIMENT}/adapter"
         grpo_adapter = f"/checkpoints/{GRPO_EXPERIMENT}/adapter"
 

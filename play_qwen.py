@@ -375,43 +375,40 @@ def run_agent(args):
     elif args.system_prompt:
         system_prompt = args.system_prompt
 
-    # Append tool-use instructions to system prompt since SGLang doesn't
-    # process the tools parameter for structured tool_calls in responses.
-    # The model must output <tool_call> tags in its text response.
+    # Append tool-use instructions matching the native MCP tool interface
+    # the model was trained on (R5 SFT data uses these tool names directly)
     tool_instructions = """
 
 ## HOW TO USE TOOLS
 
-You have TWO tools. Call them using <tool_call> XML tags.
+Call tools using <tool_call> XML tags. One tool call per response.
 
-### Tool 1: browser_run_code (USE THIS 95% OF THE TIME)
-Executes JavaScript in the game browser. This is your ONLY way to interact with the game.
+### Available Tools
+- `attack(mob_name)` — attack nearest mob by name (e.g. "Rat", "Crab")
+- `observe()` — get current game state JSON
+- `navigate(x, y)` — pathfind to grid coordinates
+- `move(x, y)` — short move (<15 tiles)
+- `interact_npc(npc_name)` — walk to NPC and talk
+- `talk_npc(instance_id)` — advance NPC dialogue
+- `warp(location)` — fast travel: "mudwich", "crossroads", "lakesworld"
+- `eat_food(slot)` — eat food at inventory slot
+- `equip_item(slot)` — equip item at inventory slot
+- `set_attack_style(style)` — "hack", "chop", "defensive"
+- `click_tile(x, y)` — click a grid tile
+- `accept_quest()` — accept quest from open panel
+- `respawn()` — respawn after death
+- `stuck_reset()` — reset if stuck
+- `cancel_nav()` — cancel navigation
 
-### Tool 2: Bash (USE SPARINGLY — only every 20+ turns)
-Write progress.json. Do NOT use Bash for anything else. Do NOT call Bash multiple times in a row.
-
-### GAMEPLAY LOOP (follow this exactly)
-1. OBSERVE: `return JSON.stringify(window.__latestGameState)` — do this first every few turns
-2. DECIDE: Based on game state, pick ONE action
-3. ACT: Call the appropriate helper function
-
-### HELPER FUNCTIONS (use these, not raw JS)
-- `return window.__attackMob('Rat')` — attack nearest mob by name
-- `return window.__navigateTo(188, 157)` — pathfind to coordinates
-- `return window.__moveTo(x, y)` — short move (<15 tiles)
-- `return window.__interactNPC('Villager')` — walk to and talk to NPC
-- `return window.__talkToNPC('1-12345')` — advance NPC dialogue (use instance id)
-- `return window.__safeWarp(0)` — warp (0=Mudwich, 1=Crossroads, 2=Lakesworld)
-- `return window.__eatFood(slot)` — eat food at inventory slot
-- `return window.__clickTile(x, y)` — click a grid tile
-- `return window.__stuckReset()` — reset if stuck
+### Example
+<tool_call>
+{"name": "attack", "arguments": {"mob_name": "Rat"}}
+</tool_call>
 
 ### RULES
 - EVERY response MUST contain exactly ONE <tool_call> block
-- ALWAYS use browser_run_code for game actions — Bash is ONLY for progress.json
-- If you call Bash more than once in 5 turns, STOP and use browser_run_code instead
-- Do NOT use page.goto(), page.click(), or Playwright API
-- Do NOT call __login() — login is handled automatically"""
+- Observe between actions to check game state changes
+- One tool per turn — game state changes after each action"""
 
     system_prompt = system_prompt + tool_instructions
 

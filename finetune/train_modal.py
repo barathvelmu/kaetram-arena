@@ -85,10 +85,10 @@ SAVE_STEPS = 150
 EVAL_STEPS = 75
 LOGGING_STEPS = 10
 
-# Loss masking: zero loss on input tokens, optional up-weight on action tokens
-# This is the single highest-impact training improvement per the literature
-MASK_INPUT_TOKENS = True  # zero loss on system/user messages (game state JSON)
-ACTION_TOKEN_WEIGHT = 3.0  # weight <action> tokens 3x vs <think> tokens
+# Loss masking: zero loss on input tokens (Structured Agent Distillation, arxiv 2505.13820)
+# DataCollatorForCompletionOnlyLM masks all tokens before the response template
+# Only trains on assistant responses (<think> reasoning + tool calls)
+MASK_INPUT_TOKENS = True
 
 # Output
 EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r5-mcp-tools"
@@ -297,7 +297,6 @@ def train(train_data: bytes, val_data: bytes):
         "save_method": "merged_16bit",
         "max_seq_len": MAX_SEQ_LEN,
         "loss_masking": MASK_INPUT_TOKENS,
-        "action_token_weight": ACTION_TOKEN_WEIGHT,
     }
     with open(f"{output_dir}/training_metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)

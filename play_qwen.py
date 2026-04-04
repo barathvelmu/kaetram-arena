@@ -245,7 +245,11 @@ def dispatch_bash(command: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _dispatch(page, fn_name: str, fn_args: dict, turn: int) -> str:
-    """Dispatch a tool call and return the result."""
+    """Dispatch a tool call and return the result.
+
+    Supports both legacy tools (browser_run_code, Bash) and native MCP game
+    tools (attack, navigate, etc.) that the R5 training data uses.
+    """
     if fn_name == "browser_run_code":
         code = fn_args.get("code", "")
         print(f"  [{turn}] browser_run_code: {code[:80]}...")
@@ -255,8 +259,78 @@ def _dispatch(page, fn_name: str, fn_args: dict, turn: int) -> str:
         print(f"  [{turn}] Bash: {command[:80]}...")
         return dispatch_bash(command)
     else:
+        # Native MCP tool dispatch — maps game tool names to JS helper calls
+        # This matches the tool interface used in R5 training data
+        js = _native_tool_to_js(fn_name, fn_args)
+        if js:
+            print(f"  [{turn}] {fn_name}({fn_args})")
+            try:
+                result = page.evaluate(js)
+                return json.dumps(result) if result is not None else "ok"
+            except Exception as e:
+                return f"Error: {e}"
         print(f"  [{turn}] Unknown tool: {fn_name}")
         return f"Unknown tool: {fn_name}"
+
+
+# Warp location IDs and attack style IDs for native tool dispatch
+_WARP_IDS = {"mudwich": 0, "crossroads": 1, "lakesworld": 2, "patsow": 3, "crullfield": 4, "undersea": 5}
+_STYLE_IDS = {"hack": 6, "chop": 7, "defensive": 3, "stab": 1, "slash": 2}
+
+
+def _native_tool_to_js(fn_name: str, fn_args: dict) -> str | None:
+    """Convert a native MCP game tool call to JavaScript for page.evaluate()."""
+    if fn_name == "attack":
+        mob = fn_args.get("mob_name", fn_args.get("name", ""))
+        return f"return window.__attackMob('{mob}')"
+    if fn_name == "interact_npc":
+        npc = fn_args.get("npc_name", fn_args.get("name", ""))
+        return f"return window.__interactNPC('{npc}')"
+    if fn_name == "talk_npc":
+        iid = fn_args.get("instance_id", fn_args.get("id", ""))
+        return f"return window.__talkToNPC('{iid}')"
+    if fn_name == "navigate":
+        x = fn_args.get("x", 0)
+        y = fn_args.get("y", 0)
+        return f"return window.__navigateTo({x}, {y})"
+    if fn_name == "move":
+        x = fn_args.get("x", 0)
+        y = fn_args.get("y", 0)
+        return f"return window.__moveTo({x}, {y})"
+    if fn_name == "click_tile":
+        x = fn_args.get("x", 0)
+        y = fn_args.get("y", 0)
+        return f"return window.__clickTile({x}, {y})"
+    if fn_name == "click_entity":
+        label = fn_args.get("label", "")
+        return f"return window.__clickEntity('{label}')"
+    if fn_name == "warp":
+        loc = str(fn_args.get("location", "mudwich")).lower()
+        wid = _WARP_IDS.get(loc, 0)
+        return f"return window.__safeWarp({wid})"
+    if fn_name == "eat_food":
+        slot = fn_args.get("slot", 0)
+        return f"return window.__eatFood({slot})"
+    if fn_name == "equip_item":
+        slot = fn_args.get("slot", 0)
+        return f"const sl=document.querySelectorAll('#inventory-container .slot');if(sl[{slot}]){{sl[{slot}].click();const e=document.querySelector('[data-action=\"action-equip\"]');if(e)e.click()}};return 'equipped({slot})'"
+    if fn_name == "set_attack_style":
+        style = str(fn_args.get("style", "hack")).lower()
+        sid = _STYLE_IDS.get(style, 6)
+        return f"if(window.game&&window.game.player)window.game.player.setAttackStyle({sid});return 'style_set({sid})'"
+    if fn_name == "accept_quest":
+        return "const b=document.querySelector('#quest-button');if(b)b.click();return 'quest_accepted'"
+    if fn_name == "respawn":
+        return "const b=document.querySelector('#respawn');if(b)b.click();return 'respawned'"
+    if fn_name == "stuck_reset":
+        return "return window.__stuckReset()"
+    if fn_name == "cancel_nav":
+        return "return window.__navCancel()"
+    if fn_name == "observe":
+        return "return JSON.stringify(window.__latestGameState || {})"
+    if fn_name == "login":
+        return "return 'already_logged_in'"
+    return None
 
 
 def log_turn(log_file, turn: int, role: str, content: str, tool_calls=None):

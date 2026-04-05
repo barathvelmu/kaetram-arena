@@ -20,7 +20,7 @@ if ! python3 scripts/check_research_staleness.py 2>/dev/null; then
       || echo "[research] compile-research failed"
   else
     # claude not in PATH for cron — try common install locations
-    CLAUDE_BIN="${HOME}/.claude/local/claude"
+    CLAUDE_BIN="${HOME}/.local/bin/claude"
     if [[ -x "$CLAUDE_BIN" ]]; then
       "$CLAUDE_BIN" -p "/compile-research" --allowedTools "Read,Edit,Write,Bash,Glob,Grep" \
         && echo "[research] compile-research done" \

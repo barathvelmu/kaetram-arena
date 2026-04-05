@@ -3,25 +3,17 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
-## 2026-04-05 — KTO Pipeline Built + Codex/Claude Joint Review
+## 2026-04-05 — KTO Runtime Fixes + Research Loop + Latest Data Rebuild
 
-**Why KTO instead of r7 SFT:** SFT treats all Claude data equally — even bad sessions. KTO uses binary desirable/undesirable labels from session outcomes (XP gain, quest progress, deaths, click_tile rate). Teaches Qwen judgment, not just imitation. KTO paper + TRL confirmed: works on expert demonstrations with binary labels, best applied post-SFT (exactly where r6 is).
+**KTO pipeline is built and running:** `score_sessions.py`, `build_kto_dataset.py`, `inspect_kto_dataset.py`, and `finetune/train_kto_modal.py` are in place. KTO dataset built at `2771 train / 273 val` from scored Claude sessions. Current smoke test moved off the explicit ref-model path to `ref_model=None + precompute_ref_log_probs=True` after repeated H100 OOMs; latest run is the first to get through reference-log-prob precompute instead of dying immediately.
 
-**4 new files built (untracked, need commit+push to VM):**
-- `score_sessions.py` — scores extracted sessions 0-1 from outcome signals, labels top 40% desirable / bottom 30% undesirable
-- `build_kto_dataset.py` — sliding windows (size=5, stride=2) → prompt/completion/label. Stratified val split by label. Local window quality gating.
-- `finetune/train_kto_modal.py` — KTO on r6 merged. Explicit plain-HF ref_model (avoids Unsloth PEFT internals interacting with TRL). LR=5e-7, β=0.1, desirable_weight capped at 3.0. Dataset sanity + hard fails before training. Smoke test mode (10 steps).
-- `inspect_kto_dataset.py` — local dry-run: label balance, session counts, sample prompt/completion pairs before Modal launch.
+**Latest SFT rebuild completed on VM:** re-extracted newest Claude logs and rebuilt `dataset/qwen_sft` to `3957 train / 488 val = 4445 total` (up from `3853 / 465`). Quality stayed usable but not uniformly better: click_tile rose `4.7% -> 5.6%`, repetitive loops `0.2% -> 0.3%`, avg think stayed ~`423`, empty think `0`. Good enough for `r7`, but not a dramatic jump.
 
-**Key design decisions (Codex-reviewed):**
-- `level_delta/3.0` not /1.0 — scales across multi-level sessions
-- Removed `attack_rate>0.80` penalty — was biasing against AGGRESSIVE agent sessions
-- Explicit `ref_model` (plain HF AutoModelForCausalLM, frozen) — TRL-documented pattern, no Unsloth interaction risk
-- Memory: ~40GB on H100 80GB (18GB model + 18GB ref + optimizer), 39GB headroom
+**Research knowledge base seeded and tightened:** added `research/` with experiments / related-work / decisions / paper framing. Tightened stale claims: KTO docs now reflect the current `ref_model=None + precompute_ref_log_probs=True` path; data-quality docs now reflect the latest `3957/488` build; contribution framing softened to avoid overclaiming novelty before eval.
 
-**Context window / memory gap confirmed:** play_qwen.py keeps ~15 turns of rolling context (trims to 40 after 60). Long-horizon goals get lost after ~15 turns. Niral proposed add_memory/remove_memory tools — research confirmed valid (MemGPT, Voyager). Stage 1 fix: persistent memory.txt injected into system prompt via existing Bash tool, no retraining. Stage 2: train explicit tools. Keep separate from KTO run.
+**Loop is now real on the VM:** added `scripts/check_research_staleness.py` + `scripts/run_research_staleness_check.sh`, wired email nudges through `notifications.py`, and installed a real VM cron job (`00:07` daily) to run the staleness check. This is VM-side and independent of laptop / tmux / live Claude sessions. `.claude/scheduled_tasks.lock` is ignored and not part of the real loop.
 
-**Run order:** commit+push → score_sessions.py → build_kto_dataset.py → inspect_kto_dataset.py → `modal run finetune/train_kto_modal.py --smoke-test` → full run → update serve_modal.py (SFT_EXPERIMENT → r6-kto).
+**Current strategy:** keep `r7` as pure SFT if run, keep memory separate, finish the KTO smoke test before changing objectives again. Biggest blocker for a paper remains eval, not more infrastructure.
 
 ---
 

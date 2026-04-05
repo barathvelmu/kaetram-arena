@@ -181,12 +181,16 @@ class Inference:
         @web_app.post("/v1/chat/completions")
         async def chat_completions(request: Request):
             import asyncio
+            import json
+            import re as _re
             body = await request.json()
             messages = body.get("messages", [])
             temperature = body.get("temperature", 0.7)
             max_tokens = body.get("max_tokens", 512)
             top_p = body.get("top_p", 0.9)
 
+            # Tool definitions are injected into the system prompt client-side
+            # (play_qwen.py), so we just render messages as-is.
             prompt = self.tokenizer.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True
             )
@@ -204,6 +208,51 @@ class Inference:
             prompt_tokens = output.get("meta_info", {}).get("prompt_tokens", 0)
             completion_tokens = output.get("meta_info", {}).get("completion_tokens", 0)
 
+            # Try to parse Qwen3.5 Coder XML tool calls from generated text
+            # Format: <tool_call><function=name><parameter=key>val</parameter></function></tool_call>
+            parsed_tool_calls = []
+            for m in _re.finditer(
+                r"<tool_call>\s*<function=(\w+)>(.*?)</function>\s*</tool_call>",
+                generated_text, _re.DOTALL
+            ):
+                fn_name = m.group(1)
+                params_text = m.group(2)
+                args = {}
+                for pm in _re.finditer(r"<parameter=(\w+)>\s*(.*?)\s*</parameter>", params_text, _re.DOTALL):
+                    args[pm.group(1)] = pm.group(2).strip()
+                parsed_tool_calls.append({
+                    "id": f"call_{uuid.uuid4().hex[:8]}",
+                    "type": "function",
+                    "function": {
+                        "name": fn_name,
+                        "arguments": json.dumps(args),
+                    },
+                })
+
+            # Also try JSON-in-tool_call format as fallback
+            if not parsed_tool_calls:
+                for m in _re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", generated_text, _re.DOTALL):
+                    try:
+                        tc = json.loads(m.group(1))
+                        parsed_tool_calls.append({
+                            "id": f"call_{uuid.uuid4().hex[:8]}",
+                            "type": "function",
+                            "function": {
+                                "name": tc.get("name", ""),
+                                "arguments": json.dumps(tc.get("arguments", {})),
+                            },
+                        })
+                    except json.JSONDecodeError:
+                        pass
+
+            # Build response message
+            msg = {"role": "assistant", "content": generated_text}
+            if parsed_tool_calls:
+                msg["tool_calls"] = parsed_tool_calls
+                finish_reason = "tool_calls"
+            else:
+                finish_reason = "stop"
+
             return {
                 "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
                 "object": "chat.completion",
@@ -212,11 +261,8 @@ class Inference:
                 "choices": [
                     {
                         "index": 0,
-                        "message": {
-                            "role": "assistant",
-                            "content": generated_text,
-                        },
-                        "finish_reason": "stop",
+                        "message": msg,
+                        "finish_reason": finish_reason,
                     }
                 ],
                 "usage": {

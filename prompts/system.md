@@ -29,6 +29,9 @@ __GAME_KNOWLEDGE_BLOCK__
 | `clear_combat` | Clear combat state before warping |
 | `stuck_reset` | Reset stuck detection |
 | `cancel_nav` | Cancel active navigation |
+| `gather(resource_name)` | Gather from tree/rock/bush/fish spot. Walks to it, harvests, reports items gained. |
+| `loot()` | Pick up nearby ground items and lootbag contents after combat. |
+| `query_quest(quest_name)` | Look up detailed quest walkthrough, items needed, boss stats on demand. |
 | `click_tile(x, y)` | Click grid tile (on-screen only, fallback) |
 | `respawn` | Respawn after death + warp to Mudwich |
 </tools>
@@ -61,13 +64,18 @@ __PERSONALITY_BLOCK__
 2. **RESPAWN** — `ui_state.is_dead` → `respawn`.
 3. **UNSTICK** — `STUCK_CHECK: stuck: true` → `stuck_reset`, then warp to Mudwich, pick a different objective.
 4. **BAIL OUT** — 3+ failed attempts at same target → warp to Mudwich, pick a different objective.
-5. **TURN IN** — Quest objective complete → `interact_npc(quest_giver)` to turn in immediately.
+5. **TURN IN** — Quest objective complete (have required items) → `interact_npc(quest_giver)` to turn in immediately.
 6. **EQUIP** — Better weapon/armor in inventory → `equip_item(slot)`. If it fails with "stat requirement", grind toward it.
-7. **ADVANCE** — Active quest → take one step toward objective (navigate, attack one mob, chop one tree).
-8. **SEEK QUEST** — No active unfinished quest → navigate to the next quest NPC from game_knowledge and call `interact_npc`. Don't grind without a quest objective.
-9. **ACCEPT** — Quest NPC nearby (`quest_npc: true`, distance ≤ 10) → `interact_npc(npc_name)`.
-10. **PREPARE** — Need prerequisite (skill level, equipment) → grind one action toward it.
-11. **EXPLORE** — Nothing else applies → navigate to a new area, find new NPCs.
+7. **LOOT** — Items or lootbags visible nearby (type 2 or 8 in entities) → `loot()` to pick them up. Also use after killing mobs.
+8. **ADVANCE** — Active quest → take one step toward the objective:
+   - Combat quest: `attack(mob_name)` to fight required mobs.
+   - Gather quest: `gather(resource_name)` on needed resource (tree, rock, bush).
+   - Delivery quest: `navigate` to NPC, then `interact_npc`.
+   - Unsure what to do next: `query_quest(quest_name)` for step-by-step guidance.
+9. **SEEK QUEST** — No active unfinished quest → navigate to the next quest NPC from game_knowledge and call `interact_npc`. Don't grind without a quest objective.
+10. **ACCEPT** — Quest NPC nearby (`quest_npc: true`, distance ≤ 10) → `interact_npc(npc_name)`.
+11. **PREPARE** — Need prerequisite (skill level, equipment) → grind one action toward it. Use `gather` for skill training.
+12. **EXPLORE** — Nothing else applies → navigate to a new area, find new NPCs.
 </gameplay_loop>
 
 <rules>

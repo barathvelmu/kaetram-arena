@@ -186,9 +186,20 @@ async def login(ctx: Context) -> str:
         log(f"[mcp] Login failed for {username} — game did not load")
         return "Login FAILED — game did not load. The game client may not be connected to the server. Try login() again."
 
+    # Dismiss any post-login modals (welcome screen, notifications)
+    await page.wait_for_timeout(1000)
+    await page.keyboard.press("Escape")
+    await page.wait_for_timeout(300)
+    await page.keyboard.press("Escape")
+    await page.wait_for_timeout(300)
+    warped = False
+
     ctx.request_context.lifespan_context["logged_in"] = True
     log(f"[mcp] Logged in as {username}")
-    return f"Logged in as {username}"
+    msg = f"Logged in as {username}"
+    if warped:
+        msg += " (auto-warped to Mudwich)"
+    return msg
 
 
 # ── Observe ───────────────────────────────────────────────────────────────────
@@ -939,6 +950,249 @@ async def respawn(ctx: Context) -> str:
     )
     await page.wait_for_timeout(3000)
     return "Respawned and combat cleared. " + result
+
+
+# ── Gathering & Looting ──────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def gather(ctx: Context, resource_name: str) -> str:
+    """Gather from a nearby resource (tree, rock, bush, fish spot).
+
+    Finds the nearest non-exhausted resource matching the name, clicks on it
+    to start gathering, waits for completion, and reports what was collected.
+
+    Args:
+        resource_name: Name of resource (e.g. 'Oak', 'Nisoc Rock', 'Tomato', 'Blueberry Bush', 'Blue Lily')
+    """
+    page = await _page(ctx)
+
+    # Snapshot inventory before
+    inv_before = await page.evaluate("""() => {
+        try {
+            const inv = window.game.menu.getInventory();
+            const items = {};
+            if (inv && inv.getElement) {
+                for (let i = 0; i < 25; i++) {
+                    const el = inv.getElement(i);
+                    if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+                    const k = el.dataset.key;
+                    items[k] = (items[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
+                }
+            }
+            return items;
+        } catch(e) { return {}; }
+    }""")
+
+    # Find nearest matching resource (types 10=tree, 11=rock, 12=foraging, 13=fishspot)
+    resource = await page.evaluate("""(name) => {
+        const gs = window.__extractGameState();
+        if (!gs) return { error: 'Game not loaded' };
+        const nameLower = name.toLowerCase();
+        const resources = (gs.nearby_entities || []).filter(e =>
+            [10, 11, 12, 13].includes(e.type) &&
+            !e.exhausted &&
+            (e.name || '').toLowerCase().includes(nameLower)
+        );
+        if (resources.length === 0) return { error: 'No resource matching "' + name + '" nearby. Try moving closer or check observe output for available resources.' };
+        resources.sort((a, b) => a.distance - b.distance);
+        return resources[0];
+    }""", resource_name)
+
+    if isinstance(resource, str):
+        resource = json.loads(resource)
+    if resource.get("error"):
+        return json.dumps(resource)
+
+    # Click on resource tile — triggers client pathfinding + Target.Object packet
+    click_result = await page.evaluate(
+        "([x,y]) => JSON.stringify(window.__clickTile(x, y))", [resource["x"], resource["y"]]
+    )
+
+    # Wait for walk + gathering animation (foraging ~3s, trees/rocks ~5s)
+    resource_type = resource.get("type", 0)
+    wait_ms = 4000 if resource_type == 12 else 7000
+    await page.wait_for_timeout(wait_ms)
+
+    # Snapshot inventory after
+    inv_after = await page.evaluate("""() => {
+        try {
+            const inv = window.game.menu.getInventory();
+            const items = {};
+            if (inv && inv.getElement) {
+                for (let i = 0; i < 25; i++) {
+                    const el = inv.getElement(i);
+                    if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+                    const k = el.dataset.key;
+                    items[k] = (items[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
+                }
+            }
+            return items;
+        } catch(e) { return {}; }
+    }""")
+
+    # Diff inventory
+    gained = {}
+    for k, v in inv_after.items():
+        diff = v - inv_before.get(k, 0)
+        if diff > 0:
+            gained[k] = diff
+
+    return json.dumps({
+        "resource": resource.get("name", resource_name),
+        "position": {"x": resource["x"], "y": resource["y"]},
+        "type": resource_type,
+        "items_gained": gained if gained else "none (may need higher skill level or correct tool equipped)",
+    })
+
+
+@mcp.tool()
+async def loot(ctx: Context) -> str:
+    """Pick up nearby ground items and lootbag contents after combat.
+
+    Walks to the nearest dropped item or lootbag. Single items (type 2) are
+    auto-collected on walk-over. Lootbags (type 8) are opened and all items taken.
+    """
+    page = await _page(ctx)
+
+    # Snapshot inventory before
+    inv_before = await page.evaluate("""() => {
+        try {
+            const inv = window.game.menu.getInventory();
+            const items = {};
+            if (inv && inv.getElement) {
+                for (let i = 0; i < 25; i++) {
+                    const el = inv.getElement(i);
+                    if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+                    const k = el.dataset.key;
+                    items[k] = (items[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
+                }
+            }
+            return items;
+        } catch(e) { return {}; }
+    }""")
+
+    # Find nearest lootable (type 2 = item, type 8 = lootbag)
+    result_raw = await page.evaluate("""() => {
+        const game = window.game;
+        if (!game || !game.player) return JSON.stringify({ error: 'Game not loaded' });
+        const player = game.player;
+        const allEnts = game.entities.entities || {};
+        const lootable = [];
+        for (const [inst, ent] of Object.entries(allEnts)) {
+            if (ent.type !== 2 && ent.type !== 8) continue;
+            const dist = Math.abs(ent.gridX - player.gridX) + Math.abs(ent.gridY - player.gridY);
+            if (dist <= 15) {
+                lootable.push({
+                    instance: inst, type: ent.type,
+                    name: ent.name || 'Unknown',
+                    x: ent.gridX, y: ent.gridY, distance: dist
+                });
+            }
+        }
+        if (lootable.length === 0) return JSON.stringify({ found: 0 });
+        lootable.sort((a, b) => a.distance - b.distance);
+        const target = lootable[0];
+        // Click on it to walk there
+        const coords = window.__tileToScreenCoords(target.x, target.y);
+        if (coords && !coords.error) {
+            game.player.disableAction = false;
+            document.getElementById('canvas').dispatchEvent(new MouseEvent('click', {
+                clientX: coords.click_x, clientY: coords.click_y, bubbles: true
+            }));
+        }
+        return JSON.stringify({ found: lootable.length, targeting: target });
+    }""")
+    result = json.loads(result_raw) if isinstance(result_raw, str) else result_raw
+
+    if result.get("found", 0) == 0:
+        return json.dumps({"message": "No items or lootbags nearby to pick up"})
+
+    # Wait for walk + auto-pickup
+    await page.wait_for_timeout(3000)
+
+    # If lootbag, try taking all items
+    targeting = result.get("targeting", {})
+    if targeting.get("type") == 8:
+        await page.evaluate("""() => {
+            const game = window.game;
+            if (!game || !game.socket) return;
+            // Packets.LootBag = 58, Opcodes.LootBag.Take = 1
+            for (let i = 0; i < 10; i++) {
+                try { game.socket.send(58, { opcode: 1, index: i }); } catch(e) {}
+            }
+        }""")
+        await page.wait_for_timeout(1000)
+
+    # Diff inventory
+    inv_after = await page.evaluate("""() => {
+        try {
+            const inv = window.game.menu.getInventory();
+            const items = {};
+            if (inv && inv.getElement) {
+                for (let i = 0; i < 25; i++) {
+                    const el = inv.getElement(i);
+                    if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+                    const k = el.dataset.key;
+                    items[k] = (items[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
+                }
+            }
+            return items;
+        } catch(e) { return {}; }
+    }""")
+
+    gained = {}
+    for k, v in inv_after.items():
+        diff = v - inv_before.get(k, 0)
+        if diff > 0:
+            gained[k] = diff
+
+    return json.dumps({
+        "target": targeting.get("name", "unknown"),
+        "target_type": "lootbag" if targeting.get("type") == 8 else "ground_item",
+        "items_collected": gained if gained else "none (item may have despawned or inventory full)",
+        "other_nearby": result.get("found", 0) - 1,
+    })
+
+
+@mcp.tool()
+async def query_quest(ctx: Context, quest_name: str) -> str:
+    """Look up detailed walkthrough for a specific quest.
+
+    Returns step-by-step instructions, item requirements, NPC locations,
+    boss stats, and crafting recipes for the requested quest.
+
+    Args:
+        quest_name: Quest name (e.g. 'Sorcery', 'Scavenger', 'Coder Glitch', 'Royal Drama')
+    """
+    import os
+    walkthroughs_path = os.path.join(os.path.dirname(__file__), "prompts", "quest_walkthroughs.json")
+    try:
+        with open(walkthroughs_path) as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return json.dumps({"error": "Quest walkthrough data not found"})
+
+    # Fuzzy match quest name
+    name_lower = quest_name.lower().strip()
+    best_match = None
+    best_score = 0
+    for key, quest in data.items():
+        key_lower = key.lower()
+        # Exact match
+        if name_lower == key_lower:
+            best_match = quest
+            break
+        # Partial match
+        score = sum(1 for w in name_lower.split() if w in key_lower)
+        if score > best_score:
+            best_score = score
+            best_match = quest
+    if not best_match:
+        available = ", ".join(data.keys())
+        return json.dumps({"error": f"No quest matching '{quest_name}'. Available: {available}"})
+
+    return json.dumps(best_match, indent=2)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

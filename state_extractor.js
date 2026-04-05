@@ -111,9 +111,8 @@
 
     for (const [inst, ent] of Object.entries(allEnts)) {
       if (inst === player.instance) continue;
-      // Skip: projectile(5/6), effect(7/9), tree(10), rock(11)
-      if (ent.type === 5 || ent.type === 6 || ent.type === 7 || ent.type === 9
-          || ent.type === 10 || ent.type === 11) continue;
+      // Skip: projectile(5/6), effect(7/9). Keep tree(10), rock(11) for gathering.
+      if (ent.type === 5 || ent.type === 6 || ent.type === 7 || ent.type === 9) continue;
 
       const dx = ent.gridX - px, dy = ent.gridY - py;
       const dist = Math.abs(dx) + Math.abs(dy);
@@ -131,7 +130,7 @@
         id: inst, type: ent.type, name: getEntityName(ent),
         x: ent.gridX, y: ent.gridY,
         hp: ent.hitPoints || 0, max_hp: ent.maxHitPoints || 0,
-        exhausted: (ent.type === 12 && (ent.hitPoints || 0) <= 0),  // depleted tree/rock
+        exhausted: ([10, 11, 12].includes(ent.type) && (ent.hitPoints || 0) <= 0),  // depleted resource
         has_achievement: !!ent.exclamation, quest_npc: !!ent.blueExclamation,
         distance: dist,
         reachable: tileWalkable,
@@ -149,16 +148,20 @@
     }
     entities.sort((a, b) => a.distance - b.distance);
 
-    // Cap: keep all NPCs/players/items/chests, closest 10 mobs, closest 5 harvestables
+    // Cap: keep all NPCs/players/items/chests, closest 10 mobs, closest 5 harvestables, 3 trees, 3 rocks
     const capped = [];
-    let mobCount = 0, harvestCount = 0;
+    let mobCount = 0, harvestCount = 0, treeCount = 0, rockCount = 0;
     for (const e of entities) {
       if (e.type === 3) { // mob
         if (mobCount < 10) { capped.push(e); mobCount++; }
-      } else if (e.type === 12) { // harvestable
+      } else if (e.type === 12) { // harvestable (foraging bush)
         if (harvestCount < 5) { capped.push(e); harvestCount++; }
+      } else if (e.type === 10) { // tree
+        if (treeCount < 3) { capped.push(e); treeCount++; }
+      } else if (e.type === 11) { // rock
+        if (rockCount < 3) { capped.push(e); rockCount++; }
       } else {
-        capped.push(e); // NPC(1), player(0), item(2), chest(4), lootbag(8)
+        capped.push(e); // NPC(1), player(0), item(2), chest(4), lootbag(8), fishspot(13)
       }
     }
 

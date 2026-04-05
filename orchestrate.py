@@ -303,16 +303,24 @@ class AgentInstance:
             stdout=log_fh,
             stderr=subprocess.STDOUT,
             env={**os.environ, **self.adapter.get_env()},
+            preexec_fn=os.setsid,
         )
         self._log_fh = log_fh
 
     def stop(self):
         if self.process and self.process.poll() is None:
-            self.process.terminate()
+            # Kill entire process group (claude + mcp_game_server + playwright + chromium)
+            try:
+                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                pass
             try:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                self.process.kill()
+                try:
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                except (ProcessLookupError, OSError):
+                    pass
                 self.process.wait()
             self.process = None
         if hasattr(self, "_log_fh") and self._log_fh:

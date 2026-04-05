@@ -120,7 +120,7 @@ echo "  Harness: $HARNESS_DESC"
 echo "  Hours:  ${HOURS}"
 echo ""
 
-# ── Step 1: Kill orchestrator + agents ──
+# ── Step 1: Kill orchestrator + agents + MCP servers + browsers ──
 echo "Stopping orchestrator and agents..."
 # Kill orchestrate.py process specifically (not tmux/shell wrappers)
 pkill -f "python3 orchestrate.py" 2>/dev/null || true
@@ -128,12 +128,26 @@ sleep 1
 # Kill the datacol tmux session (holds shell wrappers)
 tmux kill-session -t datacol 2>/dev/null || true
 # Kill any remaining claude -p or codex exec agent processes
-pkill -f "claude.*-p.*IMPORTANT.*play the game" 2>/dev/null || true
+pkill -f "claude.*-p.*ClaudeBot\|claude.*-p.*play the game\|claude.*-p.*IMPORTANT" 2>/dev/null || true
 pkill -f "codex.*exec" 2>/dev/null || true
-# Also kill single-agent mode processes
+pkill -f "kimi.*-p.*KimiBot" 2>/dev/null || true
+pkill -f "qwen.*-p.*QwenBot" 2>/dev/null || true
+# Also kill single-agent mode processes and Qwen agent harness
 pkill -f "play.sh" 2>/dev/null || true
+pkill -f "play_qwen.py" 2>/dev/null || true
 pkill -f "claude -p.*Login" 2>/dev/null || true
+# Kill MCP game servers (orphaned from previous runs)
+pkill -f "mcp_game_server.py" 2>/dev/null || true
+# Kill Playwright browser drivers spawned by MCP servers
+pkill -f "playwright/driver/node" 2>/dev/null || true
+pkill -f "game_driver.py" 2>/dev/null || true
+# Kill orphaned headless Chrome (actual binary name is chrome-headless-shell)
+pkill -f "chrome-headless-shell" 2>/dev/null || true
 sleep 2
+# Force-kill any surviving MCP/Playwright/Chrome processes
+pkill -9 -f "mcp_game_server.py" 2>/dev/null || true
+pkill -9 -f "playwright/driver/node" 2>/dev/null || true
+pkill -9 -f "chrome-headless-shell" 2>/dev/null || true
 
 # ── Step 2: Kill game server instances (not the client on 9000) ──
 echo "Stopping game servers (preserving client on :9000)..."
@@ -193,7 +207,8 @@ done
 # Clean stale Claude Code project memory for agent sandboxes (prevents MCP bypass behavior)
 rm -rf /home/patnir41/.claude/projects/-tmp-kaetram-agent-*/memory/ 2>/dev/null && echo "  Cleared agent project memories"
 # Kill orphaned Chrome/chromium processes from agent sandboxes
-pkill -f "chromium.*kaetram" 2>/dev/null || true
+pkill -f "chrome-headless-shell" 2>/dev/null || true
+pkill -f "chromium.*kaetram\|chromium.*headless" 2>/dev/null || true
 
 # Also clear single-agent state
 rm -f "$PROJECT_DIR/state/screenshot.png" \

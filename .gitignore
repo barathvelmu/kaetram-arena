@@ -33,3 +33,6 @@ dataset/extracted*/
 dataset/qwen_sft*/
 dataset/raw/
 dataset/session*/
+
+# Claude session-local scheduler state
+.claude/scheduled_tasks.lock

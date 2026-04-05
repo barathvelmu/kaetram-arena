@@ -16,6 +16,45 @@ At the start of every new session, before doing anything else:
 4. Only then ask what the user wants to do — never start cold
 
 At the end of every session, update `session_log.md` (under 30 lines).
+After any big update (training infra change, dataset rebuild, new automation, major design shift), update `session_log.md` immediately as well — do not wait for session end.
+After any big update that changes repo files, commit it promptly, push to GitHub, and sync the VM if the VM is expected to run that code or read that documentation.
+
+---
+
+## RESEARCH KNOWLEDGE BASE (`research/`)
+
+A compiled knowledge base for this project, inspired by Karpathy's LLM Knowledge Bases pattern. Contains conclusions, decisions, experiment outcomes, and paper references — not stream-of-consciousness notes.
+
+**Structure:**
+```
+research/
+├── INDEX.md              — Navigation hub + gaps list
+├── experiments/           — Training runs, data quality, ablation results
+├── related-work/          — Paper surveys compiled by topic
+├── decisions/             — WHY we made key choices (KTO, MCP, personalities, etc.)
+└── paper/                 — ICLR 2027 contribution, outline, figures needed
+```
+
+**Maintenance rule (MANDATORY — this is what keeps the wiki alive):**
+- After any **training run**: update `research/experiments/training-runs.md` with params, results, failures
+- After any **data rebuild**: update `research/experiments/data-quality.md` with before/after metrics
+- After any **design decision**: update or create a file in `research/decisions/`
+- After any **paper-related discussion**: update `research/paper/contribution.md`
+- If no file fits: create a new one and link it from `research/INDEX.md`
+- On **explicit "health check" or `/compile-research`**: scan all files for stale information, contradictions, missing citations, and update
+
+**Maintenance loop (what is actually reliable):**
+- Manual LLM compile pass: `.claude/commands/compile-research.md`
+- VM-safe staleness check: `python3 scripts/check_research_staleness.py`
+- VM-safe staleness check with email nudge: `python3 scripts/check_research_staleness.py --notify`
+- VM cron-friendly wrapper: `scripts/run_research_staleness_check.sh` (sources `~/.kaetram_notify_env` if present)
+- Do **not** rely on session-local Claude cron jobs. They die with the session and should not be treated as durable automation.
+
+**What goes here vs elsewhere:**
+- `research/` = compiled knowledge (survives across sessions, serves the paper)
+- `session_log.md` = scratchpad (recent decisions, gets overwritten)
+- `.claude/memory/` = session context (user prefs, git rules, startup)
+- Linear = task tracking (what to do, not what we learned)
 
 ---
 

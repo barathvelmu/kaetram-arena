@@ -10,7 +10,7 @@ Compiled knowledge for the Kaetram AI agent distillation project. Target: ICLR 2
 - VM-safe staleness check with email nudge: `python3 scripts/check_research_staleness.py --notify`
 - VM cron-friendly wrapper: `scripts/run_research_staleness_check.sh`
 
-The staleness checker is the durable loop. The compile pass is still manual because it requires an LLM session.
+The durable loop is VM cron + the wrapper. The wrapper first runs the staleness checker, then auto-invokes Claude Code with `/compile-research` when stale if Claude CLI is installed and authenticated on the VM. If Claude CLI is unavailable, it falls back to an email nudge.
 
 ---
 

@@ -22,12 +22,15 @@ from dataclasses import dataclass
 from typing import Optional
 
 import modal
+from notifications import format_notification, notification_env
 
 # ---------------------------------------------------------------------------
 # Modal setup
 # ---------------------------------------------------------------------------
 
 app = modal.App("kaetram-qwen-finetune")
+_notify_env = notification_env()
+_notification_secrets = [modal.Secret.from_dict(_notify_env)] if _notify_env else []
 
 # Persistent volumes — cache model weights, store results
 model_cache_vol = modal.Volume.from_name("kaetram-model-cache", create_if_missing=True)
@@ -197,10 +200,12 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,
     },
+    secrets=_notification_secrets,
 )
 def train(train_data: bytes, val_data: bytes, metadata: bytes):
     """Run Unsloth bf16 LoRA finetune and save merged safetensors."""
     import json
+    from notifications import send_email_notification
 
     print(f"Training data: {len(train_data):,} bytes")
     print(f"Validation data: {len(val_data):,} bytes")
@@ -277,9 +282,32 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Total params: {total_params:,}, Trainable: {trainable_params:,} ({100*trainable_params/total_params:.2f}%)")
 
+    subject, body = format_notification(
+        "Kaetram SFT Training Started",
+        [
+            f"Experiment: {EXPERIMENT_NAME}",
+            f"Model: {MODEL_ID}",
+            f"Train records: {len(train_ds)}",
+            f"Val records: {len(val_ds)}",
+            f"Max seq len: {MAX_SEQ_LEN}",
+        ],
+    )
+    send_email_notification(subject, body)
+
     # Train
     print("Starting training...")
-    result = trainer.train()
+    try:
+        result = trainer.train()
+    except Exception as e:
+        subject, body = format_notification(
+            "Kaetram SFT Training Failed",
+            [
+                f"Experiment: {EXPERIMENT_NAME}",
+                f"Error: {type(e).__name__}: {e}",
+            ],
+        )
+        send_email_notification(subject, body)
+        raise
     print(f"Training complete: {result.metrics}")
 
     # Save LoRA adapter
@@ -312,6 +340,18 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
 
     # Commit volume so everything persists
     checkpoint_vol.commit()
+
+    subject, body = format_notification(
+        "Kaetram SFT Training Finished",
+        [
+            f"Experiment: {EXPERIMENT_NAME}",
+            f"Train loss: {metrics.get('train_loss')}",
+            f"Runtime: {metrics.get('train_runtime')}",
+            f"Train records: {metrics.get('train_records')}",
+            f"Val records: {metrics.get('val_records')}",
+        ],
+    )
+    send_email_notification(subject, body)
 
     print(f"\nDone! Files saved to Modal volume 'kaetram-model-vol':")
     print(f"  Adapter:  /checkpoints/{EXPERIMENT_NAME}/adapter/")
@@ -408,6 +448,7 @@ def merge_checkpoint(checkpoint_name: str):
 def main():
     """Upload training data and launch the finetune job."""
     import os
+    from notifications import send_email_notification
 
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     train_path = os.path.join(project_dir, "dataset", "qwen_sft", "train.json")
@@ -438,6 +479,18 @@ def main():
     print(f"  Export: merged safetensors (for Modal SGLang serving)")
     print(f"  Max seq len: {MAX_SEQ_LEN}")
     print(f"Launching on Modal H100...")
+
+    subject, body = format_notification(
+        "Kaetram SFT Training Launched",
+        [
+            f"Experiment: {EXPERIMENT_NAME}",
+            f"Model: {MODEL_ID}",
+            f"Train bytes: {len(train_data):,}",
+            f"Val bytes: {len(val_data):,}",
+            f"Max seq len: {MAX_SEQ_LEN}",
+        ],
+    )
+    send_email_notification(subject, body)
 
     metrics = train.remote(train_data, val_data, metadata)
 

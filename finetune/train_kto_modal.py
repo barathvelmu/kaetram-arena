@@ -13,8 +13,11 @@ Usage:
 import pathlib
 
 import modal
+from notifications import format_notification, notification_env
 
 app = modal.App("kaetram-qwen-kto")
+_notify_env = notification_env()
+_notification_secrets = [modal.Secret.from_dict(_notify_env)] if _notify_env else []
 
 model_cache_vol = modal.Volume.from_name("kaetram-model-cache", create_if_missing=True)
 checkpoint_vol = modal.Volume.from_name("kaetram-model-vol", create_if_missing=True)
@@ -48,6 +51,13 @@ with train_image.imports():
 
 
 MODEL_ID = "unsloth/Qwen3.5-9B"
+# Use the canonical HF tokenizer for chat template formatting — NOT the Unsloth-merged
+# r6 tokenizer. Unsloth's save_pretrained_merged modifies the chat_template Jinja to
+# inject a tool-system-doc block when tool_calls appear in the full conversation, but
+# not in prompt-only renders. This causes _split_completion to fail for every record.
+# The canonical tokenizer has the same vocab so tokenization is identical; only the
+# template rendering differs.
+TEMPLATE_TOKENIZER_ID = "Qwen/Qwen3.5-9B"
 BASE_SFT_EXPERIMENT = "kaetram-qwen3.5-9b-r6-optimized"
 EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r6-kto"
 MAX_SEQ_LEN = 8192
@@ -88,9 +98,18 @@ def _split_completion(prompt_text: str, full_text: str) -> str | None:
 
 def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes, tokenizer):
     import json
+    from transformers import AutoTokenizer
 
     metadata = json.loads(metadata_bytes)
     tool_definitions = metadata["tools"]
+
+    # Load the canonical HF tokenizer for chat template formatting only.
+    # The Unsloth-merged r6 tokenizer has a modified chat_template that injects
+    # tool-system-doc tokens when tool_calls appear in the full conversation but
+    # not in prompt-only renders — causing _split_completion to fail for all records.
+    # The canonical tokenizer has the same vocabulary so tokenization is identical.
+    print(f"Loading template tokenizer ({TEMPLATE_TOKENIZER_ID}) for consistent chat template rendering...")
+    fmt_tok = AutoTokenizer.from_pretrained(TEMPLATE_TOKENIZER_ID, trust_remote_code=True)
 
     def parse_and_format(raw_bytes, split_name: str):
         records = json.loads(raw_bytes)
@@ -101,14 +120,14 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
             completion_message = rec["completion_message"]
 
             try:
-                prompt_text = tokenizer.apply_chat_template(
+                prompt_text = fmt_tok.apply_chat_template(
                     prompt_messages,
                     tools=tool_definitions,
                     tokenize=False,
                     add_generation_prompt=True,
                 )
             except TypeError:
-                prompt_text = tokenizer.apply_chat_template(
+                prompt_text = fmt_tok.apply_chat_template(
                     prompt_messages,
                     tokenize=False,
                     add_generation_prompt=True,
@@ -116,14 +135,14 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
 
             full_messages = prompt_messages + [completion_message]
             try:
-                full_text = tokenizer.apply_chat_template(
+                full_text = fmt_tok.apply_chat_template(
                     full_messages,
                     tools=tool_definitions,
                     tokenize=False,
                     add_generation_prompt=False,
                 )
             except TypeError:
-                full_text = tokenizer.apply_chat_template(
+                full_text = fmt_tok.apply_chat_template(
                     full_messages,
                     tokenize=False,
                     add_generation_prompt=False,
@@ -163,10 +182,12 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,
     },
+    secrets=_notification_secrets,
 )
 def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool = False):
     import json
     import os
+    from notifications import send_email_notification
 
     base_model_path = f"/checkpoints/{BASE_SFT_EXPERIMENT}/merged"
     if not os.path.exists(base_model_path):
@@ -297,8 +318,34 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
         processing_class=tokenizer,
     )
 
+    subject, body = format_notification(
+        "Kaetram KTO Training Started",
+        [
+            f"Experiment: {EXPERIMENT_NAME}",
+            f"Base SFT: {BASE_SFT_EXPERIMENT}",
+            f"Mode: {'smoke-test' if smoke_test else 'full'}",
+            f"Train records: {len(train_ds)}",
+            f"Val records: {len(val_ds)}",
+            f"Desirable/undesirable: {desirable}/{undesirable}",
+        ],
+    )
+    send_email_notification(subject, body)
+
     print("Starting KTO training...")
-    result = trainer.train()
+    try:
+        result = trainer.train()
+    except Exception as e:
+        subject, body = format_notification(
+            "Kaetram KTO Training Failed",
+            [
+                f"Experiment: {EXPERIMENT_NAME}",
+                f"Base SFT: {BASE_SFT_EXPERIMENT}",
+                f"Mode: {'smoke-test' if smoke_test else 'full'}",
+                f"Error: {type(e).__name__}: {e}",
+            ],
+        )
+        send_email_notification(subject, body)
+        raise
     print(f"KTO complete: {result.metrics}")
 
     adapter_dir = f"{output_dir}/adapter"
@@ -339,6 +386,20 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
 
     checkpoint_vol.commit()
 
+    subject, body = format_notification(
+        "Kaetram KTO Training Finished",
+        [
+            f"Experiment: {EXPERIMENT_NAME}",
+            f"Base SFT: {BASE_SFT_EXPERIMENT}",
+            f"Mode: {'smoke-test' if smoke_test else 'full'}",
+            f"Train loss: {metrics.get('train_loss')}",
+            f"Runtime: {metrics.get('train_runtime')}",
+            f"Train records: {metrics.get('train_records')}",
+            f"Val records: {metrics.get('val_records')}",
+        ],
+    )
+    send_email_notification(subject, body)
+
     print(f"\nDone! Files saved to Modal volume 'kaetram-model-vol':")
     print(f"  Adapter:  /checkpoints/{EXPERIMENT_NAME}/adapter/")
     print(f"  Merged:   /checkpoints/{EXPERIMENT_NAME}/merged/")
@@ -357,6 +418,7 @@ def main(smoke_test: bool = False):
                     modal run finetune/train_kto_modal.py --smoke-test
     """
     import os
+    from notifications import send_email_notification
 
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     train_path = os.path.join(project_dir, "dataset", "qwen_kto", "train.json")
@@ -387,6 +449,19 @@ def main(smoke_test: bool = False):
         print("  Mode: SMOKE TEST (10 steps)")
     print(f"Launching on Modal H100...")
 
+    subject, body = format_notification(
+        "Kaetram KTO Training Launched",
+        [
+            f"Experiment: {EXPERIMENT_NAME}",
+            f"Base SFT: {BASE_SFT_EXPERIMENT}",
+            f"Mode: {'smoke-test' if smoke_test else 'full'}",
+            f"Train bytes: {len(train_data):,}",
+            f"Val bytes: {len(val_data):,}",
+            f"Metadata bytes: {len(metadata):,}",
+        ],
+    )
+    send_email_notification(subject, body)
+
     metrics = train.remote(train_data, val_data, metadata, smoke_test=smoke_test)
 
     print(f"\n{'='*60}")
@@ -395,4 +470,3 @@ def main(smoke_test: bool = False):
     print(f"  Loss:     {metrics.get('train_loss', '?'):.4f}")
     print(f"  Runtime:  {metrics.get('train_runtime', 0):.0f}s")
     print(f"  Records:  {metrics.get('train_records')} train / {metrics.get('val_records')} val")
-

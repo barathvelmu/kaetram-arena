@@ -265,7 +265,9 @@ def _dispatch(page, fn_name: str, fn_args: dict, turn: int) -> str:
         if js:
             print(f"  [{turn}] {fn_name}({fn_args})")
             try:
-                result = page.evaluate(js)
+                # Wrap in IIFE to allow return statements in page.evaluate()
+                wrapped = f"(() => {{ {js} }})()"
+                result = page.evaluate(wrapped)
                 # If result is already a string (e.g. observe() returns JSON string),
                 # return it directly to avoid double-encoding
                 if isinstance(result, str):

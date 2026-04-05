@@ -31,6 +31,10 @@ from notifications import format_notification, notification_env
 app = modal.App("kaetram-qwen-finetune")
 _notify_env = notification_env()
 _notification_secrets = [modal.Secret.from_dict(_notify_env)] if _notify_env else []
+_notifications_mount = modal.Mount.from_local_file(
+    pathlib.Path(__file__).parent.parent / "notifications.py",
+    remote_path="/root/notifications.py",
+)
 
 # Persistent volumes — cache model weights, store results
 model_cache_vol = modal.Volume.from_name("kaetram-model-cache", create_if_missing=True)
@@ -201,6 +205,7 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
         "/checkpoints": checkpoint_vol,
     },
     secrets=_notification_secrets,
+    mounts=[_notifications_mount],
 )
 def train(train_data: bytes, val_data: bytes, metadata: bytes):
     """Run Unsloth bf16 LoRA finetune and save merged safetensors."""

@@ -19,8 +19,11 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 - Modal timeout bumped to 24h, epochs reduced to 2 (overfitting risk with r=64 on 3.2K records)
 - serve_modal.py updated to r5-mcp-tools checkpoint
 
-**Final dataset:** 3,216 train / 328 val. click_tile 4.7%, attack 27.8%, navigate 25.9%.
-**Training launched:** Modal H100, 402 steps, ~3 min/step, ETA ~22h. Auto-chain in tmux `post-train` — deploys model + runs Qwen 300 turns + stops serve after.
+**Data quality round 2:** Extracted 149 new sessions from Niral's 8h orchestrator run. Added repetitive loop filter (23% → 0.2%), reasoning trimming (avg 1654 → 426 chars, zero over 800), single-turn click_tile filter. IIFE wrapper fix for native tool dispatch.
+
+**Final dataset (rebuilt):** 3,853 train / 465 val. click_tile 4.7%, repetitive 0.2%, attack 15.2%, navigate 27.8%, interact_npc 11.7%. Avg reasoning 426 chars. Zero empty. Verified by Codex.
+
+**r6 trained and tested:** Niral's r6-optimized completed. Deployed on Modal, Qwen played end-to-end (native tools, real game state). Model is rough but harness works. Serve stopped to save cost. Next: retrain on rebuilt dataset (r7), then KTO (Stage 2).
 
 ---
 

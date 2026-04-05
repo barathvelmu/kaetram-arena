@@ -72,6 +72,13 @@ if pgrep -f "python3 orchestrate.py" > /dev/null 2>&1; then
   exit 1
 fi
 
+# ── Step 1b: Clean up orphaned processes from previous runs ──
+pkill -f "mcp_game_server.py" 2>/dev/null || true
+pkill -f "playwright/driver/node" 2>/dev/null || true
+pkill -f "chrome-headless-shell" 2>/dev/null || true
+pkill -f "game_driver.py" 2>/dev/null || true
+pkill -f "play_qwen.py" 2>/dev/null || true
+
 # ── Step 2: Detect agents with preserved state ──
 DETECTED=0
 for i in 0 1 2 3 4 5 6 7; do

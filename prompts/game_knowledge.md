@@ -1,83 +1,102 @@
-## QUEST GUIDE
+## ALL QUESTS (21 total — complete them all)
 
-Complete all quests. Organized by phase.
+### Quick Reference
 
-### PHASE 1: MUDWICH (Levels 1-15)
+| Quest | NPC (location) | Action | Prereqs | Reward |
+|-------|---------------|--------|---------|--------|
+| Foresting | Forester (~216,114) | Deliver 20 logs (2×10) | None | Iron Axe |
+| Anvil's Echoes | Blacksmith (~199,169) | Talk twice | None | Smithing Boots + Smithing skill |
+| Desert Quest | Dying Soldier (~288,134) | Deliver CD to Wife via door (310,264), return | None | Unlocks Crullfeld+Lakesworld warps |
+| Scavenger | Village Girl (~136,146) → Old Lady via door (147,113) | Deliver 2 tomato + 2 strawberry + 1 string | None | 7500 gold |
+| Sorcery | Sorcerer via door (~194,218) | Deliver 3 beads from Warrior Crabs in cave | None | Magic Staff |
+| Miner's Quest | Miner (~323,178) | Deliver 15 nisoc ore | None | Miner store + 2000 Mining XP |
+| Herbalist | Herbalist (~333,281) in Lakesworld | Stage 1: 3 blue lilies. Stage 2: 2 paprika + 2 tomato | None | Hot Sauce + 1500 Foraging XP |
+| Rick's Roll | Rick (beach area) | Deliver 5 cooked shrimp, then seaweed roll to GF via door | None | 1987 gold |
+| Arts & Crafts | Cold NPC (mountain) | Craft: beryl pendant → small bowl → stew | None | Crafting bench access |
+| Royal Drama | Royal Guard 2 (castle) | Talk to guard → rat in sewers → find king | None | 10000 gold |
+| Royal Pet | King (castle, after Royal Drama) | Deliver 3 books to NPCs across map | Royal Drama | Cat Pet |
+| Ancient Lands | Monument NPC (icy cave) | Find Ice Sword from Ice Knight (L62) | None | Snow Potion |
+| Sea Activities | Sponge (underwater, beach entrance) | Talk chain → kill Sea Cucumber (L88, 1250 HP) | None | 10000 gold |
+| Evil Santa | Snow Shepherd Boy (mountain) | Find key → kill Evil Santa (L240, 7500 HP) | None | Ice World access |
+| Clam Chowder | Blue Bikini Girl (ice area) | 5 clam meat + 4 clam chowders (Fishing 10, Cooking 15) | None | 7500 gold |
+| Coder's Glitch | Coder NPC | Kill Skeleton King (L32, 1850 HP) | Foresting+Desert+Sorcery; Acc15/Str20/Def15 | Club + 5000 Str XP |
+| Miner's Quest II | Miner (~323,178) | Deliver 5 tin + 5 copper + 5 bronze bars (smelting) | Miner's Quest; Mining 30 | Mining cave |
+| Coder's Glitch II | Coder NPC | Kill 3 bosses: Ogre Lord→Queen Ant→Forest Dragon | CG1+Miner's+Scavenger; Acc25/Str40/Def30 | Shield + XP |
+| Scientist's Potion | Scientist (Mudwich house) | Talk (STUB — only stage 0) | None | — |
+| Coder's Fallacy | Villager 4 | Talk (STUB — only stage 0) | CG2+Anvil+Scientist; Alch35/Smith45 | — |
 
-**Foresting** — Forester (~216, 114)
-- Chop 10 Oak logs, turn in. Chop 10 more, turn in.
-- Reward: Iron Axe (requires Strength 10 to equip — grind Hack style first)
+### Quest Dependency Chain
 
-**Anvil's Echoes** — Blacksmith (~199, 169)
-- Stage 1: Talk to Blacksmith. He tells you about his lost hammer.
-- Stage 2: Talk to Blacksmith again to complete the quest.
-- Reward: Smithing Boots + 420 Smithing XP
+```
+Foresting ──► Desert Quest ──► Sorcery ──┐
+                                          ├──► Coder's Glitch (Acc15/Str20/Def15)
+Scavenger ────────────────────────────────┤
+Miner's Quest ────────────────────────────┤
+                                          └──► Coder's Glitch II (Acc25/Str40/Def30)
+                                                    └──► Coder's Fallacy (STUB)
+Royal Drama ──► Royal Pet
+Miner's Quest ──► Miner's Quest II (Mining 30)
+```
 
-**Scavenger** — Village Girl (~136, 146) → Old Lady via door at (147, 113)
-- Accept from Village Girl, walk onto door (147, 113) to reach Old Lady (~776, 106)
-- Collect: 2 tomatoes, 2 strawberries, 1 string
-- Tomatoes: Foraging level 15, harvest Tomato Bushes near (~141, 114), (~203, 196)
-- Strawberries: NOT harvestable. They drop from mobs (Hobgoblins, others with "fruits" loot table). Kill Hobgoblins (~190, 204) for strawberry drops.
-- String: common mob drop from most enemies
+### Detailed Walkthroughs
 
-**Snek Problem** — Bike Lyson (~166, 114) — ACHIEVEMENT, not quest
-- Kill 25 Sneks east across bridge x≈220-240, y≈160. Auto-tracks. Return to claim reward.
+**Scavenger** — Items needed:
+- Tomato (2): Forage from Tomato Plant Thingy (type 12, Foraging level 15) — use `gather("Tomato")`. Also ~5% mob drop from vegetables table.
+- Strawberry (2): ~8% mob drop from "fruits" loot table. Kill Goblins near (~190,204). Auto-collected when walking over single drops.
+- String (1): Very common mob drop (~12% from ordinary table). Also craftable: 1 Blue Lily → 1 String (Crafting level 1).
 
-### PHASE 2: INTERMEDIATE (Levels 10-25)
+**Sorcery** — Cave navigation (short hops!):
+- Enter Crab Cave door at (154,231) → teleports to (234,662). Requires Crab Problem achievement (kill 10 crabs first).
+- Navigate in 30-tile hops: (234,662) → (260,640) → (280,600) → (300,550) → (310,500) → Warrior Crab (~320,455).
+- Warrior Crab: L30, 300 HP. Drops bead at 100% rate. Kill 3, collect beads via `loot()`.
 
-**Desert Quest** — Dying Soldier (~288, 134) — DO THIS EARLY
-- Stage 0: Talk to Dying Soldier. He gives you a CD.
-- Stage 1: Deliver CD to Wife via door at **(310, 264)** in Lakesworld forest. NOT the Sorcerer door (194, 218).
-- Stage 2: Return to Dying Soldier.
-- Reward: Unlocks Crullfeld + Lakesworld warps. Without this, those areas are inaccessible.
+**Coder's Glitch** — MAIN STORYLINE:
+- Prereqs: Complete Foresting + Desert Quest + Sorcery. Need Accuracy 15, Strength 20, Defense 15.
+- Go to Coder NPC. He sends you to kill the Skeleton King in Patsow (east of desert, volcano region).
+- Skeleton King: L32, 1850 HP, melee slash. Drops Skeleton King Talisman at 100% ONLY when quest active.
+- Return talisman to Coder. Reward: Club weapon + 5000 Strength XP.
 
-**Crab Problem** — Bubba (~121, 231) — ACHIEVEMENT, not quest
-- Kill 10 crabs on beach y≈210-230. Approach from NORTH (121, 200), not through wall corridor.
-- Completing this unlocks the Crab Cave door at (154, 231).
+**Royal Drama** — Easy 10K gold:
+- Talk to Royal Guard 2 at castle. Enter sewers. Talk to Rat NPC. Go deeper. Find King 2. Done.
 
-**Sorcery and Stuff** — Sorcerer via door at (~194, 218) → teleports to (~706, 101)
-- Deliver 3 magic beads to Sorcerer.
-- Magic beads: Kill the **Warrior Crab** miniboss (Level 30, 300 HP) inside the Crab Cave.
-- Crab Cave entrance: door at **(154, 231)** on the beach. Requires Crab Problem achievement completed first.
-- Door teleports you to (234, 662) underground. The Warrior Crab spawns at (~320, 455).
-- WARNING: Warrior Crab is Level 30 with 300 HP. You need ~Level 25+ and food to survive.
-- Reward: Magic Staff
+### Gathering & Skills
 
-**Miner's Quest** — Miner (~323, 178)
-- Mine 15 nisoc ores. Only 2 nisoc rock spawns exist: (657, 644) and (656, 645).
-- Warp to Lakesworld first, then navigate. Mining level 1 is sufficient.
-- Rocks respawn after mining. Camp the 2 rocks until you have 15 ores.
+**How to gather**: Use `gather(resource_name)` on nearby resource entities. Finds closest matching resource, walks to it, harvests automatically.
+- Foraging (bushes, type 12): No tool needed. Blueberry=L1, Corn=L5, Blue Lily=L10, Tomato=L15, Paprika=L25.
+- Lumberjacking (trees, type 10): Need axe equipped (you have Bronze Axe). Oak=L1 → Logs.
+- Mining (rocks, type 11): Need pickaxe equipped. Nisoc/Coal/Copper/Tin=L1. Smith Bronze Pickaxe: 3 bronze bars + 1 logs at anvil (Smithing L1, requires Anvil's Echoes completed).
+- Fishing (fish spots, type 13): Need fishing rod equipped.
 
-**Herbalist's Desperation** — Herbalist (~333, 281) in Lakesworld
-- Stage 1: Gather 3 Blue Lilies. Foraging level 10 required. Bushes at (~278-434, y≈250-262) in Lakesworld.
-- Stage 2: Gather 2 Paprikas + 2 Tomatoes (Foraging 25 and 15 respectively).
-- Warp to Lakesworld, harvest Blue Lily bushes nearby.
-- Reward: Hot Sauce + 1500 Foraging XP
+**How to loot**: After killing a mob, use `loot()` to pick up nearby dropped items.
 
-### KEY LOCATIONS
+**Key crafting recipes**:
+- String: 1 Blue Lily → 1 String (Crafting L1)
+- Cooked Shrimp: 1 Raw Shrimp at cooking pot (Cooking L1)
+- Sticks: 1 Log → 4 Sticks (Fletching L1)
+- Small Bowl: 2 Sticks (Fletching L3)
+- Bronze Pickaxe: 3 Bronze Bars + 1 Logs at anvil (Smithing L1)
 
-**Mudwich** (~188, 157) — main hub
-- Blacksmith: ~199, 169 | Village Girl: ~136, 146 | Forester: ~216, 114 | Bike Lyson: ~166, 114
+**Equipment progression**: Bronze Axe → Iron Axe (Foresting reward, needs Str 10) → equip quest rewards immediately. After Anvil's Echoes, you can smith better weapons at the anvil.
 
-**Door Portals** (walk onto tile to teleport — these are NOT walls, walk directly onto the coordinates):
-- (147, 113) → Old Lady (~776, 106) — Scavenger quest
-- (154, 231) → Crab Cave (~234, 662) — Sorcery quest (requires Crab Problem achievement)
-- (158, 232) → Secondary cave (~220, 686)
-- (194, 218) → Sorcerer (~706, 101)
-- (201, 168) → Anvil's cave (~439, 887) — Anvil's Echoes quest (talk to Blacksmith first)
-- (310, 264) → Wife/Azaria (~735, 101) — Desert Quest stage 1
+### Key Locations
 
-**Warps**: Mudwich (always), Crullfeld (266,158, requires Desert Quest), Lakesworld (319,281, requires Desert Quest)
+**Mudwich** (~188,157) — main hub. Blacksmith: ~199,169 | Village Girl: ~136,146 | Forester: ~216,114
 
-**Danger Zones** — pathfinding deadlocks:
-- Beach corridor x=105-115, y=210-235: approach Bubba from NORTH along x=121
-- Nisoc ore (657,644): warp to Lakesworld first, if stuck warp back and retry
+**Door Portals** (walk onto tile to teleport):
+- (147,113) → Old Lady — Scavenger
+- (154,231) → Crab Cave — Sorcery (needs Crab Problem achievement)
+- (194,218) → Sorcerer
+- (201,168) → Anvil cave (not needed — quest is talk-only)
+- (310,264) → Wife — Desert Quest stage 1
 
-### GAME MECHANICS
+**Warps**: Mudwich (always), Crullfeld (after Desert Quest), Lakesworld (after Desert Quest)
+
+**Danger Zones**: Beach corridor x=105-115 — approach Bubba from NORTH along x=121.
+
+### Game Mechanics
 
 - Attack styles: Hack (Str+Def), Chop (Acc+Def), Defensive (Def). All give Health XP.
-- Iron Axe requires Strength 10. Grind Hack style.
-- Gathering: click resource node, wait 5s. Trees 25s respawn, rocks 30s.
-- Foraging levels: Blueberry=1, Corn/Peach=5, Blue Lily=10, Tomato/Raspberry=15, Paprika=25.
-- Achievements (Snek Problem, Crab Problem) auto-track kills. Return to NPC after completing.
-- Doors: walk directly onto the door tile coordinate to teleport. Do not try to pathfind through — use navigate(x, y) to the exact door coordinate.
+- Iron Axe needs Strength 10. Grind Hack style to build Strength.
+- Achievements (Snek Problem, Crab Problem) auto-track kills. Return to NPC after count reached.
+- Doors: navigate directly onto the door tile coordinate to teleport.
+- Gathering: click resource → auto-harvests → item goes to inventory. Trees respawn 25s, rocks 30s.

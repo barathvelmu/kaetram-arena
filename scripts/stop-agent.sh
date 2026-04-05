@@ -50,13 +50,13 @@ fi
 # Kill the datacol tmux session (holds shell wrappers around orchestrator)
 tmux kill-session -t datacol 2>/dev/null || true
 
-# ── Step 2: Clean up any orphaned claude -p or codex exec processes ──
-CLAUDE_PIDS=$(pgrep -f "claude.*-p.*play the game" 2>/dev/null || true)
+# ── Step 2: Clean up any orphaned agent CLI processes ──
+CLAUDE_PIDS=$(pgrep -f "claude.*-p.*ClaudeBot\|claude.*-p.*play the game\|claude.*-p.*IMPORTANT" 2>/dev/null || true)
 if [ -n "$CLAUDE_PIDS" ]; then
   echo "Stopping orphaned claude agent processes..."
   kill -TERM $CLAUDE_PIDS 2>/dev/null || true
   sleep 3
-  CLAUDE_PIDS=$(pgrep -f "claude.*-p.*play the game" 2>/dev/null || true)
+  CLAUDE_PIDS=$(pgrep -f "claude.*-p.*ClaudeBot\|claude.*-p.*play the game\|claude.*-p.*IMPORTANT" 2>/dev/null || true)
   if [ -n "$CLAUDE_PIDS" ]; then
     kill -9 $CLAUDE_PIDS 2>/dev/null || true
   fi
@@ -73,6 +73,22 @@ if [ -n "$CODEX_PIDS" ]; then
   fi
 fi
 
+# ── Step 2b: Kill MCP game servers + Playwright browsers ──
+MCP_PIDS=$(pgrep -f "mcp_game_server.py" 2>/dev/null || true)
+if [ -n "$MCP_PIDS" ]; then
+  echo "Stopping MCP game servers..."
+  kill -TERM $MCP_PIDS 2>/dev/null || true
+  sleep 2
+  MCP_PIDS=$(pgrep -f "mcp_game_server.py" 2>/dev/null || true)
+  if [ -n "$MCP_PIDS" ]; then
+    kill -9 $MCP_PIDS 2>/dev/null || true
+  fi
+fi
+pkill -f "playwright/driver/node" 2>/dev/null || true
+pkill -f "game_driver.py" 2>/dev/null || true
+pkill -f "chrome-headless-shell" 2>/dev/null || true
+pkill -f "chromium.*kaetram\|chromium.*headless" 2>/dev/null || true
+
 # ── Step 3: Stop game servers spawned by orchestrator ──
 echo "Stopping game servers..."
 for port in $(seq 9001 10 9071); do
@@ -83,8 +99,9 @@ for port in $(seq 9001 10 9071); do
   fi
 done
 
-# Also stop single-agent mode processes
+# Also stop single-agent mode processes and Qwen agent harness
 pkill -f "play.sh" 2>/dev/null || true
+pkill -f "play_qwen.py" 2>/dev/null || true
 
 # ── Step 4: Report preserved state ──
 echo ""

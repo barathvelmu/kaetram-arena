@@ -97,15 +97,40 @@ echo "  Server port: $CUR_PORT"
 [ "$RESET" = true ] && echo "  Reset:       YES (fresh level 1)"
 echo ""
 
-# ── Step 1: Kill the agent's CLI process ──
+# ── Step 1: Kill the agent's CLI process + its MCP server ──
 echo "Killing agent $AGENT_ID process..."
-# Kill processes for each possible harness type
-pkill -f "codex.*exec" 2>/dev/null || true
-pkill -f "claude.*-p.*$SANDBOX" 2>/dev/null || true
-pkill -f "kimi.*-p.*" 2>/dev/null || true
-pkill -f "qwen.*-p.*" 2>/dev/null || true
-# Also try matching by username in the prompt
-pkill -f "$CUR_USERNAME" 2>/dev/null || true
+# Kill CLI processes scoped to this agent's sandbox or username
+pkill -f "claude.*-p.*$SANDBOX\|claude.*-p.*$CUR_USERNAME" 2>/dev/null || true
+pkill -f "codex.*$CUR_USERNAME" 2>/dev/null || true
+pkill -f "kimi.*$CUR_USERNAME" 2>/dev/null || true
+pkill -f "qwen.*$CUR_USERNAME" 2>/dev/null || true
+# Kill MCP server + Playwright + Chromium for this agent
+# The agent CLI is the process group leader (spawned with setsid by orchestrator),
+# so find its children to identify the right MCP server
+CLI_PID=$(pgrep -f "claude.*-p.*$CUR_USERNAME\|codex.*$CUR_USERNAME\|kimi.*$CUR_USERNAME\|qwen.*$CUR_USERNAME" 2>/dev/null | head -1 || true)
+if [ -n "$CLI_PID" ]; then
+  # Kill the entire process group (CLI + MCP + Playwright + Chromium)
+  PGID=$(ps -o pgid= -p "$CLI_PID" 2>/dev/null | tr -d ' ')
+  if [ -n "$PGID" ] && [ "$PGID" != "0" ]; then
+    kill -- -"$PGID" 2>/dev/null || true
+    echo "  Killed process group $PGID (CLI + MCP + browser)"
+  fi
+fi
+# Fallback: kill any MCP servers whose parent was the agent CLI
+MCP_PIDS=$(pgrep -f "mcp_game_server.py" 2>/dev/null || true)
+if [ -n "$MCP_PIDS" ]; then
+  for pid in $MCP_PIDS; do
+    ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    # Check if parent is dead (orphaned under init) — likely ours
+    if [ "$ppid" = "1" ]; then
+      # Check if it's using this agent's port
+      if grep -q "KAETRAM_PORT.*$CUR_PORT" "/proc/$pid/environ" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        echo "  Killed orphaned MCP server (PID $pid)"
+      fi
+    fi
+  done
+fi
 sleep 2
 
 # ── Always clear session counter so agent starts fresh session ──

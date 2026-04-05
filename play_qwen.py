@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-play_qwen.py — Lightweight Claude-Code-like harness for finetuned Qwen3.5-9B.
+play_qwen.py — Lightweight harness for finetuned Qwen3.5-9B Kaetram agent.
 
-Replicates Claude Code's behavior with just 2 tools (browser_run_code + Bash)
-instead of OpenCode's 38. Multi-turn conversation with tool-call dispatch.
+Spawns mcp_game_server.py as an MCP subprocess and forwards the model's tool
+calls directly to it.  No JS translation layer — the MCP server handles all
+browser interaction, combat timers, navigation, etc.
 
 Usage:
     python3 play_qwen.py --endpoint https://your-modal-url/v1 \
@@ -13,8 +14,11 @@ Usage:
 """
 
 import argparse
+import asyncio
 import json
 import os
+import re
+import signal
 import subprocess
 import sys
 import time
@@ -22,86 +26,122 @@ from datetime import datetime
 from pathlib import Path
 
 from openai import OpenAI
-from playwright.sync_api import sync_playwright
 
 # ---------------------------------------------------------------------------
-# Tool definitions (just 2 — matches training data format)
+# MCP client — spawns mcp_game_server.py and calls tools over stdio
 # ---------------------------------------------------------------------------
 
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "browser_run_code",
-            "description": "Execute JavaScript code in the game browser. Use helper functions: __attackMob(name), __interactNPC(name), __talkToNPC(id), __navigateTo(x,y), __moveTo(x,y), __clickEntity(label), __clickTile(x,y), __safeWarp(id), __eatFood(slot), __stuckReset(), __navCancel(). Read game state with window.__latestGameState. Return values provide action results.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "JavaScript code to execute in the browser page context",
-                    }
+class MCPClient:
+    """Minimal MCP client that spawns the game server and calls tools."""
+
+    def __init__(self, venv_python: str, server_script: str, env: dict):
+        self.venv_python = venv_python
+        self.server_script = server_script
+        self.env = {**os.environ, **env}
+        self._session = None
+        self._client = None
+        self._tools = {}  # name -> {description, inputSchema}
+
+    async def connect(self):
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        params = StdioServerParameters(
+            command=self.venv_python,
+            args=[self.server_script],
+            env=self.env,
+        )
+        self._transport = stdio_client(params)
+        self._streams = await self._transport.__aenter__()
+        read_stream, write_stream = self._streams
+        from datetime import timedelta
+        self._session = ClientSession(read_stream, write_stream, read_timeout_seconds=timedelta(seconds=120))
+        await self._session.__aenter__()
+        await self._session.initialize()
+
+        # Discover tools
+        result = await self._session.list_tools()
+        for tool in result.tools:
+            self._tools[tool.name] = {
+                "description": tool.description or "",
+                "inputSchema": tool.inputSchema or {"type": "object", "properties": {}},
+            }
+        return list(self._tools.keys())
+
+    async def call_tool(self, name: str, arguments: dict) -> str:
+        """Call an MCP tool and return the text result."""
+        if not self._session:
+            raise RuntimeError("MCP client not connected")
+        result = await self._session.call_tool(name, arguments)
+        # Concatenate text content from result
+        parts = []
+        for block in result.content:
+            if hasattr(block, "text"):
+                parts.append(block.text)
+            else:
+                parts.append(str(block))
+        return "\n".join(parts)
+
+    async def close(self):
+        if self._session:
+            await self._session.__aexit__(None, None, None)
+        if hasattr(self, "_transport"):
+            await self._transport.__aexit__(None, None, None)
+
+    def get_tool_definitions(self) -> list[dict]:
+        """Return OpenAI-format tool definitions for the chat API."""
+        defs = []
+        for name, info in self._tools.items():
+            if name == "login":
+                continue  # login is called internally, not by the model
+            defs.append({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": info["description"],
+                    "parameters": info["inputSchema"],
                 },
-                "required": ["code"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "Bash",
-            "description": "Execute a shell command. Use ONLY for writing progress.json.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute",
-                    }
-                },
-                "required": ["command"],
-            },
-        },
-    },
-]
+            })
+        return defs
+
+    def get_tool_names(self) -> list[str]:
+        """Return list of tool names (excluding login)."""
+        return [n for n in self._tools if n != "login"]
+
 
 # ---------------------------------------------------------------------------
-# Tool dispatch
+# Tool call parsing (handles Qwen3.5 Coder XML format + JSON fallback)
 # ---------------------------------------------------------------------------
 
 def parse_tool_calls_from_text(text: str) -> list[dict]:
     """Parse tool calls from model text output.
 
-    Qwen3.5 tool format uses <tool_call> tags:
-        <tool_call>
-        {"name": "browser_run_code", "arguments": {"code": "..."}}
-        </tool_call>
-
-    Also handles: ✿TOOL_CALL✿ format and plain JSON function calls.
+    Handles multiple formats:
+    1. Qwen3.5 Coder XML: <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
+    2. JSON in <tool_call> tags: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+    3. ✿TOOL_CALL✿ format
     """
-    import re
     calls = []
 
-    # Pattern 1a: Qwen3.5 XML format: <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
+    # Pattern 1: Qwen3.5 Coder XML format
     for m in re.finditer(r"<tool_call>\s*<function=(\w+)>(.*?)</function>\s*</tool_call>", text, re.DOTALL):
         fn_name = m.group(1)
         params_text = m.group(2)
         args = {}
         for pm in re.finditer(r"<parameter=(\w+)>\s*(.*?)\s*</parameter>", params_text, re.DOTALL):
-            args[pm.group(1)] = pm.group(2)
+            key = pm.group(1)
+            val = pm.group(2).strip()
+            # Try to parse as number
+            try:
+                args[key] = int(val)
+            except ValueError:
+                try:
+                    args[key] = float(val)
+                except ValueError:
+                    args[key] = val
         calls.append({"name": fn_name, "arguments": args})
 
-    # Pattern 1b: Qwen3.5 shorthand: <tool_call><browser_run_code>code</browser_run_code></tool_call>
-    if not calls:
-        for m in re.finditer(r"<tool_call>\s*<(browser_run_code|Bash)>(.*?)</\1>\s*</tool_call>", text, re.DOTALL):
-            fn_name = m.group(1)
-            inner = m.group(2).strip()
-            if fn_name == "browser_run_code":
-                calls.append({"name": fn_name, "arguments": {"code": inner}})
-            else:
-                calls.append({"name": fn_name, "arguments": {"command": inner}})
-
-    # Pattern 1c: JSON inside <tool_call> tags
+    # Pattern 2: JSON inside <tool_call> tags
     if not calls:
         for m in re.finditer(r"<tool_call>\s*(.*?)\s*</tool_call>", text, re.DOTALL):
             try:
@@ -110,234 +150,21 @@ def parse_tool_calls_from_text(text: str) -> list[dict]:
             except json.JSONDecodeError:
                 pass
 
-    # Pattern 2: ✿TOOL_CALL✿ format
-    for m in re.finditer(r"✿TOOL_CALL✿\s*(.*?)(?=✿|$)", text, re.DOTALL):
-        try:
-            tc = json.loads(m.group(1).strip())
-            calls.append(tc)
-        except json.JSONDecodeError:
-            pass
-
-    # Pattern 3: {"name": "browser_run_code", ...} JSON in text
+    # Pattern 3: ✿TOOL_CALL✿ format
     if not calls:
-        for m in re.finditer(r'\{"name"\s*:\s*"(browser_run_code|Bash)".*?\}', text, re.DOTALL):
+        for m in re.finditer(r"✿TOOL_CALL✿\s*(.*?)(?=✿|$)", text, re.DOTALL):
             try:
-                # Find the full JSON object
-                start = m.start()
-                depth = 0
-                for i in range(start, len(text)):
-                    if text[i] == "{": depth += 1
-                    elif text[i] == "}":
-                        depth -= 1
-                        if depth == 0:
-                            tc = json.loads(text[start:i+1])
-                            calls.append(tc)
-                            break
+                tc = json.loads(m.group(1).strip())
+                calls.append(tc)
             except json.JSONDecodeError:
                 pass
 
     return calls
 
 
-def dispatch_browser_run_code(page, code: str) -> str:
-    """Execute browser_run_code — handles both raw JS and Playwright MCP format.
-
-    The model outputs Playwright MCP format: async (page) => { page.evaluate(...) }
-    We unwrap page.evaluate() calls and execute the inner JS directly.
-    We also handle page.goto(), page.waitForTimeout(), page.screenshot() natively.
-    """
-    import re
-    results = []
-
-    # Strip the async (page) => { ... } wrapper if present
-    stripped = code.strip()
-    if stripped.startswith("async"):
-        # Remove outer function wrapper
-        m = re.match(r"async\s*\(page\)\s*=>\s*\{(.*)\}\s*$", stripped, re.DOTALL)
-        if m:
-            stripped = m.group(1).strip()
-
-    # Handle page.goto()
-    for m in re.finditer(r"page\.goto\(['\"]([^'\"]+)['\"]\)", stripped):
-        url = m.group(1)
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            results.append(f"Navigated to {url}")
-        except Exception as e:
-            results.append(f"goto error: {e}")
-
-    # Handle page.waitForTimeout()
-    for m in re.finditer(r"page\.waitForTimeout\((\d+)\)", stripped):
-        ms = min(int(m.group(1)), 10000)
-        page.wait_for_timeout(ms)
-        results.append(f"Waited {ms}ms")
-
-    # Handle page.screenshot() — we do this automatically, skip model's calls
-    if "page.screenshot" in stripped:
-        results.append("Screenshot handled by harness")
-
-    # Handle page.evaluate() calls — extract inner JS and run it
-    for m in re.finditer(
-        r"page\.evaluate\(\s*(?:\([^)]*\)\s*=>)?\s*(.+?)(?:\)|,\s*['\"])", stripped, re.DOTALL
-    ):
-        inner_js = m.group(1).strip()
-        # Clean up: remove trailing ) or quotes
-        inner_js = re.sub(r"['\"]?\s*\)?\s*;?\s*$", "", inner_js)
-        if inner_js:
-            try:
-                result = page.evaluate(inner_js)
-                r = json.dumps(result) if result is not None else "undefined"
-                results.append(r)
-            except Exception as e:
-                results.append(f"evaluate error: {e}")
-
-    # Handle page.locator().fill() for login forms
-    for m in re.finditer(r"page\.locator\(['\"]([^'\"]+)['\"]\)\.fill\(['\"]([^'\"]+)['\"]\)", stripped):
-        selector, value = m.group(1), m.group(2)
-        try:
-            page.locator(selector).fill(value)
-            results.append(f"Filled {selector}")
-        except Exception as e:
-            results.append(f"fill error: {e}")
-
-    # Handle page.locator().click()
-    for m in re.finditer(r"page\.locator\(['\"]([^'\"]+)['\"]\)\.click\(\)", stripped):
-        selector = m.group(1)
-        try:
-            page.locator(selector).click()
-            results.append(f"Clicked {selector}")
-        except Exception as e:
-            results.append(f"click error: {e}")
-
-    # If nothing was matched, try executing as raw browser JS
-    if not results:
-        try:
-            if "await" in stripped:
-                wrapped = f"(async () => {{ {stripped} }})()"
-            else:
-                wrapped = f"(() => {{ {stripped} }})()"
-            result = page.evaluate(wrapped)
-            return json.dumps(result) if result is not None else "undefined"
-        except Exception as e:
-            return f"Error: {e}"
-
-    return "\n".join(results)
-
-
-def dispatch_bash(command: str) -> str:
-    """Execute a shell command."""
-    try:
-        result = subprocess.run(
-            command, shell=True, capture_output=True, text=True, timeout=30
-        )
-        output = result.stdout
-        if result.stderr:
-            output += f"\nSTDERR: {result.stderr}"
-        return output[:2000] if output else "(no output)"
-    except subprocess.TimeoutExpired:
-        return "Error: command timed out (30s)"
-    except Exception as e:
-        return f"Error: {e}"
-
-
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-
-def _dispatch(page, fn_name: str, fn_args: dict, turn: int) -> str:
-    """Dispatch a tool call and return the result.
-
-    Supports both legacy tools (browser_run_code, Bash) and native MCP game
-    tools (attack, navigate, etc.) that the R5 training data uses.
-    """
-    if fn_name == "browser_run_code":
-        code = fn_args.get("code", "")
-        print(f"  [{turn}] browser_run_code: {code[:80]}...")
-        return dispatch_browser_run_code(page, code)
-    elif fn_name == "Bash":
-        command = fn_args.get("command", "")
-        print(f"  [{turn}] Bash: {command[:80]}...")
-        return dispatch_bash(command)
-    else:
-        # Native MCP tool dispatch — maps game tool names to JS helper calls
-        # This matches the tool interface used in R5 training data
-        js = _native_tool_to_js(fn_name, fn_args)
-        if js:
-            print(f"  [{turn}] {fn_name}({fn_args})")
-            try:
-                # Wrap in IIFE to allow return statements in page.evaluate()
-                wrapped = f"(() => {{ {js} }})()"
-                result = page.evaluate(wrapped)
-                # If result is already a string (e.g. observe() returns JSON string),
-                # return it directly to avoid double-encoding
-                if isinstance(result, str):
-                    return result
-                return json.dumps(result) if result is not None else "ok"
-            except Exception as e:
-                return f"Error: {e}"
-        print(f"  [{turn}] Unknown tool: {fn_name}")
-        return f"Unknown tool: {fn_name}"
-
-
-# Warp location IDs and attack style IDs for native tool dispatch
-_WARP_IDS = {"mudwich": 0, "crossroads": 1, "lakesworld": 2, "patsow": 3, "crullfield": 4, "undersea": 5}
-_STYLE_IDS = {"hack": 6, "chop": 7, "defensive": 3, "stab": 1, "slash": 2}
-
-
-def _native_tool_to_js(fn_name: str, fn_args: dict) -> str | None:
-    """Convert a native MCP game tool call to JavaScript for page.evaluate()."""
-    if fn_name == "attack":
-        mob = fn_args.get("mob_name", fn_args.get("name", ""))
-        return f"return window.__attackMob('{mob}')"
-    if fn_name == "interact_npc":
-        npc = fn_args.get("npc_name", fn_args.get("name", ""))
-        return f"return window.__interactNPC('{npc}')"
-    if fn_name == "talk_npc":
-        iid = fn_args.get("instance_id", fn_args.get("id", ""))
-        return f"return window.__talkToNPC('{iid}')"
-    if fn_name == "navigate":
-        x = fn_args.get("x", 0)
-        y = fn_args.get("y", 0)
-        return f"return window.__navigateTo({x}, {y})"
-    if fn_name == "move":
-        x = fn_args.get("x", 0)
-        y = fn_args.get("y", 0)
-        return f"return window.__moveTo({x}, {y})"
-    if fn_name == "click_tile":
-        x = fn_args.get("x", 0)
-        y = fn_args.get("y", 0)
-        return f"return window.__clickTile({x}, {y})"
-    if fn_name == "click_entity":
-        label = fn_args.get("label", "")
-        return f"return window.__clickEntity('{label}')"
-    if fn_name == "warp":
-        loc = str(fn_args.get("location", "mudwich")).lower()
-        wid = _WARP_IDS.get(loc, 0)
-        return f"return window.__safeWarp({wid})"
-    if fn_name == "eat_food":
-        slot = fn_args.get("slot", 0)
-        return f"return window.__eatFood({slot})"
-    if fn_name == "equip_item":
-        slot = fn_args.get("slot", 0)
-        return f"const sl=document.querySelectorAll('#inventory-container .slot');if(sl[{slot}]){{sl[{slot}].click();const e=document.querySelector('[data-action=\"action-equip\"]');if(e)e.click()}};return 'equipped({slot})'"
-    if fn_name == "set_attack_style":
-        style = str(fn_args.get("style", "hack")).lower()
-        sid = _STYLE_IDS.get(style, 6)
-        return f"if(window.game&&window.game.player)window.game.player.setAttackStyle({sid});return 'style_set({sid})'"
-    if fn_name == "accept_quest":
-        return "const b=document.querySelector('#quest-button');if(b)b.click();return 'quest_accepted'"
-    if fn_name == "respawn":
-        return "const b=document.querySelector('#respawn');if(b)b.click();return 'respawned'"
-    if fn_name == "stuck_reset":
-        return "return window.__stuckReset()"
-    if fn_name == "cancel_nav":
-        return "return window.__navCancel()"
-    if fn_name == "observe":
-        return "return JSON.stringify(window.__latestGameState || {})"
-    if fn_name == "login":
-        return "return 'already_logged_in'"
-    return None
-
 
 def log_turn(log_file, turn: int, role: str, content: str, tool_calls=None):
     """Append a turn record to the session log."""
@@ -348,10 +175,7 @@ def log_turn(log_file, turn: int, role: str, content: str, tool_calls=None):
         "content": content[:500] if content else "",
     }
     if tool_calls:
-        record["tool_calls"] = [
-            {"name": tc.function.name, "args": tc.function.arguments[:200]}
-            for tc in tool_calls
-        ]
+        record["tool_calls"] = tool_calls
     with open(log_file, "a") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -360,19 +184,79 @@ def log_turn(log_file, turn: int, role: str, content: str, tool_calls=None):
 # Main agent loop
 # ---------------------------------------------------------------------------
 
-def run_agent(args):
+async def run_agent(args):
     sandbox = Path(args.sandbox)
     state_dir = sandbox / "state"
     log_dir = sandbox / "logs"
     state_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
+    mcp = None  # ensure cleanup can reference it
 
     # Session log
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f"session_{timestamp}.log"
 
-    # Init OpenAI client
+    # Init OpenAI client (for the finetuned model endpoint)
     client = OpenAI(base_url=args.endpoint, api_key=args.api_key or "not-needed", timeout=300)
+
+    # Spawn MCP game server
+    project_dir = args.project_dir
+    venv_python = os.path.join(project_dir, ".venv", "bin", "python3")
+    server_script = os.path.join(project_dir, "mcp_game_server.py")
+
+    # Register signal handlers so cleanup runs on SIGTERM/SIGINT
+    def _signal_handler(sig, frame):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
+
+    mcp_env = {
+        "KAETRAM_PORT": args.server_port or "",
+        "KAETRAM_USERNAME": os.environ.get("KAETRAM_USERNAME", "QwenBot"),
+        "KAETRAM_EXTRACTOR": os.path.join(project_dir, "state_extractor.js"),
+        "KAETRAM_SCREENSHOT_DIR": str(state_dir),
+    }
+
+    mcp = MCPClient(venv_python, server_script, mcp_env)
+    print(f"Connecting to MCP game server...")
+    tool_names = await mcp.connect()
+    print(f"MCP connected. Tools: {tool_names}")
+
+    # Login via MCP server
+    print(f"Logging in via MCP server...")
+    login_result = await mcp.call_tool("login", {})
+    print(f"Login: {login_result[:200]}")
+
+    if "FAILED" in login_result.upper() or "ERROR" in login_result.upper():
+        print(f"Login failed, aborting.")
+        await mcp.close()
+        return
+
+    # Build tool definitions block in Qwen3.5 Coder XML format
+    # (injected into system prompt so the server doesn't need tools= kwarg)
+    tool_defs = mcp.get_tool_definitions()
+    tool_block = "\n\n# Tools\n\nYou have access to the following functions:\n\n<tools>\n"
+    for t in tool_defs:
+        tool_block += json.dumps(t) + "\n"
+    tool_block += """</tools>
+
+If you choose to call a function ONLY reply in the following format with NO suffix:
+
+<tool_call>
+<function=example_function_name>
+<parameter=example_parameter_1>
+value_1
+</parameter>
+</function>
+</tool_call>
+
+<IMPORTANT>
+Reminder:
+- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags
+- Required parameters MUST be specified
+- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after
+- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls
+</IMPORTANT>"""
 
     # Load system prompt
     system_prompt = ""
@@ -381,44 +265,10 @@ def run_agent(args):
     elif args.system_prompt:
         system_prompt = args.system_prompt
 
-    # Append tool-use instructions matching the native MCP tool interface
-    # the model was trained on (R5 SFT data uses these tool names directly)
-    tool_instructions = """
+    # Append tool definitions to system prompt
+    system_prompt += tool_block
 
-## HOW TO USE TOOLS
-
-Call tools using <tool_call> XML tags. One tool call per response.
-
-### Available Tools
-- `attack(mob_name)` — attack nearest mob by name (e.g. "Rat", "Crab")
-- `observe()` — get current game state JSON
-- `navigate(x, y)` — pathfind to grid coordinates
-- `move(x, y)` — short move (<15 tiles)
-- `interact_npc(npc_name)` — walk to NPC and talk
-- `talk_npc(instance_id)` — advance NPC dialogue
-- `warp(location)` — fast travel: "mudwich", "crossroads", "lakesworld"
-- `eat_food(slot)` — eat food at inventory slot
-- `equip_item(slot)` — equip item at inventory slot
-- `set_attack_style(style)` — "hack", "chop", "defensive"
-- `click_tile(x, y)` — click a grid tile
-- `accept_quest()` — accept quest from open panel
-- `respawn()` — respawn after death
-- `stuck_reset()` — reset if stuck
-- `cancel_nav()` — cancel navigation
-
-### Example
-<tool_call>
-{"name": "attack", "arguments": {"mob_name": "Rat"}}
-</tool_call>
-
-### RULES
-- EVERY response MUST contain exactly ONE <tool_call> block
-- Observe between actions to check game state changes
-- One tool per turn — game state changes after each action"""
-
-    system_prompt = system_prompt + tool_instructions
-
-    # Build initial messages — always include a user message (SGLang 500s on system-only)
+    # Build initial messages
     messages = [{"role": "system", "content": system_prompt}]
     if args.user_prompt:
         messages.append({"role": "user", "content": args.user_prompt})
@@ -428,207 +278,131 @@ Call tools using <tool_call> XML tags. One tool call per response.
     print(f"Harness started: {args.max_turns} max turns, endpoint={args.endpoint}")
     print(f"Log: {log_file}")
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
-        context = browser.new_context(viewport={"width": 1280, "height": 720})
+    turn = 0
+    consecutive_errors = 0
 
-        # Inject state_extractor.js (provides __latestGameState, __attackMob, etc.)
-        extractor_path = os.path.join(args.project_dir, "state_extractor.js")
-        if os.path.exists(extractor_path):
-            context.add_init_script(path=extractor_path)
-            print(f"Injected {extractor_path}")
+    try:
+      while turn < args.max_turns:
+        turn += 1
 
-        # WebSocket port override for multi-agent isolation
-        if args.server_port:
-            context.add_init_script(f"""(() => {{
-                const PORT = '{args.server_port}';
-                const _WS = window.WebSocket;
-                window.WebSocket = function(url, protocols) {{
-                    url = url.replace(/\\/\\/[^:/]+/, '//localhost');
-                    url = url.replace(/:9001(?=\\/|$)/, ':' + PORT);
-                    return protocols ? new _WS(url, protocols) : new _WS(url);
-                }};
-                window.WebSocket.prototype = _WS.prototype;
-                window.WebSocket.CONNECTING = 0; window.WebSocket.OPEN = 1;
-                window.WebSocket.CLOSING = 2; window.WebSocket.CLOSED = 3;
-            }})()""")
-            print(f"WebSocket port override: {args.server_port}")
-
-        page = context.new_page()
-
-        # Navigate to game and auto-login
-        username = os.environ.get("KAETRAM_USERNAME", "QwenBot")
-        print(f"Navigating to game client, logging in as {username}...")
-        page.goto("http://localhost:9000", wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(3000)
-
-        # Login flow (same as mcp_game_server.py)
-        page.locator("#login-name-input").fill(username)
-        page.locator("#login-password-input").fill("password123")
-        page.locator("#login").click()
-        page.wait_for_timeout(4000)
-
-        # Check if we need to register (account doesn't exist)
-        still_on_login = page.evaluate("""() => {
-            const el = document.getElementById('load-character');
-            if (!el) return false;
-            const s = window.getComputedStyle(el);
-            return s.display !== 'none' && s.opacity !== '0';
-        }""")
-        if still_on_login:
-            page.evaluate(f"""(username) => {{
-                document.getElementById('new-account').click();
-                setTimeout(() => {{
-                    const set = (el, val) => {{
-                        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
-                            .set.call(el, val);
-                        el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                    }};
-                    set(document.getElementById('register-name-input'), username);
-                    set(document.getElementById('register-password-input'), 'password123');
-                    set(document.getElementById('register-password-confirmation-input'), 'password123');
-                    set(document.getElementById('register-email-input'), username + '@test.com');
-                    setTimeout(() => document.getElementById('play').click(), 300);
-                }}, 500);
-            }}""", username)
-            page.wait_for_timeout(8000)
-
-        page.wait_for_timeout(2000)
-        page.keyboard.press("Escape")
-        page.wait_for_timeout(1000)
-
-        # Verify game loaded
-        game_ready = False
-        for _attempt in range(3):
-            game_ready = page.evaluate(
-                "() => !!(window.game && window.game.player && typeof window.game.player.gridX === 'number')"
+        # Call model
+        try:
+            response = client.chat.completions.create(
+                model=args.model,
+                messages=messages,
+                temperature=0.7,
+                max_tokens=2048,
             )
-            if game_ready:
+            choice = response.choices[0]
+            consecutive_errors = 0
+        except Exception as e:
+            print(f"  [{turn}] API error: {e}")
+            consecutive_errors += 1
+            if consecutive_errors > 3:
+                print("Too many API errors, stopping.")
                 break
-            page.wait_for_timeout(3000)
+            time.sleep(5)
+            continue
 
-        if not game_ready:
-            print(f"Login FAILED for {username} — game did not load")
-            browser.close()
-            return
+        content = choice.message.content or ""
+        tool_calls = choice.message.tool_calls
 
-        page.screenshot(path=str(state_dir / "live_screen.png"))
-        print(f"Logged in as {username}, game loaded.")
+        if content:
+            # Strip thinking for display
+            display = re.sub(r"<think>.*?</think>", "[think]", content, flags=re.DOTALL)
+            print(f"  [{turn}] Assistant: {display[:120]}...")
 
-        turn = 0
-        consecutive_errors = 0
+        # Route 1: Structured tool_calls from API (server parsed XML into tool_calls)
+        if tool_calls:
+            # Append assistant content as plain text (it contains the <tool_call> XML)
+            messages.append({"role": "assistant", "content": content})
+            for tc in tool_calls:
+                fn_name = tc.function.name
+                try:
+                    fn_args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
+                except json.JSONDecodeError:
+                    fn_args = {}
 
-        while turn < args.max_turns:
-            turn += 1
+                print(f"  [{turn}] → {fn_name}({fn_args})")
+                try:
+                    result = await mcp.call_tool(fn_name, fn_args)
+                except Exception as e:
+                    result = f"Error: {e}"
+                print(f"  [{turn}] ← {result[:120]}...")
 
-            # Screenshot for dashboard MJPEG stream
-            try:
-                page.screenshot(path=str(state_dir / "live_screen.png"))
-            except Exception:
-                pass
+                # Tool result as user message (apply_chat_template renders tool_response under user)
+                messages.append({"role": "user", "content": f"<tool_response>\n{result[:4000]}\n</tool_response>"})
+                log_turn(log_file, turn, "assistant", content, [{"name": fn_name, "args": fn_args}])
+                log_turn(log_file, turn, "tool", f"{fn_name}: {result[:300]}")
 
-            # Call model
-            try:
-                response = client.chat.completions.create(
-                    model=args.model,
-                    messages=messages,
-                    temperature=0.7,
-                    max_tokens=2048,
-                )
-                choice = response.choices[0]
-                consecutive_errors = 0
-            except Exception as e:
-                print(f"  [{turn}] API error: {e}")
-                consecutive_errors += 1
-                if consecutive_errors > 3:
-                    print("Too many API errors, stopping.")
-                    break
-                time.sleep(5)
-                continue
-
-            # Log assistant response
-            content = choice.message.content or ""
-            tool_calls = choice.message.tool_calls
-
-            if content:
-                print(f"  [{turn}] Assistant: {content[:120]}...")
-                log_turn(log_file, turn, "assistant", content, tool_calls)
-
-            # Check for structured tool_calls from API
-            if tool_calls:
-                messages.append(choice.message.model_dump())
-                for tc in tool_calls:
-                    fn_name = tc.function.name
+                # Save game state for dashboard when model calls observe
+                if fn_name == "observe" and "\n\nASCII_MAP:" in result:
                     try:
-                        fn_args = json.loads(tc.function.arguments)
-                    except json.JSONDecodeError:
-                        fn_args = {"code": tc.function.arguments} if fn_name == "browser_run_code" else {"command": tc.function.arguments}
+                        (state_dir / "game_state.json").write_text(result.split("\n\nASCII_MAP:")[0])
+                    except Exception:
+                        pass
 
-                    result = _dispatch(page, fn_name, fn_args, turn)
-                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result[:4000]})
-                    log_turn(log_file, turn, "tool", f"{fn_name}: {result[:200]}")
+        # Route 2: Text-based tool calls (model emitted XML/JSON in content)
+        elif content:
+            text_calls = parse_tool_calls_from_text(content)
+            if text_calls:
+                messages.append({"role": "assistant", "content": content})
+                for tc_dict in text_calls:
+                    fn_name = tc_dict.get("name", "")
+                    fn_args = tc_dict.get("arguments", {})
+                    if isinstance(fn_args, str):
+                        try:
+                            fn_args = json.loads(fn_args)
+                        except json.JSONDecodeError:
+                            fn_args = {}
 
-            # No structured tool_calls — check for text-based tool calls
-            elif content:
-                text_calls = parse_tool_calls_from_text(content)
-                if text_calls:
-                    messages.append({"role": "assistant", "content": content})
-                    for tc_dict in text_calls:
-                        fn_name = tc_dict.get("name", "")
-                        fn_args = tc_dict.get("arguments", {})
-                        if isinstance(fn_args, str):
-                            try: fn_args = json.loads(fn_args)
-                            except: fn_args = {}
+                    print(f"  [{turn}] → {fn_name}({fn_args}) [text-parsed]")
+                    try:
+                        result = await mcp.call_tool(fn_name, fn_args)
+                    except Exception as e:
+                        result = f"Error: {e}"
+                    print(f"  [{turn}] ← {result[:120]}...")
 
-                        result = _dispatch(page, fn_name, fn_args, turn)
-                        # For text-based calls, append result as user message
-                        messages.append({"role": "user", "content": f"Tool result ({fn_name}):\n{result[:4000]}"})
-                        log_turn(log_file, turn, "tool", f"{fn_name}: {result[:200]}")
-                else:
-                    # Pure text, no tool calls — model is just reasoning
-                    messages.append({"role": "assistant", "content": content})
-                    if choice.finish_reason == "stop":
-                        print(f"  [{turn}] Model stopped (no tool call). Continuing...")
-                        time.sleep(2)
+                    messages.append({"role": "user", "content": f"Tool result ({fn_name}):\n{result[:4000]}"})
+                    log_turn(log_file, turn, "assistant", content, [{"name": fn_name, "args": fn_args}])
+                    log_turn(log_file, turn, "tool", f"{fn_name}: {result[:300]}")
 
-            # Screenshot after tool dispatch
-            try:
-                page.screenshot(path=str(state_dir / "live_screen.png"))
-            except Exception:
-                pass
+                    # Save game state for dashboard when model calls observe
+                    if fn_name == "observe" and "\n\nASCII_MAP:" in result:
+                        try:
+                            (state_dir / "game_state.json").write_text(result.split("\n\nASCII_MAP:")[0])
+                        except Exception:
+                            pass
+            else:
+                # Pure text, no tool calls
+                messages.append({"role": "assistant", "content": content})
+                log_turn(log_file, turn, "assistant", content)
+                if choice.finish_reason == "stop":
+                    print(f"  [{turn}] Model stopped (no tool call). Continuing...")
+                    time.sleep(2)
 
-            # Save game state for dashboard (try to extract from page)
-            try:
-                gs = page.evaluate("JSON.stringify(window.__latestGameState || {})")
-                if gs and gs != "{}":
-                    (state_dir / "game_state.json").write_text(gs)
-            except Exception:
-                pass
+        # Game state is saved to dashboard when the model calls observe()
+        # (see _save_game_state helper called from tool dispatch above)
 
-            # Context window management: trim old messages if too many
-            # Trim at message group boundaries to avoid orphaning tool_call/tool_result pairs
-            if len(messages) > 60:
-                # Find a safe cut point: scan backwards from the target trim point
-                # and land on a message that starts a new group (user or assistant without
-                # a preceding tool_call that needs its result)
-                target_keep = 40
-                cut_idx = len(messages) - target_keep
-                # Walk forward from cut_idx to find a 'user' or 'assistant' message
-                # that isn't a 'tool' result (which would be orphaned without its tool_call)
-                while cut_idx < len(messages) - 10:
-                    role = messages[cut_idx].get("role", "")
-                    if role in ("user", "system"):
-                        break  # safe to start here
-                    if role == "assistant" and "tool_call_id" not in messages[cut_idx]:
-                        break  # assistant message (not a tool result) is safe
-                    cut_idx += 1
-                messages = messages[:1] + messages[cut_idx:]
+        # Context window management: trim old messages if too many
+        if len(messages) > 60:
+            target_keep = 40
+            cut_idx = len(messages) - target_keep
+            while cut_idx < len(messages) - 10:
+                role = messages[cut_idx].get("role", "")
+                if role in ("user", "system"):
+                    break
+                if role == "assistant" and "tool_call_id" not in messages[cut_idx]:
+                    break
+                cut_idx += 1
+            messages = messages[:1] + messages[cut_idx:]
 
-        print(f"\nSession complete: {turn} turns, log: {log_file}")
-        browser.close()
+      print(f"\nSession complete: {turn} turns, log: {log_file}")
+    except KeyboardInterrupt:
+        print(f"\nInterrupted after {turn} turns, cleaning up...")
+    finally:
+        if mcp:
+            await mcp.close()
 
 
 # ---------------------------------------------------------------------------
@@ -645,9 +419,10 @@ def main():
     parser.add_argument("--sandbox", default="/tmp/kaetram_agent_4", help="Sandbox directory")
     parser.add_argument("--max-turns", type=int, default=300, help="Max conversation turns")
     parser.add_argument("--server-port", default="", help="Game server WebSocket port (e.g. 9031)")
-    parser.add_argument("--project-dir", default=os.path.dirname(os.path.abspath(__file__)), help="Project directory (for state_extractor.js)")
+    parser.add_argument("--project-dir", default=os.path.dirname(os.path.abspath(__file__)),
+                        help="Project directory (for mcp_game_server.py)")
     args = parser.parse_args()
-    run_agent(args)
+    asyncio.run(run_agent(args))
 
 
 if __name__ == "__main__":

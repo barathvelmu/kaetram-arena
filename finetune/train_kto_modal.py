@@ -40,7 +40,7 @@ train_image = (
         "unsloth_zoo>=2025.7.10",
     )
     .run_commands("pip install flash-attn --no-build-isolation")
-    .env({"HF_HOME": "/model_cache", "TOKENIZERS_PARALLELISM": "false"})
+    .env({"HF_HOME": "/model_cache", "TOKENIZERS_PARALLELISM": "false", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
     .add_local_python_source("notifications")
 )
 
@@ -72,8 +72,8 @@ LORA_TARGETS = [
     "gate_proj", "up_proj", "down_proj",
 ]
 
-BATCH_SIZE = 2
-GRAD_ACCUM = 8
+BATCH_SIZE = 1
+GRAD_ACCUM = 16
 LR = 5e-7
 WARMUP_RATIO = 0.1
 WEIGHT_DECAY = 0.0
@@ -208,12 +208,13 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
     # Load explicit reference model as plain HuggingFace — avoids Unsloth PEFT internals
     # interacting with TRL's create_reference_model(). TRL gets a clean standard model,
     # Unsloth handles only the training model. No interaction between them.
-    print(f"Loading reference model from {base_model_path} (standard HF, frozen)...")
+    print(f"Loading reference model from {base_model_path} (standard HF, 8-bit, frozen)...")
     import torch
-    from transformers import AutoModelForCausalLM
+    from transformers import AutoModelForCausalLM, BitsAndBytesConfig
+    ref_bnb_config = BitsAndBytesConfig(load_in_8bit=True)
     ref_model = AutoModelForCausalLM.from_pretrained(
         base_model_path,
-        torch_dtype=torch.bfloat16,
+        quantization_config=ref_bnb_config,
         device_map="cuda",
     )
     ref_model.eval()

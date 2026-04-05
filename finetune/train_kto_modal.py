@@ -18,12 +18,6 @@ from notifications import format_notification, notification_env
 app = modal.App("kaetram-qwen-kto")
 _notify_env = notification_env()
 _notification_secrets = [modal.Secret.from_dict(_notify_env)] if _notify_env else []
-# Mount notifications.py into the container — Modal only ships the entrypoint script
-# by default, not sibling local modules.
-_notifications_mount = modal.Mount.from_local_file(
-    pathlib.Path(__file__).parent.parent / "notifications.py",
-    remote_path="/root/notifications.py",
-)
 
 model_cache_vol = modal.Volume.from_name("kaetram-model-cache", create_if_missing=True)
 checkpoint_vol = modal.Volume.from_name("kaetram-model-vol", create_if_missing=True)
@@ -47,6 +41,7 @@ train_image = (
     )
     .run_commands("pip install flash-attn --no-build-isolation")
     .env({"HF_HOME": "/model_cache", "TOKENIZERS_PARALLELISM": "false"})
+    .add_local_python_source("notifications")
 )
 
 with train_image.imports():
@@ -189,7 +184,6 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
         "/checkpoints": checkpoint_vol,
     },
     secrets=_notification_secrets,
-    mounts=[_notifications_mount],
 )
 def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool = False):
     import json

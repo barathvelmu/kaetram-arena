@@ -19,6 +19,43 @@ At the end of every session, update `session_log.md` (under 30 lines).
 
 ---
 
+## RESEARCH KNOWLEDGE BASE (`research/`)
+
+A compiled knowledge base for this project, inspired by Karpathy's LLM Knowledge Bases pattern. Contains conclusions, decisions, experiment outcomes, and paper references — not stream-of-consciousness notes.
+
+**Structure:**
+```
+research/
+├── INDEX.md              — Navigation hub + gaps list
+├── experiments/           — Training runs, data quality, ablation results
+├── related-work/          — Paper surveys compiled by topic
+├── decisions/             — WHY we made key choices (KTO, MCP, personalities, etc.)
+└── paper/                 — ICLR 2027 contribution, outline, figures needed
+```
+
+**Maintenance rule (MANDATORY — this is what keeps the wiki alive):**
+- After any **training run**: update `research/experiments/training-runs.md` with params, results, failures
+- After any **data rebuild**: update `research/experiments/data-quality.md` with before/after metrics
+- After any **design decision**: update or create a file in `research/decisions/`
+- After any **paper-related discussion**: update `research/paper/contribution.md`
+- If no file fits: create a new one and link it from `research/INDEX.md`
+- On **explicit "health check" or `/compile-research`**: scan all files for stale information, contradictions, missing citations, and update
+
+**Maintenance loop (what is actually reliable):**
+- Manual LLM compile pass: `.claude/commands/compile-research.md`
+- VM-safe staleness check: `python3 scripts/check_research_staleness.py`
+- VM-safe staleness check with email nudge: `python3 scripts/check_research_staleness.py --notify`
+- VM cron-friendly wrapper: `scripts/run_research_staleness_check.sh` (sources `~/.kaetram_notify_env` if present)
+- Do **not** rely on session-local Claude cron jobs. They die with the session and should not be treated as durable automation.
+
+**What goes here vs elsewhere:**
+- `research/` = compiled knowledge (survives across sessions, serves the paper)
+- `session_log.md` = scratchpad (recent decisions, gets overwritten)
+- `.claude/memory/` = session context (user prefs, git rules, startup)
+- Linear = task tracking (what to do, not what we learned)
+
+---
+
 ## GOTCHAS
 
 **Node.js version** — Kaetram requires Node 16/18/20. Node 24/25 crashes on startup (uWS.js incompatibility). Always `nvm use 20` before starting the server.

@@ -141,8 +141,11 @@ pkill -f "mcp_game_server.py" 2>/dev/null || true
 # Kill Playwright browser drivers spawned by MCP servers
 pkill -f "playwright/driver/node" 2>/dev/null || true
 pkill -f "game_driver.py" 2>/dev/null || true
-# Kill orphaned headless Chrome (actual binary name is chrome-headless-shell)
-pkill -f "chrome-headless-shell" 2>/dev/null || true
+# Kill Chrome process groups (Playwright spawns Chrome in its own PGID)
+for cpid in $(pgrep -f "chrome-headless-shell" 2>/dev/null); do
+  pgid=$(ps -o pgid= -p "$cpid" 2>/dev/null | tr -d ' ')
+  [ -n "$pgid" ] && [ "$pgid" != "0" ] && kill -- -"$pgid" 2>/dev/null
+done
 sleep 2
 # Force-kill any surviving MCP/Playwright/Chrome processes
 pkill -9 -f "mcp_game_server.py" 2>/dev/null || true

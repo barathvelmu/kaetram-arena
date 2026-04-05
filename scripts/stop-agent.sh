@@ -86,8 +86,14 @@ if [ -n "$MCP_PIDS" ]; then
 fi
 pkill -f "playwright/driver/node" 2>/dev/null || true
 pkill -f "game_driver.py" 2>/dev/null || true
-pkill -f "chrome-headless-shell" 2>/dev/null || true
-pkill -f "chromium.*kaetram\|chromium.*headless" 2>/dev/null || true
+# Kill Chrome process groups (Playwright spawns Chrome in its own PGID)
+for cpid in $(pgrep -f "chrome-headless-shell" 2>/dev/null); do
+  pgid=$(ps -o pgid= -p "$cpid" 2>/dev/null | tr -d ' ')
+  [ -n "$pgid" ] && [ "$pgid" != "0" ] && kill -- -"$pgid" 2>/dev/null
+done
+sleep 1
+# Force-kill any survivors
+pkill -9 -f "chrome-headless-shell" 2>/dev/null || true
 
 # ── Step 3: Stop game servers spawned by orchestrator ──
 echo "Stopping game servers..."

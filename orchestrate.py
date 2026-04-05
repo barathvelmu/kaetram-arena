@@ -307,20 +307,66 @@ class AgentInstance:
         )
         self._log_fh = log_fh
 
+    def _get_all_descendant_pgids(self) -> set[int]:
+        """Walk the process tree to find all unique PGIDs (including Chrome's own group)."""
+        pgids = set()
+        if not self.process:
+            return pgids
+        try:
+            root_pid = self.process.pid
+            # Recursively find all descendants via /proc
+            to_visit = [root_pid]
+            visited = set()
+            while to_visit:
+                pid = to_visit.pop()
+                if pid in visited:
+                    continue
+                visited.add(pid)
+                try:
+                    pgids.add(os.getpgid(pid))
+                except (ProcessLookupError, OSError):
+                    pass
+                # Find children of this pid
+                try:
+                    for entry in os.listdir("/proc"):
+                        if entry.isdigit():
+                            try:
+                                with open(f"/proc/{entry}/stat") as f:
+                                    stat = f.read().split()
+                                    ppid = int(stat[3])
+                                    if ppid == pid:
+                                        to_visit.append(int(entry))
+                            except (FileNotFoundError, IndexError, ValueError, PermissionError):
+                                pass
+                except FileNotFoundError:
+                    pass
+        except (ProcessLookupError, OSError):
+            pass
+        return pgids
+
     def stop(self):
         if self.process and self.process.poll() is None:
-            # Kill entire process group (claude + mcp_game_server + playwright + chromium)
+            # Collect all process group IDs BEFORE killing (Chrome uses its own pgid)
+            pgids = self._get_all_descendant_pgids()
+            # Kill the agent's own group first
             try:
                 os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
             except (ProcessLookupError, OSError):
                 pass
+            # Kill any other process groups (e.g. Chrome's own group)
+            for pgid in pgids:
+                try:
+                    os.killpg(pgid, signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
             try:
                 self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
-                except (ProcessLookupError, OSError):
-                    pass
+                for pgid in pgids:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
                 self.process.wait()
             self.process = None
         if hasattr(self, "_log_fh") and self._log_fh:

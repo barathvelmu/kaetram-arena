@@ -43,7 +43,9 @@ KTO needs exactly what we have:
 3. **Automated scoring** — XP gain, quest progress, deaths, click_tile rate, stuck rate
 4. **Post-SFT application** — builds directly on r6 checkpoint
 
-Memory footprint: model (18GB) + ref_model (18GB) + optimizer (~4GB) = ~40GB on H100 80GB. Comfortable.
+Memory footprint (current approach): model (18GB) + LoRA + optimizer (~4GB) = ~22GB on H100 80GB. Very comfortable.
+
+**Note:** Early implementation used an explicit plain-HF ref model (18GB additional), totalling ~40GB. This was later abandoned — see Reference Model section below for the full story.
 
 The KTO paper (arxiv 2402.01306) showed it matches DPO on MT-Bench within 0.1-0.5 points using unpaired data. For our use case (game actions, not chat quality), binary labels from game outcomes are arguably more signal-rich than human preferences anyway.
 
@@ -90,9 +92,17 @@ Window size=5, stride=2. Each window is 5 consecutive turns from a labeled sessi
 
 ### Reference model
 
-Explicit plain-HF `AutoModelForCausalLM` (frozen), not Unsloth's patched model. TRL's `KTOTrainer` internally calls `create_reference_model()`, but Unsloth's PEFT internals can interfere with this. Using a plain HF model as ref avoids the interaction. This is the TRL-documented pattern.
+**Final approach (Apr 5):** `ref_model=None` + `precompute_ref_log_probs=True`.
 
-**Risk:** Untested interaction between Unsloth training model and plain-HF ref model inside KTOTrainer. Smoke test (10 steps) is designed to catch this before committing to a full run.
+TRL's PEFT-native path: when `ref_model=None`, KTOTrainer uses the training model with adapters disabled (`null_ref_context`) as the reference. With `precompute_ref_log_probs=True`, all reference log probs (main dataset + KL dataset) are computed once during preprocessing and cached as dataset columns. During `trainer.train()` there is no reference model in GPU memory at all.
+
+**Why we got here (full story):**
+1. **Explicit plain-HF ref model (bf16):** Original approach. 18GB ref + 18GB policy = 36GB baseline. OOMed during `_compute_kl_logps` — KTO's third forward pass (KL computation) pushed peak to ~85GB > 80GB H100.
+2. **8-bit ref model:** Tried `BitsAndBytesConfig(load_in_8bit=True)` to cut ref model from 18GB → 9GB. Failed with `AttributeError: 'Parameter' object has no attribute 'CB'` — bitsandbytes 8-bit quantization is incompatible with Unsloth's compiled Qwen3.5 module on cu128.
+3. **batch_size=1:** KTOTrainer raises `ValueError` — requires `per_device_train_batch_size > 1` because the KL dataset is built by mismatching examples within each batch.
+4. **ref_model=None + precompute_ref_log_probs=True (current):** Codex recommendation. Eliminates ref model from training memory entirely. Preprocessing takes ~90 min (forward pass over full dataset once), but training runs at ~22GB peak. Smoke test confirmed: 10/10 steps, `train_loss=0.617`, KL active, eval clean.
+
+**Remaining known issue:** Unsloth's `save_pretrained` raises RuntimeError (LoRA count mismatch 128 vs 256) when TRL's adapter toggling during precompute leaves Unsloth's module registry out of sync. Fix: fallback to `model.base_model.save_pretrained()` (commit 34314ad). Unverified in smoke test but standard PEFT save — low risk.
 
 ---
 

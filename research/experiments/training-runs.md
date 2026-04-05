@@ -12,7 +12,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r4 | Apr 3 | SFT | ~1,200 | Loss masking (KAE-10) | Stopped training on game state tokens |
 | r5 | Apr 4 | SFT | 3,853 train / 465 val | Quality filters + native MCP tools | First playable model, deployed on Modal |
 | r6 | Apr 4-5 | SFT | 3,853 train / 465 val | Niral's optimized run, 2 epochs | Deployed and tested end-to-end |
-| r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Smoke test running on `ref_model=None + precompute_ref_log_probs=True` path |
+| r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
 
 ---
 
@@ -72,7 +72,14 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 - Canonical Qwen tokenizer for chat-template formatting — avoids Unsloth/Qwen3-VL template drift that broke prompt/completion splitting
 - `ref_model=None + precompute_ref_log_probs=True` — TRL PEFT path. Precomputes reference log probs up front instead of holding a separate reference model in GPU memory during training
 
-**Status:** Code complete and reviewed. Smoke test is actively running. Earlier attempts OOMed with explicit reference-model variants; the current path is the first one that cleared the immediate OOM point and began reference-log-prob precomputation.
+**Status:** Pipeline fully validated. Smoke test ran 10/10 steps cleanly — `train_loss=0.617`, KL divergence active (0.14→0.32 across steps), eval ran at steps 5 and 10. Save fallback in place (commit 34314ad). Ready for full run — Niral to greenlight.
+
+**Smoke test path (5 attempts, each teaching something):**
+1. batch=4 → OOM at `rejected_logits` (ref model forward)
+2. batch=2, explicit bf16 ref → OOM at `_compute_kl_logps` (KL pass)
+3. batch=1 → `ValueError`: KTOTrainer requires batch > 1 (KL dataset mismatching)
+4. batch=2, 8-bit ref → `AttributeError: weight.CB` (bitsandbytes + Unsloth cu128 incompatible)
+5. `ref_model=None + precompute_ref_log_probs=True`, batch=2 → training passed, save raised Unsloth LoRA mismatch → fallback fix → full pass
 
 ---
 
@@ -90,8 +97,10 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: finish r6-KTO smoke test → full run if stable → deploy.
+Immediate: Niral greenlights full `modal run finetune/train_kto_modal.py` → r6-KTO model → update `serve_modal.py`.
+
+Near-term: collect more sessions (12-24h agent run) → rebuild qwen_sft → train r8-SFT → KTO on r8 → eval (base vs r8-SFT vs r8-KTO). That 3-model comparison is the paper result.
 
 Backlog (by priority from Linear):
 - **High:** Dr. GRPO + DAPO patches for GRPO (KAE-12), guided decoding via GBNF grammar (KAE-14), context-dependent tool filtering (KAE-15)
-- **Medium:** Self-play data loop (KAE-16), world model synthetic rollouts for GRPO (KAE-17), Tree-GRPO (KAE-18), ORAK 3-stream SFT (KAE-19)
+- **Medium:** Memory module for play_qwen.py — inject memory.txt into system prompt (KAE-20, Stage 1 = no retraining), self-play data loop (KAE-16), world model synthetic rollouts (KAE-17), Tree-GRPO (KAE-18), ORAK 3-stream SFT (KAE-19)

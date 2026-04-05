@@ -5,7 +5,7 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ## 2026-04-05 — KTO Runtime Fixes + Research Loop + Latest Data Rebuild
 
-**KTO pipeline is built and running:** `score_sessions.py`, `build_kto_dataset.py`, `inspect_kto_dataset.py`, and `finetune/train_kto_modal.py` are in place. KTO dataset built at `2771 train / 273 val` from scored Claude sessions. Current smoke test moved off the explicit ref-model path to `ref_model=None + precompute_ref_log_probs=True` after repeated H100 OOMs; latest run is the first to get through reference-log-prob precompute instead of dying immediately.
+**KTO pipeline validated:** `score_sessions.py`, `build_kto_dataset.py`, `inspect_kto_dataset.py`, and `finetune/train_kto_modal.py` complete. KTO dataset: 2771 train / 273 val. After 5 smoke test attempts (batch OOMs, bitsandbytes+Unsloth cu128 incompatibility, KTOTrainer batch>1 requirement), landed on `ref_model=None + precompute_ref_log_probs=True`. 10/10 smoke steps passed — train_loss=0.617, KL active, eval clean. Save fallback in place (commit 34314ad). Full run awaiting Niral greenlight.
 
 **Latest SFT rebuild completed on VM:** re-extracted newest Claude logs and rebuilt `dataset/qwen_sft` to `3957 train / 488 val = 4445 total` (up from `3853 / 465`). Quality stayed usable but not uniformly better: click_tile rose `4.7% -> 5.6%`, repetitive loops `0.2% -> 0.3%`, avg think stayed ~`423`, empty think `0`. Good enough for `r7`, but not a dramatic jump.
 

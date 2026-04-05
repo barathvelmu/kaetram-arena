@@ -170,7 +170,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", mime or "image/png")
         self.send_header("Content-Length", str(size))
         self.send_header("Last-Modified", last_modified)
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         if self.command != "HEAD":
             with open(filepath, "rb") as f:

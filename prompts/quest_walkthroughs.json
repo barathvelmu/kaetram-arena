@@ -1,0 +1,231 @@
+{
+  "Tutorial": {
+    "name": "Welcome to Kaetram",
+    "stages": 16,
+    "prereqs": "None (auto-starts)",
+    "rewards": "Bronze Axe, Knife, Fishing Pole, Copper Sword, Wooden Bow",
+    "walkthrough": "16-stage tutorial teaching movement, combat, fishing, cooking. Agents skip this via warp. Items given: Bronze Axe (stage 2), Knife (stage 4), Fishing Pole (stage 5), Copper Sword (stage 10), Wooden Bow (stage 12). Exit through portal at (41, 549).",
+    "note": "Skipping tutorial means you miss Knife (fletching), Fishing Pole, Copper Sword, and Wooden Bow."
+  },
+  "Foresting": {
+    "name": "Foresting",
+    "npc": "Forester (~216, 114)",
+    "stages": 3,
+    "prereqs": "None",
+    "rewards": "Iron Axe + Forester store access",
+    "walkthrough": "Stage 0: Talk to Forester. Stage 1: Deliver 10 Logs (chop Oak trees with axe). Stage 2: Deliver 10 more Logs. Get Iron Axe (needs Str 10 to equip).",
+    "items_needed": "20 Logs total from Oak trees (Lumberjacking level 1)",
+    "tips": "Oak trees are everywhere near Mudwich. Use gather('Oak') to chop."
+  },
+  "Desert Quest": {
+    "name": "Desert Quest",
+    "npc": "Dying Soldier (~288, 134) and Wife via door at (310, 264)",
+    "stages": 3,
+    "prereqs": "None",
+    "rewards": "Unlocks Crullfeld + Lakesworld warps",
+    "walkthrough": "Stage 0: Talk to Dying Soldier, receive CD. Stage 1: Deliver CD to Wife/Village Girl via door at (310, 264). Stage 2: Return to Dying Soldier.",
+    "items_needed": "CD (given by NPC in stage 0)",
+    "tips": "Do early — unlocks warp destinations needed for other quests. Door at (310,264) NOT (194,218)."
+  },
+  "Anvil's Echoes": {
+    "name": "Anvil's Echoes",
+    "npc": "Blacksmith (~199, 169)",
+    "stages": 2,
+    "prereqs": "None",
+    "rewards": "Smithing Boots + 420 Smithing XP + Smithing skill access",
+    "walkthrough": "Stage 0: Talk to Blacksmith. Stage 1: Talk to Blacksmith again. He remembers he left the hammer in the back room. Quest auto-completes. No items needed.",
+    "items_needed": "None",
+    "tips": "Easiest quest — just talk twice. Unlocks Smithing skill which lets you craft weapons/armor at the anvil."
+  },
+  "Scavenger": {
+    "name": "Scavenger",
+    "npc": "Village Girl (~136, 146) then Old Lady via door at (147, 113)",
+    "stages": 3,
+    "prereqs": "None",
+    "rewards": "7500 Gold",
+    "walkthrough": "Stage 0: Talk to Village Girl. Stage 1: Walk through door at (147, 113) to reach Old Lady. She asks for items. Stage 2: Deliver 2 tomatoes + 2 strawberries + 1 string to Old Lady.",
+    "items_needed": "2 Tomato, 2 Strawberry, 1 String",
+    "item_sources": {
+      "Tomato": "Forage from Tomato Plant Thingy (Foraging level 15). Use gather('Tomato'). Also ~5% mob drop from vegetables table.",
+      "Strawberry": "~8% drop from mobs with 'fruits' loot table (Goblins, Hobgoblins, many others). Auto-collected when walking over drops. Farm Goblins near (190, 204). Use loot() after kills.",
+      "String": "Very common mob drop (~12% from ordinary table). Auto-collected. Also craftable: 1 Blue Lily -> 1 String (Crafting level 1)."
+    },
+    "tips": "String drops frequently from combat. Tomatoes need Foraging 15 — grind foraging on Blueberry Bushes first. Strawberries are the hardest — keep farming Goblins."
+  },
+  "Sorcery and Stuff": {
+    "name": "Sorcery and Stuff",
+    "npc": "Sorcerer via door at (~194, 218) -> teleports to (~706, 101)",
+    "stages": 2,
+    "prereqs": "None",
+    "rewards": "Magic Staff + Sorcerer store",
+    "walkthrough": "Stage 0: Talk to Sorcerer (enter door at 194,218 first). He needs 3 magic beads. Stage 1: Deliver 3 beads.",
+    "items_needed": "3 Bead (from Warrior Crab kills)",
+    "item_sources": {
+      "Bead": "Warrior Crab drops bead at 100% rate. Also 2.5% from 'unusual' loot table on any mob."
+    },
+    "cave_navigation": "Enter Crab Cave door at (154, 231) — requires Crab Problem achievement first (kill 10 crabs on beach). Door teleports to (234, 662). Navigate in SHORT 30-tile hops: (234,662) -> (260,640) -> (280,600) -> (300,550) -> (310,500) -> Warrior Crab at (~320, 455). Warrior Crab: Level 30, 300 HP.",
+    "tips": "Complete Crab Problem achievement first (kill 10 crabs near beach y~210-230). Then enter cave. Use loot() after each Warrior Crab kill to collect bead."
+  },
+  "Miner's Quest": {
+    "name": "Miner's Quest",
+    "npc": "Miner (~323, 178)",
+    "stages": 2,
+    "prereqs": "None",
+    "rewards": "Miner store + 2000 Mining XP",
+    "walkthrough": "Stage 0: Talk to Miner. Stage 1: Deliver 15 Nisoc Ore.",
+    "items_needed": "15 Nisoc Ore",
+    "item_sources": {
+      "Nisoc Ore": "Mine from Nisoc Rocks (Mining level 1, 20 XP each). Rocks at (657, 644) and (656, 645). Warp to Lakesworld first. Need pickaxe equipped."
+    },
+    "tips": "Requires pickaxe. Smith a Bronze Pickaxe at anvil (3 bronze bars + 1 logs, Smithing level 1). Must complete Anvil's Echoes first for Smithing skill."
+  },
+  "Herbalist's Desperation": {
+    "name": "Herbalist's Desperation",
+    "npc": "Herbalist (~333, 281) in Lakesworld",
+    "stages": 3,
+    "prereqs": "None",
+    "rewards": "Hot Sauce + 1500 Foraging XP",
+    "walkthrough": "Stage 0: Talk to Herbalist. Stage 1: Deliver 3 Blue Lilies (Foraging 10). Stage 2: Deliver 2 Paprikas (Foraging 25) + 2 Tomatoes (Foraging 15).",
+    "items_needed": "3 Blue Lily, 2 Paprika, 2 Tomato",
+    "item_sources": {
+      "Blue Lily": "Forage Blue Lily Bushes (Foraging level 10, 20 XP). Bushes at (~278-434, y~250-262) in Lakesworld.",
+      "Paprika": "Forage Paprika Bushes (Foraging level 25, 50 XP).",
+      "Tomato": "Forage Tomato Plants (Foraging level 15, 25 XP)."
+    },
+    "tips": "Warp to Lakesworld. Grind foraging on blueberries/corn to reach level 10 first, then harvest Blue Lilies."
+  },
+  "Rick's Roll": {
+    "name": "Rick's Roll",
+    "npc": "Rick (beach area)",
+    "stages": 4,
+    "prereqs": "None",
+    "rewards": "1987 Gold",
+    "walkthrough": "Stage 0: Talk to Rick. Needs 5 Cooked Shrimp. Stage 1: Deliver shrimp, get Seaweed Roll. Stage 2: Pass through door. Stage 3: Deliver Seaweed Roll to Rick's GF (Lena).",
+    "items_needed": "5 Cooked Shrimp",
+    "item_sources": {
+      "Raw Shrimp": "Fish from Shrimp Spots (Fishing level 1, 20 XP). Need Fishing Rod equipped.",
+      "Cooked Shrimp": "Cook Raw Shrimp at cooking pot (Cooking level 1, 20 XP)."
+    },
+    "tips": "Requires Fishing Rod (from tutorial or finding one). Rickroll easter egg — 1987 gold = year of Never Gonna Give You Up."
+  },
+  "Arts and Crafts": {
+    "name": "Arts and Crafts",
+    "npc": "Cold NPC (mountain)",
+    "stages": 4,
+    "prereqs": "None",
+    "rewards": "Crafting bench access",
+    "walkthrough": "Stage 0: Talk to Cold NPC. Stage 1: Deliver Beryl Pendant (mine beryl + forage blue lily + craft string + craft pendant). Stage 2: Deliver Small Bowl (chop logs + fletch sticks + fletch bowl). Stage 3: Deliver Stew (fletch medium bowl + get mushroom + cook stew).",
+    "crafting_chain": "Beryl Pendant: 1 Beryl (mine beryl rock, Mining L1) + 1 String (craft from Blue Lily, Crafting L1) -> Beryl Pendant (Crafting L1). Small Bowl: Logs -> Sticks (Fletching L1) -> Small Bowl from 2 sticks (Fletching L3). Stew: Medium Bowl (4 sticks, Fletching L5) + Mushroom (foraging/mob drop) + Tomato -> Stew (Cooking L1).",
+    "tips": "Multi-skill crafting tutorial. Need Mining, Foraging, Crafting, Fletching, Cooking."
+  },
+  "Royal Drama": {
+    "name": "Royal Drama",
+    "npc": "Royal Guard 2 (castle)",
+    "stages": 3,
+    "prereqs": "None",
+    "rewards": "10000 Gold + castle access",
+    "walkthrough": "Stage 0: Talk to Royal Guard 2 at castle. Stage 1: Enter sewers, talk to Rat NPC. Stage 2: Go deeper, find King 2. Done.",
+    "items_needed": "None",
+    "tips": "Pure talk quest — no combat, no items. Easy 10K gold. Unlocks Royal Pet quest."
+  },
+  "Royal Pet": {
+    "name": "Royal Pet",
+    "npc": "King (castle, appears after Royal Drama)",
+    "stages": 3,
+    "prereqs": "Royal Drama completed",
+    "rewards": "Cat Pet",
+    "walkthrough": "Stage 0: Talk to King, receive 3 Books. Stage 1: Deliver books to 3 NPCs in any order: Shepherd Boy, Red Bikini Girl NPC, Fisherman. Stage 2: Return to King.",
+    "items_needed": "3 Books (given by King)",
+    "tips": "Books given at stage 0. NPCs scattered across the map. Uses substage system — any order."
+  },
+  "Ancient Lands": {
+    "name": "Ancient Lands",
+    "npc": "Ancient Monument NPC (icy cave in swamp)",
+    "stages": 2,
+    "prereqs": "None",
+    "rewards": "Snow Potion + path to eastern mountains",
+    "walkthrough": "Stage 0: Find Monument NPC. He needs Ice Sword. Stage 1: Deliver Ice Sword (from Ice Knight miniboss L62 at 808,813).",
+    "items_needed": "1 Ice Sword",
+    "tips": "Ice Knight is Level 62 with significant HP. Need good gear. Deep in cave system."
+  },
+  "Sea Activities": {
+    "name": "Sea Activities",
+    "npc": "Sponge (underwater via beach entrance)",
+    "stages": 7,
+    "prereqs": "None",
+    "rewards": "10000 Gold",
+    "walkthrough": "SpongeBob parody quest. Stage 0-3: Talk chain between Sponge and Pickle NPC. Stage 4: Kill Sea Cucumber (L88, 1250 HP, ranged). Stage 5: Talk to Pickle. Stage 6: Return gold to Sponge.",
+    "boss": "Sea Cucumber — Level 88, 1250 HP, ranged 'terror' attacks, fast movement. Crush attack 37, low defenses.",
+    "tips": "Need Level 80+ for the boss fight. Low HP but very fast and ranged."
+  },
+  "Evil Santa": {
+    "name": "Evil Santa",
+    "npc": "Snow Shepherd Boy (mountain)",
+    "stages": 5,
+    "prereqs": "None",
+    "rewards": "Ice World access",
+    "walkthrough": "Stage 0: Talk to Snow Shepherd Boy. Stage 1: Enter factory, talk to elf. Stage 2: Return to shepherd. Stage 3: Find key in underground factory, kill Evil Santa. Stage 4: Return to shepherd.",
+    "boss": "Evil Santa — Level 240, 7500 HP, ranged 'gift' projectiles, magic attacks. ALL stats 120-160. Weakest: magic defense (120).",
+    "tips": "Hardest boss in game. Need max gear, lots of potions. Level 80+ minimum."
+  },
+  "Clam Chowder": {
+    "name": "Clam Chowder",
+    "npc": "Blue Bikini Girl (ice area)",
+    "stages": 7,
+    "prereqs": "None",
+    "rewards": "7500 Gold",
+    "walkthrough": "Stage 0-1: Deliver 5 clam meat. Stage 2-3: Deliver 2 clam chowder to Doctor. Stage 4-5: Deliver 2 clam chowder to Old Lady 2. Stage 6: Return to Blue Bikini Girl.",
+    "items_needed": "5 Clam Objects + 4 Clam Chowders (total: ~9 clams, 4 potatoes, 4 small bowls)",
+    "crafting_chain": "Clam: Fish from Clam Spots (Fishing L10). Clam Chowder: 1 Clam + 1 Potato + 1 Small Bowl (Cooking L15). Small Bowl: 2 Sticks (Fletching L3). Sticks: 1 Log -> 4 Sticks (Fletching L1).",
+    "tips": "Most involved fetch quest. Requires Fishing 10 + Cooking 15 + Fletching 3."
+  },
+  "The Coder's Glitch": {
+    "name": "The Coder's Glitch",
+    "npc": "Coder NPC",
+    "stages": 3,
+    "prereqs": "Foresting + Desert Quest + Sorcery completed. Skills: Accuracy 15, Strength 20, Defense 15.",
+    "rewards": "Club weapon + 5000 Strength XP",
+    "walkthrough": "Stage 0: Talk to Coder. Stage 1: Kill Skeleton King in Patsow (east of desert, volcano region). It drops Skeleton King Talisman at 100% when quest is active. Stage 2: Return talisman to Coder.",
+    "boss": "Skeleton King — Level 32, 1850 HP, melee slash (35). Low crush defense (20). Weak to crush weapons.",
+    "items_needed": "1 Skeleton King Talisman (100% quest drop from boss)",
+    "tips": "MAIN STORYLINE quest. At Level 80+ you massively outlevel this boss. Just go kill it."
+  },
+  "Miner's Quest II": {
+    "name": "Miner's Quest II",
+    "npc": "Miner (~323, 178)",
+    "stages": 3,
+    "prereqs": "Miner's Quest completed. Mining 30.",
+    "rewards": "Mining cave access",
+    "walkthrough": "Stage 0: Talk to Miner. Stage 1: Deliver 5 Tin Bars + 5 Copper Bars. Stage 2: Deliver 5 Bronze Bars.",
+    "items_needed": "5 Tin Bar, 5 Copper Bar, 5 Bronze Bar",
+    "crafting_chain": "Tin Bar: 1 Tin Ore + 1 Coal (Smelting L1, 90%). Copper Bar: 1 Copper Ore + 1 Coal (Smelting L1, 90%). Bronze Bar: 1 Copper Ore + 1 Tin Ore (Smelting L5, 70%). All ores are Mining L1.",
+    "tips": "Need Mining 30 first. Grind mining on nisoc/copper/tin rocks (~1000 rocks total)."
+  },
+  "The Coder's Glitch II": {
+    "name": "The Coder's Glitch II",
+    "npc": "Coder NPC",
+    "stages": 5,
+    "prereqs": "Coder's Glitch + Miner's Quest + Scavenger. Skills: Accuracy 25, Strength 40, Defense 30.",
+    "rewards": "Iron Round Shield + 7500 Accuracy XP + 4500 Strength XP + 3000 Defense XP",
+    "walkthrough": "Stage 0: Talk to Coder. Stages 1-3: Kill 3 bosses IN ORDER: Ogre Lord (L44, 2850 HP) -> Queen Ant (L94, 4200 HP, HEALS) -> Forest Dragon (L258, 6942 HP, fireballs). Each drops talisman at 100%. Stage 4: Return all 3 talismans.",
+    "tips": "Endgame boss gauntlet. Queen Ant heals — need high sustained DPS. Forest Dragon is L258 — absolute endgame."
+  },
+  "Scientist's Potion": {
+    "name": "Scientist's Potion",
+    "npc": "Scientist (Mudwich house)",
+    "stages": 1,
+    "prereqs": "None",
+    "rewards": "Potion store + 2000 Alchemy XP",
+    "walkthrough": "Stage 0: Talk to Scientist. STUB QUEST ��� only stage 0 exists. Cannot progress further.",
+    "tips": "Incomplete quest. Just talk once for credit. Prereq for Coder's Fallacy."
+  },
+  "Coder's Fallacy": {
+    "name": "Coder's Fallacy",
+    "npc": "Villager 4 (appears after Coder's Glitch II)",
+    "stages": 1,
+    "prereqs": "Coder's Glitch II + Anvil's Echoes + Scientist's Potion. Skills: Alchemy 35, Smithing 45.",
+    "rewards": "Key to secret room",
+    "walkthrough": "Stage 0: Talk to Villager 4. STUB QUEST — only stage 0 exists. The endgame quest (currently unfinished).",
+    "tips": "Incomplete quest. Requires very high skill levels."
+  }
+}

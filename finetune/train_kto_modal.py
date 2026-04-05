@@ -205,21 +205,11 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
         load_in_16bit=True,
     )
 
-    # Load explicit reference model as plain HuggingFace — avoids Unsloth PEFT internals
-    # interacting with TRL's create_reference_model(). TRL gets a clean standard model,
-    # Unsloth handles only the training model. No interaction between them.
-    print(f"Loading reference model from {base_model_path} (standard HF, 8-bit, frozen)...")
-    import torch
-    from transformers import AutoModelForCausalLM, BitsAndBytesConfig
-    ref_bnb_config = BitsAndBytesConfig(load_in_8bit=True)
-    ref_model = AutoModelForCausalLM.from_pretrained(
-        base_model_path,
-        quantization_config=ref_bnb_config,
-        device_map="cuda",
-    )
-    ref_model.eval()
-    for p in ref_model.parameters():
-        p.requires_grad_(False)
+    # ref_model=None: TRL uses the training model with adapters disabled (null_ref_context)
+    # as the reference. With precompute_ref_log_probs=True, all ref log probs (main + KL)
+    # are computed once during dataset preprocessing and cached as dataset columns.
+    # During trainer.train() there is no ref model in GPU memory at all — eliminates the
+    # ~18 GB explicit ref model that caused repeated OOMs on H100 80 GB.
 
     print("Configuring LoRA adapter for KTO...")
     model = FastLanguageModel.get_peft_model(
@@ -304,6 +294,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
         max_completion_length=MAX_COMPLETION_LEN,
         desirable_weight=desirable_weight,
         undesirable_weight=undesirable_weight,
+        precompute_ref_log_probs=True,
     )
 
     print(
@@ -313,7 +304,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
     )
     trainer = KTOTrainer(
         model=model,
-        ref_model=ref_model,
+        ref_model=None,
         args=kto_config,
         train_dataset=train_ds,
         eval_dataset=val_ds,

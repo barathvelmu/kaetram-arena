@@ -31,6 +31,7 @@ logs/
 # Training data (generated, stays on VM — do not commit)
 dataset/extracted*/
 dataset/qwen_sft*/
+dataset/qwen_kto*/
 dataset/raw/
 dataset/session*/
 

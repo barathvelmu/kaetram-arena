@@ -72,8 +72,8 @@ LORA_TARGETS = [
     "gate_proj", "up_proj", "down_proj",
 ]
 
-BATCH_SIZE = 4
-GRAD_ACCUM = 4
+BATCH_SIZE = 2
+GRAD_ACCUM = 8
 LR = 5e-7
 WARMUP_RATIO = 0.1
 WEIGHT_DECAY = 0.0

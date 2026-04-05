@@ -344,7 +344,14 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
     adapter_dir = f"{output_dir}/adapter"
     merged_dir = f"{output_dir}/merged"
     print(f"Saving adapter to {adapter_dir}...")
-    model.save_pretrained(adapter_dir)
+    # Use underlying PEFT model directly — Unsloth's save_pretrained miscounts LoRA modules
+    # when ref_model=None + precompute_ref_log_probs causes TRL to toggle adapters during
+    # precompute, leaving Unsloth's module registry out of sync (128 vs 256).
+    try:
+        model.save_pretrained(adapter_dir)
+    except RuntimeError:
+        print("Unsloth save_pretrained failed (LoRA count mismatch), falling back to PEFT save...")
+        model.base_model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)
 
     print(f"Saving merged safetensors to {merged_dir}...")

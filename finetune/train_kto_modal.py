@@ -172,7 +172,7 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
 
     train_ds, train_skipped = parse_and_format(train_bytes, "train")
     val_ds, val_skipped = parse_and_format(val_bytes, "val")
-    return train_ds, val_ds, metadata, {"train_skipped": train_skipped, "val_skipped": val_skipped}
+    return train_ds, val_ds, metadata, {"train_skipped": train_skipped, "val_skipped": val_skipped}, fmt_tok
 
 
 @app.function(
@@ -233,7 +233,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
     )
 
     print("Loading KTO dataset...")
-    train_ds, val_ds, meta, skip_stats = load_kto_dataset(train_data, val_data, metadata, tokenizer)
+    train_ds, val_ds, meta, skip_stats, fmt_tok = load_kto_dataset(train_data, val_data, metadata, tokenizer)
 
     # --- Dataset sanity checks ---
     train_des = sum(1 for row in train_ds if row["label"])
@@ -316,7 +316,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
         args=kto_config,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        processing_class=tokenizer,
+        processing_class=fmt_tok,  # base tokenizer — Unsloth-merged r6 tokenizer routes through Qwen3-VL processor
     )
 
     subject, body = format_notification(

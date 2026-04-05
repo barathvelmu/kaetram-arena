@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cli_adapter import CLIAdapter, get_adapter
+from notifications import format_notification, send_email_notification
 
 PROJECT_DIR = Path(__file__).parent
 
@@ -1014,10 +1015,49 @@ def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    orch.setup()
-    orch.start()
-    orch.monitor_loop()
-    orch.shutdown()
+    started = False
+    try:
+        orch.setup()
+        orch.start()
+        started = True
+
+        subject, body = format_notification(
+            "Kaetram Claude Run Started",
+            [
+                f"Agents: {n_total}",
+                f"Hours: {args.hours if args.hours is not None else 'until stopped'}",
+                f"Harness counts: {harness_counts}",
+                f"Personality counts: {personality_counts or 'round-robin default'}",
+                f"Project dir: {PROJECT_DIR}",
+            ],
+        )
+        send_email_notification(subject, body)
+
+        orch.monitor_loop()
+    except Exception as e:
+        subject, body = format_notification(
+            "Kaetram Claude Run Failed",
+            [
+                f"Agents: {n_total}",
+                f"Harness counts: {harness_counts}",
+                f"Error: {type(e).__name__}: {e}",
+            ],
+        )
+        send_email_notification(subject, body)
+        raise
+    finally:
+        orch.shutdown()
+        if started:
+            total_logs = sum(len(list(a.log_dir.glob('session_*.log'))) for a in orch.agents)
+            subject, body = format_notification(
+                "Kaetram Claude Run Finished",
+                [
+                    f"Agents: {n_total}",
+                    f"Total session logs: {total_logs}",
+                    f"Logs dir: {PROJECT_DIR / 'dataset' / 'raw'}",
+                ],
+            )
+            send_email_notification(subject, body)
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ research/
 - Manual LLM compile pass: `.claude/commands/compile-research.md`
 - VM-safe staleness check: `python3 scripts/check_research_staleness.py`
 - VM-safe staleness check with email nudge: `python3 scripts/check_research_staleness.py --notify`
-- VM cron-friendly wrapper: `scripts/run_research_staleness_check.sh` (sources `~/.kaetram_notify_env` if present, auto-runs `claude -p "/compile-research"` when stale if Claude CLI is installed and authenticated on the VM, otherwise falls back to email)
+- VM cron-friendly wrapper: `scripts/run_research_staleness_check.sh` (sources `~/.kaetram_notify_env` if present, auto-runs `claude -p "/compile-research"` with `claude-opus-4-6` when stale, then stages `research/` + `session_log.md`, commits, rebases, and pushes if changes were made; if Claude CLI is unavailable, it falls back to email)
 - Do **not** rely on session-local Claude cron jobs. They die with the session and should not be treated as durable automation. The durable loop is VM cron + the wrapper script.
 
 **What goes here vs elsewhere:**

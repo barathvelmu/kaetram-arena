@@ -50,6 +50,9 @@ fi
 # Kill the datacol tmux session (holds shell wrappers around orchestrator)
 tmux kill-session -t datacol 2>/dev/null || true
 
+# Wait for agent processes to become orphans after orchestrator death
+sleep 3
+
 # ── Step 2: Clean up any orphaned agent CLI processes ──
 # Match all agent prompt formats: "You play AGGRESSIVE/METHODICAL/CURIOUS", "ClaudeBot", "IMPORTANT", "play the game"
 CLAUDE_PIDS=$(pgrep -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true)
@@ -114,6 +117,13 @@ done
 # Also stop single-agent mode processes and Qwen agent harness
 pkill -f "play.sh" 2>/dev/null || true
 pkill -f "play_qwen.py" 2>/dev/null || true
+
+# ── Step 3b: Final sweep — kill anything still alive ──
+sleep 2
+pkill -9 -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
+pkill -9 -f "mcp_game_server.py" 2>/dev/null || true
+pkill -9 -f "playwright/driver" 2>/dev/null || true
+pkill -9 -f "chrome-headless-shell" 2>/dev/null || true
 
 # ── Step 4: Report preserved state ──
 echo ""

@@ -173,68 +173,6 @@ def _parse_codex_events(log_path: Path) -> list[dict]:
     return events
 
 
-def is_memory_write(event: dict) -> bool:
-    """Check if a tool_use event is a Bash call that writes progress.json."""
-    if event["type"] != "tool_use":
-        return False
-    name = event.get("name", "").lower()
-    if "bash" not in name:
-        return False
-    command = event.get("input", {}).get("command", "")
-    return "progress.json" in command
-
-
-def extract_memory_content(event: dict) -> dict | None:
-    """Parse progress.json content from a Bash heredoc command.
-
-    Handles patterns like:
-        cat > .../progress.json << 'PROGRESS'
-        { "sessions": 1, ... }
-        PROGRESS
-    """
-    command = event.get("input", {}).get("command", "")
-    if not command:
-        return None
-
-    # Try heredoc pattern: cat > ... << 'DELIM' ... DELIM
-    m = re.search(
-        r"<<\s*['\"]?(\w+)['\"]?\s*\n(.*?)\n\1",
-        command,
-        re.DOTALL,
-    )
-    if m:
-        body = m.group(2).strip()
-        try:
-            return json.loads(body)
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    # Try echo/printf pattern with inline JSON
-    m = re.search(r"echo\s+['\"](\{.*?\})['\"]", command, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(1))
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    # Last resort: find any JSON object in the command
-    idx = command.find("{")
-    if idx >= 0:
-        # Find matching closing brace
-        depth = 0
-        for i in range(idx, len(command)):
-            if command[i] == "{":
-                depth += 1
-            elif command[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(command[idx : i + 1])
-                    except (json.JSONDecodeError, ValueError):
-                        break
-
-    return None
-
 
 def is_observe(event: dict) -> bool:
     """Check if a tool_use event is an observe step (reads game state)."""
@@ -944,44 +882,6 @@ def extract_turns(log_path: Path) -> list[dict]:
         if is_valid_turn(turn):
             turns.append(turn)
 
-        # Scan for Bash progress.json writes between this observe and the next
-        for j in range(obs_idx + 1, next_obs):
-            ev = events[j]
-            if is_memory_write(ev):
-                mem_content = extract_memory_content(ev)
-                if mem_content is None:
-                    continue
-                # Collect reasoning before the Bash call
-                mem_reasoning_parts = []
-                for k in range(max(obs_idx + 1, j - 10), j):
-                    ek = events[k]
-                    if ek["type"] in ("thinking", "text") and ek["role"] == "assistant":
-                        txt = ek.get("text", "").strip()
-                        if txt:
-                            mem_reasoning_parts.append(txt)
-                mem_summary = json.dumps(mem_content, separators=(",", ":"))
-                if len(mem_summary) > 300:
-                    # Truncate but keep parseable
-                    mem_summary = mem_summary[:297] + "..."
-                mem_turn = {
-                    "turn_id": f"{log_path.stem}_t{len(turns):03d}",
-                    "timestamp": game_state.get("timestamp", 0),
-                    "game_state": game_state,
-                    "ascii_map": "",
-                    "reasoning": "\n".join(mem_reasoning_parts) if mem_reasoning_parts else "Saving progress.",
-                    "action_code": ev.get("input", {}).get("command", ""),
-                    "action_type": "update_memory",
-                    "action_structured": f"update_memory({mem_summary})",
-                    "action_target": None,
-                    "player_stats": {
-                        "hp": ps.get("hp", 0),
-                        "max_hp": ps.get("max_hp", 0),
-                        "level": ps.get("level", 1),
-                    },
-                    "player_position": {"x": pp.get("x", 0), "y": pp.get("y", 0)},
-                    "memory_content": mem_content,
-                }
-                turns.append(mem_turn)
 
     # Deduplicate: skip consecutive turns with same position + same action,
     # allowing at most 3 repeats before filtering

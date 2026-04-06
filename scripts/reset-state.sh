@@ -133,7 +133,6 @@ for i in $(seq 0 $((N_AGENTS - 1))); do
     rm -f "$sandbox/screenshot.png" \
           "$sandbox/live_screen.png" \
           "$sandbox/game_state.json" \
-          "$sandbox/progress.json" \
           "$sandbox/.session_counter"
     # Remove any extra screenshots agents may have created
     find "$sandbox" -name "*.png" -delete 2>/dev/null || true

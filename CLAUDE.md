@@ -82,18 +82,18 @@ research/
 | `./scripts/resume-agent.sh` | Resume agents without DB reset. Preserves character progress. Supports personality and harness flags. |
 | `./scripts/restart-single-agent.sh <ID>` | Restart one running agent (agent 0-3) without affecting others. Clears session counter for fresh start. Supports `--reset`, personality, and harness switches. |
 | `./scripts/stop-agent.sh` | Stop orchestrator + all agents gracefully. Preserves logs. |
+| `./scripts/nuke-agents.sh` | **Emergency kill.** SIGKILL everything agent-related. Use when orphan processes accumulate. |
 | `./scripts/reset-state.sh [N] [--force]` | Reset MongoDB player data only (no restart). Use `--force` to skip safety check. |
 | `./scripts/start-kaetram.sh` | Start Kaetram game server (single-agent mode, Node 20 required). |
 
 ### Harness Flags
 
-All scripts support harness selection via `--claude [N]`, `--codex [N]`, `--kimi [N]`, `--qwen-code [N]` (bare flag = all agents).
+**Active:** Only `--claude` is production-ready. Codex, Kimi, and Qwen Code harnesses are WIP — code exists in `cli_adapter.py` but is not tested or used for data collection.
 
-**Default models:**
-- `--claude` → Sonnet (Claude Code)
-- `--codex` → GPT-5.4 (OpenAI Codex)
-- `--kimi` → Kimi K2 with `--thinking` enabled
-- `--qwen-code` → Qwen3-Coder with stream-json output
+- `--claude` → Sonnet (Claude Code) — **use this**
+- `--codex` → GPT-5.4 (OpenAI Codex) — WIP
+- `--kimi` → Kimi K2 — WIP
+- `--qwen-code` → Qwen3-Coder — WIP
 
 ### Quick start (multi-agent)
 
@@ -124,7 +124,7 @@ tmux attach -t datacol
 1. Kills orchestrator + all agent processes
 2. Kills game server instances (preserves client on :9000)
 3. **Resets MongoDB player data** — agents start fresh Level 1 with Bronze Axe
-4. Clears sandbox state (screenshots, progress.json, game_state.json)
+4. Clears sandbox state (screenshots, game_state.json)
 5. Ensures dashboard is running on :8080
 6. Launches orchestrator in `datacol` tmux session
 

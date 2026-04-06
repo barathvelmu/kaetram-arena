@@ -127,19 +127,20 @@ pkill -f "python3 orchestrate.py" 2>/dev/null || true
 sleep 1
 # Kill the datacol tmux session (holds shell wrappers)
 tmux kill-session -t datacol 2>/dev/null || true
-# Kill any remaining claude -p or codex exec agent processes
-pkill -f "claude.*-p.*ClaudeBot\|claude.*-p.*play the game\|claude.*-p.*IMPORTANT" 2>/dev/null || true
+# Kill any remaining claude -p agent processes (SIGTERM then SIGKILL)
+pkill -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
 pkill -f "codex.*exec" 2>/dev/null || true
-pkill -f "kimi.*-p.*KimiBot" 2>/dev/null || true
-pkill -f "qwen.*-p.*QwenBot" 2>/dev/null || true
-# Also kill single-agent mode processes and Qwen agent harness
 pkill -f "play.sh" 2>/dev/null || true
 pkill -f "play_qwen.py" 2>/dev/null || true
 pkill -f "claude -p.*Login" 2>/dev/null || true
+sleep 2
+pkill -9 -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
 # Kill MCP game servers (orphaned from previous runs)
 pkill -f "mcp_game_server.py" 2>/dev/null || true
 # Kill Playwright browser drivers spawned by MCP servers
 pkill -f "playwright/driver/node" 2>/dev/null || true
+pkill -f "npm exec @playwright" 2>/dev/null || true
+pkill -f "playwright-mcp" 2>/dev/null || true
 pkill -f "game_driver.py" 2>/dev/null || true
 # Kill Chrome process groups (Playwright spawns Chrome in its own PGID)
 for cpid in $(pgrep -f "chrome-headless-shell" 2>/dev/null); do
@@ -150,6 +151,8 @@ sleep 2
 # Force-kill any surviving MCP/Playwright/Chrome processes
 pkill -9 -f "mcp_game_server.py" 2>/dev/null || true
 pkill -9 -f "playwright/driver/node" 2>/dev/null || true
+pkill -9 -f "npm exec @playwright" 2>/dev/null || true
+pkill -9 -f "playwright-mcp" 2>/dev/null || true
 pkill -9 -f "chrome-headless-shell" 2>/dev/null || true
 
 # ── Step 2: Kill game server instances (not the client on 9000) ──
@@ -197,7 +200,6 @@ for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
     rm -f "$sandbox/state/screenshot.png" \
           "$sandbox/state/live_screen.png" \
           "$sandbox/state/game_state.json" \
-          "$sandbox/state/progress.json" \
           "$sandbox/state/.session_counter"
     find "$sandbox/state" -name "*.png" -delete 2>/dev/null || true
   fi
@@ -235,7 +237,7 @@ fi
 if ! ss -tlnp "sport = :8080" 2>/dev/null | grep -q 8080; then
   echo "Starting dashboard on :8080..."
   cd "$PROJECT_DIR"
-  nohup python3 dashboard.py > /tmp/dashboard.log 2>&1 &
+  nohup .venv/bin/python3 dashboard.py > /tmp/dashboard.log 2>&1 &
   echo "  Dashboard PID: $!"
 else
   echo "Dashboard already running on :8080"

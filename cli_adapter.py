@@ -16,16 +16,26 @@ PROJECT_DIR = Path(__file__).parent
 MCP_JSON = PROJECT_DIR / ".mcp.json"
 
 # Disallowed tools for the game agent (prevent filesystem exploration;
-# agent should only use mcp__kaetram__* tools + Bash for progress.json).
-CLAUDE_DISALLOWED_TOOLS = "Glob Grep Agent Edit WebFetch WebSearch Write Skill"
+# agent should only use mcp__kaetram__* tools).
+CLAUDE_DISALLOWED_TOOLS = "Bash Glob Grep Agent Edit WebFetch WebSearch Write Skill"
 
 # Venv python path for MCP server subprocess
 VENV_PYTHON = str(PROJECT_DIR / ".venv" / "bin" / "python3")
 
 
 def _resolve_mcp_template(sandbox_dir: Path, port: str = "", username: str = "ClaudeBot") -> str:
-    """Resolve .mcp.json template variables for a given sandbox directory."""
-    text = MCP_JSON.read_text()
+    """Resolve .mcp.json template variables for a given sandbox directory.
+
+    Only includes the 'kaetram' MCP server — other servers (linear, etc.)
+    are stripped to avoid startup delays and resource contention.
+    """
+    import json as _json
+    raw = _json.loads(MCP_JSON.read_text())
+    # Keep only kaetram server for agent sandboxes
+    kaetram_cfg = raw.get("mcpServers", {}).get("kaetram")
+    if not kaetram_cfg:
+        raise RuntimeError("No 'kaetram' server in .mcp.json template")
+    text = _json.dumps({"mcpServers": {"kaetram": kaetram_cfg}}, indent=2)
     screenshot_dir = str(sandbox_dir / "state")
     return (text
             .replace("__VENV_PYTHON__", VENV_PYTHON)
@@ -167,7 +177,7 @@ class ClaudeAdapter(CLIAdapter):
     def get_env(self) -> dict[str, str]:
         return {
             "CLAUDECODE": "",
-            "MCP_TIMEOUT": "30000",  # 30s timeout for MCP server startup (browser launch)
+            "MCP_TIMEOUT": "60000",  # 60s timeout for MCP server startup (3 concurrent browser launches)
         }
 
     def _extract_state_text_from_line(self, line: str) -> str | None:

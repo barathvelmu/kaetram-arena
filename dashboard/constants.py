@@ -27,6 +27,7 @@ PORT_STRIDE = 10
 MAX_AGENTS = 8
 WS_PORT = 8081
 SCREENSHOT_POLL_INTERVAL = 1.0  # seconds between mtime checks (was 0.2 — too aggressive)
+SCREENSHOT_MAX_AGE = 60  # seconds — screenshots older than this are considered stale
 
 # MongoDB (Kaetram game server database)
 MONGO_HOST = os.environ.get("KAETRAM_MONGO_HOST", "127.0.0.1")

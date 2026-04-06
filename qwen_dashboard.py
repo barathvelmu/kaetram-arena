@@ -112,7 +112,7 @@ HTML_PAGE = """\
     </div>
     <div class="action-log" id="action-log"></div>
     <div class="memory-panel" id="memory-panel">
-      <div class="mem-label">MEMORY (progress.json)</div>
+      <div class="mem-label">MEMORY</div>
       <div class="mem-text" id="mem-text">No memory yet</div>
     </div>
   </div>
@@ -312,15 +312,6 @@ class QwenDashboardHandler(BaseHTTPRequestHandler):
         ss_path = os.path.join(state_dir, "live_screen.png")
         if os.path.exists(ss_path):
             result["screenshot_age"] = time.time() - os.path.getmtime(ss_path)
-
-        # Memory
-        mem_path = os.path.join(state_dir, "progress.json")
-        if os.path.exists(mem_path):
-            try:
-                with open(mem_path) as f:
-                    result["memory"] = json.load(f)
-            except (json.JSONDecodeError, ValueError):
-                pass
 
         # Parse latest log file for actions and reasoning
         if os.path.isdir(log_dir):

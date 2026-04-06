@@ -5,7 +5,7 @@
 #   1. Sends SIGTERM to orchestrate.py (triggers its graceful shutdown)
 #   2. Waits for orchestrator to exit (it stops agents + servers internally)
 #   3. Force-kills if timeout exceeded
-#   4. Leaves all state intact: progress.json, .session_counter, logs, dataset
+#   4. Leaves all state intact: .session_counter, logs, dataset
 #   5. Leaves dashboard running (useful for review)
 #
 # Usage:
@@ -51,12 +51,13 @@ fi
 tmux kill-session -t datacol 2>/dev/null || true
 
 # ── Step 2: Clean up any orphaned agent CLI processes ──
-CLAUDE_PIDS=$(pgrep -f "claude.*-p.*ClaudeBot\|claude.*-p.*play the game\|claude.*-p.*IMPORTANT" 2>/dev/null || true)
+# Match all agent prompt formats: "You play AGGRESSIVE/METHODICAL/CURIOUS", "ClaudeBot", "IMPORTANT", "play the game"
+CLAUDE_PIDS=$(pgrep -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true)
 if [ -n "$CLAUDE_PIDS" ]; then
   echo "Stopping orphaned claude agent processes..."
   kill -TERM $CLAUDE_PIDS 2>/dev/null || true
   sleep 3
-  CLAUDE_PIDS=$(pgrep -f "claude.*-p.*ClaudeBot\|claude.*-p.*play the game\|claude.*-p.*IMPORTANT" 2>/dev/null || true)
+  CLAUDE_PIDS=$(pgrep -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true)
   if [ -n "$CLAUDE_PIDS" ]; then
     kill -9 $CLAUDE_PIDS 2>/dev/null || true
   fi
@@ -85,6 +86,8 @@ if [ -n "$MCP_PIDS" ]; then
   fi
 fi
 pkill -f "playwright/driver/node" 2>/dev/null || true
+pkill -f "npm exec @playwright" 2>/dev/null || true
+pkill -f "playwright-mcp" 2>/dev/null || true
 pkill -f "game_driver.py" 2>/dev/null || true
 # Kill Chrome process groups (Playwright spawns Chrome in its own PGID)
 for cpid in $(pgrep -f "chrome-headless-shell" 2>/dev/null); do
@@ -94,6 +97,9 @@ done
 sleep 1
 # Force-kill any survivors
 pkill -9 -f "chrome-headless-shell" 2>/dev/null || true
+pkill -9 -f "playwright/driver/node" 2>/dev/null || true
+pkill -9 -f "npm exec @playwright" 2>/dev/null || true
+pkill -9 -f "playwright-mcp" 2>/dev/null || true
 
 # ── Step 3: Stop game servers spawned by orchestrator ──
 echo "Stopping game servers..."
@@ -115,12 +121,10 @@ echo "=== State preserved for resume ==="
 for i in 0 1 2 3 4 5 6 7; do
   SANDBOX="/tmp/kaetram_agent_$i/state"
   if [ -d "$SANDBOX" ]; then
-    PROGRESS="$SANDBOX/progress.json"
     COUNTER="$SANDBOX/.session_counter"
-    if [ -f "$PROGRESS" ]; then
+    if [ -f "$COUNTER" ]; then
       SESSION=$(cat "$COUNTER" 2>/dev/null || echo "?")
-      LEVEL=$(python3 -c "import json; print(json.load(open('$PROGRESS')).get('level', '?'))" 2>/dev/null || echo "?")
-      echo "  Agent $i: session #$SESSION, level $LEVEL"
+      echo "  Agent $i: session #$SESSION"
     fi
   fi
 done

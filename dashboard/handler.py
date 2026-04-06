@@ -10,7 +10,7 @@ import os
 import time
 import urllib.parse
 
-from dashboard.constants import PROJECT_DIR, STATE_DIR, MAX_AGENTS, SCREENSHOT_POLL_INTERVAL
+from dashboard.constants import PROJECT_DIR, STATE_DIR, MAX_AGENTS, SCREENSHOT_POLL_INTERVAL, SCREENSHOT_MAX_AGE
 from dashboard.api import APIMixin
 
 
@@ -162,9 +162,12 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
 
         if not os.path.isfile(filepath):
             return self.send_error(404)
+        mtime = os.path.getmtime(filepath)
+        # Reject stale screenshots — never show outdated game state
+        if time.time() - mtime > SCREENSHOT_MAX_AGE:
+            return self.send_error(404)
         mime, _ = mimetypes.guess_type(filepath)
         size = os.path.getsize(filepath)
-        mtime = os.path.getmtime(filepath)
         last_modified = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(mtime))
         self.send_response(200)
         self.send_header("Content-Type", mime or "image/png")
@@ -198,7 +201,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 try:
                     if os.path.isfile(ss_path):
                         mtime = os.path.getmtime(ss_path)
-                        if mtime != last_mtime:
+                        if mtime != last_mtime and (time.time() - mtime) <= SCREENSHOT_MAX_AGE:
                             with open(ss_path, "rb") as f:
                                 frame = f.read()
                             self.wfile.write(b"--frame\r\n")
@@ -257,7 +260,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
@@ -271,6 +274,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 

@@ -4,7 +4,6 @@ set -euo pipefail
 unset CLAUDECODE
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_FILE="$PROJECT_DIR/state/progress.json"
 SYSTEM_PROMPT_FILE="$PROJECT_DIR/prompts/system.md"
 
 # Parse flags
@@ -131,7 +130,7 @@ Use nearest_mob.click_x/click_y to click on targets. Use player_position for spa
 
 Session #${SESSION}. Your previous progress: ${PROGRESS}
 ${GAME_STATE_BLOCK}
-Follow your system instructions exactly. Load tools, then login, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore. Write progress.json before session ends."
+Follow your system instructions exactly. Load tools, then login, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore."
 
   # Run from isolated dir to prevent the CLI from reading this project's CLAUDE.md / AGENTS.md
   SANDBOX="/tmp/kaetram_session_${SESSION}_$$"

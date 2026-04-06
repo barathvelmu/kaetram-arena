@@ -184,7 +184,6 @@ if [ "$RESET" = true ]; then
   rm -f "$STATE_DIR/screenshot.png" \
         "$STATE_DIR/live_screen.png" \
         "$STATE_DIR/game_state.json" \
-        "$STATE_DIR/progress.json" \
         "$STATE_DIR/.session_counter"
   find "$STATE_DIR" -name "*.png" -delete 2>/dev/null || true
 

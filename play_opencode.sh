@@ -36,8 +36,6 @@ done
 SANDBOX="/tmp/kaetram_agent_${AGENT_ID}"
 STATE_DIR="$SANDBOX/state"
 LOG_DIR="$SANDBOX/logs"
-STATE_FILE="$STATE_DIR/progress.json"
-
 mkdir -p "$STATE_DIR" "$LOG_DIR"
 
 # Write metadata so dashboard shows this agent with a distinct badge
@@ -50,11 +48,6 @@ cat > "$SANDBOX/metadata.json" << EOF
   "harness": "opencode"
 }
 EOF
-
-# Init progress.json if missing
-if [ ! -f "$STATE_FILE" ]; then
-  echo '{"sessions":0,"level":1,"active_quests":[],"completed_quests":[],"inventory_summary":[],"kills_this_session":0,"next_objective":"accept quests from NPCs","notes":"fresh start"}' > "$STATE_FILE"
-fi
 
 # Build system prompt (same substitution as play.sh)
 build_system_prompt() {

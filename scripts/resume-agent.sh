@@ -5,7 +5,7 @@
 #   1. Detects how many agents have preserved state in /tmp/kaetram_agent_*/
 #   2. Ensures Kaetram client is running on :9000
 #   3. Starts dashboard if not running
-#   4. Launches orchestrate.py (which reads .session_counter + progress.json)
+#   4. Launches orchestrate.py (which reads .session_counter)
 #
 # Usage:
 #   ./scripts/resume-agent.sh                                    # resume all agents (default mode)
@@ -73,16 +73,43 @@ if pgrep -f "python3 orchestrate.py" > /dev/null 2>&1; then
 fi
 
 # ── Step 1b: Clean up orphaned processes from previous runs ──
-pkill -f "mcp_game_server.py" 2>/dev/null || true
-pkill -f "playwright/driver/node" 2>/dev/null || true
-pkill -f "chrome-headless-shell" 2>/dev/null || true
-pkill -f "game_driver.py" 2>/dev/null || true
+# Kill agent CLI processes (SIGTERM then SIGKILL)
+pkill -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
+pkill -f "play.sh" 2>/dev/null || true
 pkill -f "play_qwen.py" 2>/dev/null || true
+sleep 2
+pkill -9 -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
+# Kill MCP servers
+pkill -f "mcp_game_server.py" 2>/dev/null || true
+# Kill Playwright (all forms)
+pkill -f "playwright/driver/node" 2>/dev/null || true
+pkill -f "npm exec @playwright" 2>/dev/null || true
+pkill -f "playwright-mcp" 2>/dev/null || true
+pkill -f "game_driver.py" 2>/dev/null || true
+# Kill Chrome process groups
+for cpid in $(pgrep -f "chrome-headless-shell" 2>/dev/null); do
+  pgid=$(ps -o pgid= -p "$cpid" 2>/dev/null | tr -d ' ')
+  [ -n "$pgid" ] && [ "$pgid" != "0" ] && kill -- -"$pgid" 2>/dev/null
+done
+sleep 1
+# Force-kill survivors
+pkill -9 -f "mcp_game_server.py" 2>/dev/null || true
+pkill -9 -f "playwright/driver/node" 2>/dev/null || true
+pkill -9 -f "npm exec @playwright" 2>/dev/null || true
+pkill -9 -f "playwright-mcp" 2>/dev/null || true
+pkill -9 -f "chrome-headless-shell" 2>/dev/null || true
+# Kill stale game servers on agent ports
+for port in $(seq 9001 10 9071); do
+  pid=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
+  if [ -n "$pid" ]; then
+    kill "$pid" 2>/dev/null || true
+  fi
+done
 
 # ── Step 2: Detect agents with preserved state ──
 DETECTED=0
 for i in 0 1 2 3 4 5 6 7; do
-  if [ -f "/tmp/kaetram_agent_$i/state/progress.json" ]; then
+  if [ -f "/tmp/kaetram_agent_$i/state/.session_counter" ]; then
     DETECTED=$((DETECTED + 1))
   fi
 done
@@ -127,12 +154,10 @@ echo ""
 # Show what we're resuming
 for i in $(seq 0 $((N_AGENTS - 1))); do
   SANDBOX="/tmp/kaetram_agent_$i/state"
-  PROGRESS="$SANDBOX/progress.json"
   COUNTER="$SANDBOX/.session_counter"
-  if [ -f "$PROGRESS" ]; then
+  if [ -f "$COUNTER" ]; then
     SESSION=$(cat "$COUNTER" 2>/dev/null || echo "0")
-    LEVEL=$(python3 -c "import json; print(json.load(open('$PROGRESS')).get('level', '?'))" 2>/dev/null || echo "?")
-    echo "  Agent $i: resuming from session #$SESSION, level $LEVEL"
+    echo "  Agent $i: resuming from session #$SESSION"
   else
     echo "  Agent $i: no state (will start fresh)"
   fi
@@ -151,7 +176,7 @@ fi
 if ! ss -tlnp "sport = :8080" 2>/dev/null | grep -q 8080; then
   echo "Starting dashboard on :8080..."
   cd "$PROJECT_DIR"
-  nohup python3 dashboard.py > /tmp/dashboard.log 2>&1 &
+  nohup .venv/bin/python3 dashboard.py > /tmp/dashboard.log 2>&1 &
   echo "  Dashboard PID: $!"
 else
   echo "Dashboard already running on :8080"

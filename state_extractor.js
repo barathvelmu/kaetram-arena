@@ -16,6 +16,47 @@
   // Guard against double-injection
   if (window.__extractGameState) return;
 
+  // ── Door tiles (from world.json areas.doors) ──
+  // These tiles are marked as collision in the client map but are walk-on teleports.
+  // Pathfinding must treat them as walkable destinations so agents can enter caves/buildings.
+  var _doorCoords = new Set([
+    "101,851","1053,758","106,160","1082,714","109,426","1090,707","1111,775","1112,775","1115,668","112,183",
+    "113,105","1138,800","114,800","1146,681","115,882","123,205","125,733","125,847","126,417","134,569",
+    "135,886","136,106","136,170","139,886","140,630","141,624","143,675","144,624","145,630","147,113",
+    "154,231","154,675","158,232","160,785","164,113","164,741","169,174","173,98","177,675","179,671",
+    "181,157","184,116","187,183","191,840","194,218","197,768","199,149","201,168","220,686","234,662",
+    "25,540","260,102","260,229","263,793","265,828","266,824","269,131","269,176","272,846","273,162",
+    "273,338","279,113","281,930","283,124","283,296","284,897","285,824","287,178","289,137","289,921",
+    "290,349","292,734","301,132","310,264","314,924","315,855","324,931","326,174","326,891","329,898",
+    "336,304","337,143","337,344","337,358","342,687","343,119","343,132","345,273","349,847","352,730",
+    "355,157","357,687","357,770","358,269","359,123","369,118","369,872","369,893","370,747","372,891",
+    "374,866","375,132","375,745","378,740","379,205","379,331","379,388","379,744","383,159","383,929",
+    "386,282","386,738","386,745","387,110","389,106","389,170","39,611","391,109","391,891","392,154",
+    "393,143","395,157","395,893","396,107","396,131","40,549","406,292","407,874","419,285","421,903",
+    "422,920","423,738","425,901","425,905","425,909","426,927","429,903","431,920","433,270","439,887",
+    "449,904","453,901","453,904","453,907","455,930","457,904","46,363","472,855","483,275","501,247",
+    "509,688","51,415","512,342","513,726","514,769","515,807","518,758","527,252","528,347","531,263",
+    "534,811","547,719","554,758","557,681","56,311","562,810","57,600","579,335","587,651","591,805",
+    "591,822","591,828","595,776","601,711","607,327","607,756","608,335","625,290","644,602","654,648",
+    "665,836","667,685","669,619","67,434","683,844","688,707","688,844","693,836","697,647","700,662",
+    "702,554","702,585","702,613","704,632","708,104","724,810","733,105","733,604","741,694","742,636",
+    "742,687","745,687","746,724","748,607","748,687","748,733","75,422","752,722","753,688","757,688",
+    "757,728","764,640","776,114","776,658","777,598","790,769","792,688","792,696","793,814","794,633",
+    "795,768","797,689","798,730","799,816","801,643","801,689","807,688","808,598","810,692","814,792",
+    "83,422","848,672","851,750","852,760","852,763","852,765","852,772","855,764","855,780","858,808",
+    "859,764","860,785","867,722","867,747","867,751","869,775","870,781","870,784","873,761","874,773",
+    "875,757","876,757","878,761","895,718","899,802","90,367","908,712","909,799","920,734","931,806",
+    "935,741","939,719","942,708","942,711","944,723","952,722","954,703","955,728","957,722","959,730",
+    "960,710","962,728","966,746","971,782","988,700","997,803"
+  ]);
+  function _isDoor(x, y) { return _doorCoords.has(x + "," + y); }
+  // True if tile is walkable OR is a door (teleport on step)
+  function _isWalkableOrDoor(map, x, y) {
+    if (map.isOutOfBounds(x, y)) return false;
+    if (!map.isColliding(x, y)) return true;
+    return _isDoor(x, y);
+  }
+
   // ── Live screenshot hook for dashboard (fires every 1s via console.debug) ──
   if (!window.__liveScreenshotActive) {
     window.__liveScreenshotActive = true;
@@ -653,6 +694,8 @@
           const key = absY + ',' + absX;
           if (entityMap[key]) {
             ch = entityMap[key].symbol;
+          } else if (_isDoor(absX, absY)) {
+            ch = 'D';
           } else if (map.isColliding(absX, absY)) {
             ch = '#';
           } else {
@@ -750,7 +793,7 @@
     var startX = p.gridX, startY = p.gridY;
     if (game.map.isOutOfBounds(gridX, gridY))
       return { error: 'Out of bounds', target: { x: gridX, y: gridY } };
-    if (game.map.isColliding(gridX, gridY))
+    if (game.map.isColliding(gridX, gridY) && !_isDoor(gridX, gridY))
       return { error: 'Target is a wall', target: { x: gridX, y: gridY }, player_pos: { x: startX, y: startY } };
     var distance = Math.abs(gridX - startX) + Math.abs(gridY - startY);
     p.disableAction = false;
@@ -818,7 +861,7 @@
         if (nx < minX || nx > maxX || ny < minY || ny > maxY) continue;
         var k = key(nx, ny);
         if (visited[k]) continue;
-        if (map.isOutOfBounds(nx, ny) || map.isColliding(nx, ny)) continue;
+        if (!_isWalkableOrDoor(map, nx, ny)) continue;
         visited[k] = true;
         parent[k] = { x: cur.x, y: cur.y };
         queue.push({ x: nx, y: ny });
@@ -854,13 +897,13 @@
   // Find nearest walkable tile within radius r of (cx, cy)
   function _snapToWalkable(cx, cy, maxR) {
     var map = window.game.map;
-    if (!map.isOutOfBounds(cx, cy) && !map.isColliding(cx, cy)) return { x: cx, y: cy };
+    if (_isWalkableOrDoor(map, cx, cy)) return { x: cx, y: cy };
     for (var r = 1; r <= maxR; r++) {
       for (var dx = -r; dx <= r; dx++) {
         for (var dy = -r; dy <= r; dy++) {
           if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
           var nx = cx + dx, ny = cy + dy;
-          if (!map.isOutOfBounds(nx, ny) && !map.isColliding(nx, ny)) return { x: nx, y: ny };
+          if (_isWalkableOrDoor(map, nx, ny)) return { x: nx, y: ny };
         }
       }
     }

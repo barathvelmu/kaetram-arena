@@ -17,7 +17,13 @@ auto_commit() {
   git add research/ session_log.md 2>/dev/null || true
   if ! git diff --staged --quiet; then
     git commit -m "[auto] compile-research $(date -u '+%Y-%m-%d %H:%M UTC')"
-    git push origin main && echo "[research] changes pushed" || echo "[research] push failed"
+    if git pull --rebase --autostash origin main && git push origin main; then
+      echo "[research] changes pushed"
+    else
+      echo "[research] push failed after rebase attempt"
+      python3 scripts/check_research_staleness.py --notify || true
+      return 1
+    fi
   else
     echo "[research] compile-research ran — no file changes"
   fi

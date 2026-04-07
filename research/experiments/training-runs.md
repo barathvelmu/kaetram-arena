@@ -97,7 +97,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: Niral greenlights full `modal run finetune/train_kto_modal.py` → r6-KTO model → update `serve_modal.py`.
+Immediate: Full KTO run (`modal run finetune/train_kto_modal.py`) awaiting greenlight → r6-KTO model → update `serve_modal.py`. Smoke test validated April 5; pipeline is ready.
 
 Near-term: collect more sessions (12-24h agent run) → rebuild qwen_sft → train r8-SFT → KTO on r8 → eval (base vs r8-SFT vs r8-KTO). That 3-model comparison is the paper result.
 

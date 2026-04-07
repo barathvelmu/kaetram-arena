@@ -18,7 +18,7 @@ Survey of preference optimization methods relevant to game agent distillation. C
 
 **Key result from paper:** Matches DPO on MT-Bench within 0.1-0.5 points using unpaired data.
 
-**Status:** Code complete (April 5). Smoke test pending.
+**Status:** Code complete (April 5). Smoke test passed (10/10 steps, train_loss=0.617, KL active). Full run awaiting greenlight.
 
 ### GRPO — Group Relative Policy Optimization (DeepSeek, 2024)
 

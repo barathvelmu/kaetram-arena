@@ -7,9 +7,9 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
 ## Pipeline Overview
 
 ```
-323 raw logs (agents 0-2 on VM at latest audit)
+443 raw logs (agents 0-2 on VM, as of April 7)
   → extract_turns.py (OODA turn extraction)
-    → 378 extracted session dirs
+    → 395 extracted session dirs (132 + 129 + 134 across agents 0-2)
   → convert_to_qwen.py (quality scoring + format conversion)
     → 3,957 train / 488 val (4,445 total Qwen3.5 9B SFT records)
 ```

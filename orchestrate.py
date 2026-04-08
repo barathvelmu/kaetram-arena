@@ -81,15 +81,20 @@ class GameServer:
         """Start the Kaetram game server on the assigned port."""
         # CWD must be packages/server/ so dotenv resolves ../../.env correctly.
         # Use --port CLI arg to override (see packages/server/src/args.ts).
+        log_path = Path(f"/tmp/kaetram_agent_{self.agent_id}/gameserver_{self.port}.log")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         cmd = (
             f'source "{NVM_SH}" && nvm use 20 --silent && '
             f'exec node --enable-source-maps dist/main.js --port {self.port}'
         )
+        self._server_log = open(log_path, "a")
+        self._server_log.write(f"\n--- Server start at {time.strftime('%Y-%m-%d %H:%M:%S')} (restart #{self.restart_count + 1}) ---\n")
+        self._server_log.flush()
         self.process = subprocess.Popen(
             ["bash", "-c", cmd],
             cwd=str(KAETRAM_SERVER_DIR),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=self._server_log,
+            stderr=self._server_log,
             preexec_fn=os.setsid,
         )
         self.last_restart = time.time()
@@ -111,6 +116,12 @@ class GameServer:
                     pass
                 self.process.wait()
             self.process = None
+        if hasattr(self, "_server_log") and self._server_log:
+            try:
+                self._server_log.close()
+            except OSError:
+                pass
+            self._server_log = None
 
     def is_alive(self) -> bool:
         return self.process is not None and self.process.poll() is None
@@ -711,6 +722,51 @@ class AgentInstance:
             pass
         return False
 
+    def maybe_restart_if_mcp_dead(self, error_threshold: int = 5) -> bool:
+        """Kill and restart if MCP server died mid-session.
+
+        Detects repeated 'MCP server ... is not connected' or 'Connection closed'
+        errors in the tail of the latest log. This catches the case where MCP was
+        connected at session start but crashed during gameplay.
+        Returns True if restarted.
+        """
+        if not self.is_alive():
+            return False
+        if self.adapter.name != "claude":
+            return False
+        try:
+            logs = sorted(self.log_dir.glob("session_*.log"),
+                          key=lambda p: p.stat().st_mtime, reverse=True)
+            if not logs:
+                return False
+            log_path = logs[0]
+            # Only check if log was recently modified (active session)
+            if time.time() - log_path.stat().st_mtime > 60:
+                return False
+            # Read last 30KB of the log
+            size = log_path.stat().st_size
+            if size < 5000:
+                return False
+            with open(log_path, "r", errors="replace") as f:
+                if size > 30_000:
+                    f.seek(size - 30_000)
+                    f.readline()  # skip partial line
+                tail = f.read()
+            # Count MCP death indicators
+            mcp_errors = tail.count("is not connected") + tail.count("Connection closed")
+            if mcp_errors >= error_threshold:
+                print(
+                    f"  [!] Agent {self.agent_id} ({self.username}): "
+                    f"MCP server died mid-session ({mcp_errors} errors in log tail), "
+                    f"restarting session"
+                )
+                self.stop()
+                time.sleep(max(self.pause_between, 10))
+                self.start_session()
+                return True
+        except OSError:
+            pass
+        return False
 
 class Orchestrator:
     def __init__(self, n_agents: int, hours: float | None = None,
@@ -866,6 +922,8 @@ class Orchestrator:
                         f"new session #{agent.session}"
                     )
                 elif agent.maybe_restart_if_mcp_failed():
+                    pass  # already printed inside the method
+                elif agent.maybe_restart_if_mcp_dead():
                     pass  # already printed inside the method
                 elif agent.maybe_restart_if_disconnected():
                     pass  # already printed inside the method

@@ -3,6 +3,20 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-08 — Research Compile Pass
+
+**Research KB compile:** Fixed stale facts across all research/ files. Key findings:
+- MCP tool count grew 18 → 22 (buy_item, gather, loot, query_quest added). Exceeds RAG-MCP 19-tool threshold — KAE-15 (tool filtering) now more urgent.
+- 509 raw sessions on VM but only 395 extracted. 114 sessions pending re-extraction before next SFT rebuild.
+- Raw session count updated (443 → 509), paper/contribution tool references updated (18 → 22).
+- Added tool count scaling gap to INDEX.md and action item for re-extraction.
+
+**Recent commits (Apr 6-8) not previously compiled:** buy_item tool, tree exhaustion bug fix, warp ID fixes, combat crash guard, door tile pathfinding (88805c7), dashboard overhaul with live game state (c971848), game_knowledge quest walkthrough updates (68e5f2c).
+
+**Current strategy unchanged:** re-extract pending sessions → rebuild qwen_sft → r7-SFT → KTO → eval. Biggest blocker remains eval protocol, not infrastructure.
+
+---
+
 ## 2026-04-05 — KTO Runtime Fixes + Research Loop + Latest Data Rebuild
 
 **KTO pipeline validated:** `score_sessions.py`, `build_kto_dataset.py`, `inspect_kto_dataset.py`, and `finetune/train_kto_modal.py` complete. KTO dataset: 2771 train / 273 val. After 5 smoke test attempts (batch OOMs, bitsandbytes+Unsloth cu128 incompatibility, KTOTrainer batch>1 requirement), landed on `ref_model=None + precompute_ref_log_probs=True`. 10/10 smoke steps passed — train_loss=0.617, KL active, eval clean. Save fallback in place (commit 34314ad). Full run awaiting Niral greenlight.

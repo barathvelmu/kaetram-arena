@@ -92,6 +92,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 - Qwen3-VL tokenizer routing: Unsloth r6 tokenizer routes through Qwen3-VL processor, causing `processing_class` errors. Fix: use base tokenizer explicitly.
 - Orphaned Chromium/MCP processes: Agent restart leaves zombie processes. Fix: process group kill with SIGTERM → SIGKILL timeout (commit 5e1b4df).
 - Explicit reference-model KTO runs OOMed repeatedly on H100 80GB. Current workaround is `ref_model=None + precompute_ref_log_probs=True`, which removes the separate reference-model residency cost at training time.
+- **Tool count drift (April 8):** MCP server now has **22 tools** (was 18 at r5 training time). New tools: `buy_item`, `gather`, `loot`, `query_quest`. RAG-MCP (arxiv 2505.03275) reports degradation above ~19 tools. Next SFT dataset will include these new tool calls — monitor for tool selection confusion in the student model. Context-dependent tool filtering (KAE-15) becomes more urgent.
 
 ---
 
@@ -99,7 +100,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 Immediate: Full KTO run (`modal run finetune/train_kto_modal.py`) awaiting greenlight → r6-KTO model → update `serve_modal.py`. Smoke test validated April 5; pipeline is ready.
 
-Near-term: collect more sessions (12-24h agent run) → rebuild qwen_sft → train r8-SFT → KTO on r8 → eval (base vs r8-SFT vs r8-KTO). That 3-model comparison is the paper result.
+Near-term: **re-extract 114 pending sessions** (509 raw, only 395 extracted as of April 8) → rebuild qwen_sft → train r7-SFT on expanded dataset → KTO on r7 → eval (base vs r7-SFT vs r7-KTO). That 3-model comparison is the paper result. Note: 22 tools now (was 18 at r5 time) — new action types in training data.
 
 Backlog (by priority from Linear):
 - **High:** Dr. GRPO + DAPO patches for GRPO (KAE-12), guided decoding via GBNF grammar (KAE-14), context-dependent tool filtering (KAE-15)

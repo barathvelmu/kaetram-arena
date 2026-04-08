@@ -6,18 +6,16 @@ These are mixed into DashboardHandler via APIMixin to keep the handler module sm
 import json
 import os
 import glob
-import socket
-import subprocess
 import time
 from datetime import datetime
 
 from dashboard.constants import (
     PROJECT_DIR, STATE_DIR, LOG_DIR, DATASET_DIR,
     BASE_SERVER_PORT, PORT_STRIDE, MAX_AGENTS,
-    sanitize,
+    sanitize, get_ss_output, check_process_running,
 )
 from dashboard.parsers import parse_session_log, quick_session_summary, live_session_stats
-from dashboard.game_state import extract_game_state_from_log, extract_game_state_from_db
+from dashboard.game_state import extract_game_state_from_db
 
 
 _agents_cache = {"data": None, "time": 0}
@@ -53,28 +51,34 @@ class APIMixin:
         else:
             username = "claudebot0"  # default single-agent
         db_state = extract_game_state_from_db(username)
-        if db_state:
-            data = db_state
-            freshness = 0  # DB data is always current
 
-        # Priority 2: game_state.json file
-        if not data:
-            gs_file = os.path.join(state_dir, "game_state.json")
-            if os.path.isfile(gs_file):
-                try:
+        # Priority 1: game_state.json (written by MCP observe — live volatile state)
+        gs_file = os.path.join(state_dir, "game_state.json")
+        if os.path.isfile(gs_file):
+            try:
+                mtime = os.path.getmtime(gs_file)
+                age = time.time() - mtime
+                if age < 120:  # fresh within 2 minutes
                     with open(gs_file) as fh:
-                        data = json.load(fh)
-                    mtime = os.path.getmtime(gs_file)
-                    freshness = round(time.time() - mtime, 1)
-                except Exception:
-                    pass
+                        live = json.load(fh)
+                    freshness = round(age, 1)
+                    if db_state:
+                        # Merge: DB has quests/skills/equipment, file has live position/HP/entities
+                        data = db_state
+                        for k in ("player_stats", "player_position", "nearby_entities",
+                                  "nearest_mob", "current_target", "player_count_nearby",
+                                  "navigation", "last_combat", "last_xp_event", "ui_state"):
+                            if k in live:
+                                data[k] = live[k]
+                    else:
+                        data = live
+            except Exception:
+                pass
 
-        # Priority 3: Fallback — extract from session log
-        if not data or data.get("error"):
-            extracted = extract_game_state_from_log(qs)
-            if extracted:
-                data = extracted
-                freshness = data.pop("_freshness", -1)
+        # Priority 2: DB-only (no live file, or stale)
+        if not data and db_state:
+            data = db_state
+            freshness = -1
 
         data["freshness_seconds"] = freshness
         self._send_json(data)
@@ -219,30 +223,22 @@ class APIMixin:
     def send_live_status(self):
         mode = "none"
         agent_count = 0
-        try:
-            result = subprocess.run(["pgrep", "-f", "python3 orchestrate.py"], capture_output=True, text=True, timeout=3)
-            if result.returncode == 0:
-                mode = "multi"
-                for j in range(MAX_AGENTS):
-                    meta_file = os.path.join("/tmp", f"kaetram_agent_{j}", "metadata.json")
-                    if os.path.isfile(meta_file):
-                        try:
-                            with open(meta_file) as mf:
-                                meta = json.load(mf)
-                            if meta.get("personality") != "qwen":
-                                agent_count += 1
-                        except Exception:
-                            pass
-        except Exception:
-            pass
-        if mode == "none":
-            try:
-                result = subprocess.run(["pgrep", "-f", "play.sh"], capture_output=True, text=True, timeout=3)
-                if result.returncode == 0:
-                    mode = "single"
-                    agent_count = 1
-            except Exception:
-                pass
+        # Use /proc scan instead of subprocess fork
+        if check_process_running("python3 orchestrate.py"):
+            mode = "multi"
+            for j in range(MAX_AGENTS):
+                meta_file = os.path.join("/tmp", f"kaetram_agent_{j}", "metadata.json")
+                if os.path.isfile(meta_file):
+                    try:
+                        with open(meta_file) as mf:
+                            meta = json.load(mf)
+                        if meta.get("personality") != "qwen":
+                            agent_count += 1
+                    except Exception:
+                        pass
+        if mode == "none" and check_process_running("play.sh"):
+            mode = "single"
+            agent_count = 1
 
         agent_running = mode != "none"
 
@@ -271,21 +267,16 @@ class APIMixin:
                 screenshot_age = int(time.time() - mtime)
                 screenshot_time = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
 
+        # Use cached ss output (shared 5s TTL)
+        ss_out = get_ss_output()
         active_ports = []
-        game_server_up = False
-        try:
-            result = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True, timeout=3)
-            ss_out = result.stdout
-            if ":9000" in ss_out:
-                game_server_up = True
-            for i in range(MAX_AGENTS):
-                port = BASE_SERVER_PORT + i * PORT_STRIDE
-                if f":{port}" in ss_out:
-                    active_ports.append(port)
-            if not game_server_up and active_ports:
-                game_server_up = True
-        except Exception:
-            pass
+        game_server_up = ":9000" in ss_out
+        for i in range(MAX_AGENTS):
+            port = BASE_SERVER_PORT + i * PORT_STRIDE
+            if f":{port}" in ss_out:
+                active_ports.append(port)
+        if not game_server_up and active_ports:
+            game_server_up = True
 
         single_sessions = len(glob.glob(os.path.join(LOG_DIR, "session_*.log")))
         multi_sessions = len(glob.glob(os.path.join(DATASET_DIR, "raw", "agent_*", "logs", "session_*.log")))
@@ -314,17 +305,14 @@ class APIMixin:
         if _agents_cache["data"] is not None and now - _agents_cache["time"] < _AGENTS_CACHE_TTL:
             return self._send_json(_agents_cache["data"])
 
-        # Check which ports are listening (single ss call instead of per-agent TCP probes)
+        # Use cached ss output (shared 5s TTL, no subprocess fork)
+        ss_out = get_ss_output()
         listening_ports = set()
-        try:
-            result = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True, timeout=3)
-            for line in result.stdout.splitlines():
-                for i in range(MAX_AGENTS):
-                    port = BASE_SERVER_PORT + i * PORT_STRIDE
-                    if f":{port}" in line:
-                        listening_ports.add(port)
-        except Exception:
-            pass
+        for line in ss_out.splitlines():
+            for i in range(MAX_AGENTS):
+                port = BASE_SERVER_PORT + i * PORT_STRIDE
+                if f":{port}" in line:
+                    listening_ports.add(port)
 
         agents = []
         for i in range(MAX_AGENTS):
@@ -388,16 +376,14 @@ class APIMixin:
                     agent["turns"] = live["turns"]
                     agent["context_tokens"] = live["context_tokens"]
                     agent["output_tokens"] = live["output_tokens"]
-                    # Try DB first, fall back to log parsing
-                    db_state = extract_game_state_from_db(agent["username"].lower())
-                    if db_state:
-                        db_state.pop("_source", None)
-                        agent["game_state"] = db_state
-                    else:
-                        extracted = extract_game_state_from_log({"agent": [str(i)]})
-                        if extracted:
-                            extracted.pop("_freshness", None)
-                            agent["game_state"] = extracted
+                    # Game state from file (written by MCP observe — cheap read)
+                    gs_file = os.path.join(state_dir, "game_state.json")
+                    if os.path.isfile(gs_file):
+                        try:
+                            with open(gs_file) as gf:
+                                agent["game_state"] = json.load(gf)
+                        except Exception:
+                            pass
             else:
                 agent["session_count"] = 0
 

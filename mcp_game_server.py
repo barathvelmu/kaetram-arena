@@ -24,8 +24,62 @@ from mcp.server.fastmcp import Context, FastMCP
 from playwright.async_api import async_playwright
 
 # All debug output to stderr (stdout reserved for MCP JSON-RPC)
+import time as _time
+
+_MCP_START = _time.time()
+_MCP_TOOL_COUNTS: dict[str, int] = {}
+_MCP_ERROR_COUNTS: dict[str, int] = {}
+_MCP_LOG_FILE = None
+
+def _init_log_file():
+    """Open a persistent log file for MCP diagnostics."""
+    global _MCP_LOG_FILE
+    screenshot_dir = os.environ.get("KAETRAM_SCREENSHOT_DIR", "/tmp")
+    log_path = os.path.join(screenshot_dir, "mcp_server.log")
+    try:
+        _MCP_LOG_FILE = open(log_path, "a")
+    except OSError:
+        pass
+
 def log(msg: str):
-    print(msg, file=sys.stderr, flush=True)
+    elapsed = _time.time() - _MCP_START
+    m, s = divmod(int(elapsed), 60)
+    ts = _time.strftime("%H:%M:%S")
+    line = f"[{ts} +{m:02d}:{s:02d}] {msg}"
+    print(line, file=sys.stderr, flush=True)
+    if _MCP_LOG_FILE:
+        try:
+            _MCP_LOG_FILE.write(line + "\n")
+            _MCP_LOG_FILE.flush()
+        except OSError:
+            pass
+
+def log_tool(name: str, success: bool = True, error: str = ""):
+    _MCP_TOOL_COUNTS[name] = _MCP_TOOL_COUNTS.get(name, 0) + 1
+    if not success:
+        _MCP_ERROR_COUNTS[name] = _MCP_ERROR_COUNTS.get(name, 0) + 1
+        log(f"[tool] {name} FAILED ({_MCP_ERROR_COUNTS[name]} errors): {error[:200]}")
+    elif _MCP_TOOL_COUNTS[name] <= 3 or _MCP_TOOL_COUNTS[name] % 25 == 0:
+        # Log first 3 calls of each tool + every 25th as heartbeat
+        log(f"[tool] {name} #{_MCP_TOOL_COUNTS[name]}")
+    # Periodic stats dump every 50 total calls
+    total = sum(_MCP_TOOL_COUNTS.values())
+    if total % 50 == 0:
+        log_stats()
+
+def log_stats():
+    total = sum(_MCP_TOOL_COUNTS.values())
+    errors = sum(_MCP_ERROR_COUNTS.values())
+    top5 = sorted(_MCP_TOOL_COUNTS.items(), key=lambda x: -x[1])[:5]
+    top5_str = ", ".join(f"{k}={v}" for k, v in top5)
+    err_str = ""
+    if _MCP_ERROR_COUNTS:
+        err_detail = ", ".join(f"{k}={v}" for k, v in sorted(_MCP_ERROR_COUNTS.items(), key=lambda x: -x[1]))
+        err_str = f" | errors: {err_detail}"
+    log(f"[stats] {total} total calls, {errors} errors | top: {top5_str}{err_str}")
+
+# Initialize log file on import
+_init_log_file()
 
 
 # ── Browser lifespan (lazy — yields immediately, launches browser on first use) ─
@@ -41,11 +95,13 @@ async def game_lifespan(server: FastMCP):
     try:
         yield state
     finally:
+        log_stats()
         if state["browser"]:
             log("[mcp] Shutting down browser")
             await state["browser"].close()
         if state["pw"]:
             await state["pw"].stop()
+        log("[mcp] Server shutdown complete")
 
 
 async def _ensure_browser(state: dict):
@@ -104,6 +160,10 @@ async def _ensure_browser(state: dict):
                     pass
 
         page.on("console", on_console)
+
+        # Log page crashes and WebSocket closures
+        page.on("crash", lambda: log("[mcp] PAGE CRASHED — browser tab died"))
+        page.on("close", lambda: log("[mcp] PAGE CLOSED — browser tab was closed"))
 
         state["page"] = page
         state["browser"] = browser
@@ -184,6 +244,7 @@ async def login(ctx: Context) -> str:
 
     if not game_ready:
         log(f"[mcp] Login failed for {username} — game did not load")
+        log_tool("login", success=False, error="game did not load")
         return "Login FAILED — game did not load. The game client may not be connected to the server. Try login() again."
 
     # Dismiss any post-login modals (welcome screen, notifications)
@@ -196,6 +257,7 @@ async def login(ctx: Context) -> str:
 
     ctx.request_context.lifespan_context["logged_in"] = True
     log(f"[mcp] Logged in as {username}")
+    log_tool("login")
     msg = f"Logged in as {username}"
     if warped:
         msg += " (auto-warped to Mudwich)"
@@ -211,6 +273,7 @@ async def observe(ctx: Context) -> str:
     Returns game state JSON + ASCII map + stuck check. Call this before every
     decision and after every action.  Always returns the full, consistent state.
     """
+    log_tool("observe")
     page = await _page(ctx)
 
     # Take screenshot for dashboard
@@ -255,6 +318,26 @@ async def observe(ctx: Context) -> str:
                + '\\n\\nSTUCK_CHECK:\\n' + JSON.stringify(sc);
     }""")
 
+    # Write game_state.json for dashboard (live state, no log parsing needed)
+    try:
+        gs_json = result.split("\n\nASCII_MAP:")[0] if "\n\nASCII_MAP:" in result else result
+        if not gs_json.startswith("ERROR"):
+            gs_path = os.path.join(screenshot_dir, "game_state.json")
+            with open(gs_path, "w") as f:
+                f.write(gs_json)
+    except Exception:
+        pass
+
+    # Write game_state.json for dashboard (live state, no log parsing needed)
+    try:
+        gs_json = result.split("\n\nASCII_MAP:")[0] if "\n\nASCII_MAP:" in result else result
+        if not gs_json.startswith("ERROR"):
+            gs_path = os.path.join(screenshot_dir, "game_state.json")
+            with open(gs_path, "w") as f:
+                f.write(gs_json)
+    except Exception:
+        pass
+
     return result
 
 
@@ -267,6 +350,7 @@ async def attack(ctx: Context, mob_name: str) -> str:
     Args:
         mob_name: Name of mob to attack (e.g. 'Rat', 'Snek', 'Goblin')
     """
+    log_tool("attack")
     page = await _page(ctx)
 
     # Snapshot mob HP before attacking
@@ -308,11 +392,99 @@ async def attack(ctx: Context, mob_name: str) -> str:
         if post["damage_dealt"] == 0 and not post.get("killed"):
             post["note"] = "Attack landed but game tick has not updated HP yet. Keep attacking — do not move."
 
+    # Auto-loot on kill: scan for nearby items and walk to them
+    auto_looted = {}
+    if isinstance(post, dict) and post.get("killed"):
+        await page.wait_for_timeout(500)  # brief delay for drop to spawn
+        auto_looted = await page.evaluate("""() => {
+            const game = window.game;
+            if (!game || !game.player) return {};
+            const player = game.player;
+            const allEnts = game.entities.entities || {};
+            // Snapshot inventory before
+            let invBefore = {};
+            try {
+                const inv = game.menu.getInventory();
+                if (inv && inv.getElement) {
+                    for (let i = 0; i < 25; i++) {
+                        const el = inv.getElement(i);
+                        if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+                        const k = el.dataset.key;
+                        invBefore[k] = (invBefore[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
+                    }
+                }
+            } catch(e) {}
+            // Find nearest lootable
+            let nearest = null;
+            let minDist = 999;
+            for (const [inst, ent] of Object.entries(allEnts)) {
+                if (ent.type !== 2 && ent.type !== 8) continue;
+                const dist = Math.abs(ent.gridX - player.gridX) + Math.abs(ent.gridY - player.gridY);
+                if (dist < minDist && dist <= 10) {
+                    minDist = dist;
+                    nearest = { instance: inst, type: ent.type, name: ent.name || 'Unknown', x: ent.gridX, y: ent.gridY, distance: dist };
+                }
+            }
+            if (!nearest) return { no_drops: true };
+            // Click to walk to item
+            const coords = window.__tileToScreenCoords(nearest.x, nearest.y);
+            if (coords && !coords.error) {
+                player.disableAction = false;
+                document.getElementById('canvas').dispatchEvent(new MouseEvent('click', {
+                    clientX: coords.click_x, clientY: coords.click_y, bubbles: true
+                }));
+            }
+            return { targeting: nearest, inv_before: invBefore };
+        }""")
+
+        if isinstance(auto_looted, dict) and auto_looted.get("targeting"):
+            # Wait for walk + auto-pickup (scale with distance)
+            dist = auto_looted["targeting"].get("distance", 3)
+            wait_ms = min(max(1500, dist * 300), 5000)
+            await page.wait_for_timeout(wait_ms)
+
+            # Handle lootbag
+            if auto_looted["targeting"].get("type") == 8:
+                await page.evaluate("""() => {
+                    const game = window.game;
+                    if (!game || !game.socket) return;
+                    for (let i = 0; i < 10; i++) {
+                        try { game.socket.send(58, { opcode: 1, index: i }); } catch(e) {}
+                    }
+                }""")
+                await page.wait_for_timeout(500)
+
+            # Diff inventory
+            inv_after = await page.evaluate("""() => {
+                try {
+                    const inv = window.game.menu.getInventory();
+                    const items = {};
+                    if (inv && inv.getElement) {
+                        for (let i = 0; i < 25; i++) {
+                            const el = inv.getElement(i);
+                            if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+                            const k = el.dataset.key;
+                            items[k] = (items[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
+                        }
+                    }
+                    return items;
+                } catch(e) { return {}; }
+            }""")
+            inv_before = auto_looted.get("inv_before", {})
+            gained = {}
+            for k, v in inv_after.items():
+                diff = v - inv_before.get(k, 0)
+                if diff > 0:
+                    gained[k] = diff
+            auto_looted = {"looted": gained if gained else "none", "target": auto_looted["targeting"].get("name", "?")}
+
     # Merge post-attack state into result
     try:
         parsed = json.loads(result) if isinstance(result, str) else result
         if isinstance(parsed, dict):
             parsed["post_attack"] = post
+            if auto_looted and not auto_looted.get("no_drops"):
+                parsed["auto_loot"] = auto_looted
             return json.dumps(parsed)
     except Exception:
         pass
@@ -346,6 +518,7 @@ async def navigate(ctx: Context, x: int, y: int) -> str:
         x: Target grid X coordinate
         y: Target grid Y coordinate
     """
+    log_tool("navigate")
     page = await _page(ctx)
     result = await page.evaluate(
         "([x,y]) => JSON.stringify(window.__navigateTo(x, y))", [x, y]
@@ -388,9 +561,10 @@ async def warp(ctx: Context, location: str = "mudwich") -> str:
     """Fast travel to a town. Auto-waits up to 25s if combat cooldown is active.
 
     Args:
-        location: 'mudwich', 'crossroads', or 'lakesworld'
+        location: 'mudwich', 'aynor', 'lakesworld', 'patsow', 'crullfield', or 'undersea'
     """
-    warp_ids = {"mudwich": 0, "crossroads": 1, "lakesworld": 2}
+    log_tool("warp")
+    warp_ids = {"mudwich": 0, "aynor": 1, "lakesworld": 2, "patsow": 3, "crullfield": 4, "undersea": 5}
     warp_id = warp_ids.get(location.lower(), 0)
     page = await _page(ctx)
 
@@ -453,6 +627,7 @@ async def interact_npc(ctx: Context, npc_name: str) -> str:
     Args:
         npc_name: Name of the NPC (e.g. 'Forester', 'Blacksmith', 'Village Girl')
     """
+    log_tool("interact_npc")
     page = await _page(ctx)
 
     # Snapshot quests BEFORE any interaction (to detect changes later)
@@ -748,6 +923,153 @@ async def accept_quest(ctx: Context) -> str:
     return "Quest accept clicked"
 
 
+# ── Shop ─────────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+async def buy_item(ctx: Context, npc_name: str, item_index: int, count: int = 1) -> str:
+    """Buy an item from an NPC's shop. Must be adjacent to the NPC.
+
+    First interact with the store NPC to open the shop, then purchase by item index.
+    Use observe() to see nearby NPCs. Item indices start at 0 (first item in shop).
+
+    Known shops:
+      Forester: 0=Bronze Axe(1000g), 1=Iron Axe(5000g)
+      Miner: 0=Coal(50g), 1=Copper Ore(150g), 2=Tin Ore(150g), 3=Bronze Ore(200g), 4=Gold Ore(500g)
+      Babushka: 0=Blue Lily, 1=Tomato, 2-3=Mushrooms, 4=Egg, 5=Corn, 6=Raw Pork, 7=Raw Chicken
+      Clerk (startshop): 0=Arrow(5g), 1=Knife(500g), 2=Flask(100g), 3=Mana Flask(85g), 4=Burger(450g)
+
+    Args:
+        npc_name: Store NPC name (e.g. 'Forester', 'Miner', 'Babushka', 'Clerk')
+        item_index: Index of item in the shop (0-based)
+        count: Number to buy (default 1)
+    """
+    log_tool("buy_item")
+    page = await _page(ctx)
+
+    # Snapshot gold + inventory before
+    before = await page.evaluate("""() => {
+        const inv = window.game && window.game.menu && window.game.menu.getInventory();
+        if (!inv) return { error: 'Inventory not loaded' };
+        const items = {};
+        let gold = 0;
+        for (let i = 0; i < 25; i++) {
+            const el = inv.getElement(i);
+            if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+            const k = el.dataset.key;
+            const c = el.count || parseInt(el.dataset?.count || '0') || 1;
+            items[k] = (items[k] || 0) + c;
+            if (k === 'gold') gold += c;
+        }
+        return { items, gold };
+    }""")
+
+    if isinstance(before, dict) and before.get("error"):
+        return json.dumps(before)
+
+    # Step 1: Walk to + talk to NPC to trigger store open
+    walk_result = await page.evaluate(
+        "(name) => JSON.stringify(window.__interactNPC(name))", npc_name
+    )
+    walk = json.loads(walk_result) if isinstance(walk_result, str) else walk_result
+
+    if isinstance(walk, dict) and walk.get("error"):
+        return json.dumps({"error": f"Cannot find NPC '{npc_name}': {walk.get('error')}"})
+
+    npc_pos = walk.get("npc_pos", {}) if isinstance(walk, dict) else {}
+
+    # Wait for walk to NPC
+    for wait_i in range(8):
+        await page.wait_for_timeout(1000)
+        pos = await page.evaluate("""(npcPos) => {
+            const p = window.game && window.game.player;
+            if (!p) return { manhattan: 999 };
+            return { manhattan: Math.abs(p.gridX - npcPos.x) + Math.abs(p.gridY - npcPos.y) };
+        }""", npc_pos)
+        if pos.get("manhattan", 999) < 2:
+            break
+
+    # Step 2: Send NPC talk packet to trigger store open server-side
+    instance_id = walk.get("instance", "") if isinstance(walk, dict) else ""
+    if instance_id:
+        await page.evaluate("(id) => window.__talkToNPC(id)", instance_id)
+        await page.wait_for_timeout(1500)
+
+    # Step 3: Get the store key from the open store
+    store_key = await page.evaluate("""() => {
+        const game = window.game;
+        if (!game || !game.player) return null;
+        return game.player.storeOpen || null;
+    }""")
+
+    if not store_key:
+        return json.dumps({
+            "error": f"No shop opened after talking to {npc_name}. Make sure you're adjacent and the NPC has a store.",
+            "npc": npc_name,
+        })
+
+    # Step 4: Send buy packet — Packets.Store=42, Opcodes.Store.Buy=2
+    buy_result = await page.evaluate("""([key, index, count]) => {
+        try {
+            window.game.socket.send(42, {
+                opcode: 2,
+                key: key,
+                index: index,
+                count: count
+            });
+            return { sent: true };
+        } catch(e) {
+            return { error: 'Failed to send buy packet: ' + e.message };
+        }
+    }""", [store_key, item_index, count])
+
+    if isinstance(buy_result, dict) and buy_result.get("error"):
+        return json.dumps(buy_result)
+
+    await page.wait_for_timeout(1500)
+
+    # Step 5: Diff inventory to confirm purchase
+    after = await page.evaluate("""() => {
+        const inv = window.game && window.game.menu && window.game.menu.getInventory();
+        if (!inv) return { items: {}, gold: 0 };
+        const items = {};
+        let gold = 0;
+        for (let i = 0; i < 25; i++) {
+            const el = inv.getElement(i);
+            if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+            const k = el.dataset.key;
+            const c = el.count || parseInt(el.dataset?.count || '0') || 1;
+            items[k] = (items[k] || 0) + c;
+            if (k === 'gold') gold += c;
+        }
+        return { items, gold };
+    }""")
+
+    before_items = before.get("items", {}) if isinstance(before, dict) else {}
+    after_items = after.get("items", {}) if isinstance(after, dict) else {}
+
+    gained = {}
+    spent = 0
+    for k, v in after_items.items():
+        diff = v - before_items.get(k, 0)
+        if diff > 0 and k != "gold":
+            gained[k] = diff
+    gold_before = before.get("gold", 0) if isinstance(before, dict) else 0
+    gold_after = after.get("gold", 0) if isinstance(after, dict) else 0
+    spent = gold_before - gold_after
+
+    if gained:
+        return json.dumps({
+            "bought": True, "store": store_key, "items_gained": gained,
+            "gold_spent": spent, "gold_remaining": gold_after,
+        })
+    else:
+        return json.dumps({
+            "bought": False, "store": store_key, "item_index": item_index,
+            "error": "Purchase may have failed — no new items in inventory. Check: enough gold? inventory full? valid item index?",
+            "gold_before": gold_before, "gold_after": gold_after,
+        })
+
+
 # ── Inventory ─────────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -781,7 +1103,11 @@ async def drop_item(ctx: Context, slot: int) -> str:
         const el = inv.getElement(idx);
         if (!el) return { error: 'No item in slot ' + idx };
         const key = (el.dataset && el.dataset.key) || 'unknown';
-        const count = inv.getList().filter(e => e).length;
+        let count = 0;
+        for (let i = 0; i < 25; i++) {
+            const e = inv.getElement(i);
+            if (e && e.dataset?.key && !inv.isEmpty(e)) count++;
+        }
         return { key: key, count: count };
     }""", slot)
 
@@ -805,7 +1131,13 @@ async def drop_item(ctx: Context, slot: int) -> str:
     # Verify item was dropped
     after = await page.evaluate("""() => {
         const inv = window.game && window.game.menu && window.game.menu.getInventory();
-        return inv ? inv.getList().filter(e => e).length : -1;
+        if (!inv) return -1;
+        let count = 0;
+        for (let i = 0; i < 25; i++) {
+            const e = inv.getElement(i);
+            if (e && e.dataset?.key && !inv.isEmpty(e)) count++;
+        }
+        return count;
     }""")
 
     item_key = before.get("key", "unknown") if isinstance(before, dict) else "unknown"
@@ -829,12 +1161,16 @@ async def equip_item(ctx: Context, slot: int) -> str:
     """
     page = await _page(ctx)
 
-    # Snapshot weapon before equip
+    # Snapshot all equipment before equip
     before = await page.evaluate("""() => {
         const p = window.game && window.game.player;
-        if (!p || !p.equipments) return { weapon: 'unknown' };
-        const wep = p.equipments[4];  // slot 4 = weapon
-        return { weapon: wep ? (wep.name || wep.key || 'unknown') : 'none' };
+        if (!p || !p.equipments) return {};
+        const slots = {};
+        for (let i = 0; i < p.equipments.length; i++) {
+            const eq = p.equipments[i];
+            slots[i] = eq ? (eq.name || eq.key || 'none') : 'none';
+        }
+        return slots;
     }""")
 
     # Get item info from inventory slot
@@ -865,28 +1201,36 @@ async def equip_item(ctx: Context, slot: int) -> str:
     }""", slot)
     await page.wait_for_timeout(2500)
 
-    # Verify: did weapon actually change?
+    # Verify: did any equipment slot change?
     after = await page.evaluate("""() => {
         const p = window.game && window.game.player;
-        if (!p || !p.equipments) return { weapon: 'unknown' };
-        const wep = p.equipments[4];
-        return { weapon: wep ? (wep.name || wep.key || 'unknown') : 'none' };
+        if (!p || !p.equipments) return {};
+        const slots = {};
+        for (let i = 0; i < p.equipments.length; i++) {
+            const eq = p.equipments[i];
+            slots[i] = eq ? (eq.name || eq.key || 'none') : 'none';
+        }
+        return slots;
     }""")
 
-    weapon_before = before.get("weapon", "unknown") if isinstance(before, dict) else "unknown"
-    weapon_after = after.get("weapon", "unknown") if isinstance(after, dict) else "unknown"
     item_key = item_info.get("key", "unknown") if isinstance(item_info, dict) else "unknown"
 
-    if weapon_after != weapon_before:
+    # Check if ANY equipment slot changed
+    changed_slots = {}
+    if isinstance(before, dict) and isinstance(after, dict):
+        for k in set(list(before.keys()) + list(after.keys())):
+            if before.get(k) != after.get(k):
+                changed_slots[k] = {"before": before.get(k), "after": after.get(k)}
+
+    if changed_slots:
         return json.dumps({
             "equipped": True, "slot": slot, "item": item_key,
-            "weapon_before": weapon_before, "weapon_now": weapon_after,
+            "changes": changed_slots,
         })
     else:
         return json.dumps({
             "equipped": False, "slot": slot, "item": item_key,
-            "weapon_before": weapon_before, "weapon_now": weapon_after,
-            "error": f"Equip failed — weapon unchanged ({weapon_after}). Possible cause: stat requirement not met (e.g., Strength too low for Iron Axe).",
+            "error": f"Equip may have failed — no equipment slot changed. Possible cause: stat requirement not met, or item is not equippable.",
         })
 
 
@@ -965,6 +1309,7 @@ async def gather(ctx: Context, resource_name: str) -> str:
     Args:
         resource_name: Name of resource (e.g. 'Oak', 'Nisoc Rock', 'Tomato', 'Blueberry Bush', 'Blue Lily')
     """
+    log_tool("gather")
     page = await _page(ctx)
 
     # Snapshot inventory before

@@ -14,7 +14,7 @@ Structured game-agent distillation: we distill a frontier LLM's gameplay reasoni
 
 ### 1. MCP-based structured distillation for game agents
 
-Prior game agent work (GamingAgent ICLR 2026, CRADLE, Voyager) has the agent write raw code or click pixels. We use a **custom MCP server with 18 typed game tools** — the teacher (Claude) and student (Qwen) both call the same structured API. This means:
+Prior game agent work (GamingAgent ICLR 2026, CRADLE, Voyager) has the agent write raw code or click pixels. We use a **custom MCP server with 22 typed game tools** — the teacher (Claude) and student (Qwen) both call the same structured API. This means:
 - Training data is naturally structured (tool name + typed arguments, not free-text code)
 - No action space mismatch between teacher and student
 - The tool API acts as an abstraction layer — game internals change without breaking training data
@@ -61,7 +61,7 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 | SFT only vs SFT + KTO | KTO improves over pure imitation | Pending r6-KTO results |
 | 1 personality vs 3 personalities | Diversity improves student policy | Need to train on AGGRESSIVE-only, compare |
 | Loss masking vs full loss | Training on game state tokens hurts | r4 vs r3 comparison (have data) |
-| 18 tools vs filtered tools | Tool filtering helps small models | Pending KAE-15 implementation |
+| 22 tools vs filtered tools | Tool filtering helps small models | Pending KAE-15 implementation. Now at 22 tools (above RAG-MCP 19-tool threshold) — ablation more urgent. |
 | With/without click_tile filter | Data quality > quantity | r5 vs pre-filter comparison (have data) |
 | ORAK 3-stream vs monolithic SFT | Decomposed training improves action accuracy | Pending KAE-19 |
 
@@ -76,7 +76,7 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 2. **Related Work** — Game-playing agents (GamingAgent, CRADLE, Voyager), agent distillation (SAD, ORAK, AgentArk), preference learning (KTO, GRPO, DPO), world models for planning.
 
 3. **Method**
-   - 3.1 Kaetram environment + MCP tool API (18 tools, OODA loop)
+   - 3.1 Kaetram environment + MCP tool API (22 tools, OODA loop)
    - 3.2 Personality-diverse data collection (3 teacher personalities, how they differ)
    - 3.3 SFT with loss masking and quality filtering
    - 3.4 KTO preference refinement with game outcome scoring

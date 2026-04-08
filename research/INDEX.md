@@ -39,3 +39,8 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - **World model evaluation** — Per-field accuracy, rollout drift, MCTS impact on gameplay. `world/evaluate.py` exists but results not compiled.
 - **Agent distillation landscape** — SAD, ORAK, AgentArk, CRADLE, Voyager, GamingAgent. Should be a related-work article once paper framing solidifies.
 - **Self-play loop design** — STaR, ReST-EM, ETO patterns. Becomes relevant when KAE-16 starts.
+- **Tool count scaling analysis** — MCP server grew from 18 → 22 tools (April 8). RAG-MCP threshold is 19. Need to measure tool selection accuracy in student model at 22 tools vs filtered subsets. Informs KAE-15 priority.
+
+## Action Items (data pipeline)
+
+- **Re-extract turns:** 509 raw sessions but only 395 extracted. Run `python3 extract_turns.py --log-dir logs/ --output-dir dataset/extracted/ --no-frames` to pick up 114 new sessions, then rebuild qwen_sft.

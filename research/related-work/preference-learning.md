@@ -12,7 +12,7 @@ Survey of preference optimization methods relevant to game agent distillation. C
 
 **What it needs:** Unpaired examples with binary labels. No need to match good/bad pairs for the same prompt.
 
-**Why we chose it (over DPO):** Our data is unpaired — we have 530+ sessions labeled by outcome (XP gain, deaths, quest progress), not pairs of good/bad actions from the same game state. KTO fits our data natively. DPO would require constructing artificial pairs. (KAE-13)
+**Why we chose it (over DPO):** Our data is unpaired — we have 509 sessions (as of April 8) labeled by outcome (XP gain, deaths, quest progress), not pairs of good/bad actions from the same game state. KTO fits our data natively. DPO would require constructing artificial pairs. (KAE-13)
 
 **Our implementation:** Score sessions 0-1 from outcome signals → top 40% desirable, bottom 30% undesirable → sliding windows (size=5, stride=2) → TRL `KTOTrainer` on r6 SFT checkpoint.
 

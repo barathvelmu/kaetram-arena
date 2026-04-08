@@ -198,7 +198,7 @@ kaetram-agent/
 │   ├── start-kaetram.sh     # Starts Kaetram server (handles nvm use 20)
 │   ├── restart-agent.sh     # Kill + restart agents fresh (resets DB)
 │   ├── resume-agent.sh      # Resume agents without DB reset
-│   ├── stop-agent.sh        # Graceful shutdown of orchestrator + agents
+│   ├── nuke-agents.sh       # Stop all agents (SIGKILL everything)
 │   ├── reset-state.sh       # Reset MongoDB player data only
 │   ├── collect_sft_data.sh  # End-to-end: orchestrate → extract → convert
 │   ├── play_session.mjs     # Standalone Playwright script for manual testing

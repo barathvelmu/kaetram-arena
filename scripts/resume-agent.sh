@@ -68,7 +68,7 @@ done
 # ── Step 1: Check if orchestrator is already running ──
 if pgrep -f "python3 orchestrate.py" > /dev/null 2>&1; then
   echo "ERROR: Orchestrator is already running (PID $(pgrep -f 'python3 orchestrate.py'))."
-  echo "  Stop it first: ./scripts/stop-agent.sh"
+  echo "  Stop it first: ./scripts/nuke-agents.sh"
   exit 1
 fi
 

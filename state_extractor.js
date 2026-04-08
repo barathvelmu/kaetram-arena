@@ -521,6 +521,52 @@
     return { eating: true, slot: slot, item: itemKey, hp_before: hpBefore, dialogue_closed: dialogueClosed };
   };
 
+  // ── Equip item by inventory slot ──
+  // Sends Container.Select packet directly — no DOM click fragility.
+  window.__equipItem = function (slot) {
+    var game = window.game;
+    if (!game || !game.menu || !game.socket) return { error: 'Game not loaded' };
+
+    // Close any open dialogue that blocks inventory
+    try {
+      var closeQuest = document.getElementById('close-quest');
+      if (closeQuest && closeQuest.offsetParent !== null) closeQuest.click();
+    } catch(e) {}
+
+    var inv = game.menu.getInventory();
+    if (!inv || !inv.getElement) return { error: 'Inventory not available' };
+
+    var el = inv.getElement(slot);
+    if (!el) return { error: 'No item in slot ' + slot };
+
+    var itemKey = (el.dataset && el.dataset.key) || 'unknown';
+    var itemName = el.name || itemKey;
+
+    if (!el.equippable) {
+      return { error: 'Item in slot ' + slot + ' (' + itemName + ') is not equippable', slot: slot, item: itemKey };
+    }
+
+    // Snapshot equipment before
+    var beforeEquip = {};
+    try {
+      var p = game.player;
+      if (p && p.equipments) {
+        for (var i = 0; i < p.equipments.length; i++) {
+          var eq = p.equipments[i];
+          beforeEquip[i] = eq ? (eq.name || eq.key || 'none') : 'none';
+        }
+      }
+    } catch(e) {}
+
+    // Send Container.Select packet: Packets.Container=21, Opcodes.Container.Select=3, ContainerType.Inventory=1
+    game.socket.send(21, { opcode: 3, type: 1, fromIndex: slot, value: 1 });
+
+    return {
+      equipping: true, slot: slot, item: itemKey, name: itemName,
+      equipment_before: beforeEquip
+    };
+  };
+
   // ── Combat state helpers ──
   // Clear target and disableAction so the player can move/warp freely.
   window.__clearCombatState = function () {

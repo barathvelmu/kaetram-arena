@@ -59,7 +59,7 @@ if [ "$FORCE" != "true" ]; then
     echo "  Claude agent processes: $AGENT_COUNT"
     echo "  Game servers on ports:  $SERVERS_UP"
     echo ""
-    echo "Stop them first:  ./scripts/stop-agent.sh"
+    echo "Stop them first:  ./scripts/nuke-agents.sh"
     echo "Or force reset:   ./scripts/reset-state.sh $N_AGENTS --force"
     exit 1
   fi

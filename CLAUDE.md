@@ -81,8 +81,7 @@ research/
 | `./scripts/restart-agent.sh [N] [H]` | **Primary command.** Kills everything, resets DB (fresh Level 1), clears state, relaunches N agents for H hours. Default: 4 agents, 24h. Use `0` for no time limit. Supports personality and harness flags. |
 | `./scripts/resume-agent.sh` | Resume agents without DB reset. Preserves character progress. Supports personality and harness flags. |
 | `./scripts/restart-single-agent.sh <ID>` | Restart one running agent (agent 0-3) without affecting others. Clears session counter for fresh start. Supports `--reset`, personality, and harness switches. |
-| `./scripts/stop-agent.sh` | Stop orchestrator + all agents gracefully. Preserves logs. |
-| `./scripts/nuke-agents.sh` | **Emergency kill.** SIGKILL everything agent-related. Use when orphan processes accumulate. |
+| `./scripts/nuke-agents.sh` | **Stop all agents.** SIGKILL everything agent-related — orchestrator, claude agents, MCP servers, browsers, game servers. Always use this to stop. |
 | `./scripts/reset-state.sh [N] [--force]` | Reset MongoDB player data only (no restart). Use `--force` to skip safety check. |
 | `./scripts/start-kaetram.sh` | Start Kaetram game server (single-agent mode, Node 20 required). |
 

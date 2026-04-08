@@ -1161,45 +1161,13 @@ async def equip_item(ctx: Context, slot: int) -> str:
     """
     page = await _page(ctx)
 
-    # Snapshot all equipment before equip
-    before = await page.evaluate("""() => {
-        const p = window.game && window.game.player;
-        if (!p || !p.equipments) return {};
-        const slots = {};
-        for (let i = 0; i < p.equipments.length; i++) {
-            const eq = p.equipments[i];
-            slots[i] = eq ? (eq.name || eq.key || 'none') : 'none';
-        }
-        return slots;
-    }""")
+    # Use the reliable __equipItem helper (sends Container.Select packet directly)
+    result = await page.evaluate("(s) => window.__equipItem(s)", slot)
 
-    # Get item info from inventory slot
-    item_info = await page.evaluate("""(idx) => {
-        const inv = window.game && window.game.menu && window.game.menu.inventory;
-        if (!inv) return { error: 'Inventory not loaded' };
-        const slots = document.querySelectorAll('.item-slot');
-        const el = slots[idx];
-        if (!el) return { error: 'No item in slot ' + idx };
-        return { key: el.dataset && el.dataset.key || 'unknown', slot: idx };
-    }""", slot)
+    if isinstance(result, dict) and result.get("error"):
+        return json.dumps(result)
 
-    if isinstance(item_info, dict) and item_info.get("error"):
-        return json.dumps(item_info)
-
-    # Click the slot and equip button
-    await page.evaluate("""(idx) => {
-        document.getElementById('inventory-button').click();
-        setTimeout(() => {
-            const slots = document.querySelectorAll('.item-slot');
-            if (slots[idx]) slots[idx].click();
-            setTimeout(() => {
-                const btn = document.querySelector('.action-equip');
-                if (btn) btn.click();
-                setTimeout(() => document.getElementById('inventory-button').click(), 500);
-            }, 800);
-        }, 800);
-    }""", slot)
-    await page.wait_for_timeout(2500)
+    await page.wait_for_timeout(1500)
 
     # Verify: did any equipment slot change?
     after = await page.evaluate("""() => {
@@ -1213,14 +1181,15 @@ async def equip_item(ctx: Context, slot: int) -> str:
         return slots;
     }""")
 
-    item_key = item_info.get("key", "unknown") if isinstance(item_info, dict) else "unknown"
+    before = result.get("equipment_before", {}) if isinstance(result, dict) else {}
+    item_key = result.get("item", "unknown") if isinstance(result, dict) else "unknown"
 
-    # Check if ANY equipment slot changed
     changed_slots = {}
     if isinstance(before, dict) and isinstance(after, dict):
-        for k in set(list(before.keys()) + list(after.keys())):
-            if before.get(k) != after.get(k):
-                changed_slots[k] = {"before": before.get(k), "after": after.get(k)}
+        for k in set(list(str(k) for k in before.keys()) + list(str(k) for k in after.keys())):
+            if str(before.get(k, before.get(int(k) if k.isdigit() else k))) != str(after.get(k, after.get(int(k) if k.isdigit() else k))):
+                changed_slots[k] = {"before": before.get(k, before.get(int(k) if k.isdigit() else k)),
+                                    "after": after.get(k, after.get(int(k) if k.isdigit() else k))}
 
     if changed_slots:
         return json.dumps({
@@ -1230,7 +1199,7 @@ async def equip_item(ctx: Context, slot: int) -> str:
     else:
         return json.dumps({
             "equipped": False, "slot": slot, "item": item_key,
-            "error": f"Equip may have failed — no equipment slot changed. Possible cause: stat requirement not met, or item is not equippable.",
+            "error": "Equip failed — no equipment slot changed. Stat/level requirement not met, or item already equipped.",
         })
 
 

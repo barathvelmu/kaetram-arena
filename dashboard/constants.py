@@ -29,6 +29,43 @@ WS_PORT = 8081
 SCREENSHOT_POLL_INTERVAL = 1.0  # seconds between mtime checks (was 0.2 — too aggressive)
 SCREENSHOT_MAX_AGE = 60  # seconds — screenshots older than this are considered stale
 
+# Subprocess cache (shared across endpoints to avoid redundant forks)
+_ss_cache = {"output": "", "time": 0}
+_SS_CACHE_TTL = 5  # seconds
+
+
+def get_ss_output():
+    """Return cached `ss -tlnp` output (5s TTL, avoids forking on every request)."""
+    import subprocess
+    import time
+    now = time.time()
+    if now - _ss_cache["time"] < _SS_CACHE_TTL:
+        return _ss_cache["output"]
+    try:
+        result = subprocess.run(["ss", "-tlnp"], capture_output=True, text=True, timeout=3)
+        _ss_cache["output"] = result.stdout
+    except Exception:
+        pass  # return stale cache on failure
+    _ss_cache["time"] = now
+    return _ss_cache["output"]
+
+
+def check_process_running(pattern: str) -> bool:
+    """Check if a process matching pattern is running via /proc scan (no subprocess fork)."""
+    import os
+    for pid_dir in os.listdir("/proc"):
+        if not pid_dir.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid_dir}/cmdline", "rb") as f:
+                cmdline = f.read().replace(b"\x00", b" ").decode("utf-8", errors="ignore")
+            if pattern in cmdline:
+                return True
+        except (OSError, PermissionError):
+            continue
+    return False
+
+
 # MongoDB (Kaetram game server database)
 MONGO_HOST = os.environ.get("KAETRAM_MONGO_HOST", "127.0.0.1")
 MONGO_PORT = int(os.environ.get("KAETRAM_MONGO_PORT", "27017"))

@@ -36,20 +36,34 @@ class ScreenshotWatcher:
         self.on_change = on_change
         self._mtimes = {}
         self._running = False
+        self._active_paths = []
+        self._path_refresh_counter = 0
 
-    def _get_watch_paths(self):
+    def _refresh_watch_paths(self):
+        """Build list of paths that actually exist (avoid wasted stat() on missing files)."""
         paths = []
         for name in ("live_screen.png", "screenshot.png"):
-            paths.append((None, os.path.join(STATE_DIR, name)))
+            p = os.path.join(STATE_DIR, name)
+            if os.path.isfile(p):
+                paths.append((None, p))
         for i in range(MAX_AGENTS):
             for name in ("live_screen.png", "screenshot.png"):
-                paths.append((i, os.path.join("/tmp", f"kaetram_agent_{i}", "state", name)))
-        return paths
+                p = os.path.join("/tmp", f"kaetram_agent_{i}", "state", name)
+                if os.path.isfile(p):
+                    paths.append((i, p))
+        self._active_paths = paths
 
     def run(self):
         self._running = True
+        self._refresh_watch_paths()
         while self._running:
-            for agent_id, filepath in self._get_watch_paths():
+            # Re-discover paths every 30 cycles (~30s) to pick up new agents
+            self._path_refresh_counter += 1
+            if self._path_refresh_counter >= 30:
+                self._refresh_watch_paths()
+                self._path_refresh_counter = 0
+
+            for agent_id, filepath in self._active_paths:
                 try:
                     mtime = os.path.getmtime(filepath)
                     prev = self._mtimes.get(filepath)

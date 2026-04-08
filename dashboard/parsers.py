@@ -50,15 +50,36 @@ def _kaetram_tool_summary(tool: str, inp: dict) -> str:
     return action
 
 
+_parse_cache = {}  # filepath -> (file_size, parsed_result)
+_live_stats_cache = {}  # filepath -> (mtime, stats_result)
+
+
 def parse_session_log(filepath):
     """Parse a session log (auto-detecting Claude or Codex format).
 
     Returns dict with events, turn, cost, tokens, model, duration.
+    Cached by (filepath, file_size) — only re-parses when log grows.
     """
+    try:
+        size = Path(filepath).stat().st_size
+    except OSError:
+        size = -1
+    cached = _parse_cache.get(filepath)
+    if cached and cached[0] == size:
+        return cached[1]
+
     fmt = detect_log_format(Path(filepath))
     if fmt == "codex":
-        return _parse_codex_session_log(filepath)
-    return _parse_claude_session_log(filepath)
+        result = _parse_codex_session_log(filepath)
+    else:
+        result = _parse_claude_session_log(filepath)
+
+    _parse_cache[filepath] = (size, result)
+    # Evict old entries (keep last 20 files)
+    if len(_parse_cache) > 20:
+        oldest = list(_parse_cache.keys())[0]
+        del _parse_cache[oldest]
+    return result
 
 
 def _parse_claude_session_log(filepath):
@@ -448,9 +469,17 @@ def quick_session_summary(filepath):
 def live_session_stats(filepath):
     """Read turn count, context tokens, cost, and model from a session log.
 
-    Single-pass scan of the last ~1MB. Returns metadata only —
-    game state is handled separately by game_state module.
+    Single-pass scan of the last ~1MB. Cached by (filepath, mtime) —
+    only re-parses when the log file is modified.
     """
+    try:
+        mtime = Path(filepath).stat().st_mtime
+    except OSError:
+        mtime = -1
+    cached = _live_stats_cache.get(filepath)
+    if cached and cached[0] == mtime:
+        return cached[1]
+
     fmt = detect_log_format(Path(filepath))
 
     turns = 0
@@ -547,7 +576,7 @@ def live_session_stats(filepath):
                             break
     except Exception:
         pass
-    return {
+    result = {
         "turns": turns,
         "context_tokens": context_tokens,
         "output_tokens": output_tokens_total,
@@ -557,3 +586,9 @@ def live_session_stats(filepath):
         "is_overage": is_overage,
         "duration_ms": duration_ms,
     }
+    _live_stats_cache[filepath] = (mtime, result)
+    # Evict old entries
+    if len(_live_stats_cache) > 20:
+        oldest = list(_live_stats_cache.keys())[0]
+        del _live_stats_cache[oldest]
+    return result

@@ -162,6 +162,11 @@ Run each in its own terminal:
    ```bash
    python3 dashboard.py
    ```
+   **Restart dashboard** (e.g. after template/code changes):
+   ```bash
+   kill $(pgrep -f "python3 dashboard.py"); sleep 2; nohup .venv/bin/python3 dashboard.py > /tmp/dashboard.log 2>&1 &
+   ```
+   Note: `kill` may report "no such process" if the shell already reaped it — this is harmless, the new process still launches. The `exit code 144` from zsh on `kill` of a backgrounded process is normal.
 
 3. **Terminal 3 — Agent loop** — MUST be separate terminal (never subprocess)
    ```bash
@@ -198,7 +203,9 @@ Port allocation: agent N gets server WS port `9001 + N*10` (9001, 9011, 9021, 90
 
 **Resource budget (3 agents on this VM):** ~2.5 GB RAM, ~27% CPU, ~4.5 GB disk/24h — comfortable on 16 GB / 4 vCPU.
 
-**Database**: MongoDB (`kaetram-mongo` Docker container, port 27017, db `kaetram_devlopment`) persists player state across 9 collections (`player_info`, `player_skills`, `player_equipment`, `player_inventory`, `player_bank`, `player_quests`, `player_achievements`, `player_statistics`, `player_abilities`). The dashboard reads directly from MongoDB via `pymongo` for authoritative game state (level, HP, mana, skills, quests, equipment, inventory). Requires `pymongo` in the venv.
+**Database**: MongoDB (`kaetram-mongo` Docker container, port 27017, db `kaetram_devlopment`) persists player state across 9 collections (`player_info`, `player_skills`, `player_equipment`, `player_inventory`, `player_bank`, `player_quests`, `player_achievements`, `player_statistics`, `player_abilities`). Note: MongoDB only saves on autosave/logout — positions and HP go stale during gameplay.
+
+**Dashboard game state**: Two-source merge. Live volatile state (position, HP, entities) comes from `game_state.json` written by each MCP server's `observe()` tool. Persistent data (quests, skills, equipment, inventory) comes from MongoDB via `pymongo`. The dashboard merges both — file for what's happening now, DB for accumulated progress. If `game_state.json` is stale (>2min), falls back to DB-only, then log parsing.
 
 ### End-to-end data collection pipeline
 

@@ -3,6 +3,7 @@
 Routes requests to API endpoints, serves screenshots, and renders the dashboard template.
 """
 
+import gzip
 import http.server
 import json
 import mimetypes
@@ -254,13 +255,19 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
 
     # ── JSON response helper ──
 
+    def _accepts_gzip(self):
+        return "gzip" in self.headers.get("Accept-Encoding", "")
+
     def _send_json(self, data):
         body = json.dumps(data).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Cache-Control", "no-store")
+        if len(body) > 1024 and self._accepts_gzip():
+            body = gzip.compress(body, compresslevel=1)
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
@@ -273,8 +280,11 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         body = html.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if self._accepts_gzip():
+            body = gzip.compress(body, compresslevel=1)
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 

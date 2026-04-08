@@ -155,6 +155,20 @@ def parse_tool_result_text(text):
         return None
     if not isinstance(parsed, dict):
         return None
+    # Unwrap MCP observe tool's {"result": "<json_string>"} wrapper
+    if "result" in parsed and isinstance(parsed["result"], str) and len(parsed) <= 2:
+        try:
+            inner = parsed["result"]
+            # Strip ASCII map if present inside the result string
+            for sep in ("\n\nASCII_MAP:", "\n\nASCII:", "\n\nSYMBOLS:", "\n\nSTUCK_CHECK:"):
+                idx = inner.find(sep)
+                if idx != -1:
+                    inner = inner[:idx]
+            unwrapped = json.loads(inner)
+            if isinstance(unwrapped, dict):
+                parsed = unwrapped
+        except (json.JSONDecodeError, ValueError):
+            pass
     # If result wraps game state under a "state" sub-key, merge it up
     if "state" in parsed and isinstance(parsed["state"], dict):
         sub = parsed.pop("state")

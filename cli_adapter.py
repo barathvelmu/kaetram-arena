@@ -17,7 +17,7 @@ MCP_JSON = PROJECT_DIR / ".mcp.json"
 
 # Disallowed tools for the game agent (prevent filesystem exploration;
 # agent should only use mcp__kaetram__* tools).
-CLAUDE_DISALLOWED_TOOLS = "Bash Glob Grep Agent Edit WebFetch WebSearch Write Skill"
+CLAUDE_DISALLOWED_TOOLS = "Bash Glob Grep Agent Edit WebFetch WebSearch Write Skill Read ToolSearch CronList CronCreate CronDelete NotebookEdit TodoWrite TaskCreate TaskUpdate TaskGet TaskList TaskOutput TaskStop EnterPlanMode ExitPlanMode EnterWorktree ExitWorktree RemoteTrigger"
 
 # Venv python path for MCP server subprocess
 VENV_PYTHON = str(PROJECT_DIR / ".venv" / "bin" / "python3")

@@ -171,7 +171,7 @@
         id: inst, type: ent.type, name: getEntityName(ent),
         x: ent.gridX, y: ent.gridY,
         hp: ent.hitPoints || 0, max_hp: ent.maxHitPoints || 0,
-        exhausted: ([10, 11, 12].includes(ent.type) && (ent.hitPoints || 0) <= 0),  // depleted resource
+        exhausted: [10, 11, 12].includes(ent.type) ? !!ent.exhausted : false,  // use client's ResourceState flag
         has_achievement: !!ent.exclamation, quest_npc: !!ent.blueExclamation,
         distance: dist,
         reachable: tileWalkable,

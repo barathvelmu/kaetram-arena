@@ -6,7 +6,7 @@ You are setting up an autonomous game-playing AI agent on this machine. The agen
 
 - **Ollama**: installed and running (`systemctl status ollama`), GPU-accelerated
 - **Base model**: `qwen3.5:9b` already pulled in ollama
-- **LoRA adapter**: `~/kaetram-adapter/` — finetuned on 5,162 gameplay turns
+- **LoRA adapter**: `~/kaetram-adapter/` — finetuned on the current SFT dataset (see `dataset/DATA.md` for latest counts)
 - **Merged model**: `~/kaetram-merged/` — full merged HF safetensors (if merge completed)
 - **Python venv**: `~/kaetram-venv/` with transformers, peft, torch installed
 
@@ -214,11 +214,11 @@ Kaetram game server (localhost:9001 or remote)
 - **Context too short**: Ollama defaults to 4K context. Set `PARAMETER num_ctx 8192` in Modelfile or pass `--num-ctx 8192`
 - **OpenCode can't find model**: Verify `ollama list` shows `kaetram`, and ollama API is at `http://localhost:11434`
 - **Playwright can't find browser**: Run `npx playwright install chromium`
-- **Model quality is poor**: This is a first finetune on 3,844 records with 1 epoch. Quality improves with more data collection runs + more epochs.
+- **Model quality is poor**: Early finetunes were trained on only a few thousand records for 1 epoch. Quality improves with more data collection runs + more epochs — see `research/experiments/training-runs.md` for the current run history.
 
 ## Performance expectations
 
 - **VRAM usage**: ~5-6GB for Q4_K_M (12GB card, plenty of headroom)
 - **Inference speed**: ~20-40 tokens/sec on RTX 3060
 - **Context window**: 8K tokens (sufficient for game state + reasoning)
-- **Model quality**: Trained on 3,844 gameplay turns — knows combat, navigation, quest patterns, but may struggle with novel situations the training data didn't cover
+- **Model quality**: Trained on the current SFT dataset — knows combat, navigation, quest patterns, but may struggle with novel situations the training data didn't cover

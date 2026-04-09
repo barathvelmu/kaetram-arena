@@ -131,12 +131,25 @@ def _extract_reward_context(prompt_text: str) -> dict:
 
 
 def reward_valid_action(completions: list[str], **kwargs) -> list[float]:
-    """Reward for producing a correctly formatted action."""
+    """Reward for producing a correctly formatted action.
+
+    Kept in sync with extract_turns.classify_action() output set (the action
+    names the SFT/KTO datasets actually use). Any drift here directly penalises
+    otherwise-correct tool calls during GRPO training.
+    """
     rewards = []
     valid_actions = {
-        "attack", "interact_npc", "talk_npc", "navigate", "move", "click",
-        "click_entity", "click_tile", "equip", "heal", "warp", "quest_accept",
-        "set_style", "wait", "respawn", "update_memory",
+        # Movement / navigation
+        "navigate", "move", "warp", "click_tile", "click_entity", "click",
+        "stuck_reset", "nav_cancel",
+        # Combat
+        "attack", "set_style", "clear_combat", "respawn",
+        # NPC + quests
+        "interact_npc", "talk_npc", "quest_accept", "query_quest",
+        # Inventory / economy
+        "equip", "heal", "drop_item", "buy_item", "gather", "loot",
+        # Infrastructure
+        "wait", "reconnect", "login", "update_memory",
     }
     for text in completions:
         action_type, _ = _parse_action(text)

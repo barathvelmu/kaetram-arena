@@ -22,10 +22,12 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 ## Related Work
 
 - [preference-learning.md](related-work/preference-learning.md) — KTO, DPO, GRPO, Tree-GRPO, Dr. GRPO, DAPO landscape + how we use them
+- [agent-sft-landscape.md](related-work/agent-sft-landscape.md) — FireAct, Agent-FLAN, SAD, AgentTrek, AgentRefine, Agent-R1, ToolACE, GamingAgent — foundational agent SFT papers
 
 ## Decisions
 
 - [why-kto-over-ppo.md](decisions/why-kto-over-ppo.md) — Binary labels from game outcomes, why KTO fits our data, computational tradeoffs
+- [r7-hyperparameters.md](decisions/r7-hyperparameters.md) — Research-backed rationale for every r7 SFT + KTO parameter
 
 ## Paper
 
@@ -37,10 +39,12 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 - **Personality ablation results** — Need quantitative comparison (XP/hr, quest completion rate, death rate) across AGGRESSIVE/METHODICAL/CURIOUS. Data exists on VM, not yet analyzed.
 - **World model evaluation** — Per-field accuracy, rollout drift, MCTS impact on gameplay. `world/evaluate.py` exists but results not compiled.
-- **Agent distillation landscape** — SAD, ORAK, AgentArk, CRADLE, Voyager, GamingAgent. Should be a related-work article once paper framing solidifies.
+- **Agent distillation landscape** — ~~Filled: see [agent-sft-landscape.md](related-work/agent-sft-landscape.md)~~ CRADLE, Voyager still need detailed comparison.
 - **Self-play loop design** — STaR, ReST-EM, ETO patterns. Becomes relevant when KAE-16 starts.
 - **Tool count scaling analysis** — MCP server grew from 18 → 22 tools (April 8). RAG-MCP threshold is 19. Need to measure tool selection accuracy in student model at 22 tools vs filtered subsets. Informs KAE-15 priority.
 
 ## Action Items (data pipeline)
 
-- **Re-extract turns:** 509 raw sessions but only 395 extracted. Run `python3 extract_turns.py --log-dir logs/ --output-dir dataset/extracted/ --no-frames` to pick up 114 new sessions, then rebuild qwen_sft.
+- ~~**Re-extract turns:** Done April 9. 575 sessions extracted → 14,091 turns → 6,401 train / 583 val SFT records.~~
+- **Launch r7 SFT:** `modal run finetune/train_modal.py` — chat template fix, personality labels, rsLoRA, expanded dataset.
+- **Launch r7 KTO:** After r7 SFT completes. Rebuild KTO dataset on new scored sessions, then `modal run finetune/train_kto_modal.py`.

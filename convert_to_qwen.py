@@ -472,6 +472,17 @@ def detect_personality(session_name: str, input_dir: Path) -> str | None:
                 return meta.get("personality")
             except (json.JSONDecodeError, ValueError):
                 pass
+
+    # Fallback: infer from agent_N directory name
+    AGENT_PERSONALITY_MAP = {
+        "agent_0": "aggressive",
+        "agent_1": "methodical",
+        "agent_2": "curious",
+    }
+    for part in session_path.parts:
+        if part in AGENT_PERSONALITY_MAP:
+            return AGENT_PERSONALITY_MAP[part]
+
     return None
 
 

@@ -1,0 +1,174 @@
+# r7 Hyperparameter Decisions
+
+Research-backed rationale for every training parameter in the r7 SFT and r7-KTO runs. Written April 9, 2026.
+
+---
+
+## SFT Hyperparameters
+
+### LoRA Rank: r=64, alpha=64
+
+**Decision:** Keep r=64 from r6. Do not reduce to r=32.
+
+**Why:** We're teaching a completely novel domain — game agent tool calling with spatial reasoning, combat decisions, quest logic. This is not incremental refining of existing capabilities; the model has never seen MCP tool calls or ASCII game maps. Higher rank gives more capacity for learning this new skill distribution.
+
+**Research:**
+- arXiv 2602.04998 ("Learning Rate Matters: Vanilla LoRA Suffices") showed r=32 matches r=64 for general instruction tuning on <50k records. But this was tested on chat/instruction tasks where the model already has strong priors.
+- Raschka's guide: r=32 for 7B matches full finetune up to 50k examples. Our 6.4k records is well under this, but the domain novelty justifies extra capacity.
+- Compute difference between r=32 and r=64 is marginal on H100 — not worth the risk of underfitting a novel domain.
+
+**Trainable params:** ~50M (0.5% of 9B total). Low overfitting risk with 1 epoch.
+
+### rsLoRA: Enabled
+
+**Decision:** Added `use_rslora=True` (new in r7).
+
+**Why:** Standard LoRA scales by `alpha/r` = 1.0 (when alpha=r). rsLoRA scales by `alpha/sqrt(r)` = 8.0 at r=64 — but then the actual learning rate should be adjusted. The net effect: rsLoRA stabilizes gradient magnitudes across different ranks, preventing the effective learning rate from being rank-dependent (Kalajdzievski 2023).
+
+At r=64 with standard scaling, the adapter updates can be too aggressive. rsLoRA prevents this without requiring manual LR tuning per rank.
+
+### Learning Rate: 1e-4
+
+**Decision:** Keep 1e-4 from r6. Do not increase to 2e-4.
+
+**Why:** Consensus starting point for LoRA SFT on 7-9B models. Multiple practitioners report 2e-4 causes instability on 9B models (Reddit, HN threads). With rsLoRA enabled, the effective scaling changes — safer to keep the proven LR and let rsLoRA handle the scaling.
+
+**Research:**
+- arXiv 2602.04998: optimal LoRA LR is ~10x full-FT, landing at 1e-4 to 5e-4.
+- Unsloth docs: recommend 1e-4 to 2e-4 range.
+- Google Gemini SFT guide: start conservative, increase only if loss plateaus.
+
+### Epochs: 1
+
+**Decision:** Keep 1 epoch. Do not increase to 2.
+
+**Why:** Strong practitioner consensus that multi-epoch SFT degrades results on instruction data. The model memorizes formatting quickly; extra epochs amplify this memorization without improving reasoning.
+
+**Research:**
+- arXiv 2501.17161 ("SFT Memorizes, RL Generalizes"): SFT inherently memorizes, more epochs amplify this. RL (KTO/GRPO) is needed for generalization.
+- Raschka, Unsloth docs, Google Gemini SFT guide: all recommend 1 epoch for instruction SFT. Increase data, not epochs.
+- LIMA (arXiv 2305.11206): 1 epoch on 1k examples was sufficient for 65B.
+
+**Our dataset size (6.4k records, ~23.7M tokens) is well-validated:**
+- DEITA (arXiv 2312.15685): 6k high-quality examples matched 300k low-quality.
+- FireAct (arXiv 2310.05915): 500 trajectories is the emergence threshold for agent SFT. We are 12x above this.
+- Agent-FLAN (arXiv 2403.12881): 34k for multi-task multi-benchmark. Single-domain needs far less.
+
+### Loss Masking: completion_only_loss=True
+
+**Decision:** Keep completion-only loss. Mask all system/user tokens. Train on assistant responses (`<think>` reasoning + tool calls).
+
+**Why:** Game state JSON and ASCII maps are observation tokens — they should inform the model's predictions but not be predicted themselves. Loss masking prevents the model from wasting capacity memorizing observation format.
+
+**Research:**
+- Structured Agent Distillation (arXiv 2505.13820): +8 percentage points task success from loss masking alone. Segment-aware masking on [REASON] and [ACT] spans.
+- Agent-R1 (arXiv 2511.14460): Explicit masking for environment/tool outputs in policy gradient — only compute gradients on model's own reasoning + action tokens. Consensus best practice.
+- arXiv 2401.13586 ("Does Prompt Loss Matter?"): For short completions (tool calls), a small prompt loss weight (0.1) can regularize. Our completions include `<think>` blocks (medium length), so full masking is appropriate. Potential r8 experiment: PLW=0.1.
+
+### Packing: Disabled
+
+**Decision:** Keep `packing=False`.
+
+**Why:** Naive packing concatenates sequences and can cause attention cross-contamination — model attends across sequence boundaries.
+
+**Research:**
+- NAACL 2025 ("Threshold Filtering Packing"): up to 7% degradation on GSM8K from naive packing.
+- TRL's SFTTrainer supports proper per-sequence attention masking with packing, but practitioners report subtle bugs.
+- Our dataset is small (6.4k records). The throughput gain from packing is minimal. Not worth the risk.
+
+### Sequence Length: 8192
+
+**Decision:** Keep max_seq_len=8192.
+
+**Why:** Median record is ~3.6k tokens, P90 is ~12.7k. 8192 covers ~90% of records without excessive padding. Going to 16k doubles memory per sample for marginal coverage.
+
+### Batch Size / Gradient Accumulation: 2 / 8 (effective 16)
+
+**Decision:** Keep effective batch size of 16.
+
+**Why:** Standard for LoRA SFT on single GPU. Larger effective batch (32-64) could help but requires more grad_accum steps and slower iterations. 16 is well-tested.
+
+### Chat Template Patch
+
+**Decision:** Patch Qwen 3.5 chat template to preserve `<think>` in all assistant turns (new in r7).
+
+**Why:** Stock template silently drops reasoning_content from assistant messages before `last_query_index`. In our multi-turn training windows, intermediate assistant turns had all reasoning stripped — the model was learning to skip thinking on follow-up turns. This is the single most impactful fix in r7.
+
+**Bug:** QwenLM/Qwen3#1831. The Jinja template splits `content` on `</think>`, extracts `reasoning_content`, but only re-injects it for messages after the last user query.
+
+**Fix:** Change the condition from `loop.index0 > ns.last_query_index` to `reasoning_content` (truthy check). If reasoning exists, always emit it with `<think>` tags.
+
+### Paraphrase Augmentation
+
+**Decision:** Keep system prompt intro paraphrasing (ORAK ICLR 2026, Consistency Alignment arXiv 2403.14221). Now also varies personality instructions (was broken in r6 — personality=None for all records).
+
+**What NOT to paraphrase:** Reasoning/thinking content. AgentTrek (arXiv 2412.09605) showed CoT in trajectories is essential for SFT quality. Paraphrasing reasoning risks corrupting the chain-of-thought structure.
+
+---
+
+## KTO Hyperparameters
+
+### Beta: 0.1
+
+**Decision:** Keep beta=0.1 from r6-KTO.
+
+**Why:** Default and recommended starting point. Controls the tradeoff between preference learning strength and KL divergence from the reference model. Higher beta (0.3-0.5) is more conservative.
+
+**Research:**
+- KTO paper (arXiv 2402.01306): tested 0.1-0.5, 0.1 is default.
+- TRL docs: recommend 5e-7 to 5e-6 LR with beta=0.1.
+
+### Learning Rate: 5e-7
+
+**Decision:** Keep 5e-7 from r6-KTO.
+
+**Why:** Conservative end of recommended range (5e-7 to 5e-6). Preference learning is delicate — too high LR destroys SFT capabilities. With beta=0.1, LR should not exceed 1e-6.
+
+### Reference Model: None + Precomputed
+
+**Decision:** Keep `ref_model=None + precompute_ref_log_probs=True`.
+
+**Why:** Eliminates ~18 GB reference model from GPU memory during training. TRL PEFT path: uses training model with adapters disabled as reference, precomputes all ref log probs during preprocessing. Training at ~22 GB peak.
+
+**Caveat:** TRL issue #2423 reported precomputed log probs loading bug in some versions. Our image pins `trl>=0.19.1` which should have the fix.
+
+### Desirable/Undesirable Ratio: 40/30 with 30% gap
+
+**Decision:** Keep from r6-KTO.
+
+**Why:** Matches KTO paper's best result on OASST (~4:3 effective ratio). The 30% neutral gap prevents borderline sessions from being mislabeled. Prospect theory's loss aversion means undesirable labels need to be clearly bad — the gap ensures this.
+
+**Research:**
+- KTO paper: 4:3 optimal on OASST, 1:1 on UltraFeedback. Task-dependent.
+- MaKTO (arXiv 2501.14225): step-level labeling outperforms trajectory-level. Our sliding windows approximate this.
+
+### Session Scoring Weights (updated in r7)
+
+| Signal | Weight | Rationale |
+|--------|--------|-----------|
+| XP delta | 15% | Raw progression signal. Reads as 0 on level-up (XP resets), so not dominant. |
+| Level delta | 15% | Coarser but reliable. `/3.0` normalization — 3+ levels shouldn't saturate. |
+| Quest progression | 20% | **New in r7.** Actual state changes: completions (1.0), stage advances (0.4), accepts (0.2). Replaces NPC-talk-count proxy. |
+| Progress events | 10% | Per-turn XP/level deltas. Catches incremental progress within sessions. |
+| Exploration | 15% | Unique positions visited. Rewards spatial diversity. |
+| Turn quality | 15% | Avg per-turn score (state completeness + action quality + reasoning quality). |
+
+---
+
+## References
+
+- arXiv 2602.04998 — Learning Rate Matters: Vanilla LoRA May Suffice
+- arXiv 2501.17161 — SFT Memorizes, RL Generalizes
+- arXiv 2505.13820 — Structured Agent Distillation
+- arXiv 2511.14460 — Agent-R1: Training Powerful LLM Agents with End-to-End RL
+- arXiv 2310.05915 — FireAct: Toward Language Agent Fine-tuning
+- arXiv 2412.09605 — AgentTrek: Agent Trajectory Synthesis
+- arXiv 2305.11206 — LIMA: Less Is More for Alignment
+- arXiv 2312.15685 — DEITA: What Makes Good Data for Alignment
+- arXiv 2403.12881 — Agent-FLAN: Agent Tuning Data and Methods
+- arXiv 2402.01306 — KTO: Kahneman-Tversky Optimization
+- arXiv 2501.14225 — MaKTO: Multi-Agent KTO for Werewolf
+- arXiv 2401.13586 — Instruction Fine-Tuning: Does Prompt Loss Matter?
+- arXiv 2403.14221 — Consistency Alignment
+- QwenLM/Qwen3#1831 — Chat template tool calling bug
+- Kalajdzievski 2023 — rsLoRA: Rank-Stabilized LoRA

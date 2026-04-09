@@ -99,7 +99,7 @@ LOGGING_STEPS = 10
 MASK_INPUT_TOKENS = True
 
 # Output
-EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r6-optimized"
+EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r7"
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +187,45 @@ def _build_system_prompt(
 
 
 # ---------------------------------------------------------------------------
+# Chat template fix (QwenLM/Qwen3#1831)
+# ---------------------------------------------------------------------------
+# Stock Qwen 3.5 template drops <think> reasoning from all assistant messages
+# before last_query_index. This silently strips CoT from multi-turn training
+# data. Fix: always emit <think> when reasoning_content is present.
+
+def _patch_qwen_chat_template(tokenizer):
+    """Patch the Qwen 3.5 chat template to preserve <think> in all turns."""
+    template = tokenizer.chat_template
+    if template is None:
+        return
+
+    # The bug: reasoning_content is only emitted for turns after last_query_index
+    old = (
+        "{%- if loop.index0 > ns.last_query_index %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
+        "        {%- else %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
+        "        {%- endif %}"
+    )
+    # Fix: if reasoning_content exists, always emit it with <think> tags
+    new = (
+        "{%- if reasoning_content %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
+        "        {%- elif loop.index0 > ns.last_query_index %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n\\n</think>\\n\\n' + content }}\n"
+        "        {%- else %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
+        "        {%- endif %}"
+    )
+
+    if old in template:
+        tokenizer.chat_template = template.replace(old, new)
+        print("  Patched Qwen 3.5 chat template: <think> now preserved in all turns")
+    else:
+        print("  WARNING: chat template patch target not found — template may have changed")
+
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
@@ -197,6 +236,8 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
     System prompt and tool definitions are injected from metadata.
     """
     import json
+
+    _patch_qwen_chat_template(tokenizer)
 
     metadata = json.loads(metadata_bytes)
     system_prompt = metadata["system_prompt"]
@@ -315,6 +356,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         lora_alpha=LORA_ALPHA,
         lora_dropout=0,
         bias="none",
+        use_rslora=True,  # Stabilizes training at r=64 (scales by 1/sqrt(r) not 1/r)
         use_gradient_checkpointing="unsloth",  # Unsloth optimized — lower VRAM
         random_state=42,
     )

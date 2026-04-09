@@ -528,6 +528,26 @@ def compute_state_delta(prev_state: dict, curr_state: dict) -> dict:
         if prev_pos.get("x") != curr_pos.get("x") or prev_pos.get("y") != curr_pos.get("y"):
             delta["moved_from"] = prev_pos
 
+    # Quest progression
+    prev_quests = {q["key"]: q for q in (prev_state.get("quests") or []) if isinstance(q, dict) and "key" in q}
+    curr_quests = {q["key"]: q for q in (curr_state.get("quests") or []) if isinstance(q, dict) and "key" in q}
+    new_quests = [k for k in curr_quests if k not in prev_quests]
+    stage_advances = 0
+    quest_completions = 0
+    for key, cq in curr_quests.items():
+        pq = prev_quests.get(key)
+        if pq:
+            if cq.get("stage", 0) > pq.get("stage", 0):
+                stage_advances += 1
+            if cq.get("finished") and not pq.get("finished"):
+                quest_completions += 1
+    if new_quests:
+        delta["new_quests"] = new_quests
+    if stage_advances:
+        delta["quest_stage_advances"] = stage_advances
+    if quest_completions:
+        delta["quest_completions"] = quest_completions
+
     ui = curr_state.get("ui_state", {})
     if isinstance(ui, dict) and ui.get("is_dead"):
         delta["died"] = True

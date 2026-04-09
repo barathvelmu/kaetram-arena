@@ -61,7 +61,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 **What changed:** Post-SFT preference training using binary desirable/undesirable labels from game outcomes.
 
 **Pipeline (4 new scripts, KAE-13):**
-1. `score_sessions.py` — Scores sessions 0-1 from: XP delta (normalized), level delta (/3.0), quest actions, progress events, unique positions, avg turn score. Penalties: respawns, click_tile rate, repetitive loops, stuck rate, deaths. Top 40% → desirable, bottom 30% → undesirable.
+1. `score_sessions.py` — Scores sessions 0-1 from: XP delta (15%), level delta (15%), quest progression via actual state changes (20% — completions 1.0, stage advances 0.4, accepts 0.2), progress events (10%), unique positions (15%), avg turn score (15%). Penalties: respawns, click_tile rate, repetitive loops, stuck rate, deaths. Top 40% → desirable, bottom 30% → undesirable.
 2. `build_kto_dataset.py` — Sliding windows (size=5, stride=2) over labeled sessions. Local window quality gating: positive floor 0.45, negative ceiling 0.60.
 3. `finetune/train_kto_modal.py` — KTO on r6 merged. Current path uses `ref_model=None + precompute_ref_log_probs=True` to avoid keeping a second 9B reference model resident during training. LR=5e-7, beta=0.1, desirable_weight capped at 3.0.
 4. `inspect_kto_dataset.py` — Dry-run: label balance, session counts, sample inspection.

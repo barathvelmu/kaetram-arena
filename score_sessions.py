@@ -99,6 +99,9 @@ def score_session(session: str, turns: list[dict]) -> dict:
 
     progress_events = 0
     death_flags = 0
+    quest_stages_advanced = 0
+    quests_completed = 0
+    quests_accepted = 0
     for i in range(len(turns) - 1):
         delta = compute_state_delta(
             turns[i].get("game_state", {}) or {},
@@ -108,6 +111,9 @@ def score_session(session: str, turns: list[dict]) -> dict:
             progress_events += 1
         if delta.get("died"):
             death_flags += 1
+        quest_stages_advanced += delta.get("quest_stage_advances", 0)
+        quests_completed += delta.get("quest_completions", 0)
+        quests_accepted += len(delta.get("new_quests", []))
 
     click_tile_rate = click_tile_count / max(1, n_turns)
     stuck_rate = stuck_action_count / max(1, n_turns)
@@ -115,12 +121,17 @@ def score_session(session: str, turns: list[dict]) -> dict:
     attack_rate = attack_count / max(1, n_turns)
     avg_turn_score = sum(turn_scores) / max(1, len(turn_scores))
 
+    # Quest progression: completions worth most, stage advances next, accepts least
+    quest_progress_score = _clamp(
+        (quests_completed * 1.0 + quest_stages_advanced * 0.4 + quests_accepted * 0.2) / 2.0
+    )
+
     positive = 0.0
-    positive += 0.30 * _clamp(xp_delta / 300.0)
-    positive += 0.20 * _clamp(level_delta / 3.0)
-    positive += 0.15 * _clamp(quest_action_count / 3.0)
+    positive += 0.15 * _clamp(xp_delta / 300.0)
+    positive += 0.15 * _clamp(level_delta / 3.0)
+    positive += 0.20 * quest_progress_score
     positive += 0.10 * _clamp(progress_events / 4.0)
-    positive += 0.10 * _clamp(len(unique_positions) / 20.0)
+    positive += 0.15 * _clamp(len(unique_positions) / 20.0)
     positive += 0.15 * _clamp(avg_turn_score)
 
     negative = 0.0
@@ -148,6 +159,10 @@ def score_session(session: str, turns: list[dict]) -> dict:
         "click_tile_count": click_tile_count,
         "click_tile_rate": round(click_tile_rate, 4),
         "quest_action_count": quest_action_count,
+        "quest_stages_advanced": quest_stages_advanced,
+        "quests_completed": quests_completed,
+        "quests_accepted": quests_accepted,
+        "quest_progress_score": round(quest_progress_score, 4),
         "stuck_action_count": stuck_action_count,
         "stuck_rate": round(stuck_rate, 4),
         "attack_count": attack_count,

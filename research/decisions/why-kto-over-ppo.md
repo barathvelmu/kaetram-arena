@@ -55,13 +55,13 @@ The KTO paper (arxiv 2402.01306) showed it matches DPO on MT-Bench within 0.1-0.
 
 ### Scoring function (`score_sessions.py`)
 
-Positive signals:
-- XP delta (normalized by expected gain for level, not session length)
-- Level delta / 3.0 (scales across multi-level sessions)
-- Quest-related actions (interact_npc near quest NPCs, accept_quest)
-- Progress events (level up, quest stage advance)
-- Unique positions visited (exploration breadth)
-- Average per-turn quality score
+Positive signals (weights sum to 1.0):
+- XP delta / 300 (15%) — raw XP gain
+- Level delta / 3.0 (15%) — scales across multi-level sessions
+- Quest progression (20%) — actual quest state changes: completions (1.0), stage advances (0.4), new accepts (0.2)
+- Progress events (10%) — level up, XP gain between consecutive turns
+- Unique positions visited (15%) — exploration breadth
+- Average per-turn quality score (15%)
 
 Penalties:
 - Respawn count (deaths)

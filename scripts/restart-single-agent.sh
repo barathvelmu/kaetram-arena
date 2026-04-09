@@ -27,6 +27,7 @@ while [[ $# -gt 0 ]]; do
     --reset)       RESET=true; shift;;
     --claude)      NEW_HARNESS="claude"; shift;;
     --codex)       NEW_HARNESS="codex"; shift;;
+    --gemini)      NEW_HARNESS="gemini"; shift;;
     --kimi)        NEW_HARNESS="kimi"; shift;;
     --qwen-code)   NEW_HARNESS="qwen-code"; shift;;
     --personality) NEW_PERSONALITY="$2"; shift 2;;
@@ -147,6 +148,10 @@ if [ "$HARNESS" != "$CUR_HARNESS" ] || [ "$PERSONALITY" != "$CUR_PERSONALITY" ];
     codex)
       NEW_USERNAME="CodexBot$AGENT_ID"
       MODEL="gpt-5.4"
+      ;;
+    gemini)
+      NEW_USERNAME="GeminiBot$AGENT_ID"
+      MODEL="gemini-2.5-flash"
       ;;
     kimi)
       NEW_USERNAME="KimiBot$AGENT_ID"

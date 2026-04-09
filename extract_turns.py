@@ -32,13 +32,17 @@ def parse_events(log_path: Path) -> list[dict]:
     fmt = detect_log_format(log_path)
     if fmt == "codex":
         # Codex extraction disabled until we validate logs from initial runs.
-        # Codex logs are clearly tagged via detect_log_format() and .meta.json sidecars.
         # To enable: uncomment the return below and remove the empty return.
         # return _parse_codex_events(log_path)
         print(f"  [skip] {log_path.name}: codex format (extraction disabled)", file=sys.stderr)
         return []
+    if fmt == "gemini":
+        # Gemini extraction disabled until we validate logs from initial runs.
+        # Gemini uses flat stream-json (type=tool_use/tool_result), needs its own parser.
+        # To enable: implement _parse_gemini_events() and uncomment below.
+        print(f"  [skip] {log_path.name}: gemini format (extraction disabled)", file=sys.stderr)
+        return []
     # Claude, Qwen Code, and Kimi all use compatible stream-json-like formats
-    # or compatible message structures
     return _parse_claude_events(log_path)
 
 

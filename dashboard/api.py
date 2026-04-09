@@ -329,6 +329,7 @@ class APIMixin:
             default_models = {
                 "claude": "sonnet",
                 "codex": "gpt-5.4",
+                "gemini": "gemini-2.5-flash",
                 "kimi": "kimi-k2",
                 "qwen-code": "qwen3-coder",
             }

@@ -72,6 +72,7 @@ def parse_session_log(filepath):
     if fmt == "codex":
         result = _parse_codex_session_log(filepath)
     else:
+        # Claude, Gemini, Kimi, Qwen Code all use compatible stream-json
         result = _parse_claude_session_log(filepath)
 
     _parse_cache[filepath] = (size, result)
@@ -83,7 +84,12 @@ def parse_session_log(filepath):
 
 
 def _parse_claude_session_log(filepath):
-    """Parse a Claude Code JSONL session log."""
+    """Parse a Claude Code or Gemini CLI JSONL session log.
+
+    Claude uses nested events: type=assistant → message.content[{type: tool_use}]
+    Gemini uses flat events: type=tool_use (top-level), type=tool_result, type=init
+    Both are handled here.
+    """
     events = []
     turn = 0
     cost_usd = 0
@@ -106,6 +112,43 @@ def _parse_claude_session_log(filepath):
                     continue
 
                 t = obj.get("type", "")
+
+                # Gemini: flat init event with model
+                if t == "init":
+                    if not model:
+                        model = obj.get("model", "")
+                    continue
+
+                # Gemini: flat tool_use event
+                if t == "tool_use":
+                    tool = obj.get("tool_name", "unknown")
+                    tool_display = tool.replace("mcp_kaetram_", "")
+                    inp = obj.get("parameters", {})
+                    summary = ""
+                    detail = ""
+                    if "kaetram" in tool:
+                        summary = _kaetram_tool_summary(tool.replace("mcp_kaetram_", "mcp__kaetram__"), inp)
+                        detail = json.dumps(inp)[:500] if inp else ""
+                    elif inp:
+                        parts = [f"{k}={str(v)[:30]}" for k, v in list(inp.items())[:3]]
+                        summary = " ".join(parts)
+                    turn += 1
+                    events.append({
+                        "turn": turn, "type": "tool",
+                        "tool": tool_display,
+                        "tool_full": tool,
+                        "summary": sanitize(summary),
+                        "detail": sanitize(detail),
+                        "id": obj.get("tool_id", ""),
+                    })
+                    continue
+
+                # Gemini: flat tool_result event
+                if t == "tool_result":
+                    output = obj.get("output", "")
+                    if isinstance(output, str) and output.strip():
+                        events.append({"turn": turn, "type": "result", "text": sanitize(output[:500])})
+                    continue
 
                 if t == "assistant":
                     msg = obj.get("message", {})
@@ -449,7 +492,7 @@ def quick_session_summary(filepath):
                                 if isinstance(item, dict) and item.get("type") in ("function_call", "tool_use"):
                                     turns += 1
                     else:
-                        # Claude format
+                        # Claude / Gemini format
                         if obj.get("type") == "result":
                             cost = obj.get("total_cost_usd", 0)
                             turns = obj.get("num_turns", 0)
@@ -457,6 +500,8 @@ def quick_session_summary(filepath):
                             for m in (obj.get("modelUsage") or {}):
                                 model = m
                                 break
+                        elif obj.get("type") == "init" and not model:
+                            model = obj.get("model", "")
                         elif obj.get("type") == "assistant" and not model:
                             model = obj.get("message", {}).get("model", "")
                 except Exception:
@@ -537,8 +582,13 @@ def live_session_stats(filepath):
                         cost = obj.get("total_cost_usd", obj.get("cost_usd", 0))
                         duration_ms = obj.get("duration_ms", 0)
                 else:
-                    # Claude format
-                    if t == "assistant":
+                    # Claude / Gemini format
+                    if t == "init" and not model:
+                        model = obj.get("model", "")
+                    elif t == "tool_use":
+                        # Gemini flat tool_use event
+                        turns += 1
+                    elif t == "assistant":
                         msg = obj.get("message", {})
                         if not model:
                             model = msg.get("model", "")

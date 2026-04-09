@@ -257,6 +257,13 @@ def _extract_tool_result_texts_from_line(obj, fmt):
             if isinstance(c, str):
                 yield c
 
+    if fmt == "gemini":
+        # Gemini flat format: tool_result with output string
+        if obj.get("type") == "tool_result":
+            output = obj.get("output", "")
+            if isinstance(output, str):
+                yield output
+
     if fmt == "codex" or fmt == "unknown":
         # Primary Codex format: item.completed with mcp_tool_call
         if obj.get("type") == "item.completed":

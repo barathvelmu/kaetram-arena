@@ -60,7 +60,7 @@ MODEL_ID = "unsloth/Qwen3.5-9B"
 # template rendering differs.
 TEMPLATE_TOKENIZER_ID = "Qwen/Qwen3.5-9B"
 BASE_SFT_EXPERIMENT = "kaetram-qwen3.5-9b-r6-optimized"
-EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r6-kto"
+EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r7-kto"
 MAX_SEQ_LEN = 8192
 MAX_PROMPT_LEN = 7168
 MAX_COMPLETION_LEN = 1024
@@ -173,6 +173,39 @@ def _split_completion(prompt_text: str, full_text: str) -> str | None:
     return None
 
 
+def _patch_qwen_chat_template(tokenizer):
+    """Patch the Qwen 3.5 chat template to preserve <think> in all turns.
+
+    Stock template drops reasoning_content from assistant messages before
+    last_query_index (QwenLM/Qwen3#1831). Fix: always emit <think> when
+    reasoning_content is present.
+    """
+    template = tokenizer.chat_template
+    if template is None:
+        return
+    old = (
+        "{%- if loop.index0 > ns.last_query_index %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
+        "        {%- else %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
+        "        {%- endif %}"
+    )
+    new = (
+        "{%- if reasoning_content %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
+        "        {%- elif loop.index0 > ns.last_query_index %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n\\n</think>\\n\\n' + content }}\n"
+        "        {%- else %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
+        "        {%- endif %}"
+    )
+    if old in template:
+        tokenizer.chat_template = template.replace(old, new)
+        print("  Patched Qwen 3.5 chat template: <think> now preserved in all turns")
+    else:
+        print("  WARNING: chat template patch target not found — template may have changed")
+
+
 def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes, tokenizer):
     import json
     from transformers import AutoTokenizer
@@ -188,6 +221,7 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
     # The canonical tokenizer has the same vocabulary so tokenization is identical.
     print(f"Loading template tokenizer ({TEMPLATE_TOKENIZER_ID}) for consistent chat template rendering...")
     fmt_tok = AutoTokenizer.from_pretrained(TEMPLATE_TOKENIZER_ID, trust_remote_code=True)
+    _patch_qwen_chat_template(fmt_tok)
 
     def parse_and_format(raw_bytes, split_name: str, augment_rng=None):
         records = json.loads(raw_bytes)

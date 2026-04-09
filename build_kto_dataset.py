@@ -51,7 +51,20 @@ def _window_score(turns: list[dict]) -> float:
     last_reasoning = (last_turn.get("reasoning") or "").strip()
 
     score = mean_turn_score
-    if last_action in {"attack", "navigate", "interact_npc", "talk_npc", "quest_accept"}:
+    # Forward-momentum actions: combat, navigation, quest dialogue, resource
+    # collection, shop interaction and quest lookups all count as "the agent
+    # is doing something useful" for the purpose of the local window bonus.
+    if last_action in {
+        "attack",
+        "navigate",
+        "interact_npc",
+        "talk_npc",
+        "quest_accept",
+        "query_quest",
+        "gather",
+        "loot",
+        "buy_item",
+    }:
         score += 0.05
     if last_action == "click_tile" and len(last_reasoning) < 30:
         score -= 0.20

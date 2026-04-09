@@ -45,6 +45,12 @@ TOOL_DEFINITIONS = [
     {"type": "function", "function": {"name": "cancel_nav", "description": "Cancel active navigation.", "parameters": {"type": "object", "properties": {}, "required": []}}},
     {"type": "function", "function": {"name": "stuck_reset", "description": "Reset navigation when stuck. Warps to safety.", "parameters": {"type": "object", "properties": {}, "required": []}}},
     {"type": "function", "function": {"name": "respawn", "description": "Respawn after death.", "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {"name": "gather", "description": "Gather from a nearby resource (tree, rock, bush, fish spot). Finds nearest non-exhausted resource matching name and collects it.", "parameters": {"type": "object", "properties": {"resource_name": {"type": "string", "description": "Resource name (e.g. 'Oak', 'Nisoc Rock', 'Tomato', 'Blueberry Bush')"}}, "required": ["resource_name"]}}},
+    {"type": "function", "function": {"name": "loot", "description": "Pick up nearby ground items and lootbag contents after combat.", "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {"name": "buy_item", "description": "Buy an item from an NPC's shop. Must be adjacent to the NPC. Item indices start at 0.", "parameters": {"type": "object", "properties": {"npc_name": {"type": "string", "description": "Store NPC name (e.g. 'Forester', 'Miner', 'Clerk')"}, "item_index": {"type": "integer", "description": "Index of item in the shop (0-based)"}, "count": {"type": "integer", "description": "Number to buy (default 1)"}}, "required": ["npc_name", "item_index"]}}},
+    {"type": "function", "function": {"name": "drop_item", "description": "Drop an item from inventory to free space.", "parameters": {"type": "object", "properties": {"slot": {"type": "integer", "description": "Inventory slot number (0-24)"}}, "required": ["slot"]}}},
+    {"type": "function", "function": {"name": "clear_combat", "description": "Clear combat state and cooldown timer so you can warp.", "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {"name": "query_quest", "description": "Look up detailed walkthrough for a specific quest (step-by-step instructions, items, NPC locations, boss stats).", "parameters": {"type": "object", "properties": {"quest_name": {"type": "string", "description": "Quest name (e.g. 'Sorcery', 'Scavenger', 'Coder Glitch')"}}, "required": ["quest_name"]}}},
 ]
 
 # Warp location IDs and attack style IDs
@@ -378,9 +384,11 @@ def score_turn(turn: dict) -> float:
 
     # Action quality (0.0 - 0.3)
     action_type = turn.get("action_type", "")
-    high_value = ("attack", "interact_npc", "navigate", "quest_accept", "talk_npc")
+    high_value = ("attack", "interact_npc", "navigate", "quest_accept", "talk_npc",
+                  "gather", "loot", "buy_item", "query_quest")
     medium_value = ("heal", "equip", "warp", "move", "click_entity", "set_style",
-                    "wait", "stuck_reset", "nav_cancel", "update_memory")
+                    "wait", "stuck_reset", "nav_cancel", "update_memory",
+                    "clear_combat", "drop_item")
     low_value = ("click_tile", "click")
     if action_type in high_value:
         score += 0.2
@@ -416,6 +424,12 @@ def score_turn(turn: dict) -> float:
         "interact_npc": ["npc", "talk", "quest", "interact", "dialogue"],
         "equip": ["equip", "weapon", "armor", "gear", "sword", "axe"],
         "respawn": ["dead", "died", "respawn", "death"],
+        "gather": ["gather", "chop", "mine", "forage", "tree", "rock", "resource", "log"],
+        "loot": ["loot", "pick up", "drop", "lootbag", "item"],
+        "buy_item": ["buy", "purchase", "shop", "store", "gold"],
+        "drop_item": ["drop", "discard", "inventory full", "free space"],
+        "clear_combat": ["combat", "warp", "cooldown", "stuck in combat"],
+        "query_quest": ["quest", "walkthrough", "steps", "objective"],
     }
     if action_type in alignment_map:
         if any(kw in reasoning_lower for kw in alignment_map[action_type]):
@@ -646,6 +660,17 @@ def synthesize_tool_result(action: str, turn: dict | None = None) -> str:
 
     Uses actual game state from the turn when available to produce realistic
     results, reducing train/inference mismatch.
+
+    NOTE: This is a FALLBACK path. Preferred behavior is to surface the raw
+    tool result from the log via `turn["action_result_raw"]` — see
+    build_tool_result_message(). This synthesizer only fires when the raw
+    result is missing (e.g. legacy turns.jsonl files from before
+    extract_turns.py started emitting action_result_raw).
+
+    Critical: the interact_npc branch intentionally omits quest_opened.
+    Previously it hardcoded `quest_opened: false`, which erased every real
+    quest acceptance (574/2,082 interact_npc results had quest_opened=true)
+    and trained the model on a world where quests never actually open.
     """
     m = re.match(r"(\w+)\((.*)\)", action, re.DOTALL)
     name = m.group(1) if m else "unknown"
@@ -661,8 +686,11 @@ def synthesize_tool_result(action: str, turn: dict | None = None) -> str:
         return json.dumps({"attacking": mob_name, "distance": 2,
                           "player_pos": pp, "status": "engaging"})
     if name == "interact_npc" and args:
+        # Do NOT hardcode quest_opened — the real value depends on whether the
+        # NPC actually had a quest to offer and was accepted. Omitting it is
+        # safer than lying to the model. Prefer action_result_raw upstream.
         return json.dumps({"arrived": True, "npc": args[0],
-                          "dialogue_lines": 1, "quest_opened": False})
+                          "dialogue_lines": 1})
     if name == "talk_npc":
         return json.dumps({"dialogue": ["..."], "has_more": False})
     if name == "navigate" and len(args) >= 2:
@@ -680,7 +708,7 @@ def synthesize_tool_result(action: str, turn: dict | None = None) -> str:
     if name == "click_tile" and len(args) >= 2:
         return json.dumps({"clicked": {"x": int(args[0]), "y": int(args[1])}})
     if name == "quest_accept":
-        return json.dumps({"quest_accepted": True})
+        return json.dumps({"result": "Quest accept clicked"})
     if name == "set_style" and args:
         return json.dumps({"style": args[0], "applied": True})
     if name == "respawn":
@@ -691,6 +719,21 @@ def synthesize_tool_result(action: str, turn: dict | None = None) -> str:
         return json.dumps({"cancelled": True})
     if name == "wait":
         return json.dumps({"waited": True})
+    # New tools (fallback shapes — prefer action_result_raw when available)
+    if name == "gather":
+        resource = args[0] if args else ""
+        return json.dumps({"resource": resource, "items_gained": "unknown"})
+    if name == "loot":
+        return json.dumps({"looted": True, "items_gained": "unknown"})
+    if name == "buy_item" and args:
+        return json.dumps({"purchased": True, "npc": args[0]})
+    if name == "drop_item" and args:
+        slot = re.search(r"(\d+)", args[0])
+        return json.dumps({"dropped": True, "slot": int(slot.group(1)) if slot else 0})
+    if name == "clear_combat":
+        return json.dumps({"cleared": True})
+    if name == "query_quest" and args:
+        return json.dumps({"quest": args[0], "info": "walkthrough"})
 
     return json.dumps({"result": "ok"})
 
@@ -769,7 +812,7 @@ def _structured_action_to_tool_call(action: str, action_type: str) -> tuple[str,
     if name == "equip" and args:
         slot = re.search(r"(\d+)", args[0])
         return "equip_item", {"slot": int(slot.group(1)) if slot else 0}
-    if name == "quest_accept":
+    if name in ("quest_accept", "accept_quest"):
         return "accept_quest", {}
     if name == "set_style" and args:
         return "set_attack_style", {"style": args[0].lower()}
@@ -779,6 +822,28 @@ def _structured_action_to_tool_call(action: str, action_type: str) -> tuple[str,
         return "stuck_reset", {}
     if name == "nav_cancel":
         return "cancel_nav", {}
+    if name == "gather":
+        return ("gather", {"resource_name": args[0] if args else ""})
+    if name == "loot":
+        return ("loot", {})
+    if name == "buy_item":
+        # Expected forms: buy_item(<npc>, <item_index>, [count])
+        if len(args) >= 2:
+            call_args = {"npc_name": args[0], "item_index": _safe_int(args[1])}
+            if len(args) >= 3:
+                # args[2] is the raw "count=N" string (extract_turns.structured_action
+                # emits this form). Strip the key= prefix before parsing.
+                count_str = args[2].split("=", 1)[1] if "=" in args[2] else args[2]
+                call_args["count"] = _safe_int(count_str, 1)
+            return ("buy_item", call_args)
+        return None
+    if name == "drop_item" and args:
+        slot = re.search(r"(\d+)", args[0])
+        return ("drop_item", {"slot": int(slot.group(1)) if slot else 0})
+    if name == "clear_combat":
+        return ("clear_combat", {})
+    if name == "query_quest":
+        return ("query_quest", {"quest_name": args[0] if args else ""})
     # Skip unmappable actions (wait, click_entity with ?, other)
     return None
 
@@ -826,8 +891,43 @@ def build_assistant_message(turn: dict, include_thinking: bool = True) -> dict:
     return msg
 
 
+def _prefer_real_tool_result(raw: str | None) -> str | None:
+    """Return the raw tool result, unwrapping the `{"result": "..."}` envelope
+    if present, so the training data exposes the same JSON shape that the
+    MCP server actually returns at inference time.
+
+    Returns None if raw is None/empty/whitespace so the caller can fall back
+    to the synthesizer.
+
+    Unwrap policy: if the outer value is exactly `{"result": <str>}`, return
+    the inner string verbatim. Otherwise return `raw` unchanged.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        return None
+    if not raw.strip():
+        return None
+    try:
+        outer = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        # Not JSON — return the raw text as-is (still real signal).
+        return raw
+    if isinstance(outer, dict) and set(outer.keys()) == {"result"} and isinstance(outer["result"], str):
+        return outer["result"]
+    return raw
+
+
 def build_tool_result_message(turn: dict) -> dict:
-    """Build a tool result message for the action taken in this turn."""
+    """Build a tool result message for the action taken in this turn.
+
+    Prefers the real tool result captured by extract_turns.py in the
+    `action_result_raw` field over the synthetic fallback. This is load-bearing:
+    synthesize_tool_result() used to hardcode interact_npc → quest_opened=false,
+    which erased every real quest acceptance (574/2,082 interact_npc calls)
+    and trained the model on a world where quests never actually opened.
+    Real results must take precedence whenever they are available.
+    """
     action = turn.get("action_structured", "")
     action_type = turn.get("action_type", "")
     turn_id = turn.get("turn_id", "t000")
@@ -840,7 +940,14 @@ def build_tool_result_message(turn: dict) -> dict:
     if tc_result is None:
         return None
     tool_name, _ = tc_result
-    result = synthesize_tool_result(action, turn=turn)
+
+    # Prefer real tool result from logs; fall back to synthesizer for legacy
+    # turns.jsonl files that predate the action_result_raw contract.
+    real = _prefer_real_tool_result(turn.get("action_result_raw"))
+    if real is not None:
+        result = real
+    else:
+        result = synthesize_tool_result(action, turn=turn)
     return {"role": "tool", "content": result, "tool_call_id": call_id, "name": tool_name}
 
 

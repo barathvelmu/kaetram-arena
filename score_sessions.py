@@ -84,9 +84,15 @@ def score_session(session: str, turns: list[dict]) -> dict:
 
     respawn_count = sum(1 for a in actions if a == "respawn")
     click_tile_count = sum(1 for a in actions if a == "click_tile")
-    quest_action_count = sum(1 for a in actions if a in {"interact_npc", "talk_npc", "quest_accept"})
-    stuck_action_count = sum(1 for a in actions if a in {"stuck_reset", "cancel_nav"})
+    quest_action_count = sum(
+        1 for a in actions if a in {"interact_npc", "talk_npc", "quest_accept", "query_quest"}
+    )
+    stuck_action_count = sum(1 for a in actions if a in {"stuck_reset", "nav_cancel"})
     attack_count = sum(1 for a in actions if a == "attack")
+    gather_count = sum(1 for a in actions if a == "gather")
+    loot_count = sum(1 for a in actions if a == "loot")
+    buy_count = sum(1 for a in actions if a == "buy_item")
+    clear_combat_count = sum(1 for a in actions if a == "clear_combat")
 
     repetitive_triples = 0
     for i in range(max(0, len(actions) - 2)):
@@ -121,6 +127,12 @@ def score_session(session: str, turns: list[dict]) -> dict:
     attack_rate = attack_count / max(1, n_turns)
     avg_turn_score = sum(turn_scores) / max(1, len(turn_scores))
 
+    # Resource / economy activity: gathering, looting and shop use all indicate
+    # engaged, diversified play. Treated as a mild positive, capped low so it
+    # can never outweigh XP / quest progress.
+    economy_actions = gather_count + loot_count + buy_count
+    economy_score = _clamp(economy_actions / 6.0)
+
     # Quest progression: completions worth most, stage advances next, accepts least
     quest_progress_score = _clamp(
         (quests_completed * 1.0 + quest_stages_advanced * 0.4 + quests_accepted * 0.2) / 2.0
@@ -128,11 +140,12 @@ def score_session(session: str, turns: list[dict]) -> dict:
 
     positive = 0.0
     positive += 0.15 * _clamp(xp_delta / 300.0)
-    positive += 0.15 * _clamp(level_delta / 3.0)
+    positive += 0.13 * _clamp(level_delta / 3.0)
     positive += 0.20 * quest_progress_score
     positive += 0.10 * _clamp(progress_events / 4.0)
-    positive += 0.15 * _clamp(len(unique_positions) / 20.0)
-    positive += 0.15 * _clamp(avg_turn_score)
+    positive += 0.14 * _clamp(len(unique_positions) / 20.0)
+    positive += 0.13 * _clamp(avg_turn_score)
+    positive += 0.05 * economy_score
 
     negative = 0.0
     negative += 0.20 * _clamp(respawn_count / 2.0)
@@ -167,6 +180,11 @@ def score_session(session: str, turns: list[dict]) -> dict:
         "stuck_rate": round(stuck_rate, 4),
         "attack_count": attack_count,
         "attack_rate": round(attack_rate, 4),
+        "gather_count": gather_count,
+        "loot_count": loot_count,
+        "buy_count": buy_count,
+        "clear_combat_count": clear_combat_count,
+        "economy_score": round(economy_score, 4),
         "repetitive_triples": repetitive_triples,
         "repetitive_ratio": round(repetitive_ratio, 4),
         "unique_positions": len(unique_positions),

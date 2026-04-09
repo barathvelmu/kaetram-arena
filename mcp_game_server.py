@@ -966,7 +966,25 @@ async def buy_item(ctx: Context, npc_name: str, item_index: int, count: int = 1)
     if isinstance(before, dict) and before.get("error"):
         return json.dumps(before)
 
-    # Step 1: Walk to + talk to NPC to trigger store open
+    # Hardcoded NPC→store key mapping (avoids unreliable client-side store.key read)
+    NPC_STORE_KEYS = {
+        "forester": "forester",
+        "miner": "miner",
+        "yet another miner": "miner",
+        "sorcerer": "sorcerer",
+        "fisherman": "fishingstore",
+        "babushka": "ingredientsstore",
+        "kosmetics vendor": "cosmetics",
+        "clerk": "startshop",
+    }
+    store_key = NPC_STORE_KEYS.get(npc_name.lower())
+    if not store_key:
+        return json.dumps({
+            "error": f"Unknown store NPC '{npc_name}'. Known: {', '.join(NPC_STORE_KEYS.keys())}",
+            "npc": npc_name,
+        })
+
+    # Step 1: Walk to NPC
     walk_result = await page.evaluate(
         "(name) => JSON.stringify(window.__interactNPC(name))", npc_name
     )
@@ -977,7 +995,7 @@ async def buy_item(ctx: Context, npc_name: str, item_index: int, count: int = 1)
 
     npc_pos = walk.get("npc_pos", {}) if isinstance(walk, dict) else {}
 
-    # Wait for walk to NPC
+    # Wait for arrival
     for wait_i in range(8):
         await page.wait_for_timeout(1000)
         pos = await page.evaluate("""(npcPos) => {
@@ -988,26 +1006,20 @@ async def buy_item(ctx: Context, npc_name: str, item_index: int, count: int = 1)
         if pos.get("manhattan", 999) < 2:
             break
 
-    # Step 2: Send NPC talk packet to trigger store open server-side
+    # Step 2: Stop movement, then talk once to open store server-side
     instance_id = walk.get("instance", "") if isinstance(walk, dict) else ""
     if instance_id:
+        # Stop player movement to prevent storeOpen being cleared
+        await page.evaluate("""() => {
+            const p = window.game && window.game.player;
+            if (p && p.stop) p.stop(true);
+        }""")
+        await page.wait_for_timeout(200)
+        # Single talk — do NOT double-talk (triggers store show/hide toggle race)
         await page.evaluate("(id) => window.__talkToNPC(id)", instance_id)
-        await page.wait_for_timeout(1500)
+        await page.wait_for_timeout(1000)
 
-    # Step 3: Get the store key from the open store
-    store_key = await page.evaluate("""() => {
-        const game = window.game;
-        if (!game || !game.player) return null;
-        return game.player.storeOpen || null;
-    }""")
-
-    if not store_key:
-        return json.dumps({
-            "error": f"No shop opened after talking to {npc_name}. Make sure you're adjacent and the NPC has a store.",
-            "npc": npc_name,
-        })
-
-    # Step 4: Send buy packet — Packets.Store=42, Opcodes.Store.Buy=2
+    # Step 3: Send buy packet — Packets.Store=42, Opcodes.Store.Buy=2
     buy_result = await page.evaluate("""([key, index, count]) => {
         try {
             window.game.socket.send(42, {
@@ -1027,7 +1039,7 @@ async def buy_item(ctx: Context, npc_name: str, item_index: int, count: int = 1)
 
     await page.wait_for_timeout(1500)
 
-    # Step 5: Diff inventory to confirm purchase
+    # Step 4: Diff inventory to confirm purchase
     after = await page.evaluate("""() => {
         const inv = window.game && window.game.menu && window.game.menu.getInventory();
         if (!inv) return { items: {}, gold: 0 };
@@ -1184,12 +1196,13 @@ async def equip_item(ctx: Context, slot: int) -> str:
     before = result.get("equipment_before", {}) if isinstance(result, dict) else {}
     item_key = result.get("item", "unknown") if isinstance(result, dict) else "unknown"
 
+    # Normalize all keys to strings for comparison
+    before_norm = {str(k): str(v) for k, v in before.items()} if isinstance(before, dict) else {}
+    after_norm = {str(k): str(v) for k, v in after.items()} if isinstance(after, dict) else {}
     changed_slots = {}
-    if isinstance(before, dict) and isinstance(after, dict):
-        for k in set(list(str(k) for k in before.keys()) + list(str(k) for k in after.keys())):
-            if str(before.get(k, before.get(int(k) if k.isdigit() else k))) != str(after.get(k, after.get(int(k) if k.isdigit() else k))):
-                changed_slots[k] = {"before": before.get(k, before.get(int(k) if k.isdigit() else k)),
-                                    "after": after.get(k, after.get(int(k) if k.isdigit() else k))}
+    for k in set(list(before_norm.keys()) + list(after_norm.keys())):
+        if before_norm.get(k) != after_norm.get(k):
+            changed_slots[k] = {"before": before_norm.get(k, "none"), "after": after_norm.get(k, "none")}
 
     if changed_slots:
         return json.dumps({

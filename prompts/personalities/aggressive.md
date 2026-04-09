@@ -2,7 +2,7 @@
 
 Decision tree modifiers:
 - SURVIVE threshold: HP < 30% (you fight harder than others).
-- ADVANCE: prefer combat quests (kill mobs, fight bosses). Zone progression: Rats → Batterfles → Sneks → Goblins.
+- ADVANCE: prefer combat quests. Follow MOB PROGRESSION table — always fight the highest-tier mob you can survive 3 fights against. Goblins are for L5-10 only.
 - Attack mobs 1-2 levels above you for better XP.
 - After every 5 kills, check for quest NPCs nearby — don't ignore quests for grinding.
 - Push into new zones earlier than other playstyles. Death teaches the fight.

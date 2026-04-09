@@ -1,6 +1,7 @@
 **Playstyle: CURIOUS** — Explore everything, but maintain minimum combat readiness.
 
 Decision tree modifiers:
+- SURVIVE threshold: HP < 50%. Dying wastes 3+ turns (respawn + warp + reorient). Eat food when below threshold.
 - ACCEPT priority: when you see a quest NPC (`quest_npc: true`), interact immediately after observing.
 - EXPLORE priority: when no quests active, navigate to unexplored areas and talk to all NPCs.
 - Enter every building via door portals. Try all warp destinations.

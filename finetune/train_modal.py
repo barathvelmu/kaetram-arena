@@ -103,6 +103,90 @@ EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r6-optimized"
 
 
 # ---------------------------------------------------------------------------
+# Paraphrase augmentation (ORAK ICLR 2026, Consistency Alignment arxiv 2403.14221)
+# ---------------------------------------------------------------------------
+# Only the intro sentence is paraphrased. The body (entity types, actions, priority
+# system, combat, navigation, key info) stays identical — it contains exact type
+# numbers, tool signatures, and coordinates that game state JSON references.
+# Validation records always use the original prompt for stable measurement.
+
+import random as _random
+
+SYSTEM_PROMPT_INTRO_VARIANTS = [
+    # Original
+    "You are an AI agent playing Kaetram, a 2D pixel MMORPG. You observe the game via structured game state and an ASCII map, then decide and execute actions.",
+    # Paraphrases
+    "You control a character in Kaetram, an online 2D RPG. Each turn you receive game state data and an ASCII map, then choose what to do next.",
+    "As an AI playing the Kaetram MMORPG, you read structured game state and an ASCII map representation of your surroundings, then select an action.",
+    "You are playing Kaetram (a 2D pixel MMORPG) as an automated agent. You perceive the world through structured state data and an ASCII map, then act.",
+    "In Kaetram, a 2D online RPG, you are an AI agent. You receive game observations as structured data with an ASCII map and decide your next move.",
+    "You operate as an AI player in Kaetram, a pixel-art MMORPG. Your inputs are structured game state and an ASCII map. Pick one action per turn.",
+    "Acting as an autonomous agent in the Kaetram game world, you analyze structured game state and an ASCII map each turn, then execute an action.",
+    "You are an automated player in Kaetram (2D MMORPG). Observe the game through structured state and ASCII map data, then decide and act.",
+]
+
+PERSONALITY_INSTRUCTION_VARIANTS = {
+    "aggressive": [
+        "Prioritize combat above all. Push into harder zones and fight mobs at the edge of your capability. Accept death as part of progression — re-engage immediately after respawn.",
+        "Fight first, think later. Seek out the toughest mobs you can handle and attack relentlessly. Dying is acceptable — get back up and keep fighting.",
+        "Maximize combat engagement at all times. Target mobs near or above your level. Deaths are a cost of progress — respawn and resume attacking immediately.",
+    ],
+    "methodical": [
+        "Prepare thoroughly before advancing. Complete quests in order, gather resources, build skills. Keep HP above 60% and always carry food before entering dangerous areas.",
+        "Plan carefully and advance step by step. Finish quests sequentially, stock up on supplies, and train skills. Never enter combat below 60% HP or without food.",
+        "Take a systematic approach to progression. Build up resources and complete quests in order. Maintain HP above 60% and ensure you have food before fighting.",
+    ],
+    "curious": [
+        "Explore the world broadly. Talk to every NPC, enter every building, warp to new locations. Discovery matters more than efficiency — find quests and areas others miss.",
+        "Prioritize discovery and exploration. Visit new areas, interact with all NPCs, and investigate every location. Finding new content matters more than grinding.",
+        "Wander and explore as much as possible. Seek out NPCs, new zones, and hidden areas. Exploration takes priority over combat efficiency or quest optimization.",
+    ],
+    "efficient": [
+        "Optimize quest completion. Accept multiple quests, batch objectives, minimize travel. No wasted turns — every action should progress toward a quest or level goal.",
+        "Be maximally efficient with every action. Combine quest objectives, reduce unnecessary movement, and focus on leveling through quest completion over grinding.",
+        "Streamline progression by batching quests and minimizing idle turns. Every action should move you toward a quest objective or experience gain.",
+    ],
+}
+
+# Body split marker — everything from this point onward in the system prompt is
+# kept identical (exact type numbers, tool signatures, coordinates).
+_BODY_SPLIT_MARKER = "\n\n## Entity Types"
+
+
+def _build_system_prompt(
+    base_system_prompt: str,
+    personality: str | None,
+    personality_suffixes: dict,
+    rng: _random.Random | None,
+) -> str:
+    """Build system prompt, optionally with paraphrased intro and personality.
+
+    When rng is provided (training), randomly selects from intro and personality
+    variants. When rng is None (validation), uses the original prompt unchanged.
+    """
+    if rng is None:
+        # Validation: use original prompt as-is
+        sys_content = base_system_prompt
+        if personality and personality in personality_suffixes:
+            sys_content += personality_suffixes[personality]
+        return sys_content
+
+    # Training: paraphrase intro, keep body identical
+    intro = rng.choice(SYSTEM_PROMPT_INTRO_VARIANTS)
+    body_start = base_system_prompt.index(_BODY_SPLIT_MARKER)
+    body = base_system_prompt[body_start:]
+    sys_content = intro + body
+
+    # Paraphrase personality instructions (keep header, vary description)
+    if personality and personality in PERSONALITY_INSTRUCTION_VARIANTS:
+        header = f"\n\n## Playstyle: {personality.upper()}\n"
+        instruction = rng.choice(PERSONALITY_INSTRUCTION_VARIANTS[personality])
+        sys_content += header + instruction
+
+    return sys_content
+
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
@@ -119,15 +203,15 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
     tool_definitions = metadata["tools"]
     personality_suffixes = metadata.get("personality_suffixes", {})
 
-    def parse_and_format(raw_bytes):
+    def parse_and_format(raw_bytes, augment_rng=None):
         records = json.loads(raw_bytes)
         rows = []
         for rec in records:
-            # Reconstruct system message with personality
+            # Reconstruct system message with personality (+ paraphrase for training)
             personality = rec.get("personality")
-            sys_content = system_prompt
-            if personality and personality in personality_suffixes:
-                sys_content += personality_suffixes[personality]
+            sys_content = _build_system_prompt(
+                system_prompt, personality, personality_suffixes, augment_rng
+            )
 
             messages = [{"role": "system", "content": sys_content}]
 
@@ -184,8 +268,9 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
             rows.append({"text": formatted})
         return datasets.Dataset.from_list(rows)
 
-    train_ds = parse_and_format(train_bytes)
-    val_ds = parse_and_format(val_bytes)
+    train_rng = _random.Random(42)  # reproducible variant selection
+    train_ds = parse_and_format(train_bytes, augment_rng=train_rng)
+    val_ds = parse_and_format(val_bytes, augment_rng=None)  # val: original prompt only
     return train_ds, val_ds
 
 

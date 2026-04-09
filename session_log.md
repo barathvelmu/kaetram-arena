@@ -3,6 +3,24 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-09 — r7 SFT Training Live + Chat Template Fix
+
+**r7 training running on Modal** (PID 2602243, started 15:12 UTC, ~42% through at last check: step 171/402, loss ~0.098, eval_loss 0.1034 @ epoch 0.37). First attempt died at Modal's 8h default timeout; retried with 18h cap. ETA ~05:00 UTC April 10. Dataset is **7,069 records (6,423 train / 646 val)**, up from r6's 4,445.
+
+**The real gold of r7: Qwen3 chat template fix (QwenLM/Qwen3 #1831).** Stock template silently drops `<think>` blocks from intermediate assistant turns in multi-turn windows — we were training on reasoning-less completions for every turn except the last. Patched in convert_to_qwen.py. This is the biggest single data-quality change since loss masking.
+
+**Other r7 prep in commit `8095907` (Niral):** personality detection fallback fixed (r6 had personality=None for every record; r7 split is aggressive 40% / methodical 32% / curious 28%), quest progression scoring added to KTO (replaces the NPC-talk-count proxy), research docs (r7-hyperparameters.md, agent-sft-landscape.md 14-paper survey).
+
+**rsLoRA attempted and reverted.** Enabled at r=64/alpha=64 → 8× effective LR → diverged. VM has uncommitted edit flipping `use_rslora=False` in `finetune/train_modal.py:359` with a comment. Note: `research/decisions/r7-hyperparameters.md` still says "rsLoRA: Enabled" — stale. Leaving for tomorrow's cron compile pass to catch (decisions/ isn't directly watched so may need manual fix).
+
+**MCP server now at 22 tools** (added buy_item, gather, loot, query_quest). Past the RAG-MCP 19-tool threshold — KAE-15 (tool filtering) more urgent. `scripts/stop-agent.sh` replaced by `nuke-agents.sh` (SIGKILL everything). Dashboard overhauled with live game_state.json + MongoDB merge.
+
+**Cron loop audit (subagent):** the VM research-staleness cron is mtime-based and hardcoded to 4 targets — doesn't watch `mcp_game_server.py`, `prompts/`, or `research/decisions/`. Last auto-compile runs landed Apr 7 and Apr 8 (commits `6c46fb9`, `716882b`), so the loop is alive but blind in places. Data collection running in parallel (3 agents, ~2h18m left when checked).
+
+**Open question:** `accept_quest` action appears only **8 times** in the full 7,069-record dataset. Way too low given quest activity in logs. Under investigation — possibly a conversion/filter bug in extract_turns.py or convert_to_qwen.py.
+
+---
+
 ## 2026-04-08 — Research Compile Pass
 
 **Research KB compile:** Fixed stale facts across all research/ files. Key findings:

@@ -31,19 +31,14 @@ dataset/
 ├── raw/
 │   ├── agent_0/logs/         ← AGGRESSIVE session logs (active)
 │   ├── agent_1/logs/         ← METHODICAL session logs (active)
-│   ├── agent_2/logs/         ← CURIOUS session logs (active)
-│   ├── agent_3/logs/         ← legacy EFFICIENT logs (kept, not used for training)
-│   └── backlog/              ← Top pre-personality sessions (Mar 19-21), kept for reference
-│       ├── agent_0_aggressive/
-│       ├── agent_1_methodical/
-│       ├── agent_2_curious/
-│       └── agent_3_efficient/
+│   └── agent_2/logs/         ← CURIOUS session logs (active)
 ├── extracted/                ← OODA turns extracted from raw logs (generated, not committed)
-├── qwen_sft/                 ← Final training records (generated, not committed)
-└── world_model/              ← Forward dynamics model data (committed)
+├── qwen_sft/                 ← Final SFT training records (generated, not committed)
+├── qwen_kto/                 ← KTO preference records (generated, gitignored)
+└── world_model/              ← Forward dynamics model data
 ```
 
-Raw logs and generated data live on the GCP VM only (`35.224.227.251`). Not committed to git.
+Raw logs and generated data live on the GCP VM only (`35.224.227.251`). Not committed to git. Agent_3's legacy EFFICIENT logs and the pre-personality backlog were deleted after the personality system was finalized on April 3.
 
 ---
 
@@ -77,28 +72,22 @@ Written automatically by `orchestrate.py` at session start. Use these to filter 
 ## What's Kept and Why
 
 **Active training data: March 28 – present (agents 0-2 only)**
-The personality system was finalized on March 22 and prompts were dialed in by March 28. All training data comes from this period onward — confirmed personalities, MCP-based structured actions, clean reasoning. Only agents 0-2 (AGGRESSIVE, METHODICAL, CURIOUS) are used for training. Agent_3's legacy EFFICIENT logs are kept on disk but excluded from the pipeline.
-
-**Backlogged (not used for training): March 19–21**
-Pre-personality marathon sessions. Agents reached level 99-135 with deep reasoning (5,000+ word thinking blocks). Kept as reference in case game knowledge depth is ever needed. Not used for distillation because actions were raw pixel clicks and there's no personality differentiation.
+The personality system was finalized on March 22 and prompts were dialed in by March 28. All training data comes from this period onward — confirmed personalities, MCP-based structured actions, clean reasoning. Only agents 0-2 (AGGRESSIVE, METHODICAL, CURIOUS) are used for training. Agent_3's legacy EFFICIENT logs and the March 19-21 backlog have been deleted from the VM.
 
 **Deleted: March 22–27**
 Personality system being built and broken mid-run. Prompt changes mid-collection, March 26 full outage day. Removed entirely.
 
 ---
 
-## Current Dataset Stats (as of April 3, 2026)
+## Current Dataset Stats (as of April 9, 2026)
 
 | | Value |
 |---|---|
 | Active agents | 3 (AGGRESSIVE, METHODICAL, CURIOUS) |
-| Active sessions (agents 0-2) | ~190 |
-| Total raw data on VM | ~289MB |
-| Avg actions per session | 88 (all semantic MCP tool calls) |
-| Avg thinking chars per session | 37,000 |
-| Agent levels reached | 57–73 (real mid-game content) |
-| Training records (qwen_sft) | needs rebuild from current logs |
-| Architecture | Custom FastMCP server (`mcp_game_server.py`), 18 typed tools |
+| Active sessions on VM | ~1,395 (485 / 454 / 456 for agents 0/1/2) |
+| Total raw data on VM | ~960 MB |
+| SFT training records | 6,423 train / 646 val (`dataset/qwen_sft/`) |
+| Architecture | Custom FastMCP server (`mcp_game_server.py`), 22 typed tools |
 
 Dataset is growing. Rebuild with `scripts/collect_sft_data.sh` or manually:
 ```bash
@@ -106,7 +95,7 @@ python3 extract_turns.py --log-dir dataset/raw/agent_N/logs/ --output-dir datase
 python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode mixed --format sft
 ```
 
-Only run extraction on agents 0-2. Skip agent_3.
+Only run extraction on agents 0-2.
 
 ---
 

@@ -11,6 +11,7 @@ PERSONALITY=""
 HARNESS="claude"
 CLAUDE_MODEL="sonnet"
 CODEX_MODEL="gpt-5.4"
+GEMINI_MODEL="gemini-2.5-flash"
 KIMI_MODEL="kimi-k2"
 QWEN_CODE_MODEL="qwen3-coder"
 for arg in "$@"; do
@@ -20,6 +21,7 @@ for arg in "$@"; do
     --curious)     PERSONALITY="curious";;
     --efficient)   PERSONALITY="efficient";;
     --codex)       HARNESS="codex";;
+    --gemini)      HARNESS="gemini";;
     --kimi)        HARNESS="kimi";;
     --qwen-code)   HARNESS="qwen-code";;
   esac
@@ -32,6 +34,7 @@ PAUSE_BETWEEN=10
 # Set username based on harness
 case "$HARNESS" in
   codex)    BOT_USERNAME="CodexBot";;
+  gemini)   BOT_USERNAME="GeminiBot";;
   kimi)     BOT_USERNAME="KimiBot";;
   qwen-code) BOT_USERNAME="QwenBot";;
   *)        BOT_USERNAME="ClaudeBot";;
@@ -45,6 +48,13 @@ case "$HARNESS" in
       exit 1
     fi
     echo "Using Codex CLI (model: $CODEX_MODEL)"
+    ;;
+  gemini)
+    if ! command -v gemini &>/dev/null; then
+      echo "ERROR: gemini CLI not found. Install with: npm install -g @google/gemini-cli"
+      exit 1
+    fi
+    echo "Using Gemini CLI (model: $GEMINI_MODEL)"
     ;;
   kimi)
     if ! command -v kimi &>/dev/null; then
@@ -218,6 +228,38 @@ HOOKJSON
         --json \
         --enable codex_hooks \
         -c 'model_instructions_file="system_prompt.md"') \
+        2>&1 | tee "$LOG_FILE" || true
+      ;;
+
+    gemini)
+      # Gemini: write .gemini/settings.json with kaetram MCP server + GEMINI.md system prompt
+      mkdir -p "$SANDBOX/.gemini" "$SANDBOX/state"
+      cat > "$SANDBOX/.gemini/settings.json" <<GEMINIJSON
+{
+  "mcpServers": {
+    "kaetram": {
+      "command": "${PROJECT_DIR}/.venv/bin/python3",
+      "args": ["${PROJECT_DIR}/mcp_game_server.py"],
+      "trust": true,
+      "env": {
+        "KAETRAM_PORT": "",
+        "KAETRAM_USERNAME": "${BOT_USERNAME}",
+        "KAETRAM_EXTRACTOR": "${PROJECT_DIR}/state_extractor.js",
+        "KAETRAM_SCREENSHOT_DIR": "${SANDBOX}/state"
+      }
+    }
+  },
+  "model": {
+    "maxSessionTurns": ${MAX_TURNS}
+  }
+}
+GEMINIJSON
+      echo "$SYSTEM" > "$SANDBOX/.gemini/GEMINI.md"
+
+      (cd "$SANDBOX" && gemini -p "$PROMPT" \
+        -m "$GEMINI_MODEL" \
+        --output-format stream-json \
+        -y) \
         2>&1 | tee "$LOG_FILE" || true
       ;;
 

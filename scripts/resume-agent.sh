@@ -24,6 +24,7 @@ N_EFFICIENT=""
 HOURS=""
 N_CLAUDE=""
 N_CODEX=""
+N_GEMINI=""
 N_KIMI=""
 N_QWEN_CODE=""
 while [[ $# -gt 0 ]]; do
@@ -45,6 +46,13 @@ while [[ $# -gt 0 ]]; do
         N_CODEX="$2"; shift 2
       else
         N_CODEX="-1"; shift
+      fi
+      ;;
+    --gemini)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_GEMINI="$2"; shift 2
+      else
+        N_GEMINI="-1"; shift
       fi
       ;;
     --kimi)
@@ -76,6 +84,7 @@ fi
 # Kill agent CLI processes (SIGTERM then SIGKILL) — all harnesses
 pkill -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
 pkill -f "codex.*exec" 2>/dev/null || true
+pkill -f "gemini.*-p" 2>/dev/null || true
 pkill -f "kimi -p" 2>/dev/null || true
 pkill -f "qwen -p" 2>/dev/null || true
 pkill -f "play.sh" 2>/dev/null || true
@@ -83,6 +92,7 @@ pkill -f "play_qwen.py" 2>/dev/null || true
 sleep 2
 pkill -9 -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
 pkill -9 -f "codex.*exec" 2>/dev/null || true
+pkill -9 -f "gemini.*-p" 2>/dev/null || true
 # Kill MCP servers
 pkill -f "mcp_game_server.py" 2>/dev/null || true
 # Kill Playwright (all forms)
@@ -201,6 +211,7 @@ if [ -n "$HOURS" ]; then
 fi
 [ -n "$N_CLAUDE" ] && ORCH_ARGS="$ORCH_ARGS --claude $N_CLAUDE"
 [ -n "$N_CODEX" ] && ORCH_ARGS="$ORCH_ARGS --codex $N_CODEX"
+[ -n "$N_GEMINI" ] && ORCH_ARGS="$ORCH_ARGS --gemini $N_GEMINI"
 [ -n "$N_KIMI" ] && ORCH_ARGS="$ORCH_ARGS --kimi $N_KIMI"
 [ -n "$N_QWEN_CODE" ] && ORCH_ARGS="$ORCH_ARGS --qwen-code $N_QWEN_CODE"
 

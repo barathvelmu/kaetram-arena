@@ -8,9 +8,10 @@ echo "=== NUKING all agent processes ==="
 pkill -9 -f "python3 orchestrate.py" 2>/dev/null || true
 tmux kill-session -t datacol 2>/dev/null || true
 
-# Kill ALL agent CLI processes (Claude, Codex, Kimi, Qwen)
+# Kill ALL agent CLI processes (Claude, Codex, Gemini, Kimi, Qwen)
 pkill -9 -f "claude -p" 2>/dev/null || true
 pkill -9 -f "codex.*exec" 2>/dev/null || true
+pkill -9 -f "gemini -p" 2>/dev/null || true
 pkill -9 -f "kimi -p" 2>/dev/null || true
 pkill -9 -f "qwen -p" 2>/dev/null || true
 

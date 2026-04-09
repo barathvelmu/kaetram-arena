@@ -31,6 +31,7 @@ N_CURIOUS=""
 N_EFFICIENT=""
 N_CLAUDE=""
 N_CODEX=""
+N_GEMINI=""
 N_KIMI=""
 N_QWEN_CODE=""
 
@@ -54,6 +55,13 @@ while [[ $# -gt 0 ]]; do
         N_CODEX="$2"; shift 2
       else
         N_CODEX="-1"; shift  # bare --codex = all agents
+      fi
+      ;;
+    --gemini)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_GEMINI="$2"; shift 2
+      else
+        N_GEMINI="-1"; shift  # bare --gemini = all agents
       fi
       ;;
     --kimi)
@@ -110,9 +118,11 @@ fi
 HARNESS_DESC=""
 [ -n "$N_CLAUDE" ] && [ "$N_CLAUDE" != "-1" ] && [ "$N_CLAUDE" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_CLAUDE Claude"
 [ -n "$N_CODEX" ] && [ "$N_CODEX" != "-1" ] && [ "$N_CODEX" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_CODEX Codex"
+[ -n "$N_GEMINI" ] && [ "$N_GEMINI" != "-1" ] && [ "$N_GEMINI" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_GEMINI Gemini"
 [ -n "$N_KIMI" ] && [ "$N_KIMI" != "-1" ] && [ "$N_KIMI" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_KIMI Kimi"
 [ -n "$N_QWEN_CODE" ] && [ "$N_QWEN_CODE" != "-1" ] && [ "$N_QWEN_CODE" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_QWEN_CODE Qwen Code"
 [ "$N_CODEX" = "-1" ] && HARNESS_DESC="all Codex"
+[ "$N_GEMINI" = "-1" ] && HARNESS_DESC="all Gemini"
 [ "$N_KIMI" = "-1" ] && HARNESS_DESC="all Kimi"
 [ "$N_QWEN_CODE" = "-1" ] && HARNESS_DESC="all Qwen Code"
 [ -z "$HARNESS_DESC" ] && HARNESS_DESC="all Claude"
@@ -130,6 +140,7 @@ tmux kill-session -t datacol 2>/dev/null || true
 # Kill any remaining claude -p agent processes (SIGTERM then SIGKILL)
 pkill -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
 pkill -f "codex.*exec" 2>/dev/null || true
+pkill -f "gemini.*-p" 2>/dev/null || true
 pkill -f "play.sh" 2>/dev/null || true
 pkill -f "play_qwen.py" 2>/dev/null || true
 pkill -f "claude -p.*Login" 2>/dev/null || true
@@ -175,7 +186,7 @@ if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
   USER_JS_ARRAY=""
   for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
     [ -n "$USER_JS_ARRAY" ] && USER_JS_ARRAY="${USER_JS_ARRAY},"
-    USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}','codexbot${i}','kimibot${i}','qwencodebot${i}'"
+    USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}','codexbot${i}','geminibot${i}','kimibot${i}','qwencodebot${i}'"
   done
 
   echo "Resetting player data in MongoDB..."
@@ -257,6 +268,7 @@ fi
 [ -n "$MAX_BUDGET" ] && ORCH_CMD="$ORCH_CMD --max-budget-usd $MAX_BUDGET"
 [ -n "$N_CLAUDE" ] && ORCH_CMD="$ORCH_CMD --claude $N_CLAUDE"
 [ -n "$N_CODEX" ] && ORCH_CMD="$ORCH_CMD --codex $N_CODEX"
+[ -n "$N_GEMINI" ] && ORCH_CMD="$ORCH_CMD --gemini $N_GEMINI"
 [ -n "$N_KIMI" ] && ORCH_CMD="$ORCH_CMD --kimi $N_KIMI"
 [ -n "$N_QWEN_CODE" ] && ORCH_CMD="$ORCH_CMD --qwen-code $N_QWEN_CODE"
 ORCH_CMD="$ORCH_CMD 2>&1 | tee /tmp/orchestrate.log"

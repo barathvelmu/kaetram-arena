@@ -717,7 +717,7 @@ class AgentInstance:
         if not self.is_alive():
             return False
         # Only applies to harnesses that use MCP (claude, codex)
-        if self.adapter.name not in ("claude", "codex"):
+        if self.adapter.name not in ("claude", "codex", "gemini"):
             return False
         try:
             logs = sorted(self.log_dir.glob("session_*.log"),
@@ -795,7 +795,7 @@ class AgentInstance:
         """
         if not self.is_alive():
             return False
-        if self.adapter.name not in ("claude", "codex"):
+        if self.adapter.name not in ("claude", "codex", "gemini"):
             return False
         try:
             logs = sorted(self.log_dir.glob("session_*.log"),
@@ -860,7 +860,7 @@ class Orchestrator:
         """Create all server and agent instances."""
         # Build per-agent harness assignment list
         harness_list = []
-        for h in ("claude", "codex", "kimi", "qwen-code"):
+        for h in ("claude", "codex", "gemini", "kimi", "qwen-code"):
             harness_list.extend([h] * self.harness_counts.get(h, 0))
 
         # Build personality assignment list
@@ -891,7 +891,7 @@ class Orchestrator:
 
             harness = harness_list[i] if i < len(harness_list) else "claude"
             adapter = get_adapter(harness=harness, model=self.model)
-            prefix_map = {"codex": "CodexBot", "kimi": "KimiBot", "qwen-code": "QwenBot"}
+            prefix_map = {"codex": "CodexBot", "gemini": "GeminiBot", "kimi": "KimiBot", "qwen-code": "QwenBot"}
             bot_prefix = prefix_map.get(harness, "ClaudeBot")
 
             personality = assignments[i] if i < len(assignments) else "aggressive"
@@ -914,7 +914,7 @@ class Orchestrator:
     def start(self):
         """Start all servers, wait for health, then start all agents."""
         harness_parts = []
-        for h, count in [("Claude", "claude"), ("Codex", "codex"), ("Kimi", "kimi"), ("Qwen Code", "qwen-code")]:
+        for h, count in [("Claude", "claude"), ("Codex", "codex"), ("Gemini", "gemini"), ("Kimi", "kimi"), ("Qwen Code", "qwen-code")]:
             n = self.harness_counts.get(count, 0)
             if n > 0:
                 harness_parts.append(f"{n} {h}")
@@ -1100,6 +1100,10 @@ def main():
         help="Number of Codex agents (bare --codex = all agents)"
     )
     parser.add_argument(
+        "--gemini", type=int, nargs="?", const=-1, default=0,
+        help="Number of Gemini agents (bare --gemini = all agents)"
+    )
+    parser.add_argument(
         "--kimi", type=int, nargs="?", const=-1, default=0,
         help="Number of Kimi agents (bare --kimi = all agents)"
     )
@@ -1133,45 +1137,51 @@ def main():
     if n_total < 1 or n_total > 8:
         parser.error("Total agent count must be 1-8")
 
-    # Resolve harness counts (--claude N / --codex N / --kimi N / --qwen-code N)
+    # Resolve harness counts (--claude N / --codex N / --gemini N / --kimi N / --qwen-code N)
     claude_n = args.claude or 0
     codex_n = args.codex or 0
+    gemini_n = args.gemini or 0
     kimi_n = args.kimi or 0
     qwen_code_n = args.qwen_code or 0
 
-    bare_flags = sum(1 for v in [claude_n, codex_n, kimi_n, qwen_code_n] if v == -1)
+    bare_flags = sum(1 for v in [claude_n, codex_n, gemini_n, kimi_n, qwen_code_n] if v == -1)
     if bare_flags > 1:
-        parser.error("Cannot use multiple bare harness flags (--claude, --codex, --kimi, --qwen-code) without counts")
+        parser.error("Cannot use multiple bare harness flags (--claude, --codex, --gemini, --kimi, --qwen-code) without counts")
 
     # Handle bare flags (e.g. --codex alone means all agents)
     if qwen_code_n == -1:
         qwen_code_n = n_total
-        claude_n = codex_n = kimi_n = 0
+        claude_n = codex_n = gemini_n = kimi_n = 0
     elif kimi_n == -1:
         kimi_n = n_total
-        claude_n = codex_n = qwen_code_n = 0
+        claude_n = codex_n = gemini_n = qwen_code_n = 0
+    elif gemini_n == -1:
+        gemini_n = n_total
+        claude_n = codex_n = kimi_n = qwen_code_n = 0
     elif codex_n == -1:
         codex_n = n_total
-        claude_n = kimi_n = qwen_code_n = 0
+        claude_n = gemini_n = kimi_n = qwen_code_n = 0
     elif claude_n == -1:
         claude_n = n_total
-        codex_n = kimi_n = qwen_code_n = 0
-    elif claude_n == 0 and codex_n == 0 and kimi_n == 0 and qwen_code_n == 0:
+        codex_n = gemini_n = kimi_n = qwen_code_n = 0
+    elif claude_n == 0 and codex_n == 0 and gemini_n == 0 and kimi_n == 0 and qwen_code_n == 0:
         # No harness specified: default all Claude
         claude_n = n_total
     else:
         # Explicit counts: fill remainder with Claude
-        explicit_total = claude_n + codex_n + kimi_n + qwen_code_n
+        explicit_total = claude_n + codex_n + gemini_n + kimi_n + qwen_code_n
         if explicit_total < n_total:
             claude_n = n_total - explicit_total
         elif explicit_total > n_total:
             n_total = explicit_total
 
-    harness_counts = {"claude": claude_n, "codex": codex_n, "kimi": kimi_n, "qwen-code": qwen_code_n}
+    harness_counts = {"claude": claude_n, "codex": codex_n, "gemini": gemini_n, "kimi": kimi_n, "qwen-code": qwen_code_n}
 
     # Check for required CLIs
     if codex_n > 0 and shutil.which("codex") is None:
         parser.error("codex CLI not found. Install with: npm install -g @openai/codex")
+    if gemini_n > 0 and shutil.which("gemini") is None:
+        parser.error("gemini CLI not found. Install with: npm install -g @google/gemini-cli")
     if kimi_n > 0 and shutil.which("kimi") is None:
         parser.error("kimi CLI not found. Install with: curl -LsSf https://code.kimi.com/install.sh | bash")
     if qwen_code_n > 0 and shutil.which("qwen") is None:

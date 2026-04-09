@@ -7,6 +7,7 @@ sandbox configuration, environment variables, and log parsing.
 """
 
 import json
+import os
 import shutil
 import subprocess
 from abc import ABC, abstractmethod
@@ -383,6 +384,88 @@ trust_level = "trusted"
         return None
 
 
+class GeminiAdapter(CLIAdapter):
+    """Adapter for Google Gemini CLI (gemini -p).
+
+    Gemini CLI uses stream-json output (same format as Claude Code), MCP via
+    .gemini/settings.json, and built-in maxSessionTurns for turn limits.
+    No stop hook or timeout wrapper needed.
+    """
+
+    def __init__(self, model: str = "gemini-2.5-flash"):
+        super().__init__(model)
+
+    @property
+    def name(self) -> str:
+        return "gemini"
+
+    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
+                      port: str = "", username: str = "ClaudeBot") -> None:
+        # Gemini discovers MCP config from .gemini/settings.json in cwd
+        gemini_dir = sandbox_dir / ".gemini"
+        gemini_dir.mkdir(parents=True, exist_ok=True)
+
+        settings = {
+            "mcpServers": {
+                "kaetram": {
+                    "command": VENV_PYTHON,
+                    "args": [str(PROJECT_DIR / "mcp_game_server.py")],
+                    "trust": True,
+                    "env": {
+                        "KAETRAM_PORT": port,
+                        "KAETRAM_USERNAME": username,
+                        "KAETRAM_EXTRACTOR": str(PROJECT_DIR / "state_extractor.js"),
+                        "KAETRAM_SCREENSHOT_DIR": str(sandbox_dir / "state"),
+                    },
+                },
+            },
+            "model": {
+                "maxSessionTurns": 150,
+            },
+        }
+        (gemini_dir / "settings.json").write_text(json.dumps(settings, indent=2))
+
+        # System prompt via GEMINI.md (auto-discovered by Gemini CLI)
+        if system_prompt:
+            (gemini_dir / "GEMINI.md").write_text(system_prompt)
+
+    def build_command(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        max_turns: int,
+        max_budget_usd: float | None = None,
+        auth_mode: str = "subscription",
+    ) -> list[str]:
+        return [
+            "gemini",
+            "-p", user_prompt,
+            "-m", self.model,
+            "--output-format", "stream-json",
+            "-y",  # yolo mode — auto-approve all tool calls
+        ]
+
+    def get_env(self) -> dict[str, str]:
+        env = {}
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if api_key:
+            env["GEMINI_API_KEY"] = api_key
+        return env
+
+    def _extract_state_text_from_line(self, line: str) -> str | None:
+        """Gemini stream-json: state is in tool_result.output (flat events)."""
+        try:
+            obj = json.loads(line)
+            # Gemini tool_result: {"type": "tool_result", "output": "...game state..."}
+            if obj.get("type") == "tool_result":
+                output = obj.get("output", "")
+                if isinstance(output, str) and "player_position" in output and "nearby_entities" in output:
+                    return output
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        return None
+
+
 class QwenCodeAdapter(CLIAdapter):
     """Adapter for Qwen Code CLI (qwen -p).
 
@@ -529,11 +612,13 @@ def get_adapter(harness: str = "claude", model: str | None = None) -> CLIAdapter
     """Factory function to create the appropriate CLI adapter.
 
     Args:
-        harness: one of 'claude', 'codex', 'qwen-code', 'kimi'
+        harness: one of 'claude', 'codex', 'gemini', 'qwen-code', 'kimi'
         model: optional model override
     """
     if harness == "codex":
         return CodexAdapter(model=model or "gpt-5.4")
+    elif harness == "gemini":
+        return GeminiAdapter(model=model or "gemini-2.5-flash")
     elif harness == "qwen-code":
         return QwenCodeAdapter(model=model or "qwen3-coder")
     elif harness == "kimi":
@@ -574,6 +659,13 @@ def detect_log_format(log_path: Path) -> str:
                     msg = obj["message"]
                     if isinstance(msg, dict) and "content" in msg:
                         return "claude"
+
+                # Gemini markers (stream-json like Claude but with gemini-specific init)
+                model_str = str(obj.get("model", ""))
+                if "gemini" in model_str:
+                    return "gemini"
+                if obj.get("gemini_version") or obj.get("client") == "gemini":
+                    return "gemini"
 
                 # Codex markers
                 if obj.get("type") in ("thread.started", "turn.started",

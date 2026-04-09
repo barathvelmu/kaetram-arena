@@ -250,16 +250,30 @@ class AgentInstance:
                 "Use player_position for spatial awareness."
             )
 
-        return (
+        base_prompt = (
             f"{playstyle_hint}\n\n"
             "IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. "
-            "Your ONLY job is to play the game via the browser. "
-            "Start IMMEDIATELY with the login code block in your system instructions.\n\n"
+            "Your ONLY job is to play the game via the MCP tools. "
+            "Start IMMEDIATELY by calling login.\n\n"
             f"Session #{self.session}.\n"
             f"{game_state_block}\n"
-            "Follow your system instructions exactly. Load tools, then login, "
+            "Follow your system instructions exactly. Call login, then observe, "
             "then run the OBSERVE-ACT loop."
         )
+
+        # Codex exec is a one-shot task executor — it stops when it thinks the
+        # task is "done." We must explicitly instruct it to keep looping.
+        if self.adapter.name == "codex":
+            base_prompt += (
+                "\n\nYou must keep playing continuously — call tools in a loop "
+                "for the ENTIRE session. After every action, call observe again "
+                "and pick the next action. Do NOT stop after login. Do NOT stop "
+                "after one action. Keep calling tools: observe → decide → act → "
+                "observe → decide → act, hundreds of times. Never output a final "
+                "message or conclude — just keep playing until the process is killed."
+            )
+
+        return base_prompt
 
     def start_session(self):
         """Launch a new agent session (Claude or Codex, depending on adapter)."""
@@ -290,6 +304,10 @@ class AgentInstance:
         for f in ("screenshot.png", "live_screen.png"):
             (state_dir / f).unlink(missing_ok=True)
 
+        # Reset Codex stop hook turn counter so each session starts fresh
+        if self.adapter.name == "codex":
+            (self.sandbox_dir / ".turn_counter").write_text("0")
+
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt()
 
@@ -311,6 +329,7 @@ class AgentInstance:
         self.process = subprocess.Popen(
             cmd,
             cwd=str(self.sandbox_dir),
+            stdin=subprocess.DEVNULL,
             stdout=log_fh,
             stderr=subprocess.STDOUT,
             env={**os.environ, **self.adapter.get_env()},
@@ -475,6 +494,28 @@ class AgentInstance:
                 except (json.JSONDecodeError, ValueError):
                     continue
 
+            # Strategy 3: Codex — turn.failed or error events with rate limit info
+            for line in data.splitlines():
+                if "rate_limit" not in line and "429" not in line and "too many requests" not in line.lower():
+                    continue
+                try:
+                    obj = json.loads(line)
+                    t = obj.get("type", "")
+                    if t in ("turn.failed", "error"):
+                        err_msg = obj.get("error", obj.get("message", ""))
+                        if isinstance(err_msg, dict):
+                            err_msg = err_msg.get("message", str(err_msg))
+                        err_str = str(err_msg).lower()
+                        if "rate_limit" in err_str or "429" in err_str or "too many requests" in err_str:
+                            return {
+                                "reset_at": time.time() + 60,
+                                "rate_limit_type": "codex_rate_limit",
+                                "reason": str(err_msg),
+                                "source": "codex",
+                            }
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
             return None
         except OSError:
             return None
@@ -483,7 +524,8 @@ class AgentInstance:
         """Read cost and overage state from the latest session log.
 
         Returns ``{"cost_usd": float, "is_overage": bool}`` extracted from
-        stream-json ``result`` events and ``rate_limit_event`` objects.
+        stream-json ``result`` events (Claude), ``turn.completed`` usage
+        events (Codex), and ``rate_limit_event`` objects.
         """
         cost_usd = 0.0
         is_overage = False
@@ -513,6 +555,12 @@ class AgentInstance:
                         info = obj.get("rate_limit_info", {})
                         if info.get("isUsingOverage"):
                             is_overage = True
+                    elif t == "turn.completed":
+                        # Codex: estimate cost from token usage (GPT-5.4 ~$2/M in, ~$8/M out)
+                        usage = obj.get("usage", {})
+                        in_tok = usage.get("input_tokens", 0)
+                        out_tok = usage.get("output_tokens", 0)
+                        cost_usd += (in_tok * 2.0 + out_tok * 8.0) / 1_000_000
         except OSError:
             pass
         return {"cost_usd": cost_usd, "is_overage": is_overage}
@@ -668,8 +716,8 @@ class AgentInstance:
         """
         if not self.is_alive():
             return False
-        # Only applies to harnesses that use MCP (claude)
-        if self.adapter.name != "claude":
+        # Only applies to harnesses that use MCP (claude, codex)
+        if self.adapter.name not in ("claude", "codex"):
             return False
         try:
             logs = sorted(self.log_dir.glob("session_*.log"),
@@ -686,36 +734,51 @@ class AgentInstance:
             session_age = time.time() - log_path.stat().st_ctime
             if session_age < 30:
                 return False
-            # Read first line (system init event)
+
             with open(log_path, "r") as f:
-                first_line = f.readline().strip()
-            if not first_line:
-                return False
-            init = json.loads(first_line)
-            mcp_servers = (init.get("message", {}).get("content", "") if isinstance(init.get("message", {}).get("content"), str) else "")
-            # Handle structured init format
-            if not mcp_servers:
-                # Try nested format: message.content may be list
-                content = init.get("message", {}).get("content", [])
-                if isinstance(content, list):
-                    for c in content:
-                        if isinstance(c, dict) and "text" in c:
-                            mcp_servers = c["text"]
-                            break
-            # Also check top-level mcp_servers field
-            if not mcp_servers:
-                mcp_servers = json.dumps(init.get("mcp_servers", []))
-            if '"kaetram"' in mcp_servers and ('"pending"' in mcp_servers or '"failed"' in mcp_servers):
-                # Confirm it hasn't connected since (check if any mcp tool calls exist)
-                with open(log_path, "r") as f:
-                    content = f.read(50000)  # first 50KB
-                if "mcp__kaetram__" not in content:
+                content = f.read(50000)  # first 50KB
+
+            if self.adapter.name == "claude":
+                # Read first line (system init event)
+                first_line = content.split("\n", 1)[0].strip()
+                if not first_line:
+                    return False
+                init = json.loads(first_line)
+                mcp_servers = (init.get("message", {}).get("content", "") if isinstance(init.get("message", {}).get("content"), str) else "")
+                # Handle structured init format
+                if not mcp_servers:
+                    # Try nested format: message.content may be list
+                    msg_content = init.get("message", {}).get("content", [])
+                    if isinstance(msg_content, list):
+                        for c in msg_content:
+                            if isinstance(c, dict) and "text" in c:
+                                mcp_servers = c["text"]
+                                break
+                # Also check top-level mcp_servers field
+                if not mcp_servers:
+                    mcp_servers = json.dumps(init.get("mcp_servers", []))
+                if '"kaetram"' in mcp_servers and ('"pending"' in mcp_servers or '"failed"' in mcp_servers):
+                    if "mcp__kaetram__" not in content:
+                        print(
+                            f"  [!] Agent {self.agent_id} ({self.username}): "
+                            f"MCP stuck in pending/failed, restarting session"
+                        )
+                        self.stop()
+                        time.sleep(max(self.pause_between, 15))
+                        self.start_session()
+                        return True
+            else:
+                # Codex: no system init event with MCP status, but we can check
+                # for absence of any kaetram tool calls + presence of errors
+                has_kaetram_call = "kaetram" in content
+                has_error = '"turn.failed"' in content or '"error"' in content
+                if not has_kaetram_call and has_error:
                     print(
                         f"  [!] Agent {self.agent_id} ({self.username}): "
-                        f"MCP stuck in pending/failed, restarting session"
+                        f"MCP appears failed (no kaetram calls, errors present), restarting session"
                     )
                     self.stop()
-                    time.sleep(max(self.pause_between, 15))  # extra time for cleanup
+                    time.sleep(max(self.pause_between, 15))
                     self.start_session()
                     return True
         except (json.JSONDecodeError, OSError, KeyError):
@@ -732,7 +795,7 @@ class AgentInstance:
         """
         if not self.is_alive():
             return False
-        if self.adapter.name != "claude":
+        if self.adapter.name not in ("claude", "codex"):
             return False
         try:
             logs = sorted(self.log_dir.glob("session_*.log"),
@@ -752,8 +815,9 @@ class AgentInstance:
                     f.seek(size - 30_000)
                     f.readline()  # skip partial line
                 tail = f.read()
-            # Count MCP death indicators
-            mcp_errors = tail.count("is not connected") + tail.count("Connection closed")
+            # Count MCP death indicators (works for both Claude and Codex)
+            mcp_errors = (tail.count("is not connected") + tail.count("Connection closed")
+                          + tail.count('"turn.failed"'))
             if mcp_errors >= error_threshold:
                 print(
                     f"  [!] Agent {self.agent_id} ({self.username}): "

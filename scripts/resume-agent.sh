@@ -73,12 +73,16 @@ if pgrep -f "python3 orchestrate.py" > /dev/null 2>&1; then
 fi
 
 # ── Step 1b: Clean up orphaned processes from previous runs ──
-# Kill agent CLI processes (SIGTERM then SIGKILL)
+# Kill agent CLI processes (SIGTERM then SIGKILL) — all harnesses
 pkill -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
+pkill -f "codex.*exec" 2>/dev/null || true
+pkill -f "kimi -p" 2>/dev/null || true
+pkill -f "qwen -p" 2>/dev/null || true
 pkill -f "play.sh" 2>/dev/null || true
 pkill -f "play_qwen.py" 2>/dev/null || true
 sleep 2
 pkill -9 -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
+pkill -9 -f "codex.*exec" 2>/dev/null || true
 # Kill MCP servers
 pkill -f "mcp_game_server.py" 2>/dev/null || true
 # Kill Playwright (all forms)

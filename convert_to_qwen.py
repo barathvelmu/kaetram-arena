@@ -1037,6 +1037,10 @@ def turn_to_conversation(turn: dict, personality: str | None = None, min_score: 
 # Uses path segments (not substrings) to avoid false matches like "agent_40"
 EXCLUDED_AGENTS = {"agent_3", "agent_4"}
 
+# Only include turns from these harnesses in training data.
+# Codex/Kimi/Qwen turns are excluded until validated.
+INCLUDED_HARNESSES = {"claude", "unknown"}
+
 
 def _is_excluded_agent(path: Path) -> bool:
     """Check if a path belongs to an excluded agent using path segments, not substrings."""
@@ -1047,6 +1051,7 @@ def _is_excluded_agent(path: Path) -> bool:
 def load_turns(input_dir: Path) -> list[tuple[str, dict]]:
     """Load all turns from extracted dataset directory. Returns (session_name, turn) pairs."""
     all_turns = []
+    skipped_harnesses: dict[str, int] = {}
     for jsonl in sorted(input_dir.rglob("turns.jsonl")):
         # Skip excluded agents (e.g., agent_3/efficient, agent_4/codex)
         if _is_excluded_agent(jsonl):
@@ -1055,9 +1060,17 @@ def load_turns(input_dir: Path) -> list[tuple[str, dict]]:
         for line in open(jsonl):
             try:
                 turn = json.loads(line)
+                # Filter by harness — only include validated harnesses
+                harness = turn.get("harness", "unknown")
+                if harness not in INCLUDED_HARNESSES:
+                    skipped_harnesses[harness] = skipped_harnesses.get(harness, 0) + 1
+                    continue
                 all_turns.append((session, turn))
             except json.JSONDecodeError:
                 continue
+    if skipped_harnesses:
+        for h, count in skipped_harnesses.items():
+            print(f"  [filter] Skipped {count} turns from harness '{h}'")
     return all_turns
 
 
@@ -1071,7 +1084,12 @@ def load_turns_by_session(input_dir: Path) -> dict[str, list[dict]]:
         turns = []
         for line in open(jsonl):
             try:
-                turns.append(json.loads(line))
+                turn = json.loads(line)
+                # Filter by harness — only include validated harnesses
+                harness = turn.get("harness", "unknown")
+                if harness not in INCLUDED_HARNESSES:
+                    continue
+                turns.append(turn)
             except json.JSONDecodeError:
                 continue
         if turns:

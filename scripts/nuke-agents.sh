@@ -8,8 +8,11 @@ echo "=== NUKING all agent processes ==="
 pkill -9 -f "python3 orchestrate.py" 2>/dev/null || true
 tmux kill-session -t datacol 2>/dev/null || true
 
-# Kill ALL claude -p agents (every possible prompt pattern)
+# Kill ALL agent CLI processes (Claude, Codex, Kimi, Qwen)
 pkill -9 -f "claude -p" 2>/dev/null || true
+pkill -9 -f "codex.*exec" 2>/dev/null || true
+pkill -9 -f "kimi -p" 2>/dev/null || true
+pkill -9 -f "qwen -p" 2>/dev/null || true
 
 # Kill ALL MCP game servers
 pkill -9 -f "mcp_game_server.py" 2>/dev/null || true
@@ -39,6 +42,7 @@ sleep 2
 echo ""
 echo "Survivors (should be 0):"
 echo "  claude -p: $(pgrep -c -f 'claude -p' 2>/dev/null || echo 0)"
+echo "  codex exec: $(pgrep -c -f 'codex.*exec' 2>/dev/null || echo 0)"
 echo "  MCP servers: $(pgrep -c -f 'mcp_game_server' 2>/dev/null || echo 0)"
 echo "  Playwright: $(pgrep -c -f 'playwright/driver' 2>/dev/null || echo 0)"
 echo "  Chrome: $(pgrep -c -f 'chrome-headless-shell' 2>/dev/null || echo 0)"

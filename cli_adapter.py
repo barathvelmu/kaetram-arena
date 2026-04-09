@@ -198,6 +198,7 @@ class CodexAdapter(CLIAdapter):
 
     def __init__(self, model: str = "gpt-5.4"):
         super().__init__(model)
+        self._codex_home: Path | None = None
 
     @property
     def name(self) -> str:
@@ -222,8 +223,63 @@ class CodexAdapter(CLIAdapter):
                 stderr=subprocess.DEVNULL,
             )
 
-        # Playwright MCP is configured globally in ~/.codex/config.toml with
-        # --headless --isolated flags (each agent gets its own browser instance).
+        # Configure kaetram MCP server per-sandbox via CODEX_HOME isolation.
+        # Each agent gets its own .codex/config.toml so MCP servers use the
+        # correct port, username, and screenshot directory.
+        codex_home = sandbox_dir / ".codex"
+        codex_home.mkdir(parents=True, exist_ok=True)
+        self._codex_home = codex_home
+
+        # Copy auth credentials from the real CODEX_HOME so the sandbox
+        # can authenticate with OpenAI's API.
+        real_codex_home = Path.home() / ".codex"
+        real_auth = real_codex_home / "auth.json"
+        if real_auth.exists():
+            shutil.copy2(real_auth, codex_home / "auth.json")
+
+        config_toml = f"""\
+model = "{self.model}"
+model_reasoning_effort = "medium"
+
+[features]
+codex_hooks = true
+
+[mcp_servers.kaetram]
+command = "{VENV_PYTHON}"
+args = ["{PROJECT_DIR / 'mcp_game_server.py'}"]
+tool_timeout_sec = 60
+startup_timeout_sec = 30
+
+[mcp_servers.kaetram.env]
+KAETRAM_PORT = "{port}"
+KAETRAM_USERNAME = "{username}"
+KAETRAM_EXTRACTOR = "{PROJECT_DIR / 'state_extractor.js'}"
+KAETRAM_SCREENSHOT_DIR = "{sandbox_dir / 'state'}"
+
+[projects."{sandbox_dir}"]
+trust_level = "trusted"
+"""
+        (codex_home / "config.toml").write_text(config_toml)
+
+        # Stop Hook: forces Codex to keep playing up to max_turns instead of
+        # exiting after one turn. The hook intercepts the Stop event and
+        # returns {"decision": "block"} to inject a continuation prompt.
+        hook_script = PROJECT_DIR / "scripts" / "codex_stop_hook.py"
+        hooks_json = {
+            "hooks": {
+                "Stop": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": f"python3 {hook_script}",
+                        "timeout": 10,
+                    }],
+                }],
+            },
+        }
+        (codex_home / "hooks.json").write_text(json.dumps(hooks_json, indent=2))
+
+        # Initialize turn counter (reset each session via start_session)
+        (sandbox_dir / ".turn_counter").write_text("0")
 
     def build_command(
         self,
@@ -233,8 +289,9 @@ class CodexAdapter(CLIAdapter):
         max_budget_usd: float | None = None,
         auth_mode: str = "subscription",
     ) -> list[str]:
-        # Codex has no --max-turns; use timeout (estimate ~30s per turn)
-        timeout_seconds = max(max_turns * 30, 600)
+        # Stop hook forces continuation up to max_turns, but we still need a
+        # timeout as a hard safety net. Add 5min buffer over the estimated time.
+        timeout_seconds = max(max_turns * 30 + 300, 900)
         return [
             "timeout",
             str(timeout_seconds),
@@ -245,13 +302,20 @@ class CodexAdapter(CLIAdapter):
             self.model,
             "--dangerously-bypass-approvals-and-sandbox",
             "--json",
+            "--enable", "codex_hooks",
             # Inject system prompt as developer instructions (stronger than AGENTS.md)
             "-c", f'model_instructions_file="system_prompt.md"',
         ]
 
     def get_env(self) -> dict[str, str]:
-        # Codex authenticates via `codex login` (account subscription) — no env vars needed
-        return {}
+        env = {}
+        # Isolate per-sandbox MCP config so each agent uses its own kaetram server
+        if self._codex_home:
+            env["CODEX_HOME"] = str(self._codex_home)
+            # Stop hook reads these to track turns per session
+            env["CODEX_TURN_COUNTER"] = str(self._codex_home.parent / ".turn_counter")
+            env["CODEX_MAX_TURNS"] = "150"
+        return env
 
     def _extract_state_text_from_line(self, line: str) -> str | None:
         """Codex --json: search for game state in various event structures.

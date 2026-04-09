@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Reset player data so agents start fresh on next login.
 #
-# Deletes all MongoDB records for ClaudeBot agents and clears sandbox state.
+# Deletes all MongoDB records for all agent bots and clears sandbox state.
 # Game servers must NOT be running — they cache player data in memory and
 # would re-save stale state to DB on next autosave/logout.
 #
@@ -41,7 +41,9 @@ echo ""
 # ── Safety check: refuse if agents or game servers are running ──
 if [ "$FORCE" != "true" ]; then
   ORCH_COUNT=$(pgrep -c -f "python3 orchestrate.py" 2>/dev/null || echo 0)
-  AGENT_COUNT=$(pgrep -c -f "claude.*-p.*play the game" 2>/dev/null || echo 0)
+  CLAUDE_COUNT=$(pgrep -c -f "claude -p" 2>/dev/null || echo 0)
+  CODEX_COUNT=$(pgrep -c -f "codex.*exec" 2>/dev/null || echo 0)
+  AGENT_COUNT=$((CLAUDE_COUNT + CODEX_COUNT))
   PLAY_COUNT=$(pgrep -c -f "play.sh" 2>/dev/null || echo 0)
 
   # Check game server ports
@@ -56,7 +58,7 @@ if [ "$FORCE" != "true" ]; then
   if [ "$ORCH_COUNT" -gt 0 ] || [ "$AGENT_COUNT" -gt 0 ] || [ "$PLAY_COUNT" -gt 0 ] || [ "$SERVERS_UP" -gt 0 ]; then
     echo "ERROR: Cannot reset while agents or game servers are running."
     echo "  Orchestrator processes: $ORCH_COUNT"
-    echo "  Claude agent processes: $AGENT_COUNT"
+    echo "  Agent processes:        $AGENT_COUNT (Claude: $CLAUDE_COUNT, Codex: $CODEX_COUNT)"
     echo "  Game servers on ports:  $SERVERS_UP"
     echo ""
     echo "Stop them first:  ./scripts/nuke-agents.sh"
@@ -72,13 +74,15 @@ if ! docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
   exit 1
 fi
 
-# ── Build username list ──
+# ── Build username list (all harness types) ──
 USERNAMES=()
 USER_JS_ARRAY=""
 for i in $(seq 0 $((N_AGENTS - 1))); do
-  USERNAMES+=("claudebot${i}")
-  [ -n "$USER_JS_ARRAY" ] && USER_JS_ARRAY="${USER_JS_ARRAY},"
-  USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}'"
+  for prefix in claudebot codexbot kimibot qwencodebot; do
+    USERNAMES+=("${prefix}${i}")
+    [ -n "$USER_JS_ARRAY" ] && USER_JS_ARRAY="${USER_JS_ARRAY},"
+    USER_JS_ARRAY="${USER_JS_ARRAY}'${prefix}${i}'"
+  done
 done
 
 echo "Players to reset: ${USERNAMES[*]}"

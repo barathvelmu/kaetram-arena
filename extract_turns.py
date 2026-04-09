@@ -31,7 +31,12 @@ def parse_events(log_path: Path) -> list[dict]:
     """
     fmt = detect_log_format(log_path)
     if fmt == "codex":
-        return _parse_codex_events(log_path)
+        # Codex extraction disabled until we validate logs from initial runs.
+        # Codex logs are clearly tagged via detect_log_format() and .meta.json sidecars.
+        # To enable: uncomment the return below and remove the empty return.
+        # return _parse_codex_events(log_path)
+        print(f"  [skip] {log_path.name}: codex format (extraction disabled)", file=sys.stderr)
+        return []
     # Claude, Qwen Code, and Kimi all use compatible stream-json-like formats
     # or compatible message structures
     return _parse_claude_events(log_path)
@@ -133,6 +138,28 @@ def _parse_codex_events(log_path: Path) -> list[dict]:
         item = ev.get("item", {})
         item_type = item.get("type", "")
         timestamp = ev.get("timestamp", ev.get("created_at"))
+
+        # item.completed with agent_message → text event (agent reasoning/planning)
+        if t == "item.completed" and item_type == "agent_message":
+            text = item.get("text", "")
+            if text:
+                events.append({
+                    "line": i, "type": "text", "role": "assistant",
+                    "text": text,
+                    "timestamp": timestamp,
+                })
+            continue
+
+        # item.completed with reasoning → thinking event
+        if t == "item.completed" and item_type == "reasoning":
+            text = item.get("text", "")
+            if text:
+                events.append({
+                    "line": i, "type": "thinking", "role": "assistant",
+                    "text": text,
+                    "timestamp": timestamp,
+                })
+            continue
 
         # item.started with mcp_tool_call → tool_use event
         if t == "item.started" and item_type == "mcp_tool_call":
@@ -952,11 +979,29 @@ def extract_turns(log_path: Path) -> list[dict]:
     return filtered
 
 
+def _read_harness_from_sidecar(log_path: Path) -> str:
+    """Read harness type from the .meta.json sidecar file next to a session log."""
+    meta_path = log_path.with_suffix(".meta.json")
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text())
+            return meta.get("harness", "unknown")
+        except (json.JSONDecodeError, OSError):
+            pass
+    return "unknown"
+
+
 def process_log(log_path: Path, output_dir: Path) -> int:
     """Process a single log file. Returns number of turns extracted."""
+    harness = _read_harness_from_sidecar(log_path)
+
     turns = extract_turns(log_path)
     if not turns:
         return 0
+
+    # Tag each turn with harness source for downstream filtering
+    for turn in turns:
+        turn["harness"] = harness
 
     session_dir = output_dir / log_path.stem
     session_dir.mkdir(parents=True, exist_ok=True)

@@ -25,8 +25,17 @@ for arg in "$@"; do
   esac
 done
 LOG_DIR="$PROJECT_DIR/logs"
+STATE_FILE="$PROJECT_DIR/state/progress.json"
 MAX_TURNS=150
 PAUSE_BETWEEN=10
+
+# Set username based on harness
+case "$HARNESS" in
+  codex)    BOT_USERNAME="CodexBot";;
+  kimi)     BOT_USERNAME="KimiBot";;
+  qwen-code) BOT_USERNAME="QwenBot";;
+  *)        BOT_USERNAME="ClaudeBot";;
+esac
 
 # Check for required CLI
 case "$HARNESS" in
@@ -71,7 +80,7 @@ while true; do
   echo "=== Session $SESSION starting at $(date) ==="
 
   SYSTEM=$(sed -e "s|__PROJECT_DIR__|${PROJECT_DIR}|g" \
-               -e "s|__USERNAME__|ClaudeBot|g" \
+               -e "s|__USERNAME__|${BOT_USERNAME}|g" \
                -e "s|__SERVER_PORT__||g" \
                "$SYSTEM_PROMPT_FILE")
 
@@ -126,11 +135,18 @@ ${GAME_STATE}
 Use nearest_mob.click_x/click_y to click on targets. Use player_position for spatial awareness."
   fi
 
-  PROMPT="IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. Your ONLY job is to play the game via the browser. Start IMMEDIATELY with the login code block in your system instructions.
+  PROMPT="IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. Your ONLY job is to play the game via the MCP tools. Start IMMEDIATELY by calling login.
 
 Session #${SESSION}. Your previous progress: ${PROGRESS}
 ${GAME_STATE_BLOCK}
-Follow your system instructions exactly. Load tools, then login, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore."
+Follow your system instructions exactly. Call login, then observe, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore."
+
+  # Codex exec is one-shot — needs explicit instruction to keep looping
+  if [ "$HARNESS" = "codex" ]; then
+    PROMPT="${PROMPT}
+
+You must keep playing continuously — call tools in a loop for the ENTIRE session. After every action, call observe again and pick the next action. Do NOT stop after login. Do NOT stop after one action. Keep calling tools: observe → decide → act → observe → decide → act, hundreds of times. Never output a final message or conclude — just keep playing until the process is killed."
+  fi
 
   # Run from isolated dir to prevent the CLI from reading this project's CLAUDE.md / AGENTS.md
   SANDBOX="/tmp/kaetram_session_${SESSION}_$$"
@@ -143,11 +159,64 @@ Follow your system instructions exactly. Load tools, then login, then run the OB
       echo "$SYSTEM" > "$SANDBOX/system_prompt.md"
       git -C "$SANDBOX" init -q
 
-      TIMEOUT_SECS=$((MAX_TURNS * 30))
-      (cd "$SANDBOX" && timeout "${TIMEOUT_SECS}s" codex exec "$PROMPT" \
+      # Configure kaetram MCP server + stop hook per-session via CODEX_HOME isolation
+      mkdir -p "$SANDBOX/.codex" "$SANDBOX/state"
+      # Copy auth credentials so sandbox can authenticate with OpenAI
+      [ -f "$HOME/.codex/auth.json" ] && cp "$HOME/.codex/auth.json" "$SANDBOX/.codex/auth.json"
+      cat > "$SANDBOX/.codex/config.toml" <<TOML
+model = "$CODEX_MODEL"
+model_reasoning_effort = "medium"
+
+[features]
+codex_hooks = true
+
+[mcp_servers.kaetram]
+command = "${PROJECT_DIR}/.venv/bin/python3"
+args = ["${PROJECT_DIR}/mcp_game_server.py"]
+tool_timeout_sec = 60
+startup_timeout_sec = 30
+
+[mcp_servers.kaetram.env]
+KAETRAM_PORT = ""
+KAETRAM_USERNAME = "${BOT_USERNAME}"
+KAETRAM_EXTRACTOR = "${PROJECT_DIR}/state_extractor.js"
+KAETRAM_SCREENSHOT_DIR = "${SANDBOX}/state"
+
+[projects."${SANDBOX}"]
+trust_level = "trusted"
+TOML
+
+      # Stop Hook: forces Codex to keep playing instead of exiting after 1 turn
+      cat > "$SANDBOX/.codex/hooks.json" <<HOOKJSON
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${PROJECT_DIR}/scripts/codex_stop_hook.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+HOOKJSON
+      echo "0" > "$SANDBOX/.turn_counter"
+
+      # Timeout = max_turns * 30s + 5min buffer for hook overhead
+      TIMEOUT_SECS=$((MAX_TURNS * 30 + 300))
+      (cd "$SANDBOX" && \
+        CODEX_HOME="$SANDBOX/.codex" \
+        CODEX_TURN_COUNTER="$SANDBOX/.turn_counter" \
+        CODEX_MAX_TURNS="$MAX_TURNS" \
+        timeout "${TIMEOUT_SECS}s" codex exec "$PROMPT" \
         --model "$CODEX_MODEL" \
         --dangerously-bypass-approvals-and-sandbox \
         --json \
+        --enable codex_hooks \
         -c 'model_instructions_file="system_prompt.md"') \
         2>&1 | tee "$LOG_FILE" || true
       ;;
@@ -191,7 +260,7 @@ Follow your system instructions exactly. Load tools, then login, then run the OB
           -e "s|__PROJECT_DIR__|${PROJECT_DIR}|g" \
           -e "s|__SCREENSHOT_DIR__|${SANDBOX}/state|g" \
           -e "s|__SERVER_PORT__||g" \
-          -e "s|__USERNAME__|ClaudeBot|g" \
+          -e "s|__USERNAME__|${BOT_USERNAME}|g" \
           "$PROJECT_DIR/.mcp.json" > "$SANDBOX/.mcp.json"
       (cd "$SANDBOX" && claude -p "$PROMPT" \
         --model "$CLAUDE_MODEL" \

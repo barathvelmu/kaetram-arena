@@ -17,16 +17,14 @@ __GAME_KNOWLEDGE_BLOCK__
 | `observe` | Returns game state JSON + ASCII map + stuck check. Call once before each decision. Never call twice in a row. |
 | `attack(mob_name)` | Attack nearest alive mob by name (e.g. "Rat", "Snek") |
 | `navigate(x, y)` | BFS pathfinding to grid coords. Max 100 tiles — warp first for longer. |
-| `move(x, y)` | Short-distance movement (< 15 tiles) |
 | `warp(location)` | Fast travel: "mudwich", "crossroads", "lakesworld". Auto-waits out combat cooldown. |
 | `interact_npc(npc_name)` | Walk to NPC, talk through all dialogue, auto-accept quest. Returns `dialogue` list, `arrived`, `quest_opened`. |
 | `talk_npc(instance_id)` | Continue talking to adjacent NPC (Manhattan < 2). Returns `dialogue` list. |
-| `accept_quest` | Manual quest accept (usually not needed — interact_npc auto-accepts). |
 | `eat_food(slot)` | Eat food from inventory slot to heal. Fails at full HP. |
 | `drop_item(slot)` | Drop item from inventory to free space. |
+| `buy_item(npc_name, item_index, quantity)` | Buy from NPC shop. Stand next to NPC first via interact_npc. See NPC Stores in game_knowledge. |
 | `equip_item(slot)` | Equip item from inventory slot. Returns equipped true/false with reason. |
 | `set_attack_style(style)` | "hack" (str+def), "chop" (str), "defensive" (def) |
-| `clear_combat` | Clear combat state before warping |
 | `stuck_reset` | Reset stuck detection |
 | `cancel_nav` | Cancel active navigation |
 | `gather(resource_name)` | Gather from tree/rock/bush/fish spot. Walks to it, harvests, reports items gained. |
@@ -63,18 +61,18 @@ __PERSONALITY_BLOCK__
 1. **SURVIVE** — HP low? (Your personality defines the threshold.) Edible food in inventory → `eat_food(slot)`. No food → `warp(location="mudwich")`.
 2. **RESPAWN** — `ui_state.is_dead` → `respawn`.
 3. **UNSTICK** — `STUCK_CHECK: stuck: true` → `stuck_reset`, then warp to Mudwich, pick a different objective.
-4. **BAIL OUT** — 3+ failed attempts at same target → warp to Mudwich, pick a different objective.
+4. **BAIL OUT** — 3+ failed attempts at same target, or stuck_reset used 3+ times on one location → warp to Mudwich, pick a completely different objective. Returning to the same blocked target wastes turns.
 5. **TURN IN** — Quest objective complete (have required items) → `interact_npc(quest_giver)` to turn in immediately.
 6. **EQUIP** — Better weapon/armor in inventory → `equip_item(slot)`. If it fails with "stat requirement", grind toward it.
 7. **LOOT** — Items or lootbags visible nearby (type 2 or 8 in entities) → `loot()` to pick them up. Also use after killing mobs.
 8. **ADVANCE** — Active quest → take one step toward the objective:
-   - Combat quest: `attack(mob_name)` to fight required mobs.
+   - Combat quest: `attack(mob_name)` the required mob. For grinding prerequisites, fight the mob recommended for your level in the MOB PROGRESSION table — higher-HP mobs give proportionally more XP.
    - Gather quest: `gather(resource_name)` on needed resource (tree, rock, bush).
    - Delivery quest: `navigate` to NPC, then `interact_npc`.
    - Unsure what to do next: `query_quest(quest_name)` for step-by-step guidance.
-9. **SEEK QUEST** — No active unfinished quest → navigate to the next quest NPC from game_knowledge and call `interact_npc`. Don't grind without a quest objective.
+9. **SEEK QUEST** — No active unfinished quest → navigate to the next quest NPC from game_knowledge and call `interact_npc`. If a quest needs shop items (tomatoes, ores), buy them with `buy_item` first.
 10. **ACCEPT** — Quest NPC nearby (`quest_npc: true`, distance ≤ 10) → `interact_npc(npc_name)`.
-11. **PREPARE** — Need prerequisite (skill level, equipment) → grind one action toward it. Use `gather` for skill training.
+11. **PREPARE** — Need prerequisite (skill level, equipment) → grind toward it. Fight the mob from MOB PROGRESSION matching your level — Goblins past L20 give negligible XP. Use `gather` for skill training.
 12. **EXPLORE** — Nothing else applies → navigate to a new area, find new NPCs.
 </gameplay_loop>
 

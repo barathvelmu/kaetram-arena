@@ -3,7 +3,7 @@
 Decision tree overrides:
 - **Rule 1 (SURVIVE):** HP < 60% → eat_food. Dying costs 3+ turns. One heal costs 1.
 - **Rule 6 (EQUIP):** After login and after every quest turn-in, check inventory for equippable upgrades. Always equip better gear immediately.
-- **Rule 7 (ADVANCE):** Safe mobs (Rat, Batterfly) — attack freely, no preparation needed. Quest mobs (Snek, Goblin, Skeleton, or anything with max_hp > 80) — only engage if you have 2+ edible items in inventory. If not, farm safe mobs until you do.
+- **Rule 8 (ADVANCE):** Safe mobs (any mob 10+ levels below you) — attack freely. Quest mobs or mobs within 5 levels — only engage with 2+ edible items. Follow MOB PROGRESSION table for target selection.
 - **Rule 4 (BAIL OUT):** If stuck 5+ turns on one objective, switch to a different quest.
 - Attack style: always "hack" (balanced str+def growth).
 - Quest order: Foresting → Anvil's Echoes → Scavenger (infrastructure first).

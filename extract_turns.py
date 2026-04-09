@@ -217,6 +217,10 @@ def is_observe(event: dict) -> bool:
 
 
 # MCP action tool names → action types
+# Must stay in sync with the @mcp.tool() decorators in mcp_game_server.py.
+# Every action-producing MCP tool (i.e. everything except observe and login)
+# should be listed here so is_browser_action() picks it up and the extraction
+# loop does not silently drop its turns.
 MCP_ACTION_TOOLS = {
     "mcp__kaetram__attack": "attack",
     "mcp__kaetram__navigate": "navigate",
@@ -232,7 +236,13 @@ MCP_ACTION_TOOLS = {
     "mcp__kaetram__stuck_reset": "stuck_reset",
     "mcp__kaetram__cancel_nav": "nav_cancel",
     "mcp__kaetram__respawn": "respawn",
-    "mcp__kaetram__quest_action": "quest_accept",
+    "mcp__kaetram__accept_quest": "quest_accept",
+    "mcp__kaetram__gather": "gather",
+    "mcp__kaetram__loot": "loot",
+    "mcp__kaetram__buy_item": "buy_item",
+    "mcp__kaetram__drop_item": "drop_item",
+    "mcp__kaetram__clear_combat": "clear_combat",
+    "mcp__kaetram__query_quest": "query_quest",
 }
 
 
@@ -473,6 +483,27 @@ def structured_action(action_type: str, action_code: str, tool_input: dict | Non
             return "stuck_reset()"
         if action_type == "nav_cancel":
             return "nav_cancel()"
+        if action_type == "gather":
+            # mcp_game_server.gather(ctx, resource_name)
+            return f"gather({tool_input.get('resource_name', tool_input.get('target', '?'))})"
+        if action_type == "loot":
+            # mcp_game_server.loot(ctx) — no args
+            return "loot()"
+        if action_type == "clear_combat":
+            # mcp_game_server.clear_combat(ctx) — no args
+            return "clear_combat()"
+        if action_type == "buy_item":
+            # mcp_game_server.buy_item(ctx, npc_name, item_index, count=1)
+            npc = tool_input.get("npc_name", "?")
+            item = tool_input.get("item_index", "?")
+            count = tool_input.get("count", 1)
+            return f"buy_item({npc}, {item}, count={count})"
+        if action_type == "drop_item":
+            # mcp_game_server.drop_item(ctx, slot)
+            return f"drop_item(slot={tool_input.get('slot', '?')})"
+        if action_type == "query_quest":
+            # mcp_game_server.query_quest(ctx, quest_name)
+            return f"query_quest({tool_input.get('quest_name', '?')})"
         return f"{action_type}({json.dumps(tool_input)})"
 
     # --- Legacy JS code path (regex parsing) ---
@@ -804,6 +835,21 @@ def extract_turns(log_path: Path) -> list[dict]:
     events = parse_events(log_path)
     turns = []
 
+    # Build a tool_use_id → raw result text map so we can persist the real
+    # tool_result content for each matched action (contract with convert_to_qwen.py:
+    # action_result_raw is the authoritative tool message content, fallback to
+    # the synthesizer only when this field is absent or empty).
+    #
+    # The raw text is stored AS-IS. Observe results are double-wrapped
+    # ({"result": "<inner JSON>\n\nASCII_MAP:..."}) and we deliberately do not
+    # unwrap here — downstream consumers can decide how to handle it.
+    tool_result_by_id: dict[str, str] = {}
+    for e in events:
+        if e.get("type") == "tool_result":
+            tid = e.get("tool_use_id", "")
+            if tid:
+                tool_result_by_id[tid] = e.get("text", "")
+
     # Index all browser_run_code calls that read game state
     observe_indices = [i for i, e in enumerate(events) if is_observe(e)]
     if not observe_indices:
@@ -854,9 +900,13 @@ def extract_turns(log_path: Path) -> list[dict]:
         # Determine the action: either embedded in the observe code or a separate call
         action_tool_name = ""
         action_tool_input = None
+        action_tool_id = ""
         if has_action_code(obs_code):
-            # Combined observe+action call (legacy browser_run_code)
+            # Combined observe+action call (legacy browser_run_code) — the
+            # "action" and the "observe" share the same tool_use id, so the
+            # result is whatever the browser_run_code call returned.
             action_code = obs_code
+            action_tool_id = obs_tool_id
         else:
             # Pure observe — look for a standalone action before the next observe
             action_code = None
@@ -870,10 +920,17 @@ def extract_turns(log_path: Path) -> list[dict]:
                     action_tool_name = ev.get("name", "")
                     action_tool_input = ev.get("input", {})
                     action_code = ev.get("input", {}).get("code", "")
+                    action_tool_id = ev.get("id", "")
                     break
 
             if not action_code and not action_tool_name:
                 continue  # observe-only turn, skip
+
+        # Look up the raw tool_result text for this action. May be None/empty
+        # if the session ended mid-action or the result was not captured in
+        # the stream. Downstream (convert_to_qwen.py) treats empty/None as
+        # "fall back to synthesized tool_result".
+        action_result_raw = tool_result_by_id.get(action_tool_id) if action_tool_id else None
 
         action_type = classify_action(action_code or "", action_tool_name)
         action_target = extract_action_target(action_code or "")
@@ -898,6 +955,13 @@ def extract_turns(log_path: Path) -> list[dict]:
             "action_type": action_type,
             "action_structured": structured_action(action_type, action_code or "", action_tool_input),
             "action_target": action_target,
+            # Raw tool_result text for the action tool_use, as captured in the
+            # stream-json log. Contract with convert_to_qwen.py: downstream uses
+            # this as the authoritative tool message content and only falls
+            # back to a synthesized result when this field is absent or empty.
+            # Format is the raw text the Claude stream emitted — typically a
+            # JSON-stringified dict like {"result": "..."} or a plain string.
+            "action_result_raw": action_result_raw,
             "player_stats": {
                 "hp": ps.get("hp", 0),
                 "max_hp": ps.get("max_hp", 0),

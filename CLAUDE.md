@@ -70,6 +70,10 @@ research/
 
 **`.mcp.json` is a template** — Contains placeholders (`__VENV_PYTHON__`, `__PROJECT_DIR__`, `__SERVER_PORT__`, `__USERNAME__`, `__SCREENSHOT_DIR__`). Resolved by `cli_adapter.py` or `play.sh` at launch time. Claude Code uses `--mcp-config` + `--strict-mcp-config` to read the resolved copy from the sandbox, NOT the project-level template.
 
+**rsLoRA + `alpha=r` is an 8x LR trap** — rsLoRA scales adapters by `1/sqrt(r)` instead of `1/r`. With our standard config `r=alpha=64` that means effective scaling is `64/sqrt(64)=8.0` instead of `64/64=1.0` — an 8x effective LR bump for free. r7 diverged immediately the first time we enabled it. Keep `use_rslora=False` on `finetune/train_modal.py` unless you also rebalance alpha. The comment on line 359 is load-bearing.
+
+**Qwen3 chat template silently drops `<think>` on intermediate turns** — Stock Qwen3.5 chat template strips `<think>` reasoning from all assistant messages before `last_query_index` in multi-turn conversations (QwenLM/Qwen3 issue #1831). ~70% of our records are multi-turn windows, so pre-r7 runs were training on "action only, no reasoning" for every intermediate turn. If you ever touch the tokenizer/template, re-verify that intermediate-turn CoT survives round-tripping through `apply_chat_template`.
+
 ---
 
 ## MANAGING TRAINING RUNS
@@ -240,35 +244,68 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode multi --format grpo
 ```
 
-**Action vocabulary** (used in `<action>` tags):
-- `attack(mob_name)` — target and attack a mob via helper
-- `interact_npc(npc_name)` — walk to and interact with NPC
-- `navigate(x, y)` — multi-step pathfinding to grid coordinates
-- `move(x, y)` — single-step movement to nearby tile
-- `click(x, y)` — click canvas at pixel coordinates (generic fallback)
-- `click_entity(label)` — click a specific entity by label
-- `click_tile(x, y)` — click a specific grid tile
-- `talk_npc(instance_id)` — open dialogue with NPC
-- `warp(location)` — fast travel (Mudwich, Crossroads, Lakesworld)
-- `equip(slot=N)` — equip item from inventory
-- `heal(slot=N)` — consume edible item
-- `quest_accept()` — click quest button
-- `set_style(style)` — change attack style (Hack=6, Chop=7, Defensive=3)
-- `stuck_reset()` — reset navigation when stuck
-- `respawn()` — respawn after death
-- `wait(Ns)` — wait for combat/regen
+**Action vocabulary** (used in `<action>` tags — these mirror the 22 MCP tool names in `mcp_game_server.py`, not a separate namespace):
 
-**Verified on existing data:** 5,162 turns extracted from 259 session logs (4 agents) → 3,844 train / 1,318 val Qwen3.5 SFT records.
+Core loop:
+- `login()` — call first each session
+- `observe()` — game state JSON + ASCII map + stuck check
+
+Combat:
+- `attack(mob_name)` — target and attack nearest alive mob by name
+- `set_attack_style(style)` — "hack", "chop", "defensive", "stab", "slash"
+- `clear_combat()` — clear combat state + cooldown so `warp` works
+- `respawn()` — respawn after death, clears state + warps to Mudwich
+- `eat_food(slot)` — consume edible item
+- `loot()` — pick up ground items + lootbags after combat
+
+Movement:
+- `navigate(x, y)` — BFS pathfinding (max ~100 tiles — warp for longer)
+- `move(x, y)` — short-distance (<15 tiles)
+- `warp(location)` — fast travel ("mudwich", "crossroads", "lakesworld", "patsow", "crullfield", "undersea")
+- `cancel_nav()` — cancel active navigation
+- `stuck_reset()` — reset stuck detection
+- `click_tile(x, y)` — click grid tile (on-screen fallback)
+
+Quest / NPC:
+- `interact_npc(npc_name)` — walk to NPC, talk through all dialogue, auto-accept quest
+- `talk_npc(instance_id)` — continue talking to adjacent NPC (by entity instance id)
+- `accept_quest()` — explicit quest-accept click (usually not needed — `interact_npc` auto-accepts)
+- `query_quest(quest_name)` — look up detailed walkthrough from `game_knowledge.md`
+
+Inventory / economy:
+- `buy_item(npc_name, item_index, count)` — buy from NPC shop (must be adjacent)
+- `equip_item(slot)` — equip item from inventory slot
+- `drop_item(slot)` — drop item to free space
+- `gather(resource_name)` — gather from tree/rock/bush/fish spot
+
+Note: `extract_turns.py` historically normalized some of these to legacy names (`click_entity`, `heal`, `quest_accept`, `set_style`, `wait`). Those are extract-time aliases — the underlying agent only ever calls the 22 MCP tools above. `accept_quest` appears rarely in the current dataset because `interact_npc` auto-accepts most quests.
+
+**Verified on current data (r7, 2026-04-09):** 575 sessions from 3 agents → 1,395 raw session logs → 650 turns.jsonl files (per-session) → **6,423 train / 646 val** Qwen3.5 SFT records (~23.7M tokens). Action distribution: navigate 27.7%, attack 14.9%, cancel_nav 10.7%, interact_npc 10.7%, warp 9.4%, stuck_reset 7.5%, move 7.1%, click_tile 3.9%.
+
+**r7 fixes applied to this dataset** (see `research/experiments/training-runs.md` for full detail):
+1. **Chat template fix** (QwenLM/Qwen3 #1831) — stock Qwen3.5 template silently drops `<think>` reasoning from all assistant messages before `last_query_index` in multi-turn conversations. ~70% of our records are multi-turn windows, so intermediate-turn CoT was being stripped during training ("action-only" learning on follow-up turns). Patched `convert_to_qwen.py` / tokenizer formatting to always emit `<think>` when `reasoning_content` is present.
+2. **Personality labels** — `detect_personality()` was returning `None` for every record (metadata.json path mismatch). Added fallback mapping from `agent_N` directory → personality. Dataset is now labeled 39% aggressive / 31% methodical / 29% curious, which unblocks per-personality paraphrase augmentation.
+3. **rsLoRA attempted and reverted** — `use_rslora=True` was tried for r=64/alpha=64 (per Kalajdzievski 2023, to stabilize at high rank), but training diverged because rsLoRA's `1/sqrt(r)` scaling combined with `alpha=r` gave ~8x effective LR. Reverted to `use_rslora=False` with standard `alpha/r=1.0` scaling — see the comment on `train_modal.py:359`.
 
 ---
 
 ## CURRENT STATUS
 
-**Data collection ACTIVE.** 3 agents running (AGGRESSIVE, METHODICAL, CURIOUS) on GCP VM. ~530 sessions collected across multiple runs. Training job running on Modal in parallel.
+**r7 SFT training live on Modal.** Experiment `kaetram-qwen3.5-9b-r7`. Launched 2026-04-09 ~15:12 UTC, ETA ~05:00 UTC 2026-04-10. Training is healthy — loss tracking eval, no divergence. Config: LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, `completion_only_loss=True`, bf16, H100 80GB. ~402 steps, ~12–14h wall time.
 
-**Personalities finalized (April 3).** Dropped EFFICIENT after audit. 3 orthogonal axes confirmed working in logs: combat approach / HP-gated preparation / exploration-first. Next: let agents run, rebuild qwen_sft, evaluate distilled model quality.
+**rsLoRA trap (resolved).** First r7 launch used `use_rslora=True` (`1/sqrt(r)` scaling per Kalajdzievski 2023, to stabilize LoRA at r=64). It diverged immediately — with `alpha=r=64`, rsLoRA gives ~8x effective LR vs standard `alpha/r=1.0` scaling. Reverted to standard LoRA scaling (`use_rslora=False`). The fix is a one-line comment on `finetune/train_modal.py:359` — keep it there so we don't fall into the same trap again.
 
-**Finetune v1 DONE.** Qwen3.5-9B finetuned on 3,844 gameplay turns via Modal H100 (27min). Model loaded in Ollama on RTX 3060 GPU machine. New training run in progress with updated MCP-format logs.
+**Data collection currently idle.** Agents (AGGRESSIVE, METHODICAL, CURIOUS) are not running right now — orchestrator stopped while r7 trains on Modal. 575 sessions are on disk in `dataset/raw/agent_0..2/logs/` (1,395 raw session log files across the 3 agents, 650 extracted `turns.jsonl` files). To resume data collection during/after training: `./scripts/resume-agent.sh` or `./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --hours 0`.
+
+**r7 dataset rebuild DONE.** 14,091 turns → **6,423 train / 646 val** (was 3,957/488 in r5/r6 — ~62% more data). Chat template fix + personality labels applied.
+
+**Personalities finalized (April 3).** Dropped EFFICIENT after audit. 3 orthogonal axes confirmed working in logs: combat approach / HP-gated preparation / exploration-first. Active: agent_0=AGGRESSIVE, agent_1=METHODICAL, agent_2=CURIOUS.
+
+**KTO pipeline validated, full run pending.** r6-KTO smoke test ran 10/10 steps cleanly (`train_loss=0.617`, KL active). The `ref_model=None + precompute_ref_log_probs=True` path is locked in — explicit reference-model KTO OOMs repeatedly on H100 80GB. r7-KTO will use the same config on top of r7 SFT merged weights once r7 finishes. Still awaiting Niral's greenlight for the full run.
+
+**Compile-research cron loop working.** `scripts/run_research_staleness_check.sh` via VM cron has been auto-running `/compile-research` + committing + pushing on a regular cadence. Last two successful auto-compile commits: 2026-04-07, 2026-04-08 (see git log for `[auto] compile-research` entries). Do not rely on session-local Claude cron — that dies with the session.
+
+**Finetune v1 DONE.** Qwen3.5-9B finetuned on r5/r6 dataset (3,853 train / 465 val) via Modal H100 (27min). Model loaded in Ollama on RTX 3060 GPU machine for `play_qwen.py` harness. r7 will supersede once training finishes.
 
 **Qwen agent harness DONE.** Three modes available:
 - `QwenCodeAdapter` in `cli_adapter.py` — wraps the `qwen` CLI (a Claude Code / Gemini CLI fork). Uses Playwright MCP, `stream-json` output, `--yolo` mode. Same architecture as Claude/Kimi/Codex adapters. Used by `orchestrate.py` and `play.sh --qwen-code`. **This is NOT the finetuned model** — it calls the Qwen Code CLI which hits the Qwen API.
@@ -296,9 +333,10 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 Custom MCP Server (current):
   Claude CLI ──► mcp_game_server.py (FastMCP) ──► Playwright Python ──► browser
                    │                                    │
-              18 typed tools                     page.evaluate()
+              22 typed tools                     page.evaluate()
               (observe, attack,                  calls window.__helperFn()
-               navigate, warp...)                from state_extractor.js
+               navigate, warp,                   from state_extractor.js
+               gather, loot...)
                    │
               Agent NEVER writes JS — calls structured tools only
 
@@ -334,7 +372,7 @@ Rate limit / budget:
 
 | File | Purpose |
 |------|---------|
-| `mcp_game_server.py` | **Custom MCP server** — FastMCP Python, 18 typed game tools, manages Playwright browser. Agent calls these instead of writing JS. |
+| `mcp_game_server.py` | **Custom MCP server** — FastMCP Python, 22 typed game tools, manages Playwright browser. Agent calls these instead of writing JS. Tools: `login`, `observe`, `attack`, `set_attack_style`, `navigate`, `move`, `warp`, `cancel_nav`, `interact_npc`, `talk_npc`, `accept_quest`, `buy_item`, `eat_food`, `drop_item`, `equip_item`, `clear_combat`, `stuck_reset`, `click_tile`, `respawn`, `gather`, `loot`, `query_quest`. |
 | `.mcp.json` | MCP config **template** — placeholders resolved at launch. Claude uses `--mcp-config` + `--strict-mcp-config`. |
 | `play.sh` | Single-agent loop (resolves `.mcp.json` template via sed) |
 | `cli_adapter.py` | **Harness abstraction** — ClaudeAdapter resolves MCP config, passes `--mcp-config`/`--strict-mcp-config` |
@@ -344,7 +382,7 @@ Rate limit / budget:
 | `convert_to_qwen.py` | Turns → Qwen3.5 9B SFT/GRPO format |
 | `prompts/system.md` | Agent system prompt (~100 lines, no JS — just tool names + decision tree) |
 | `prompts/game_knowledge.md` | Game knowledge (mob stats, quest guides, NPC coords) |
-| `prompts/personalities/*.md` | Playstyle overrides (aggressive, methodical, curious, efficient) |
+| `prompts/personalities/*.md` | Playstyle overrides (`aggressive.md`, `methodical.md`, `curious.md` — EFFICIENT was deprecated April 3 and its file is gone) |
 | `dashboard.py` | Live web dashboard (port 8080) |
 | `dashboard/parsers.py` | Session log parser — classifies MCP tool calls for activity feed |
 | `dashboard/api.py` | API endpoints — `/api/game-state`, `/api/agents`, `/api/activity` |
@@ -382,13 +420,14 @@ gs = json.loads(state_json)
 
 ## Skills (slash commands)
 
-Three custom skills live in `.claude/commands/`:
+Custom skills live in `.claude/commands/`:
 
 | Skill | When to trigger |
 |-------|----------------|
 | `/game-session` | Check stack status, startup guide, port status |
 | `/verify-pipeline` | Confirm data is flowing, inspect training records |
 | `/training-summary` | Dataset stats, reward trends, best/worst sessions |
+| `/compile-research` | Compile/refresh `research/` wiki. Also invoked automatically by the VM cron via `scripts/run_research_staleness_check.sh`. |
 
 ---
 
@@ -415,7 +454,7 @@ When editing `prompts/system.md`, `prompts/game_knowledge.md`, or `prompts/perso
 - **Reference data at top, instructions at end**. "Lost in the middle" effect: middle 40-60% of context is systematically ignored (Stanford NLP). Put game_knowledge above decision tree.
 - **Personality = priority modifiers only**. Don't add new rules — modify ordering/thresholds of existing decision tree. Keep under 10 lines each. (ACL 2025: personality via explicit behavioral instructions works; instruction dilution from rule proliferation doesn't.)
 - **One tool per turn is correct** for game agents. Validated by ReAct (Yao et al.), GamingAgent (ICLR 2026), Claude Code architecture.
-- **18 tools is near the limit**. Performance degrades beyond ~19 tools (RAG-MCP). Don't add tools without removing/combining others.
+- **22 tools is already past the RAG-MCP danger line.** Performance degrades beyond ~19 tools (RAG-MCP arXiv 2505.03275). We grew from 18 → 22 when `buy_item`, `gather`, `loot`, `query_quest` were added. Do not add more tools without removing/combining — context-dependent tool filtering (KAE-15) is now on the critical path for the student model. Monitor tool selection confusion in r7 and later runs.
 
 ## MCP server internals
 

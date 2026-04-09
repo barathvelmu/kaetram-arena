@@ -322,7 +322,7 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
 @app.function(
     image=train_image,
     gpu="H100",  # 80GB VRAM — bf16 LoRA on 9B fits easily
-    timeout=8 * 3600,  # 8 hours (R6 took ~6.5h at 1:50/step)
+    timeout=18 * 3600,  # 18 hours (r7: 402 steps × ~2min/step ≈ 14h)
     volumes={
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,
@@ -356,7 +356,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         lora_alpha=LORA_ALPHA,
         lora_dropout=0,
         bias="none",
-        use_rslora=True,  # Stabilizes training at r=64 (scales by 1/sqrt(r) not 1/r)
+        use_rslora=False,  # rsLoRA diverged at r=64/alpha=64 (8x effective LR)
         use_gradient_checkpointing="unsloth",  # Unsloth optimized — lower VRAM
         random_state=42,
     )

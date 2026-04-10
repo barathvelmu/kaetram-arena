@@ -12,7 +12,7 @@ Survey of preference optimization methods relevant to game agent distillation. C
 
 **What it needs:** Unpaired examples with binary labels. No need to match good/bad pairs for the same prompt.
 
-**Why we chose it (over DPO):** Our data is unpaired — we have 509 sessions (as of April 8) labeled by outcome (XP gain, deaths, quest progress), not pairs of good/bad actions from the same game state. KTO fits our data natively. DPO would require constructing artificial pairs. (KAE-13)
+**Why we chose it (over DPO):** Our data is unpaired — we have 618 sessions (as of April 10) labeled by outcome (XP gain, deaths, quest progress), not pairs of good/bad actions from the same game state. KTO fits our data natively. DPO would require constructing artificial pairs. (KAE-13)
 
 **Our implementation:** Score sessions 0-1 from outcome signals → top 40% desirable, bottom 30% undesirable → sliding windows (size=5, stride=2) → TRL `KTOTrainer` on r6 SFT checkpoint.
 
@@ -107,8 +107,8 @@ World Model Policy Optimization: world model rollouts + on-policy GRPO. Showed e
 ## Our Pipeline Sequence
 
 ```
-r6 SFT (done)
-  → r6-KTO (preference learning, in progress)
+r7 SFT (running on Modal, launched Apr 9)
+  → r7-KTO (preference learning, after r7 SFT)
     → Dr. GRPO + DAPO fixes (KAE-12, next)
       → Self-play loop (KAE-16)
         → Tree-GRPO with world model rollouts (KAE-17 + KAE-18)

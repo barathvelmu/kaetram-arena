@@ -47,7 +47,7 @@ After SFT, we apply KTO using **game outcomes as reward signals** — XP gain, q
 2.2M param Transformer predicting combat outcomes. Interesting, but **not part of the core claim until it improves a downstream metric**. Don't lead with it.
 
 ### Multi-harness comparison
-Same game, same tools, 4 different AI backends (Claude, Codex, Kimi, Qwen Code). Interesting for analysis but not a paper contribution unless we do a rigorous comparison.
+Same game, same tools, 5 different AI backends (Claude, Codex, Gemini, Kimi, Qwen Code). Interesting for analysis but not a paper contribution unless we do a rigorous comparison. Claude, Codex, and Gemini are fully integrated end-to-end (Apr 10); Kimi and Qwen Code are WIP.
 
 ### Self-play improvement loop
 Planned (KAE-16) but not implemented. If it works, it's a strong contribution: student generates own data → score → retrain → iterate. STaR/ReST-EM pattern applied to game agents.
@@ -58,7 +58,7 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 
 | Ablation | What it shows | Status |
 |----------|---------------|--------|
-| SFT only vs SFT + KTO | KTO improves over pure imitation | Pending r6-KTO results |
+| SFT only vs SFT + KTO | KTO improves over pure imitation | Pending r7-KTO (r6-KTO smoke test passed, full run after r7 SFT) |
 | 1 personality vs 3 personalities | Diversity improves student policy | Need to train on AGGRESSIVE-only, compare |
 | Loss masking vs full loss | Training on game state tokens hurts | r4 vs r3 comparison (have data) |
 | 22 tools vs filtered tools | Tool filtering helps small models | Pending KAE-15 implementation. Now at 22 tools (above RAG-MCP 19-tool threshold) — ablation more urgent. |

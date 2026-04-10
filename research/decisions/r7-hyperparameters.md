@@ -19,19 +19,19 @@ Research-backed rationale for every training parameter in the r7 SFT and r7-KTO 
 
 **Trainable params:** ~50M (0.5% of 9B total). Low overfitting risk with 1 epoch.
 
-### rsLoRA: Enabled
+### rsLoRA: Disabled (attempted and reverted)
 
-**Decision:** Added `use_rslora=True` (new in r7).
+**Decision:** Tried `use_rslora=True` in r7 (new). Training diverged immediately. Reverted to `use_rslora=False` (commit `685f649`).
 
-**Why:** Standard LoRA scales by `alpha/r` = 1.0 (when alpha=r). rsLoRA scales by `alpha/sqrt(r)` = 8.0 at r=64 — but then the actual learning rate should be adjusted. The net effect: rsLoRA stabilizes gradient magnitudes across different ranks, preventing the effective learning rate from being rank-dependent (Kalajdzievski 2023).
+**Why it failed:** rsLoRA scales adapters by `1/sqrt(r)` instead of `1/r`. With our config `r=alpha=64`, standard LoRA gives effective scaling `alpha/r = 1.0`. rsLoRA gives `alpha/sqrt(r) = 64/8 = 8.0` — an **8x effective LR increase**. This caused immediate divergence. The Kalajdzievski 2023 paper assumes alpha is retuned when switching to rsLoRA; we did not rebalance alpha, so the 8x multiplier was unintentional.
 
-At r=64 with standard scaling, the adapter updates can be too aggressive. rsLoRA prevents this without requiring manual LR tuning per rank.
+**Lesson:** If rsLoRA is ever re-attempted, alpha must be reduced (e.g., alpha=8 with r=64 to get effective scaling ~1.0 under rsLoRA). The comment on `train_modal.py:359` is load-bearing — do not remove it.
 
 ### Learning Rate: 1e-4
 
 **Decision:** Keep 1e-4 from r6. Do not increase to 2e-4.
 
-**Why:** Consensus starting point for LoRA SFT on 7-9B models. Multiple practitioners report 2e-4 causes instability on 9B models (Reddit, HN threads). With rsLoRA enabled, the effective scaling changes — safer to keep the proven LR and let rsLoRA handle the scaling.
+**Why:** Consensus starting point for LoRA SFT on 7-9B models. Multiple practitioners report 2e-4 causes instability on 9B models (Reddit, HN threads). With standard LoRA scaling (`alpha/r = 1.0`), 1e-4 is the safe default.
 
 **Research:**
 - arXiv 2602.04998: optimal LoRA LR is ~10x full-FT, landing at 1e-4 to 5e-4.

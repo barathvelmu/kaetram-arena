@@ -13,8 +13,8 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r5 | Apr 4 | SFT | 3,853 train / 465 val | Quality filters + native MCP tools | First playable model, deployed on Modal |
 | r6 | Apr 4-5 | SFT | 3,853 train / 465 val | Niral's optimized run, 2 epochs | Deployed and tested end-to-end |
 | r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
-| r7 | Apr 9 | SFT | 6,401 train / 583 val | Chat template fix, personality labels, rsLoRA, expanded dataset | Pending launch |
-| r7-KTO | Apr 9 | KTO | TBD | Quest progression scoring, rebuilt on r7 SFT | Pending (after r7 SFT) |
+| r7 | Apr 9 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | Running on Modal (~12-14h, launched Apr 9 15:12 UTC). rsLoRA attempted and reverted (8x LR trap). |
+| r7-KTO | TBD | KTO | TBD | Quest progression scoring, rebuilt on r7 SFT | Pending (after r7 SFT completes) |
 
 ---
 
@@ -90,15 +90,17 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 **What changed:**
 1. **Chat template fix (QwenLM/Qwen3#1831)** — Stock Qwen 3.5 template silently drops `<think>` reasoning from all assistant messages before `last_query_index` in multi-turn conversations. Our multi-turn training windows (70% of records) had CoT stripped from all intermediate turns — model was learning "action only, no reasoning" for follow-up turns. Patched to always emit `<think>` when `reasoning_content` is present.
 2. **Personality labels** — `detect_personality()` was returning None for all records (metadata.json path mismatch). Added fallback mapping from agent_N directory to personality. Dataset now labeled: 39% aggressive, 31% methodical, 29% curious. Paraphrase augmentation now varies personality instructions during training.
-3. **rsLoRA** — Added `use_rslora=True`. Scales LoRA by `1/sqrt(r)` instead of `1/r`, which stabilizes training at r=64 (Kalajdzievski 2023). Prevents effective LR from being too aggressive when alpha=r.
-4. **Expanded dataset** — 575 sessions extracted (was 395), 14,091 turns → 6,401 train / 583 val (was 3,957/488). 62% more data.
+3. **rsLoRA attempted and reverted** — Added `use_rslora=True` (Kalajdzievski 2023). Training diverged immediately. With `alpha=r=64`, rsLoRA scales by `alpha/sqrt(r) = 8.0` instead of standard `alpha/r = 1.0` — an 8x effective LR. Reverted to `use_rslora=False` (commit `685f649`). See CLAUDE.md gotchas for details.
+4. **Expanded dataset** — 575 sessions extracted (was 395), 14,091 turns → 6,423 train / 646 val (was 3,957/488). ~62% more data. 618 raw session logs on disk.
 5. **Quest progression scoring** — KTO session scoring now uses actual quest state deltas (completions, stage advances, new accepts) instead of NPC-talk-count proxy.
 
-**Dataset:** 6,401 train / 583 val. ~23.7M tokens. Action distribution: navigate 27.7%, attack 14.9%, cancel_nav 10.7%, interact_npc 10.7%, warp 9.4%, stuck_reset 7.5%, move 7.1%, click_tile 3.9%.
+**Dataset:** 6,423 train / 646 val (7,069 total). ~23.7M tokens. Action distribution: navigate 27.7%, attack 14.9%, cancel_nav 10.7%, interact_npc 10.7%, warp 9.4%, stuck_reset 7.5%, move 7.1%, click_tile 3.9%.
 
-**Config:** LoRA r=64, alpha=64, `use_rslora=True`, 1 epoch, LR=1e-4, `completion_only_loss=True`, bf16, H100 80GB. See `research/decisions/r7-hyperparameters.md` for parameter rationale.
+**Config:** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, `completion_only_loss=True`, bf16, H100 80GB. See `research/decisions/r7-hyperparameters.md` for parameter rationale.
 
-**Estimated:** 400 steps, ~12h wall time on H100.
+**Status:** Launched Apr 9 ~15:12 UTC on Modal H100. ~402 steps, ~12-14h wall time. ETA ~05:00 UTC Apr 10. First attempt died at Modal's 8h default timeout; retried with 18h cap (commit `685f649`).
+
+**Estimated:** 402 steps, ~12-14h wall time on H100.
 
 ---
 
@@ -129,7 +131,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: **Launch r7 SFT** (`modal run finetune/train_modal.py`) → r7 KTO (`modal run finetune/train_kto_modal.py`) → eval (base vs r7-SFT vs r7-KTO). That 3-model comparison is the paper result.
+Immediate: **r7 SFT running** (launched Apr 9, ETA ~05:00 UTC Apr 10) → r7 KTO (`modal run finetune/train_kto_modal.py`) → eval (base vs r7-SFT vs r7-KTO). That 3-model comparison is the paper result.
 
 Backlog (by priority from Linear):
 - **High:** Dr. GRPO + DAPO patches for GRPO (KAE-12), guided decoding via GBNF grammar (KAE-14), context-dependent tool filtering (KAE-15)

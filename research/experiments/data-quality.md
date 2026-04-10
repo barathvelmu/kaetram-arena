@@ -7,13 +7,15 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
 ## Pipeline Overview
 
 ```
-509 raw logs (agents 0-2 on VM, as of April 8)
+618 raw logs (agents 0-2 on VM, as of April 10)
   → extract_turns.py (OODA turn extraction)
-    → 395 extracted session dirs (132 + 129 + 134 across agents 0-2)
-      ⚠ 114 raw sessions not yet extracted — re-run extract_turns.py
+    → 575 extracted session dirs
+      → 14,091 turns
   → convert_to_qwen.py (quality scoring + format conversion)
-    → 3,957 train / 488 val (4,445 total Qwen3.5 9B SFT records)
+    → 6,423 train / 646 val (7,069 total Qwen3.5 9B SFT records, ~23.7M tokens)
 ```
+
+Previous pipeline state (April 8): 509 raw → 395 extracted → 3,957/488 (4,445 total). The r7 rebuild (April 9) re-extracted all sessions and produced ~62% more data.
 
 ---
 
@@ -79,28 +81,39 @@ Each turn is scored 0.0-1.0 on three axes:
 
 ---
 
-## Final Dataset Composition (latest rebuild)
+## Final Dataset Composition (r7 rebuild, April 9)
 
 | Metric | Value |
 |--------|-------|
-| Train records | 3,957 |
-| Val records | 488 |
+| Train records | 6,423 |
+| Val records | 646 |
+| Total | 7,069 |
 | Split method | 90/10 stratified by session |
-| Avg reasoning | 423 chars |
-| Max reasoning | 800 chars |
-| click_tile rate | 5.6% |
-| Repetitive rate | 0.3% |
-| attack rate | 14.5% |
-| navigate rate | 27.9% |
-| interact_npc rate | 11.2% |
-| Empty reasoning | 0% |
+| navigate | 27.7% |
+| attack | 14.9% |
+| cancel_nav | 10.7% |
+| interact_npc | 10.7% |
+| warp | 9.4% |
+| stuck_reset | 7.5% |
+| move | 7.1% |
+| click_tile | 3.9% |
 
-**Source data:**
-- Agent 0 (AGGRESSIVE): Level 57-73, combat-heavy sessions
-- Agent 1 (METHODICAL): Level 60-71, quest-focused sessions (April 3+ only — pre-April 3 contaminated by catch-22 prompt)
-- Agent 2 (CURIOUS): Level 58-70, exploration-heavy sessions
+**Source data (618 raw sessions across 3 agents):**
+- Agent 0 (AGGRESSIVE): 39% of dataset, combat-heavy sessions
+- Agent 1 (METHODICAL): 31% of dataset, quest-focused sessions (April 3+ only — pre-April 3 contaminated by catch-22 prompt)
+- Agent 2 (CURIOUS): 29% of dataset, exploration-heavy sessions
 
-**Interpretation:** the latest rebuild added more usable data but was not uniformly cleaner than the earlier `3853/465` build. Net gain was `+127` records over the previous compiled SFT set, while `click_tile` noise rose slightly (`4.7% -> 5.6%`) and repetitive loops stayed low (`0.2% -> 0.3%`). This is still a usable `r7` foundation, but not a dramatic quality jump.
+**Previous builds for reference:**
+| Build | Train | Val | Total | Notes |
+|-------|-------|-----|-------|-------|
+| r5 (Apr 4) | 3,853 | 465 | 4,318 | First quality-filtered dataset |
+| Apr 5 rebuild | 3,957 | 488 | 4,445 | +127 records, click_tile 5.6% |
+| r7 (Apr 9) | 6,423 | 646 | 7,069 | +62% data, chat template fix, personality labels |
+
+**r7-specific improvements:**
+- Chat template fix (QwenLM/Qwen3#1831): `<think>` reasoning preserved in all assistant turns, not just the last
+- Personality labels: every record tagged with personality (was None for all r6 records)
+- click_tile rate down to 3.9% (from 5.6% in previous rebuild)
 
 ---
 
@@ -110,7 +123,9 @@ Each turn is scored 0.0-1.0 on three axes:
 2. **Personality imbalance:** AGGRESSIVE produces more combat turns, CURIOUS more NPC interactions. Stratified split by session helps but doesn't guarantee action-type balance.
 3. **Session length bias:** Long sessions (100+ turns) dominate the dataset. Short sessions (< 20 turns) are often crashes or rate-limit kills.
 4. **Qwen tokenizer mismatch:** Qwen3.5 and Qwen3-VL share a base but have different special tokens. Training uses Qwen3.5 tokenizer; must match at inference.
-5. **New-session marginal quality:** Recent raw Claude logs did add data, but the last rebuild only produced a modest net increase after filtering. More collection helps only if it adds genuinely diverse, higher-signal sessions.
+5. **New-session marginal quality:** The r7 rebuild was a significant jump (+62% records), but future gains will depend on genuinely diverse, higher-signal sessions.
+6. **accept_quest underrepresented:** Only 8 `accept_quest` actions in the full 7,069-record dataset despite active questing in logs. Likely a conversion/filter issue — `interact_npc` auto-accepts most quests, so explicit `accept_quest` calls are rare. May not be a bug.
+7. **Multi-harness data exclusion:** Codex and Gemini harness logs are collected but excluded from Qwen SFT training via `INCLUDED_HARNESSES` filter in `convert_to_qwen.py`. Only Claude data trains the student model.
 
 ---
 

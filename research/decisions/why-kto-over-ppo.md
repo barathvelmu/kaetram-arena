@@ -109,7 +109,7 @@ TRL's PEFT-native path: when `ref_model=None`, KTOTrainer uses the training mode
 ## What KTO Won't Fix
 
 - **Action format errors** — model generating malformed tool calls. Fix: guided decoding (KAE-14).
-- **Tool selection confusion** — model choosing wrong tool from 18 options. Fix: context-dependent tool filtering (KAE-15).
+- **Tool selection confusion** — model choosing wrong tool from 22 options (grew from 18 in Apr 8). Fix: context-dependent tool filtering (KAE-15).
 - **Long-horizon planning** — model forgetting quest objectives after 15 turns. Fix: memory module (KAE-20).
 - **Verbosity reward hacking** — longer reasoning getting lower per-token loss. Fix: Dr. GRPO (KAE-12).
 

@@ -401,57 +401,52 @@
   .agent-selector button:hover { border-color: rgba(201,175,120,0.2); color: var(--text); }
   .agent-selector button.active { border-color: var(--gold); color: var(--gold); background: rgba(201,175,120,0.08); }
 
-  /* ── Qwen Live Tab ── */
-  .qwen-container { display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 130px); gap: 0; }
+  /* ── Qwen Live Tab (split screen) ── */
+  .qwen-split { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 130px); gap: 0; }
+  .qwen-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+  .qwen-panel:last-child { border-right: none; }
+  .qwen-panel-header {
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    font-size: 11px; font-weight: 600; font-family: var(--font-display); letter-spacing: 1px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .qwen-panel-header.finetuned { color: var(--cyan); }
+  .qwen-panel-header.base { color: var(--amber); }
   .qwen-stream {
-    position: relative; background: #050608;
+    position: relative; background: #050608; flex: 0 0 45%;
     display: flex; align-items: center; justify-content: center; overflow: hidden;
   }
   .qwen-stream img { max-width: 100%; max-height: 100%; object-fit: contain; }
-  .qwen-stream .no-signal { color: #2a2d3a; font-size: 20px; font-family: var(--font-display); position: absolute; letter-spacing: 2px; }
+  .qwen-stream .no-signal { color: #2a2d3a; font-size: 16px; font-family: var(--font-display); position: absolute; letter-spacing: 2px; }
   .qwen-overlay {
     position: absolute; bottom: 0; left: 0; right: 0;
     background: linear-gradient(180deg, transparent, rgba(8,9,12,0.95));
-    padding: 16px 20px; display: flex; gap: 20px; align-items: center; font-size: 12px; z-index: 10;
+    padding: 10px 14px; display: flex; gap: 12px; align-items: center; font-size: 11px; z-index: 10; flex-wrap: wrap;
   }
-  .qwen-overlay .qstat { display: flex; align-items: center; gap: 6px; }
-  .qwen-overlay .qlabel { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
-  .qwen-overlay .qval { color: var(--cyan); font-weight: 600; }
-  .qwen-overlay .qhp-bar { width: 120px; height: 8px; background: #181a24; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.04); }
+  .qwen-overlay .qstat { display: flex; align-items: center; gap: 4px; }
+  .qwen-overlay .qlabel { color: var(--dim); font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .qwen-overlay .qval { font-weight: 600; }
+  .qwen-overlay .qval.ft { color: var(--cyan); }
+  .qwen-overlay .qval.base { color: var(--amber); }
+  .qwen-overlay .qhp-bar { width: 80px; height: 6px; background: #181a24; border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.04); }
   .qwen-overlay .qhp-fill { height: 100%; background: linear-gradient(90deg, #3d8a4e, var(--green)); transition: width 0.3s; }
   .qwen-overlay .qhp-fill.low { background: linear-gradient(90deg, #8a3d3d, var(--red)); }
   .qwen-overlay .qhp-fill.mid { background: linear-gradient(90deg, #9e8545, var(--amber)); }
   .qwen-badge {
-    background: linear-gradient(135deg, rgba(90,184,201,0.15), rgba(90,184,201,0.08));
-    color: var(--cyan); padding: 3px 10px; border-radius: var(--radius);
-    font-size: 10px; font-weight: 600; border: 1px solid rgba(90,184,201,0.2);
-    letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: var(--radius);
+    font-size: 9px; font-weight: 600; letter-spacing: 0.5px;
   }
-  .qwen-status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .qwen-badge.ft { background: rgba(90,184,201,0.12); color: var(--cyan); border: 1px solid rgba(90,184,201,0.2); }
+  .qwen-badge.base { background: rgba(201,175,120,0.12); color: var(--amber); border: 1px solid rgba(201,175,120,0.2); }
+  .qwen-status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
   .qwen-status-dot.live { background: var(--green); animation: qpulse 1.5s infinite; box-shadow: 0 0 6px rgba(92,184,112,0.4); }
   .qwen-status-dot.stale { background: var(--red); box-shadow: 0 0 6px rgba(196,90,90,0.3); }
   @keyframes qpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-
-  .qwen-side { background: var(--card); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
-  .qwen-side-header {
-    padding: 14px 18px; border-bottom: 1px solid var(--border);
-    font-size: 13px; font-weight: 600; color: var(--cyan);
-    font-family: var(--font-display); letter-spacing: 1px;
-  }
-  .qwen-think { padding: 14px 18px; border-bottom: 1px solid var(--border); max-height: 200px; overflow-y: auto; }
-  .qwen-think .qt-label { color: var(--dim); font-size: 9px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-family: var(--font-display); }
-  .qwen-think .qt-text { color: var(--text); font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
-  .qwen-actions { flex: 1; overflow-y: auto; padding: 8px 0; }
-  .qwen-action { padding: 7px 18px; border-bottom: 1px solid rgba(201,175,120,0.06); font-size: 11px; }
-  .qwen-action .qa-turn { color: #363848; margin-right: 8px; }
+  .qwen-actions { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .qwen-action { padding: 5px 14px; border-bottom: 1px solid rgba(201,175,120,0.06); font-size: 10px; }
+  .qwen-action .qa-turn { color: #363848; margin-right: 6px; }
   .qwen-action .qa-text { color: var(--green); }
-  .qwen-action .qa-text.mem { color: var(--purple); }
-  .qwen-action .qa-text.heal { color: var(--red); }
   .qwen-action .qa-text.warp { color: var(--cyan); }
-  .qwen-action .qa-pos { color: var(--dim); font-size: 10px; }
-  .qwen-mem { padding: 14px 18px; border-top: 1px solid var(--border); max-height: 150px; overflow-y: auto; }
-  .qwen-mem .qm-label { color: var(--dim); font-size: 9px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
-  .qwen-mem .qm-text { color: var(--dim); font-size: 11px; line-height: 1.5; white-space: pre-wrap; }
   .tab[data-tab="qwen"].active { color: var(--cyan) !important; border-bottom-color: var(--cyan) !important; }
 </style>
 </head>
@@ -578,35 +573,40 @@
     </div>
   </div>
 
-  <!-- ===== QWEN LIVE TAB ===== -->
+  <!-- ===== QWEN LIVE TAB (split screen: finetuned vs base) ===== -->
   <div class="tab-content" id="tab-qwen">
-    <div class="qwen-container">
-      <div class="qwen-stream">
-        <img id="qwen-stream-img" src="" alt="Qwen stream">
-        <div class="no-signal" id="qwen-no-signal">QWEN AGENT — WAITING FOR STREAM</div>
-        <div class="qwen-overlay">
-          <span class="qwen-status-dot stale" id="qwen-dot"></span>
-          <span class="qwen-badge">QWEN 3.5-9B</span>
-          <div class="qstat"><span class="qlabel">HP</span>
-            <div class="qhp-bar"><div class="qhp-fill" id="qwen-hp-fill" style="width:100%"></div></div>
-            <span class="qval" id="qwen-hp-text">?/?</span>
-          </div>
-          <div class="qstat"><span class="qlabel">LVL</span><span class="qval" id="qwen-level">?</span></div>
-          <div class="qstat"><span class="qlabel">POS</span><span class="qval" id="qwen-pos">?,?</span></div>
-          <div class="qstat"><span class="qlabel">TURN</span><span class="qval" id="qwen-turn">0</span></div>
+    <div class="qwen-split">
+      <!-- LEFT: Finetuned (agent_4) -->
+      <div class="qwen-panel" id="qp-ft">
+        <div class="qwen-panel-header finetuned">
+          <span class="qwen-status-dot stale" id="qw-dot-ft"></span>
+          <span class="qwen-badge ft">r7-SFT FINETUNED</span>
+          <span class="qval ft" id="qw-hp-ft">?/?</span>
+          <span class="qlabel">LV</span><span class="qval ft" id="qw-lv-ft">?</span>
+          <span class="qlabel">POS</span><span class="qval ft" id="qw-pos-ft">?,?</span>
+          <span class="qlabel">T</span><span class="qval ft" id="qw-turn-ft">0</span>
         </div>
+        <div class="qwen-stream">
+          <img id="qw-img-ft" src="" alt="Finetuned stream">
+          <div class="no-signal" id="qw-nosig-ft">FINETUNED — WAITING</div>
+        </div>
+        <div class="qwen-actions" id="qw-log-ft"></div>
       </div>
-      <div class="qwen-side">
-        <div class="qwen-side-header">Qwen Agent — Live Feed</div>
-        <div class="qwen-think">
-          <div class="qt-label">THINKING</div>
-          <div class="qt-text" id="qwen-think-text">Waiting for agent...</div>
+      <!-- RIGHT: Base (agent_5) -->
+      <div class="qwen-panel" id="qp-base">
+        <div class="qwen-panel-header base">
+          <span class="qwen-status-dot stale" id="qw-dot-base"></span>
+          <span class="qwen-badge base">BASE (unfinetuned)</span>
+          <span class="qval base" id="qw-hp-base">?/?</span>
+          <span class="qlabel">LV</span><span class="qval base" id="qw-lv-base">?</span>
+          <span class="qlabel">POS</span><span class="qval base" id="qw-pos-base">?,?</span>
+          <span class="qlabel">T</span><span class="qval base" id="qw-turn-base">0</span>
         </div>
-        <div class="qwen-actions" id="qwen-action-log"></div>
-        <div class="qwen-mem" style="display:none">
-          <div class="qm-label"></div>
-          <div class="qm-text" id="qwen-mem-text"></div>
+        <div class="qwen-stream">
+          <img id="qw-img-base" src="" alt="Base stream">
+          <div class="no-signal" id="qw-nosig-base">BASE — WAITING</div>
         </div>
+        <div class="qwen-actions" id="qw-log-base"></div>
       </div>
     </div>
   </div>
@@ -1576,118 +1576,98 @@ refreshSlow();
 setInterval(refreshFast, 3000);
 setInterval(refreshSlow, 8000);
 
-// ── Qwen Live Tab ──
+// ── Qwen Live Tab (split screen) ──
 (function() {
-  const QWEN_AGENT = 4;
-  let qwenStreamActive = false;
-  let qwenActionCount = 0;
-  const streamImg = document.getElementById('qwen-stream-img');
-  const noSignal = document.getElementById('qwen-no-signal');
+  let qwenActive = false;
 
-  // Start/stop MJPEG stream when tab is shown/hidden
-  const origTabClick = document.querySelectorAll('.tab');
-  origTabClick.forEach(tab => {
+  // Panel state for each agent
+  function makePanel(agentId, prefix) {
+    return {
+      id: agentId,
+      img: document.getElementById('qw-img-' + prefix),
+      noSig: document.getElementById('qw-nosig-' + prefix),
+      dot: document.getElementById('qw-dot-' + prefix),
+      hp: document.getElementById('qw-hp-' + prefix),
+      lv: document.getElementById('qw-lv-' + prefix),
+      pos: document.getElementById('qw-pos-' + prefix),
+      turn: document.getElementById('qw-turn-' + prefix),
+      log: document.getElementById('qw-log-' + prefix),
+      count: 0
+    };
+  }
+  const panels = [makePanel(4, 'ft'), makePanel(5, 'base')];
+
+  document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      if (tab.dataset.tab === 'qwen') {
-        startQwenStream();
-      } else {
-        stopQwenStream();
-      }
+      if (tab.dataset.tab === 'qwen') startStreams();
+      else stopStreams();
     });
   });
 
-  function startQwenStream() {
-    if (qwenStreamActive) return;
-    qwenStreamActive = true;
-    streamImg.src = '/stream/agent_' + QWEN_AGENT + '?t=' + Date.now();
-    streamImg.style.display = '';
-    noSignal.style.display = 'none';
-    streamImg.onerror = function() {
-      noSignal.style.display = '';
-      streamImg.style.display = 'none';
-      // Retry after 3s
-      setTimeout(() => {
-        if (qwenStreamActive) {
-          streamImg.src = '/stream/agent_' + QWEN_AGENT + '?t=' + Date.now();
-          streamImg.style.display = '';
-        }
-      }, 3000);
-    };
+  function startStreams() {
+    if (qwenActive) return;
+    qwenActive = true;
+    panels.forEach(p => {
+      p.img.src = '/stream/agent_' + p.id + '?t=' + Date.now();
+      p.img.style.display = '';
+      p.noSig.style.display = 'none';
+      p.img.onerror = function() {
+        p.noSig.style.display = '';
+        p.img.style.display = 'none';
+        setTimeout(() => {
+          if (qwenActive) { p.img.src = '/stream/agent_' + p.id + '?t=' + Date.now(); p.img.style.display = ''; }
+        }, 3000);
+      };
+    });
   }
 
-  function stopQwenStream() {
-    qwenStreamActive = false;
-    streamImg.src = '';
+  function stopStreams() {
+    qwenActive = false;
+    panels.forEach(p => { p.img.src = ''; });
   }
 
-  // Poll game state for overlay
-  async function pollQwenState() {
-    if (!qwenStreamActive) return;
+  async function pollPanel(p) {
     try {
-      const res = await fetch('/api/qwen-log');
+      const res = await fetch('/api/qwen-log?agent=' + p.id);
       if (!res.ok) return;
       const data = await res.json();
-
-      // Game state overlay
       const gs = data.game_state || {};
       const ps = gs.player_stats || {};
       const pp = gs.player_position || {};
       const hp = ps.hp || 0, maxHp = ps.max_hp || 1;
-      const pct = Math.round(hp / maxHp * 100);
-      document.getElementById('qwen-hp-text').textContent = hp + '/' + maxHp;
-      const fill = document.getElementById('qwen-hp-fill');
-      fill.style.width = pct + '%';
-      fill.className = 'qhp-fill' + (pct < 30 ? ' low' : pct < 60 ? ' mid' : '');
-      document.getElementById('qwen-level').textContent = ps.level || '?';
-      document.getElementById('qwen-pos').textContent = (pp.x||'?') + ',' + (pp.y||'?');
+      p.hp.textContent = hp + '/' + maxHp;
+      p.lv.textContent = ps.level || '?';
+      p.pos.textContent = (pp.x||'?') + ',' + (pp.y||'?');
+      p.dot.className = 'qwen-status-dot ' + (data.screenshot_age < 30 ? 'live' : 'stale');
 
-      // Status dot
-      document.getElementById('qwen-dot').className = 'qwen-status-dot ' + (data.screenshot_age < 30 ? 'live' : 'stale');
-
-      // Log entries
       const entries = data.entries || [];
-      if (entries.length > qwenActionCount) {
-        const log = document.getElementById('qwen-action-log');
-        for (let i = qwenActionCount; i < entries.length; i++) {
+      if (entries.length > p.count) {
+        for (let i = p.count; i < entries.length; i++) {
           const e = entries[i];
           const div = document.createElement('div');
           div.className = 'qwen-action';
-          const text = e.content || e.action || '';
+          const text = e.content || '';
           const role = e.role || '';
           let cls = 'qa-text';
           if (role === 'tool') cls += ' warp';
-          else if (text.includes('browser_run_code')) cls += ' mem';
-          else if (text.includes('Bash')) cls += ' heal';
-          const label = role === 'tool' ? 'TOOL' : role === 'assistant' ? 'AI' : role.toUpperCase();
-          div.innerHTML = '<span class="qa-turn">[' + (e.turn || i) + '] ' + label + '</span> <span class="' + cls + '">' + esc(text.slice(0, 200)) + '</span>';
-          log.appendChild(div);
+          const label = role === 'tool' ? 'TOOL' : 'AI';
+          div.innerHTML = '<span class="qa-turn">[' + (e.turn || i) + '] ' + label + '</span> <span class="' + cls + '">' + esc(text.slice(0, 150)) + '</span>';
+          p.log.appendChild(div);
         }
-        log.scrollTop = log.scrollHeight;
-        while (log.children.length > 200) log.removeChild(log.firstChild);
-        qwenActionCount = entries.length;
-
-        // Thinking: last assistant message
-        for (let i = entries.length - 1; i >= 0; i--) {
-          if (entries[i].role === 'assistant' && entries[i].content) {
-            document.getElementById('qwen-think-text').textContent = entries[i].content.slice(0, 500);
-            break;
-          }
-        }
-        document.getElementById('qwen-turn').textContent = entries.length;
-      }
-
-      // Memory
-      const m = data.memory || {};
-      if (m.level || m.sessions) {
-        let text = 'Level: ' + (m.level||'?') + ' | Sessions: ' + (m.sessions||0);
-        if (m.next_objective) text += '\nObjective: ' + m.next_objective;
-        if (m.notes) text += '\nNotes: ' + m.notes;
-        document.getElementById('qwen-mem-text').textContent = text;
+        p.log.scrollTop = p.log.scrollHeight;
+        while (p.log.children.length > 150) p.log.removeChild(p.log.firstChild);
+        p.count = entries.length;
+        p.turn.textContent = entries.length;
       }
     } catch(e) {}
   }
 
-  setInterval(pollQwenState, 500);
+  async function pollAll() {
+    if (!qwenActive) return;
+    await Promise.all(panels.map(p => pollPanel(p)));
+  }
+
+  setInterval(pollAll, 500);
 })();
 </script>
 </body>

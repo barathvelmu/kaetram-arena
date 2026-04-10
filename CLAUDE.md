@@ -201,6 +201,13 @@ Run each in its own terminal:
 
 Port allocation: agent N gets server WS port `9001 + N*10` (9001, 9011, 9021, 9031). All agents share the static client on port 9000. Each agent logs in as `ClaudeBotN`.
 
+**Reserved agent slots:**
+- **agent_0–3**: Claude Code agents (data collection, training data source)
+- **agent_4**: Finetuned Qwen 3.5 9B (`QwenBot`, r7-SFT model via Modal)
+- **agent_5**: Base Qwen 3.5 9B (`QwenBase`, unfinetuned baseline via Modal)
+
+Qwen agents share game server port 9001 with Claude agents. Each has its own sandbox (`/tmp/kaetram_agent_N/`), MCP server, and browser instance. Dashboard Qwen Live tab shows both side-by-side.
+
 **Agent playstyles:** Each agent gets a playstyle that defines its DECIDE priorities in `system.md`. Playstyle files in `prompts/personalities/` are injected via the `__PERSONALITY_BLOCK__` placeholder. All agents get `game_knowledge.md` appended. Dashboard shows playstyle badges (red=AGGRESSIVE, amber=METHODICAL, blue=CURIOUS). Active collection uses 3 agents. Each agent's sandbox gets a `metadata.json` with its playstyle.
 
 | Flag | Playstyle | Color | Approach |
@@ -312,12 +319,22 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 
 **Compile-research cron loop working.** `scripts/run_research_staleness_check.sh` via VM cron has been auto-running `/compile-research` + committing + pushing on a regular cadence. Last two successful auto-compile commits: 2026-04-07, 2026-04-08 (see git log for `[auto] compile-research` entries). Do not rely on session-local Claude cron — that dies with the session.
 
-**Finetune v1 DONE.** Qwen3.5-9B finetuned on r5/r6 dataset (3,853 train / 465 val) via Modal H100 (27min). Model loaded in Ollama on RTX 3060 GPU machine for `play_qwen.py` harness. r7 will supersede once training finishes.
+**r7 SFT DONE (Apr 10).** Qwen3.5-9B finetuned on 6,423 train / 646 val records. Final loss 0.072. Deployed on Modal SGLang (A100). Chat template patch preserves `<think>` in all turns. Model plays the game — navigates, accepts quests, attacks mobs, recovers from stuck. Known issues: observe-loop at spawn, Oak confusion, no loss masking (r8 fix).
 
-**Qwen agent harness DONE.** Three modes available:
-- `QwenCodeAdapter` in `cli_adapter.py` — wraps the `qwen` CLI (a Claude Code / Gemini CLI fork). Uses Playwright MCP, `stream-json` output, `--yolo` mode. Same architecture as Claude/Kimi/Codex adapters. Used by `orchestrate.py` and `play.sh --qwen-code`. **This is NOT the finetuned model** — it calls the Qwen Code CLI which hits the Qwen API.
-- `play_qwen.py` / `play_qwen.sh` — lightweight custom 2-tool loop (browser_run_code + bash) driving Playwright directly via Python. Calls an OpenAI-compatible endpoint (Modal/Ollama). **This IS the finetuned model** harness.
-- `play_opencode.sh` + `opencode.json` — OpenCode + Playwright MCP with Ollama/Modal endpoint
+**Qwen agent harness:**
+- `play_qwen.py` / `play_qwen.sh` — Calls finetuned model via OpenAI-compatible Modal endpoint. Spawns `mcp_game_server.py` as MCP subprocess for all 22 game tools. **This IS the finetuned model** harness.
+- `QwenCodeAdapter` in `cli_adapter.py` — wraps the `qwen` CLI (Gemini CLI fork). Uses Playwright MCP, `stream-json` output. **This is NOT the finetuned model** — it calls the Qwen Code CLI which hits the Qwen API.
+- `play_opencode.sh` + `opencode.json` — OpenCode + Playwright MCP with Modal endpoint
+
+**Qwen management scripts:**
+```bash
+./scripts/start-qwen.sh              # Start finetuned (agent_4)
+./scripts/start-qwen.sh --base       # Start base/unfinetuned (agent_5)
+./scripts/start-qwen.sh --reset      # Reset to Level 1 first
+./scripts/stop-qwen.sh               # Stop all Qwen agents
+./scripts/restart-qwen.sh --reset    # Stop + reset + start
+./scripts/status-qwen.sh             # Process, HP, level, sessions
+```
 
 **World model (WIP concept).** Experimental 2.2M param Transformer forward dynamics model in `world/`. Not prioritized — see `world/README.md` for details.
 
@@ -374,9 +391,8 @@ Rate limit / budget:
 | 9000 | Kaetram game client (HTTP, shared across agents) |
 | 9001 | Kaetram game server WS (single-agent default) |
 | 9001, 9011, 9021, 9031 | Game server WS (multi-agent, one per agent) |
-| 8080 | Dashboard |
+| 8080 | Dashboard (includes Qwen Live split-screen MJPEG at `/stream/agent_N`) |
 | 8081 | Dashboard WebSocket relay (realtime screenshot push) |
-| 8082 | Qwen dashboard (MJPEG stream) |
 
 ## Key files
 
@@ -396,7 +412,13 @@ Rate limit / budget:
 | `prompts/personalities/*.md` | Playstyle overrides (`aggressive.md`, `methodical.md`, `curious.md` — EFFICIENT was deprecated April 3 and its file is gone) |
 | `dashboard.py` | Live web dashboard (port 8080) |
 | `dashboard/parsers.py` | Session log parser — classifies MCP tool calls for activity feed |
-| `dashboard/api.py` | API endpoints — `/api/game-state`, `/api/agents`, `/api/activity` |
+| `dashboard/api.py` | API endpoints — `/api/game-state`, `/api/agents`, `/api/activity`, `/api/qwen-log?agent=N` |
+| `play_qwen.py` | Finetuned Qwen agent harness — MCP tools via `mcp_game_server.py`, OpenAI-compatible Modal endpoint |
+| `play_qwen.sh` | Session loop wrapper for `play_qwen.py` — system prompt substitution, auto-restart |
+| `finetune/serve_modal.py` | Modal SGLang endpoint for finetuned r7 model (A100, `/v1/chat/completions`) |
+| `finetune/serve_modal_base.py` | Modal SGLang endpoint for base Qwen3.5-9B (A100, baseline comparison) |
+| `scripts/start-qwen.sh` | Start finetuned (`--base` for unfinetuned) in tmux, manages game server + dashboard |
+| `scripts/stop-qwen.sh` | Stop all Qwen agents cleanly |
 
 ### Session log format (stream-json)
 

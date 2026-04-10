@@ -118,7 +118,12 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## Infrastructure Notes
 
-**Platform:** Modal (H100 80GB for KTO, T4/L40S for SFT). Unsloth for LoRA, TRL for KTO/GRPO trainers.
+**Platform:** Modal (H100 80GB for SFT/KTO training, A100 40GB for inference serving). Unsloth for LoRA, TRL for KTO/GRPO trainers. SGLang for inference.
+
+**Serving endpoints (Modal):**
+- `kaetram-qwen-serve` — finetuned r7 model (SGLang, A100, `serve_modal.py`)
+- `kaetram-qwen-base` — unfinetuned Qwen3.5-9B baseline (SGLang, A100, `serve_modal_base.py`)
+- Both scale to 0 when idle ($0 cost). Cold start ~3-6 min (model download + SGLang init).
 
 **Known issues:**
 - Unsloth LoRA count mismatch: PEFT save fails when adapter count != expected. Fallback to standard PEFT save implemented (commit 34314ad).

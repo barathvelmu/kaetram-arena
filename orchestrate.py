@@ -301,7 +301,7 @@ class AgentInstance:
 
         # Clear stale screenshots from previous session so dashboard doesn't show old frames
         state_dir = self.sandbox_dir / "state"
-        for f in ("screenshot.png", "live_screen.png"):
+        for f in ("screenshot.png", "live_screen.png", "live_screen.jpg"):
             (state_dir / f).unlink(missing_ok=True)
 
         # Reset Codex stop hook turn counter so each session starts fresh

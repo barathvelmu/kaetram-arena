@@ -249,7 +249,7 @@ class APIMixin:
         screenshot_time = ""
         if mode == "multi":
             for i in range(MAX_AGENTS):
-                for ss_name in ("live_screen.png", "screenshot.png"):
+                for ss_name in ("live_screen.jpg", "screenshot.png"):
                     ss = os.path.join("/tmp", f"kaetram_agent_{i}", "state", ss_name)
                     if os.path.isfile(ss):
                         mtime = os.path.getmtime(ss)
@@ -259,7 +259,7 @@ class APIMixin:
                             screenshot_time = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
                         break
         else:
-            screenshot = os.path.join(STATE_DIR, "live_screen.png")
+            screenshot = os.path.join(STATE_DIR, "live_screen.jpg")
             if not os.path.isfile(screenshot):
                 screenshot = os.path.join(STATE_DIR, "screenshot.png")
             if os.path.isfile(screenshot):
@@ -354,7 +354,7 @@ class APIMixin:
             if agent["mode"] == "qwen":
                 continue
 
-            for ss_name in ("live_screen.png", "screenshot.png"):
+            for ss_name in ("live_screen.jpg", "screenshot.png"):
                 ss = os.path.join(state_dir, ss_name)
                 if os.path.isfile(ss):
                     agent["screenshot_age"] = int(time.time() - os.path.getmtime(ss))
@@ -396,6 +396,9 @@ class APIMixin:
 
     # ── Qwen agent log endpoint ──
 
+    # Incremental log reader cache: {filepath: (file_offset, entries_list)}
+    _qwen_log_cache: dict = {}
+
     def send_qwen_log(self):
         """Return latest log entries + state from the Qwen agent sandbox."""
         import glob as _glob
@@ -406,7 +409,7 @@ class APIMixin:
         result = {"entries": [], "screenshot_age": 9999, "game_state": {}, "memory": {}}
 
         # Screenshot age
-        ss = os.path.join(state_dir, "live_screen.png")
+        ss = os.path.join(state_dir, "live_screen.jpg")
         if os.path.isfile(ss):
             result["screenshot_age"] = time.time() - os.path.getmtime(ss)
 
@@ -418,21 +421,25 @@ class APIMixin:
             except Exception:
                 pass
 
-        # Parse latest log file
+        # Parse latest log file (incremental — seek to last read position)
         if os.path.isdir(log_dir):
             logs = sorted(_glob.glob(os.path.join(log_dir, "*.log")), key=os.path.getmtime)
             if logs:
-                entries = []
+                log_path = logs[-1]
+                cache = DashboardAPI._qwen_log_cache
+                offset, entries = cache.get(log_path, (0, []))
                 try:
-                    for line in open(logs[-1]):
-                        try:
-                            e = json.loads(line)
-                            entries.append(e)
-                        except json.JSONDecodeError:
-                            continue
+                    with open(log_path) as f:
+                        f.seek(offset)
+                        for line in f:
+                            try:
+                                entries.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                continue
+                        cache[log_path] = (f.tell(), entries)
                 except Exception:
                     pass
-                result["entries"] = entries[-100:]
+                result["entries"] = entries[-200:]
 
         self._send_json(result)
 

@@ -60,7 +60,7 @@
   // ── Live screenshot hook for dashboard (fires every 1s via console.debug) ──
   if (!window.__liveScreenshotActive) {
     window.__liveScreenshotActive = true;
-    setInterval(function () { console.debug('LIVE_SCREENSHOT_TRIGGER'); }, 1000);
+    setInterval(function () { console.debug('LIVE_SCREENSHOT_TRIGGER'); }, 250);
   }
 
   // ── Dynamic canvas metrics (computed per extraction) ──

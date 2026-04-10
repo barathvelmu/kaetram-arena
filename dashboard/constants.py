@@ -26,7 +26,7 @@ BASE_SERVER_PORT = 9001
 PORT_STRIDE = 10
 MAX_AGENTS = 8
 WS_PORT = 8081
-SCREENSHOT_POLL_INTERVAL = 1.0  # seconds between mtime checks (was 0.2 — too aggressive)
+SCREENSHOT_POLL_INTERVAL = 0.25  # seconds between mtime checks (4 FPS for live stream feel)
 SCREENSHOT_MAX_AGE = 60  # seconds — screenshots older than this are considered stale
 
 # Subprocess cache (shared across endpoints to avoid redundant forks)

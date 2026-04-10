@@ -150,12 +150,12 @@ async def _ensure_browser(state: dict):
         # Live screenshot hook (dashboard reads these)
         screenshot_dir = os.environ.get("KAETRAM_SCREENSHOT_DIR", "/tmp")
         os.makedirs(screenshot_dir, exist_ok=True)
-        screenshot_path = os.path.join(screenshot_dir, "live_screen.png")
+        screenshot_path = os.path.join(screenshot_dir, "live_screen.jpg")
 
         async def on_console(msg):
             if msg.text == "LIVE_SCREENSHOT_TRIGGER":
                 try:
-                    await page.screenshot(path=screenshot_path, type="png")
+                    await page.screenshot(path=screenshot_path, type="jpeg", quality=70)
                 except Exception:
                     pass
 
@@ -280,7 +280,7 @@ async def observe(ctx: Context) -> str:
     screenshot_dir = os.environ.get("KAETRAM_SCREENSHOT_DIR", "/tmp")
     try:
         await page.screenshot(
-            path=os.path.join(screenshot_dir, "live_screen.png"), type="png"
+            path=os.path.join(screenshot_dir, "live_screen.jpg"), type="jpeg", quality=70
         )
     except Exception:
         pass

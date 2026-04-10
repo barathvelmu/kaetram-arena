@@ -129,7 +129,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
     def _newest_screenshot(state_dir):
         """Return the path of the most recently modified screenshot in a state dir."""
         candidates = []
-        for name in ("live_screen.png", "screenshot.png"):
+        for name in ("live_screen.jpg", "screenshot.png"):
             p = os.path.join(state_dir, name)
             if os.path.isfile(p):
                 candidates.append((os.path.getmtime(p), p))
@@ -148,7 +148,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
                 return self.send_error(403)
             state_dir = os.path.join("/tmp", f"kaetram_agent_{idx}", "state")
-            if filename in ("live_screen.png", "screenshot.png"):
+            if filename in ("live_screen.jpg", "screenshot.png"):
                 filepath = self._newest_screenshot(state_dir)
             else:
                 filepath = os.path.join(state_dir, filename)
@@ -156,7 +156,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
             filename = os.path.basename(raw)
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
                 return self.send_error(403)
-            if filename in ("live_screen.png", "screenshot.png"):
+            if filename in ("live_screen.jpg", "screenshot.png"):
                 filepath = self._newest_screenshot(STATE_DIR)
             else:
                 filepath = os.path.join(STATE_DIR, filename)
@@ -181,14 +181,14 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.wfile.write(f.read())
 
     def send_mjpeg_stream(self):
-        """Serve MJPEG stream from an agent's live_screen.png."""
+        """Serve MJPEG stream from an agent's live_screen.jpg."""
         raw = self.path.split("?")[0]
         parts = raw.strip("/").split("/")
         if len(parts) >= 2 and parts[1].startswith("agent_"):
             idx = parts[1].replace("agent_", "")
-            ss_path = os.path.join("/tmp", f"kaetram_agent_{idx}", "state", "live_screen.png")
+            ss_path = os.path.join("/tmp", f"kaetram_agent_{idx}", "state", "live_screen.jpg")
         else:
-            ss_path = os.path.join(STATE_DIR, "live_screen.png")
+            ss_path = os.path.join(STATE_DIR, "live_screen.jpg")
 
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
@@ -206,7 +206,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                             with open(ss_path, "rb") as f:
                                 frame = f.read()
                             self.wfile.write(b"--frame\r\n")
-                            self.wfile.write(b"Content-Type: image/png\r\n")
+                            self.wfile.write(b"Content-Type: image/jpeg\r\n")
                             self.wfile.write(f"Content-Length: {len(frame)}\r\n".encode())
                             self.wfile.write(b"\r\n")
                             self.wfile.write(frame)

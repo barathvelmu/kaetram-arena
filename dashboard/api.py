@@ -426,7 +426,7 @@ class APIMixin:
             logs = sorted(_glob.glob(os.path.join(log_dir, "*.log")), key=os.path.getmtime)
             if logs:
                 log_path = logs[-1]
-                cache = DashboardAPI._qwen_log_cache
+                cache = APIMixin._qwen_log_cache
                 offset, entries = cache.get(log_path, (0, []))
                 try:
                     with open(log_path) as f:

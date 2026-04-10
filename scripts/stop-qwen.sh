@@ -18,7 +18,7 @@ tmux kill-session -t qwen 2>/dev/null || true
 sleep 2
 
 # Report
-LOGS=$(ls /tmp/kaetram_agent_4/logs/*.log 2>/dev/null | wc -l)
+LOGS=$(find /tmp/kaetram_agent_4/logs/ -name "*.log" 2>/dev/null | wc -l)
 echo "Stopped. $LOGS session log(s) preserved in /tmp/kaetram_agent_4/logs/"
 echo ""
 echo "Restart: ./scripts/start-qwen.sh"

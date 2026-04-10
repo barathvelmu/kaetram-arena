@@ -3,6 +3,20 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-10 — Codex + Gemini CLI Integration
+
+**Two new harnesses integrated end-to-end.** Both `--codex` (GPT-5.4) and `--gemini` (Gemini 2.5 Flash) are now drop-in replacements alongside `--claude`. All three share the same MCP server (`mcp_game_server.py`), system prompt, and orchestration pipeline.
+
+**Codex quirks:** `codex exec` is one-shot (exits when model thinks it's done). Fixed with a Stop Hook (`scripts/codex_stop_hook.py`) that intercepts exit and forces continuation up to max_turns. Also needed `CODEX_HOME` isolation per sandbox (auth.json copy), `stdin=DEVNULL` (was hanging), and `model_reasoning_effort = "medium"`. No reasoning/thinking tokens in output.
+
+**Gemini was cleaner:** Uses Claude-compatible `-p` + `--output-format stream-json` but with flat event structure (`type: "tool_use"` at top level, not nested in `message.content[]`). MCP via `.gemini/settings.json`, turn limit via `maxSessionTurns`, `-y` yolo mode. Needed custom dashboard parsing for flat events.
+
+**Data isolation:** Codex/Gemini logs are collected but excluded from Qwen SFT training. `extract_turns.py` skips them (`[skip]` message). `convert_to_qwen.py` filters by `INCLUDED_HARNESSES = {"claude", "unknown"}`. Each turn is tagged with `harness` from `.meta.json` sidecar.
+
+**Dashboard updated:** Gemini blue badge, Codex amber badge. Flat event parsing for Gemini `tool_use`/`tool_result`. Model extraction from Gemini `init` event. All scripts (nuke, restart, resume, reset-state) handle all harnesses.
+
+---
+
 ## 2026-04-09 — r7 SFT Training Live + Chat Template Fix
 
 **r7 training running on Modal** (PID 2602243, started 15:12 UTC, ~42% through at last check: step 171/402, loss ~0.098, eval_loss 0.1034 @ epoch 0.37). First attempt died at Modal's 8h default timeout; retried with 18h cap. ETA ~05:00 UTC April 10. Dataset is **7,069 records (6,423 train / 646 val)**, up from r6's 4,445.

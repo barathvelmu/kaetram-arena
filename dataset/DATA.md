@@ -65,7 +65,9 @@ Example metadata:
 }
 ```
 
-Written automatically by `orchestrate.py` at session start. Use these to filter sessions without reading log content.
+Written automatically by `orchestrate.py` at session start. The `harness` field identifies which CLI produced the log (`"claude"`, `"codex"`, `"gemini"`). Use these to filter sessions without reading log content.
+
+**Data isolation:** Only Claude logs are used for Qwen SFT training. `extract_turns.py` skips codex/gemini format logs. `convert_to_qwen.py` filters by `INCLUDED_HARNESSES = {"claude", "unknown"}` on each turn's `harness` tag. Codex and Gemini logs exist in the same `dataset/raw/agent_N/logs/` directories but are safely excluded from the training pipeline.
 
 ---
 
@@ -84,9 +86,9 @@ Personality system being built and broken mid-run. Prompt changes mid-collection
 | | Value |
 |---|---|
 | Active agents | 3 (AGGRESSIVE, METHODICAL, CURIOUS) |
-| Active sessions on VM | ~1,395 (485 / 454 / 456 for agents 0/1/2) |
-| Total raw data on VM | ~960 MB |
-| SFT training records | 6,423 train / 646 val (`dataset/qwen_sft/`) |
+| Supported harnesses | Claude (primary), Codex, Gemini (Kimi/Qwen WIP) |
+| Total session logs on VM | ~614 (210 / 204 / 200 for agents 0/1/2) |
+| SFT training records | 6,423 train / 646 val (`dataset/qwen_sft/`, Claude-only) |
 | Architecture | Custom FastMCP server (`mcp_game_server.py`), 22 typed tools |
 
 Dataset is growing. Rebuild with `scripts/collect_sft_data.sh` or manually:

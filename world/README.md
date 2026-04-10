@@ -1,5 +1,7 @@
 # Kaetram World Model
 
+> **Status: WIP / Experimental.** This is a concept prototype — not prioritized for current training runs. The code works but is not integrated into the active agent pipeline.
+
 A lean Transformer forward dynamics model that predicts combat outcomes in Kaetram. Given a game state + action, it predicts HP changes, XP gains, entity interactions, and death risk.
 
 ## What It Does

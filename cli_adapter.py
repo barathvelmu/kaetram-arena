@@ -392,7 +392,7 @@ class GeminiAdapter(CLIAdapter):
     No stop hook or timeout wrapper needed.
     """
 
-    def __init__(self, model: str = "gemini-2.5-flash"):
+    def __init__(self, model: str = "gemini-3-flash-preview"):
         super().__init__(model)
 
     @property
@@ -618,7 +618,7 @@ def get_adapter(harness: str = "claude", model: str | None = None) -> CLIAdapter
     if harness == "codex":
         return CodexAdapter(model=model or "gpt-5.4")
     elif harness == "gemini":
-        return GeminiAdapter(model=model or "gemini-2.5-flash")
+        return GeminiAdapter(model=model or "gemini-3-flash-preview")
     elif harness == "qwen-code":
         return QwenCodeAdapter(model=model or "qwen3-coder")
     elif harness == "kimi":

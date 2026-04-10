@@ -331,7 +331,7 @@ Reminder:
                 print(f"  [{turn}] ← {result[:120]}...")
 
                 # Tool result as user message (apply_chat_template renders tool_response under user)
-                messages.append({"role": "user", "content": f"<tool_response>\n{result[:4000]}\n</tool_response>"})
+                messages.append({"role": "user", "content": f"<tool_response>\n{result}\n</tool_response>"})
                 log_turn(log_file, turn, "assistant", content, [{"name": fn_name, "args": fn_args}])
                 log_turn(log_file, turn, "tool", f"{fn_name}: {result[:300]}")
 
@@ -363,7 +363,7 @@ Reminder:
                         result = f"Error: {e}"
                     print(f"  [{turn}] ← {result[:120]}...")
 
-                    messages.append({"role": "user", "content": f"Tool result ({fn_name}):\n{result[:4000]}"})
+                    messages.append({"role": "user", "content": f"Tool result ({fn_name}):\n{result}"})
                     log_turn(log_file, turn, "assistant", content, [{"name": fn_name, "args": fn_args}])
                     log_turn(log_file, turn, "tool", f"{fn_name}: {result[:300]}")
 

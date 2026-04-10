@@ -12,17 +12,21 @@
 
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 AGENT_ID=4
 USERNAME="QwenBot"
 SERVER_PORT=9031
 MAX_TURNS=300
 RESET=false
+BASE=false
 ENDPOINT="https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1"
+BASE_ENDPOINT="https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --reset)       RESET=true; shift;;
+    --base)        BASE=true; shift;;
     --max-turns)   MAX_TURNS="$2"; shift 2;;
     --endpoint)    ENDPOINT="$2"; shift 2;;
     --port)        SERVER_PORT="$2"; shift 2;;
@@ -30,6 +34,13 @@ while [[ $# -gt 0 ]]; do
     *)             shift;;
   esac
 done
+
+if $BASE; then
+  ENDPOINT="$BASE_ENDPOINT"
+  USERNAME="QwenBase"
+  AGENT_ID=5
+  echo "*** BASELINE MODE — using unfinetuned Qwen3.5-9B ***"
+fi
 
 SANDBOX="/tmp/kaetram_agent_${AGENT_ID}"
 
@@ -42,6 +53,7 @@ fi
 # Reset player data if requested
 if $RESET; then
   echo "Resetting $USERNAME to Level 1..."
+  source "$PROJECT_DIR/.venv/bin/activate" 2>/dev/null || true
   python3 -c "
 from pymongo import MongoClient
 c = MongoClient('localhost', 27017)
@@ -57,17 +69,23 @@ fi
 # Ensure sandbox exists
 mkdir -p "$SANDBOX/state" "$SANDBOX/logs"
 
-# Start game server on the Qwen port if not running
-if ! ss -tlnp "sport = :$SERVER_PORT" 2>/dev/null | grep -q "$SERVER_PORT"; then
-  echo "Starting game server on port $SERVER_PORT..."
-  source "$HOME/.nvm/nvm.sh" && nvm use 20 > /dev/null 2>&1
-  cd "$PROJECT_DIR/Kaetram-Open"
-  PORT=$SERVER_PORT nohup node packages/server/dist/main.js > /tmp/kaetram_server_${SERVER_PORT}.log 2>&1 &
-  cd "$PROJECT_DIR"
-  sleep 5
-  echo "  Game server started (PID $!, port $SERVER_PORT)"
+# Start game server if not running on any port
+GAME_RUNNING=false
+for port in $SERVER_PORT 9001; do
+  if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+    SERVER_PORT=$port
+    GAME_RUNNING=true
+    break
+  fi
+done
+if ! $GAME_RUNNING; then
+  echo "Starting game server..."
+  "$SCRIPT_DIR/start-kaetram.sh" &
+  sleep 8
+  SERVER_PORT=9001
+  echo "  Game server started on port $SERVER_PORT"
 else
-  echo "Game server already running on port $SERVER_PORT"
+  echo "Game server running on port $SERVER_PORT"
 fi
 
 # Ensure dashboard is running

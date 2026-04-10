@@ -42,12 +42,12 @@ class ScreenshotWatcher:
     def _refresh_watch_paths(self):
         """Build list of paths that actually exist (avoid wasted stat() on missing files)."""
         paths = []
-        for name in ("live_screen.png", "screenshot.png"):
+        for name in ("live_screen.jpg", "screenshot.png"):
             p = os.path.join(STATE_DIR, name)
             if os.path.isfile(p):
                 paths.append((None, p))
         for i in range(MAX_AGENTS):
-            for name in ("live_screen.png", "screenshot.png"):
+            for name in ("live_screen.jpg", "screenshot.png"):
                 p = os.path.join("/tmp", f"kaetram_agent_{i}", "state", name)
                 if os.path.isfile(p):
                     paths.append((i, p))

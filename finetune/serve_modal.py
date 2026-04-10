@@ -56,14 +56,46 @@ serve_image = (
 # ---------------------------------------------------------------------------
 
 BASE_MODEL_ID = "Qwen/Qwen3.5-9B"  # HF model ID (not Unsloth wrapper)
-SFT_EXPERIMENT = "kaetram-qwen3.5-9b-r6-optimized"
+SFT_EXPERIMENT = "kaetram-qwen3.5-9b-r7"
 GRPO_EXPERIMENT = "kaetram-qwen3.5-9b-grpo"
-MERGED_MODEL_DIR = "/model_cache/kaetram-merged-r6"
+MERGED_MODEL_DIR = "/model_cache/kaetram-merged-r7"
 
 # vLLM settings
 MAX_MODEL_LEN = 32768  # A100 40GB fits 9B bf16 (18GB) + 32k KV cache (~12GB)
 GPU_MEMORY_UTILIZATION = 0.92
 DTYPE = "bfloat16"
+
+
+# ---------------------------------------------------------------------------
+# Chat template fix (QwenLM/Qwen3#1831)
+# ---------------------------------------------------------------------------
+
+def _patch_qwen_chat_template(tokenizer):
+    """Patch Qwen 3.5 chat template to preserve <think> in all turns."""
+    template = tokenizer.chat_template
+    if template is None:
+        return
+    old = (
+        "{%- if loop.index0 > ns.last_query_index %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
+        "        {%- else %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
+        "        {%- endif %}"
+    )
+    new = (
+        "{%- if reasoning_content %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
+        "        {%- elif loop.index0 > ns.last_query_index %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n\\n</think>\\n\\n' + content }}\n"
+        "        {%- else %}\n"
+        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
+        "        {%- endif %}"
+    )
+    if old in template:
+        tokenizer.chat_template = template.replace(old, new)
+        print("  Patched Qwen 3.5 chat template: <think> now preserved in all turns")
+    else:
+        print("  WARNING: chat template patch target not found — template may have changed")
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +191,7 @@ class Inference:
         )
         from transformers import AutoTokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
+        _patch_qwen_chat_template(self.tokenizer)
         print("SGLang engine ready.")
 
     @modal.asgi_app()

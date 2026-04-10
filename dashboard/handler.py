@@ -67,7 +67,8 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
             elif path == "/api/agents":
                 self.send_agents()
             elif path == "/api/qwen-log":
-                self.send_qwen_log()
+                agent_id = qs.get("agent", ["4"])[0] if qs else "4"
+                self.send_qwen_log(agent_id=int(agent_id))
             elif path == "/api/raw":
                 which = qs.get("file", [None])[0]
                 self.send_raw_file(which, qs)

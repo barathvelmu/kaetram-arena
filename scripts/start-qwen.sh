@@ -96,18 +96,20 @@ if ! pgrep -f "python3 dashboard.py" > /dev/null 2>&1; then
   sleep 2
 fi
 
-# Launch in tmux
-echo "Launching Qwen agent in tmux session 'qwen'..."
-tmux kill-session -t qwen 2>/dev/null || true
-tmux new-session -d -s qwen -c "$PROJECT_DIR" \
-  "bash -c './play_qwen.sh --server-port $SERVER_PORT --max-turns $MAX_TURNS --endpoint $ENDPOINT --username $USERNAME 2>&1 | tee /tmp/qwen_agent.log'"
+# Launch in tmux (use agent ID in session name to allow parallel runs)
+TMUX_SESSION="qwen-${AGENT_ID}"
+echo "Launching Qwen agent in tmux session '$TMUX_SESSION'..."
+tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+tmux new-session -d -s "$TMUX_SESSION" -c "$PROJECT_DIR" \
+  "bash -c './play_qwen.sh --agent-id $AGENT_ID --server-port $SERVER_PORT --max-turns $MAX_TURNS --endpoint $ENDPOINT --username $USERNAME 2>&1 | tee /tmp/qwen_agent_${AGENT_ID}.log'"
 
+VARIANT=$($BASE && echo "BASE (unfinetuned)" || echo "r7-SFT (finetuned)")
 echo ""
-echo "Qwen agent running:"
-echo "  tmux attach -t qwen     # watch live output"
+echo "Qwen agent running [$VARIANT]:"
+echo "  tmux attach -t $TMUX_SESSION"
 echo "  Dashboard: http://localhost:8080 (Qwen Live tab)"
 echo "  Endpoint: $ENDPOINT"
+echo "  Agent ID: $AGENT_ID ($USERNAME)"
 echo "  Port: $SERVER_PORT"
-echo "  Max turns/session: $MAX_TURNS"
 echo ""
 echo "Stop: ./scripts/stop-qwen.sh"

@@ -399,25 +399,29 @@ class APIMixin:
     # Incremental log reader cache: {filepath: (file_offset, entries_list)}
     _qwen_log_cache: dict = {}
 
-    def send_qwen_log(self):
-        """Return latest log entries + state from the Qwen agent sandbox."""
+    def send_qwen_log(self, agent_id: int = 4):
+        """Return latest log entries + state from a Qwen agent sandbox."""
         import glob as _glob
-        sandbox = "/tmp/kaetram_agent_4"
+        sandbox = f"/tmp/kaetram_agent_{agent_id}"
         state_dir = os.path.join(sandbox, "state")
         log_dir = os.path.join(sandbox, "logs")
 
-        result = {"entries": [], "screenshot_age": 9999, "game_state": {}, "memory": {}}
+        result = {"entries": [], "screenshot_age": 9999, "game_state": {}, "memory": {},
+                  "agent_id": agent_id}
 
-        # Screenshot age
-        ss = os.path.join(state_dir, "live_screen.jpg")
-        if os.path.isfile(ss):
-            result["screenshot_age"] = time.time() - os.path.getmtime(ss)
+        # Screenshot age (check both jpg and png for compat)
+        for ss_name in ("live_screen.jpg", "live_screen.png"):
+            ss = os.path.join(state_dir, ss_name)
+            if os.path.isfile(ss):
+                result["screenshot_age"] = time.time() - os.path.getmtime(ss)
+                break
 
         # Game state
         gs_path = os.path.join(state_dir, "game_state.json")
         if os.path.isfile(gs_path):
             try:
-                result["game_state"] = json.load(open(gs_path))
+                with open(gs_path) as f:
+                    result["game_state"] = json.load(f)
             except Exception:
                 pass
 
@@ -427,7 +431,10 @@ class APIMixin:
             if logs:
                 log_path = logs[-1]
                 cache = APIMixin._qwen_log_cache
-                offset, entries = cache.get(log_path, (0, []))
+                cached_path, offset, entries = cache.get(agent_id, (None, 0, []))
+                # Reset cache if log file changed (new session)
+                if cached_path != log_path:
+                    offset, entries = 0, []
                 try:
                     with open(log_path) as f:
                         f.seek(offset)
@@ -436,7 +443,7 @@ class APIMixin:
                                 entries.append(json.loads(line))
                             except json.JSONDecodeError:
                                 continue
-                        cache[log_path] = (f.tell(), entries)
+                        cache[agent_id] = (log_path, f.tell(), entries)
                 except Exception:
                     pass
                 result["entries"] = entries[-200:]

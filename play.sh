@@ -11,7 +11,7 @@ PERSONALITY=""
 HARNESS="claude"
 CLAUDE_MODEL="sonnet"
 CODEX_MODEL="gpt-5.4"
-GEMINI_MODEL="gemini-2.5-flash"
+GEMINI_MODEL="gemini-3-flash-preview"
 KIMI_MODEL="kimi-k2"
 QWEN_CODE_MODEL="qwen3-coder"
 for arg in "$@"; do

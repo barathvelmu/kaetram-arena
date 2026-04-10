@@ -13,18 +13,18 @@ An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-O
 - Supports multi-agent mode: run N agents in parallel for scaled data collection
 - 3 agent playstyles (aggressive, methodical, curious) for diverse training data
 
-## Current status (April 9, 2026)
+## Current status (April 10, 2026)
 
-- **Data collection active.** 3 agents (AGGRESSIVE, METHODICAL, CURIOUS) running on GCP VM.
-- **Dataset:** 6,423 train / 646 val Qwen3.5 9B SFT records extracted from ~575 sessions.
-- **Training:** `r7` SFT run launched on Modal H100 (April 9). Expanded dataset + chat template fix + rsLoRA + personality labels. See [`research/experiments/training-runs.md`](research/experiments/training-runs.md).
-- **KTO pipeline** validated end-to-end (`score_sessions.py` → `build_kto_dataset.py` → `finetune/train_kto_modal.py`). Full `r7-KTO` run pending `r7` SFT completion.
-- **World model** (2.2M param Transformer forward dynamics) trained — used for MCTS planning and reward shaping. See [`world/README.md`](world/README.md).
+- **Multi-harness support.** Three production-ready harnesses: `--claude` (primary), `--codex` (GPT-5.4), `--gemini` (Gemini 2.5 Flash). All share the same MCP server and system prompt.
+- **Dataset:** 6,423 train / 646 val Qwen3.5 9B SFT records from ~614 Claude sessions. Codex/Gemini logs collected but excluded from training until validated.
+- **Training:** `r7` SFT run on Modal H100. Expanded dataset + chat template fix + personality labels. See [`research/experiments/training-runs.md`](research/experiments/training-runs.md).
+- **KTO pipeline** validated end-to-end. Full `r7-KTO` run pending `r7` SFT completion.
+- **World model** — WIP concept in `world/`. Not prioritized.
 
 ## Architecture
 
 ```
-play.sh ──────────► Claude Code (Sonnet) ──► mcp_game_server.py (FastMCP) ──► Playwright ──► browser
+play.sh ──────────► Claude/Codex/Gemini CLI ──► mcp_game_server.py (FastMCP) ──► Playwright ──► browser
                           │                        │                              │
                     reads system.md +         22 typed tools                 page.evaluate()
                     game_knowledge.md         (observe, attack,              calls state_extractor.js
@@ -85,7 +85,7 @@ Run N agents in parallel, each with its own Kaetram server instance. The preferr
 
 Each agent gets its own server port (9001, 9011, 9021, 9031), username (`ClaudeBot0`–`ClaudeBot3`), log directory, and personality. All agents get `prompts/game_knowledge.md` (quest guides, NPC coords, mob stats). Resource budget for 3 agents (active collection config): ~2.5 GB RAM, ~27% CPU, ~4.5 GB disk/24h.
 
-> **Harness flags** (`--claude`, `--codex`, `--kimi`, `--qwen-code`): only `--claude` is production-ready and used for data collection. The others exist in `cli_adapter.py` but are WIP and not used for training data. See [`CLAUDE.md`](CLAUDE.md) for details.
+> **Harness flags:** `--claude` (primary, training data source), `--codex` (GPT-5.4, uses stop hook), `--gemini` (Gemini 2.5 Flash) are production-ready. `--kimi` and `--qwen-code` are WIP. Codex/Gemini logs are collected but excluded from Qwen SFT training until validated. See [`CLAUDE.md`](CLAUDE.md) for details.
 
 ### End-to-end data pipeline
 
@@ -183,7 +183,7 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 ```
 kaetram-agent/
 ├── mcp_game_server.py       # Custom FastMCP server — 22 typed game tools via Playwright
-├── cli_adapter.py           # Harness abstraction (Claude = production; Codex/Kimi/Qwen Code = WIP)
+├── cli_adapter.py           # Harness abstraction (Claude, Codex, Gemini = production; Kimi, Qwen = WIP)
 ├── play.sh                  # Claude Code agent loop (resolves .mcp.json template)
 ├── play_qwen.py             # Qwen agent loop — lightweight 2-tool harness
 ├── play_qwen.sh             # Qwen agent session launcher
@@ -310,22 +310,9 @@ python3 qwen_dashboard.py
 
 See `finetune/SETUP_3060.md` for local deployment instructions.
 
-## World model
+## World model (WIP)
 
-A small Transformer forward dynamics model (2.2M params) predicts combat outcomes for MCTS planning and reward shaping:
-
-```bash
-# Extract transitions from session logs
-python3 -m world.extract_transitions --log-dir logs/
-
-# Train locally
-python3 -m world.train --data dataset/world_model/transitions.pt
-
-# Interactive demo
-python3 -m world.demo
-```
-
-See `world/README.md` for architecture details.
+Experimental forward dynamics model (2.2M param Transformer) in `world/`. Concept for MCTS planning and reward shaping — not prioritized. See `world/README.md` for details.
 
 ## License
 

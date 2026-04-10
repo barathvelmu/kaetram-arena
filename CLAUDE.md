@@ -91,10 +91,11 @@ research/
 
 ### Harness Flags
 
-**Active:** Only `--claude` is production-ready. Codex, Kimi, and Qwen Code harnesses are WIP — code exists in `cli_adapter.py` but is not tested or used for data collection.
+**Production-ready:** `--claude`, `--codex`, `--gemini` are fully integrated end-to-end (MCP, dashboard, health checks, log parsing, data isolation). Kimi and Qwen Code are WIP.
 
-- `--claude` → Sonnet (Claude Code) — **use this**
-- `--codex` → GPT-5.4 (OpenAI Codex) — WIP
+- `--claude` → Sonnet (Claude Code) — primary data collection harness
+- `--codex` → GPT-5.4 (OpenAI Codex) — uses stop hook for turn continuation
+- `--gemini` → Gemini 2.5 Flash (Google Gemini CLI) — uses maxSessionTurns in settings.json
 - `--kimi` → Kimi K2 — WIP
 - `--qwen-code` → Qwen3-Coder — WIP
 
@@ -104,11 +105,17 @@ research/
 # Default: 4 Claude agents, 24h
 ./scripts/restart-agent.sh 4 0
 
+# 3 Codex agents with personalities
+./scripts/restart-agent.sh --codex 3 --aggressive 1 --methodical 1 --curious 1 --hours 3
+
+# 3 Gemini agents
+./scripts/restart-agent.sh --gemini 3 --aggressive 1 --methodical 1 --curious 1 --hours 1
+
 # Mixed harnesses
-./scripts/restart-agent.sh --claude 1 --codex 1 --kimi 1 --qwen-code 1 --hours 0
+./scripts/restart-agent.sh --claude 1 --codex 1 --gemini 1 --hours 0
 
 # With personalities
-./scripts/restart-agent.sh --aggressive 2 --curious 2 --kimi 4 --hours 24
+./scripts/restart-agent.sh --aggressive 2 --curious 2 --hours 24
 
 # Resume without reset
 ./scripts/resume-agent.sh --qwen-code 2 --hours 8
@@ -295,7 +302,7 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 
 **rsLoRA trap (resolved).** First r7 launch used `use_rslora=True` (`1/sqrt(r)` scaling per Kalajdzievski 2023, to stabilize LoRA at r=64). It diverged immediately — with `alpha=r=64`, rsLoRA gives ~8x effective LR vs standard `alpha/r=1.0` scaling. Reverted to standard LoRA scaling (`use_rslora=False`). The fix is a one-line comment on `finetune/train_modal.py:359` — keep it there so we don't fall into the same trap again.
 
-**Data collection currently idle.** Agents (AGGRESSIVE, METHODICAL, CURIOUS) are not running right now — orchestrator stopped while r7 trains on Modal. 575 sessions are on disk in `dataset/raw/agent_0..2/logs/` (1,395 raw session log files across the 3 agents, 650 extracted `turns.jsonl` files). To resume data collection during/after training: `./scripts/resume-agent.sh` or `./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --hours 0`.
+**Multi-harness data collection active.** 614+ session logs on disk across 3 agents. Claude Code is the primary training data source. Codex and Gemini harnesses are integrated and tested but their logs are excluded from Qwen SFT training via `INCLUDED_HARNESSES` filter in `convert_to_qwen.py` (only Claude data goes into training). Resume: `./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --hours 0`.
 
 **r7 dataset rebuild DONE.** 14,091 turns → **6,423 train / 646 val** (was 3,957/488 in r5/r6 — ~62% more data). Chat template fix + personality labels applied.
 
@@ -312,7 +319,7 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 - `play_qwen.py` / `play_qwen.sh` — lightweight custom 2-tool loop (browser_run_code + bash) driving Playwright directly via Python. Calls an OpenAI-compatible endpoint (Modal/Ollama). **This IS the finetuned model** harness.
 - `play_opencode.sh` + `opencode.json` — OpenCode + Playwright MCP with Ollama/Modal endpoint
 
-**World model DONE.** 2.2M param Transformer forward dynamics model trained on gameplay transitions. Used for MCTS planning and GRPO reward shaping. See `world/README.md`.
+**World model (WIP concept).** Experimental 2.2M param Transformer forward dynamics model in `world/`. Not prioritized — see `world/README.md` for details.
 
 **Remote agent setup:**
 - **GCP VM** (`35.224.227.251`): Hosts Kaetram game server (:9001 WS) + client (:9000 HTTP). This is the game world.
@@ -330,15 +337,18 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 ## Architecture
 
 ```
-Custom MCP Server (current):
-  Claude CLI ──► mcp_game_server.py (FastMCP) ──► Playwright Python ──► browser
-                   │                                    │
-              22 typed tools                     page.evaluate()
-              (observe, attack,                  calls window.__helperFn()
-               navigate, warp,                   from state_extractor.js
-               gather, loot...)
-                   │
-              Agent NEVER writes JS — calls structured tools only
+Custom MCP Server (all harnesses):
+  Claude/Codex/Gemini CLI ──► mcp_game_server.py (FastMCP) ──► Playwright Python ──► browser
+                                  │                                    │
+                             22 typed tools                     page.evaluate()
+                             (observe, attack,                  calls window.__helperFn()
+                              navigate, warp,                   from state_extractor.js
+                              gather, loot...)
+
+  MCP config per harness:
+    Claude  → sandbox/.mcp.json (--mcp-config flag)
+    Codex   → sandbox/.codex/config.toml (CODEX_HOME env var)
+    Gemini  → sandbox/.gemini/settings.json (auto-discovered from cwd)
 
 Multi-agent orchestration:
   orchestrate.py ──► N × (GameServer + AgentInstance)
@@ -375,7 +385,8 @@ Rate limit / budget:
 | `mcp_game_server.py` | **Custom MCP server** — FastMCP Python, 22 typed game tools, manages Playwright browser. Agent calls these instead of writing JS. Tools: `login`, `observe`, `attack`, `set_attack_style`, `navigate`, `move`, `warp`, `cancel_nav`, `interact_npc`, `talk_npc`, `accept_quest`, `buy_item`, `eat_food`, `drop_item`, `equip_item`, `clear_combat`, `stuck_reset`, `click_tile`, `respawn`, `gather`, `loot`, `query_quest`. |
 | `.mcp.json` | MCP config **template** — placeholders resolved at launch. Claude uses `--mcp-config` + `--strict-mcp-config`. |
 | `play.sh` | Single-agent loop (resolves `.mcp.json` template via sed) |
-| `cli_adapter.py` | **Harness abstraction** — ClaudeAdapter resolves MCP config, passes `--mcp-config`/`--strict-mcp-config` |
+| `cli_adapter.py` | **Harness abstraction** — ClaudeAdapter, CodexAdapter, GeminiAdapter (+ Kimi, Qwen WIP). Each resolves MCP config per-sandbox. |
+| `scripts/codex_stop_hook.py` | Codex Stop Hook — forces continuation up to max_turns (Codex exec is one-shot by default) |
 | `orchestrate.py` | Multi-agent launcher + health monitor + rate limit detection + budget enforcement |
 | `state_extractor.js` | Injected into browser via `context.add_init_script()` — exposes `window.__extractGameState()`, `window.__attackMob()`, etc. Called by MCP server internally, never by agent. |
 | `extract_turns.py` | JSONL log → OODA turn extraction (parses MCP tool calls) |

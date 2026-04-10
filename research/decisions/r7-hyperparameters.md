@@ -21,9 +21,11 @@ Research-backed rationale for every training parameter in the r7 SFT and r7-KTO 
 
 ### rsLoRA: Disabled (attempted and reverted)
 
-**Decision:** Tried `use_rslora=True` in r7 (new). Training diverged immediately. Reverted to `use_rslora=False` (commit `685f649`).
+**Decision:** Tried `use_rslora=True` in r7 (new). Training diverged at step 60. Reverted to `use_rslora=False`.
 
-**Why it failed:** rsLoRA scales adapters by `1/sqrt(r)` instead of `1/r`. With our config `r=alpha=64`, standard LoRA gives effective scaling `alpha/r = 1.0`. rsLoRA gives `alpha/sqrt(r) = 64/8 = 8.0` — an **8x effective LR increase**. This caused immediate divergence. The Kalajdzievski 2023 paper assumes alpha is retuned when switching to rsLoRA; we did not rebalance alpha, so the 8x multiplier was unintentional.
+**What happened:** Loss dropped normally for 50 steps (2.38 → 0.11), then grad_norm spiked from 0.16 → 642 → 70M → 6B. Loss jumped to 5.66 by step 80. Warmup (20 steps) masked the issue; full LR at step ~25 started exponential gradient accumulation.
+
+**Why it failed:** rsLoRA scales adapters by `1/sqrt(r)` instead of `1/r`. With our config `r=alpha=64`, standard LoRA gives effective scaling `alpha/r = 1.0`. rsLoRA gives `alpha/sqrt(r) = 64/8 = 8.0` — an **8x effective LR increase**. The Kalajdzievski 2023 paper assumes alpha is retuned when switching to rsLoRA; we did not rebalance alpha.
 
 **Lesson:** If rsLoRA is ever re-attempted, alpha must be reduced (e.g., alpha=8 with r=64 to get effective scaling ~1.0 under rsLoRA). The comment on `train_modal.py:359` is load-bearing — do not remove it.
 
@@ -152,6 +154,18 @@ Research-backed rationale for every training parameter in the r7 SFT and r7-KTO 
 | Progress events | 10% | Per-turn XP/level deltas. Catches incremental progress within sessions. |
 | Exploration | 15% | Unique positions visited. Rewards spatial diversity. |
 | Turn quality | 15% | Avg per-turn score (state completeness + action quality + reasoning quality). |
+
+---
+
+## r7 Results (Apr 10, 2026)
+
+**Training:** 402 steps, ~14.5h on H100 80GB. Final train loss: 0.072. Grad norms stable 0.007-0.017 throughout.
+
+**Loss curve:** 2.38 → 0.55 → 0.30 → 0.12 → 0.09 → 0.072. Standard LoRA SFT pattern — rapid format learning (first 50 steps), then slow conditional refinement.
+
+**Deployment:** Merged model saved to Modal volume `kaetram-model-vol`. Serving via SGLang on A100 40GB. Chat template patch applied at inference. Tested with `play_qwen.py` — model produces correct Qwen XML tool calls, follows priority system (heal before attack at low HP), and plays the game autonomously.
+
+**Known limitation:** `completion_only_loss=True` was not actually masking — TRL ignores it for `text`-field datasets. Model trained on all tokens including game state JSON. Still functional but suboptimal. Fix planned for r8 (`assistant_only_loss=True` with raw messages format).
 
 ---
 

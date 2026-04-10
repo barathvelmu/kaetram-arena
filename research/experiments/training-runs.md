@@ -13,7 +13,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r5 | Apr 4 | SFT | 3,853 train / 465 val | Quality filters + native MCP tools | First playable model, deployed on Modal |
 | r6 | Apr 4-5 | SFT | 3,853 train / 465 val | Niral's optimized run, 2 epochs | Deployed and tested end-to-end |
 | r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
-| r7 | Apr 9 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | Running on Modal (~12-14h, launched Apr 9 15:12 UTC). rsLoRA attempted and reverted (8x LR trap). |
+| r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
 | r7-KTO | TBD | KTO | TBD | Quest progression scoring, rebuilt on r7 SFT | Pending (after r7 SFT completes) |
 
 ---
@@ -98,7 +98,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **Config:** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, `completion_only_loss=True`, bf16, H100 80GB. See `research/decisions/r7-hyperparameters.md` for parameter rationale.
 
-**Status:** Launched Apr 9 ~15:12 UTC on Modal H100. ~402 steps, ~12-14h wall time. ETA ~05:00 UTC Apr 10. First attempt died at Modal's 8h default timeout; retried with 18h cap (commit `685f649`).
+**Status:** COMPLETE. Launched Apr 9 ~15:12 UTC, finished Apr 10 ~05:30 UTC (~14.5h). Final train loss: 0.072. Loss curve: 2.38 → 0.072, grad norms stable 0.007-0.017 throughout. First attempt died at 8h timeout (step 222/402); retried with 18h cap. Model deployed and tested via `play_qwen.py` — produces correct XML tool calls, follows priority system.
 
 **Estimated:** 402 steps, ~12-14h wall time on H100.
 
@@ -131,7 +131,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: **r7 SFT running** (launched Apr 9, ETA ~05:00 UTC Apr 10) → r7 KTO (`modal run finetune/train_kto_modal.py`) → eval (base vs r7-SFT vs r7-KTO). That 3-model comparison is the paper result.
+Immediate: **r7 SFT DONE** (Apr 10). Deploy verified — model produces correct tool calls. Next: r7 KTO (`modal run finetune/train_kto_modal.py`) → eval (base vs r7-SFT vs r7-KTO). That 3-model comparison is the paper result.
 
 Backlog (by priority from Linear):
 - **High:** Dr. GRPO + DAPO patches for GRPO (KAE-12), guided decoding via GBNF grammar (KAE-14), context-dependent tool filtering (KAE-15)

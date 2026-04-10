@@ -65,7 +65,7 @@ except: pass
 open('$SYSTEM_TMP', 'w').write(text)
 "
 
-  PROGRESS=$(cat "$STATE_FILE" 2>/dev/null || echo '{}')
+  PROGRESS=$(cat "$STATE_DIR/progress.json" 2>/dev/null || echo '{}')
 
   PROMPT="You are already logged in. Start playing NOW.
 

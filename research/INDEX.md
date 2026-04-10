@@ -47,6 +47,8 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 ## Action Items (data pipeline)
 
 - ~~**Re-extract turns:** Done April 9. 575 sessions extracted → 14,091 turns → 6,423 train / 646 val SFT records.~~
-- ~~**Launch r7 SFT:** Running on Modal H100 (launched Apr 9 ~15:12 UTC, ~402 steps, ETA ~05:00 UTC Apr 10). rsLoRA attempted and reverted (8x LR trap). Chat template fix + personality labels applied.~~
-- **Launch r7 KTO:** After r7 SFT completes. Rebuild KTO dataset on new scored sessions, then `modal run finetune/train_kto_modal.py`.
+- ~~**Launch r7 SFT:** DONE Apr 10. Final loss 0.072, 14.5h on H100. Deployed on Modal, tested with play_qwen.py — model produces correct tool calls.~~
+- ~~**Deploy r7 serving:** DONE Apr 10. serve_modal.py updated to r7, chat template patch applied at inference, verified with curl + play_qwen.py.~~
+- **Launch r7 KTO:** Rebuild KTO dataset on scored sessions, then `modal run finetune/train_kto_modal.py`.
 - **Eval protocol:** Define primary metric (quest progress? XP/hr?) and run base vs r7-SFT vs r7-KTO comparison. This is the paper blocker.
+- **Loss masking fix (KAE-25):** `completion_only_loss=True` with `text` field dataset does nothing — TRL only masks for `prompt`+`completion` format. Need `assistant_only_loss=True` with raw `messages` for r8. Barath handling.

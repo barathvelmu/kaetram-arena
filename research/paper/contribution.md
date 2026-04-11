@@ -49,6 +49,9 @@ After SFT, we apply KTO using **game outcomes as reward signals** — XP gain, q
 ### Multi-harness comparison
 Same game, same tools, 5 different AI backends (Claude, Codex, Gemini, Kimi, Qwen Code). Interesting for analysis but not a paper contribution unless we do a rigorous comparison. Claude, Codex, and Gemini are fully integrated end-to-end (Apr 10); Kimi and Qwen Code are WIP.
 
+### Finetuned vs base model live comparison
+Dashboard Qwen Live tab (Apr 10) shows split-screen MJPEG streaming of finetuned r7 (agent_4) vs base Qwen3.5-9B (agent_5) playing simultaneously. Useful for qualitative analysis in the paper, but quantitative eval protocol still needed.
+
 ### Self-play improvement loop
 Planned (KAE-16) but not implemented. If it works, it's a strong contribution: student generates own data → score → retrain → iterate. STaR/ReST-EM pattern applied to game agents.
 
@@ -110,6 +113,6 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 ## Open Questions
 
 1. **Evaluation metric:** This is the actual blocker. Need one primary metric and 2-3 supporting metrics, e.g. quest progress, level gain, deaths, stuck/click_tile rate.
-2. **Baseline:** Vanilla Qwen3.5-9B (no finetuning) as baseline? Or also compare to prompted-only (no SFT)?
+2. **Baseline:** Vanilla Qwen3.5-9B (no finetuning) deployed as baseline (`serve_modal_base.py`, agent_5). Prompted-only (no SFT) comparison still TBD.
 3. **Reproducibility:** Kaetram is open source but game state is stochastic. Need to define evaluation protocol (N runs, same starting conditions, average over trials).
 4. **Ethics section:** Agent plays a game, no human subjects. But should address: compute cost of teacher data collection, environmental impact of 24/7 agent runs.

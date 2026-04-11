@@ -16,7 +16,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 ## Experiments
 
-- [training-runs.md](experiments/training-runs.md) — r1 through r6-KTO: hyperparams, results, failures, what improved
+- [training-runs.md](experiments/training-runs.md) — r1 through r7-SFT (+ r6-KTO smoke test): hyperparams, results, failures, what improved
 - [data-quality.md](experiments/data-quality.md) — Filters applied, before/after metrics, what got cut and why
 
 ## Related Work
@@ -41,6 +41,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - **World model evaluation** — Per-field accuracy, rollout drift, MCTS impact on gameplay. `world/evaluate.py` exists but results not compiled.
 - **Agent distillation landscape** — ~~Filled: see [agent-sft-landscape.md](related-work/agent-sft-landscape.md)~~ CRADLE, Voyager still need detailed comparison.
 - **Multi-harness analysis** — Claude, Codex, and Gemini all integrated end-to-end (Apr 10). No comparative analysis of harness quality, action patterns, or reasoning quality across backends yet.
+- **Finetuned vs base quantitative eval** — Both models deployed on Modal (finetuned r7 + base Qwen3.5-9B). Dashboard shows live split-screen. Still need: defined metrics (quest progress, XP/hr, death rate), N-run evaluation protocol, statistical comparison. This is the paper blocker.
 - **Self-play loop design** — STaR, ReST-EM, ETO patterns. Becomes relevant when KAE-16 starts.
 - **Tool count scaling analysis** — MCP server grew from 18 → 22 tools (April 8). RAG-MCP threshold is 19. Need to measure tool selection accuracy in student model at 22 tools vs filtered subsets. Informs KAE-15 priority.
 
@@ -49,6 +50,9 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - ~~**Re-extract turns:** Done April 9. 575 sessions extracted → 14,091 turns → 6,423 train / 646 val SFT records.~~
 - ~~**Launch r7 SFT:** DONE Apr 10. Final loss 0.072, 14.5h on H100. Deployed on Modal, tested with play_qwen.py — model produces correct tool calls.~~
 - ~~**Deploy r7 serving:** DONE Apr 10. serve_modal.py updated to r7, chat template patch applied at inference, verified with curl + play_qwen.py.~~
+- ~~**Deploy base model serving:** DONE Apr 10. `serve_modal_base.py` — unfinetuned Qwen3.5-9B on Modal A100 for baseline comparison.~~
+- ~~**Qwen agent management:** DONE Apr 10. `start-qwen.sh`, `stop-qwen.sh`, `restart-qwen.sh`, `status-qwen.sh`. Agent slots: agent_4=finetuned (QwenBot), agent_5=base (QwenBase).~~
+- ~~**Dashboard Qwen Live tab:** DONE Apr 10. Split-screen MJPEG streaming (finetuned vs base), 4 FPS, `/stream/agent_N` endpoint.~~
 - **Launch r7 KTO:** Rebuild KTO dataset on scored sessions, then `modal run finetune/train_kto_modal.py`.
-- **Eval protocol:** Define primary metric (quest progress? XP/hr?) and run base vs r7-SFT vs r7-KTO comparison. This is the paper blocker.
+- **Eval protocol:** Define primary metric (quest progress? XP/hr?) and run base vs r7-SFT vs r7-KTO comparison. Baseline endpoint now exists. This is the paper blocker.
 - **Loss masking fix (KAE-25):** `completion_only_loss=True` with `text` field dataset does nothing — TRL only masks for `prompt`+`completion` format. Need `assistant_only_loss=True` with raw `messages` for r8. Barath handling.

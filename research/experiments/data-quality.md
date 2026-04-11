@@ -7,7 +7,7 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
 ## Pipeline Overview
 
 ```
-618 raw logs (agents 0-2 on VM, as of April 10)
+640 raw logs (agents 0-2 on VM, as of April 11)
   → extract_turns.py (OODA turn extraction)
     → 575 extracted session dirs
       → 14,091 turns
@@ -15,7 +15,7 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
     → 6,423 train / 646 val (7,069 total Qwen3.5 9B SFT records, ~23.7M tokens)
 ```
 
-Previous pipeline state (April 8): 509 raw → 395 extracted → 3,957/488 (4,445 total). The r7 rebuild (April 9) re-extracted all sessions and produced ~62% more data.
+Previous pipeline state (April 8): 509 raw → 395 extracted → 3,957/488 (4,445 total). The r7 rebuild (April 9) re-extracted all sessions and produced ~62% more data. As of April 11: 640 raw logs on disk — 65 new sessions collected since r7 extraction, pending for r8.
 
 ---
 
@@ -98,7 +98,7 @@ Each turn is scored 0.0-1.0 on three axes:
 | move | 7.1% |
 | click_tile | 3.9% |
 
-**Source data (618 raw sessions across 3 agents):**
+**Source data (640 raw sessions across 3 agents, as of April 11):**
 - Agent 0 (AGGRESSIVE): 39% of dataset, combat-heavy sessions
 - Agent 1 (METHODICAL): 31% of dataset, quest-focused sessions (April 3+ only — pre-April 3 contaminated by catch-22 prompt)
 - Agent 2 (CURIOUS): 29% of dataset, exploration-heavy sessions
@@ -123,7 +123,7 @@ Each turn is scored 0.0-1.0 on three axes:
 2. **Personality imbalance:** AGGRESSIVE produces more combat turns, CURIOUS more NPC interactions. Stratified split by session helps but doesn't guarantee action-type balance.
 3. **Session length bias:** Long sessions (100+ turns) dominate the dataset. Short sessions (< 20 turns) are often crashes or rate-limit kills.
 4. **Qwen tokenizer mismatch:** Qwen3.5 and Qwen3-VL share a base but have different special tokens. Training uses Qwen3.5 tokenizer; must match at inference.
-5. **New-session marginal quality:** The r7 rebuild was a significant jump (+62% records), but future gains will depend on genuinely diverse, higher-signal sessions.
+5. **New-session marginal quality:** The r7 rebuild was a significant jump (+62% records), but future gains will depend on genuinely diverse, higher-signal sessions. As of April 11, 640 raw logs exist but only 575 were extracted for r7 — 65 new sessions pending re-extraction before next SFT rebuild.
 6. **accept_quest underrepresented:** Only 8 `accept_quest` actions in the full 7,069-record dataset despite active questing in logs. Likely a conversion/filter issue — `interact_npc` auto-accepts most quests, so explicit `accept_quest` calls are rare. May not be a bug.
 7. **Multi-harness data exclusion:** Codex and Gemini harness logs are collected but excluded from Qwen SFT training via `INCLUDED_HARNESSES` filter in `convert_to_qwen.py`. Only Claude data trains the student model.
 

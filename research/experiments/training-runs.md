@@ -136,7 +136,13 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: **r7 SFT DONE** (Apr 10). Deploy verified — model produces correct tool calls. Next: r7 KTO (`modal run finetune/train_kto_modal.py`) → eval (base vs r7-SFT vs r7-KTO). That 3-model comparison is the paper result.
+Immediate: **r7 SFT DONE** (Apr 10). Deploy verified — model produces correct tool calls. Base model endpoint also deployed (`serve_modal_base.py`, A100). Next: r7 KTO (`modal run finetune/train_kto_modal.py`) → eval (base vs r7-SFT vs r7-KTO). That 3-model comparison is the paper result.
+
+**Qwen agent infrastructure (Apr 10):**
+- Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`
+- Base model: agent_5 slot, `QwenBase` username, `start-qwen.sh --base`
+- Dashboard: Qwen Live tab with split-screen MJPEG streaming (4 FPS), log polling
+- Management: `start-qwen.sh`, `stop-qwen.sh`, `restart-qwen.sh`, `status-qwen.sh`
 
 Backlog (by priority from Linear):
 - **High:** Dr. GRPO + DAPO patches for GRPO (KAE-12), guided decoding via GBNF grammar (KAE-14), context-dependent tool filtering (KAE-15)

@@ -314,6 +314,35 @@ See `finetune/SETUP_3060.md` for local deployment instructions.
 
 Experimental forward dynamics model (2.2M param Transformer) in `world/`. Concept for MCTS planning and reward shaping — not prioritized. See `world/README.md` for details.
 
+## Research Contribution
+
+This project is the basis for an arXiv paper on **structured game-agent distillation** — distilling frontier LLM gameplay reasoning into a small open model using a typed tool API as the teacher-student interface.
+
+Unlike prior work where LLMs serve as decision advisors for human players ([Think in Games](https://arxiv.org/abs/2508.21365)), generate raw code or click pixels ([CRADLE](https://arxiv.org/abs/2403.03186), [Voyager](https://arxiv.org/abs/2305.16291)), or operate in episodic single-player environments ([Orak](https://arxiv.org/abs/2506.03610), [GamingAgent](https://arxiv.org/abs/2505.15146)), **our agent operates fully autonomously in a persistent open world using a shared typed tool API as the teacher-student interface.**
+
+### What's novel
+
+**1. Shared typed MCP tool vocabulary** — Teacher (Claude) and student (Qwen3.5-9B) call the same 22 typed tools (`attack("goblin")`, `navigate(188, 157)`, `interact_npc("Blacksmith")`). This eliminates action space mismatch between teacher and student at training time — a structural problem in prior game-agent distillation where teachers write raw code or click pixels the student can't reliably reproduce.
+
+**2. Personality-diverse teacher data** — 3 Claude agents with orthogonal playstyles (AGGRESSIVE, METHODICAL, CURIOUS) produce structurally different decision distributions at overlapping game states. The student learns a richer action distribution than any single teacher policy provides.
+
+**3. KTO preference learning with automated game outcome scoring** — After SFT, we apply KTO using a 6-dimension composite reward signal (XP gain, level delta, quest progression, exploration, turn quality, death penalty). No human labels. Fully automated. Scales with agent runtime. Fits the MMORPG setting where there is no binary win condition.
+
+### Comparison
+
+| | This project | Think in Games | Orak | CRADLE / Voyager |
+|---|---|---|---|---|
+| Agent autonomy | Fully autonomous | Decision advisor (human executes) | Autonomous | Autonomous |
+| World type | Persistent MMORPG | Episodic MOBA (replays) | Episodic single-player | Open-ended |
+| Action interface | Shared typed MCP tools | 40 categorical labels | Heterogeneous per-game MCP | Raw code / pixel clicks |
+| Teacher diversity | 3 personality-distinct agents | Single teacher model | Single teacher model | Single teacher model |
+| Post-SFT refinement | KTO (offline, composite reward) | GRPO (online RL, Tencent scale) | None | None |
+| Open source | Full (game + data + pipeline) | No (proprietary Tencent data) | Partial (closed games) | Partial |
+
+See [`research/paper/contribution.md`](research/paper/contribution.md) for full novelty framing, ablation plan, and paper outline.
+
+---
+
 ## License
 
 Tooling layer around [Kaetram-Open](https://github.com/Kaetram/Kaetram-Open) (MPL-2.0).

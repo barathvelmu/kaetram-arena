@@ -142,6 +142,26 @@ Critical analysis of what SFT actually teaches.
 
 **Key finding:** Cross-game finetuning transfers gameplay meta-knowledge from large to small models. ~10k samples across 12 games. Generalizes to OOD games and non-game tasks.
 
+### Think in Games / TiG (arXiv 2508.21365, Tencent, Aug 2025)
+
+**What they do:** SFT (distilled from DeepSeek-R1 671B) → online GRPO on Honor of Kings (commercial MOBA). 40 predefined categorical macro-actions. Binary reward: predicted action == expert replay label.
+
+**Key result:** Qwen-3-14B + SFT + GRPO (2000 steps) reaches **90.91% action prediction accuracy**, beating the 671B teacher (DeepSeek-R1 at 86.67%).
+
+**Critical distinction — this is NOT an autonomous agent.** TiG reads replay frames and suggests actions for human players to execute. The model never controls the game. Kaetram's agent issues typed tool calls that drive a live browser, navigate a real game world, manage inventory, complete quests, and fight mobs autonomously. These are categorically different research problems.
+
+**Differentiators from our work:**
+- Action space: 40 flat categorical labels vs. our 22 typed MCP tools with arguments (`navigate(x,y)`, `attack("goblin")`) — ours is compositionally richer
+- Teacher diversity: single DeepSeek-R1 policy vs. our 3 personality-distinct Claude agents
+- Post-SFT: GRPO (online, 32 × H20 GPUs, Tencent scale) vs. KTO (offline, composite 6-dimension reward, 1 H100)
+- Data: proprietary Tencent production replays (undisclosed scale) vs. our fully open 6.4k records
+- Game: episodic MOBA (no persistence) vs. persistent MMORPG (quest state, inventory, XP accumulate across sessions)
+- Reproducibility: zero (proprietary game + data) vs. full (open-source game + public pipeline)
+
+**Eval metric insight:** TiG's 90.91% is action prediction accuracy against held-out expert replay labels. We can construct an equivalent: hold out Claude sessions, measure whether student reproduces Claude's tool call given the same observation. This gives us a headline number analogous to TiG's, computable on existing data, without circular dependence on KTO reward signal.
+
+**Our relevance:** Cite TiG as the closest methodological paper but clearly differentiate on: (1) autonomous agent vs. advisor, (2) persistent MMORPG vs. episodic MOBA, (3) KTO offline preference learning vs. GRPO online RL, (4) open source vs. proprietary. The "student beats teacher" result is what we should aim for in our eval table.
+
 ---
 
 ## Key Takeaways for Our Pipeline

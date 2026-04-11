@@ -112,7 +112,11 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 
 ## Open Questions
 
-1. **Evaluation metric:** This is the actual blocker. Need one primary metric and 2-3 supporting metrics, e.g. quest progress, level gain, deaths, stuck/click_tile rate.
-2. **Baseline:** Vanilla Qwen3.5-9B (no finetuning) deployed as baseline (`serve_modal_base.py`, agent_5). Prompted-only (no SFT) comparison still TBD.
-3. **Reproducibility:** Kaetram is open source but game state is stochastic. Need to define evaluation protocol (N runs, same starting conditions, average over trials).
-4. **Ethics section:** Agent plays a game, no human subjects. But should address: compute cost of teacher data collection, environmental impact of 24/7 agent runs.
+1. **Evaluation metric — proposed solution (from TiG comparison):**
+   - **Action prediction accuracy on held-out Claude sessions:** hold out 10-15% of Claude sessions, measure whether finetuned Qwen reproduces Claude's tool call given the same observation. Directly analogous to TiG's 90.91% headline. Avoids circular dependence on KTO reward signal.
+   - **Live gameplay metrics (N=20 runs per model):** quest completion rate, turns to first quest completion, deaths per session. Starting condition: Level 1, Mudwich, Bronze Axe. These are NOT in the KTO scoring function (which uses XP/level delta/exploration) — clean separation.
+   - Both metrics together give a strong story: "student reproduces teacher at X% and achieves Y% quest completion vs Z% baseline."
+2. **Baseline:** Vanilla Qwen3.5-9B (no finetuning) deployed as baseline (`serve_modal_base.py`, agent_5). Three-way comparison: base → SFT (r7) → SFT+KTO (r7).
+3. **Reproducibility:** N=20 runs per model per condition. Same seed conditions. Report mean ± std. Kaetram-Open is public — full reproduction possible.
+4. **Core intro framing (vs. all comparables, not just TiG):** "Unlike prior work where LLMs serve as decision advisors for human players (TiG), generate raw code or click pixels (CRADLE, Voyager), or operate in episodic single-player environments (Orak, GamingAgent), our agent operates fully autonomously in a persistent open world using a shared typed tool API as the teacher-student interface." This single sentence covers all five main comparables simultaneously.
+5. **Ethics section:** Agent plays a game, no human subjects. Address: compute cost of teacher data collection, environmental impact of 24/7 agent runs.

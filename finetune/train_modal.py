@@ -67,7 +67,7 @@ with train_image.imports():
     import datasets
     import torch
     from trl import SFTConfig, SFTTrainer
-    from unsloth import FastLanguageModel
+    from unsloth import FastLanguageModel, train_on_responses_only
 
 # ---------------------------------------------------------------------------
 # Config
@@ -99,7 +99,7 @@ LOGGING_STEPS = 10
 MASK_INPUT_TOKENS = True
 
 # Output
-EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r7"
+EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r8"
 
 
 # ---------------------------------------------------------------------------
@@ -366,9 +366,13 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
     train_ds, val_ds = load_kaetram_dataset(train_data, val_data, metadata, tokenizer)
     print(f"Train: {len(train_ds)} records, Val: {len(val_ds)} records")
 
-    # SFTConfig with completion_only_loss (Structured Agent Distillation, arxiv 2505.13820)
+    # SFTConfig — loss masking applied via train_on_responses_only (see below).
+    # completion_only_loss=True was broken here: it only works with prompt+completion fields,
+    # not with dataset_text_field="text" (no response_template → silently no-ops).
+    # Fix: use Unsloth's train_on_responses_only after trainer init (r8, KAE-25).
+    # Ref: Structured Agent Distillation arxiv 2505.13820
     output_dir = f"/checkpoints/{EXPERIMENT_NAME}"
-    print(f"Loss masking: completion_only_loss={MASK_INPUT_TOKENS}")
+    print(f"Loss masking: train_on_responses_only={MASK_INPUT_TOKENS}")
     sft_config = SFTConfig(
         output_dir=output_dir,
         num_train_epochs=EPOCHS,
@@ -393,7 +397,6 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         dataset_text_field="text",
         max_seq_length=MAX_SEQ_LEN,
         packing=False,
-        completion_only_loss=MASK_INPUT_TOKENS,
     )
 
     # Trainer
@@ -405,6 +408,17 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         eval_dataset=val_ds,
         args=sft_config,
     )
+
+    # Apply response-only loss masking: mask user/system/tool tokens, train on assistant turns only.
+    # Qwen3.5 chat format: <|im_start|>user\n ... <|im_end|>\n<|im_start|>assistant\n ...
+    # This is the correct fix for completion_only_loss being broken with dataset_text_field="text".
+    if MASK_INPUT_TOKENS:
+        print("Applying train_on_responses_only (assistant turns only)")
+        trainer = train_on_responses_only(
+            trainer,
+            instruction_part="<|im_start|>user\n",
+            response_part="<|im_start|>assistant\n",
+        )
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

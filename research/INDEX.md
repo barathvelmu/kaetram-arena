@@ -41,7 +41,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - **World model evaluation** — Per-field accuracy, rollout drift, MCTS impact on gameplay. `world/evaluate.py` exists but results not compiled.
 - **Agent distillation landscape** — ~~Filled: see [agent-sft-landscape.md](related-work/agent-sft-landscape.md)~~ CRADLE, Voyager still need detailed comparison.
 - **Multi-harness analysis** — Claude, Codex, and Gemini all integrated end-to-end (Apr 10). No comparative analysis of harness quality, action patterns, or reasoning quality across backends yet.
-- **Finetuned vs base quantitative eval** — Both models deployed on Modal (finetuned r7 + base Qwen3.5-9B). Dashboard shows live split-screen. Still need: defined metrics (quest progress, XP/hr, death rate), N-run evaluation protocol, statistical comparison. This is the paper blocker.
+- ~~**Finetuned vs base quantitative eval** — Protocol defined in [`reference/EVALS.md`](../reference/EVALS.md). 3-tier metrics taxonomy, 4 fixed scenarios, statistical methodology (Glass's delta, bootstrap CIs, Bonferroni). Implementation: `eval_harness.py` + `eval_compare.py` + `eval_offline.py` to be built on existing `play_qwen.py` + `score_sessions.py` infrastructure. Still need: implementation + actual eval runs.~~
 - **Self-play loop design** — STaR, ReST-EM, ETO patterns. Becomes relevant when KAE-16 starts.
 - **Tool count scaling analysis** — MCP server grew from 18 → 22 tools (April 8). RAG-MCP threshold is 19. Need to measure tool selection accuracy in student model at 22 tools vs filtered subsets. Informs KAE-15 priority.
 

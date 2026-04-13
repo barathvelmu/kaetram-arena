@@ -16,7 +16,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 ## Experiments
 
-- [training-runs.md](experiments/training-runs.md) — r1 through r7-SFT (+ r6-KTO smoke test): hyperparams, results, failures, what improved
+- [training-runs.md](experiments/training-runs.md) — r1 through r8-SFT (+ r6-KTO smoke test): hyperparams, results, failures, what improved
 - [data-quality.md](experiments/data-quality.md) — Filters applied, before/after metrics, what got cut and why
 
 ## Related Work
@@ -56,4 +56,4 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - **Launch r7 KTO:** Rebuild KTO dataset on scored sessions, then `modal run finetune/train_kto_modal.py`.
 - **Eval protocol:** Define primary metric (quest progress? XP/hr?) and run base vs r7-SFT vs r7-KTO comparison. Baseline endpoint now exists. This is the paper blocker.
 - ~~**Loss masking fix:** DONE Apr 12. `completion_only_loss=True` with `dataset_text_field="text"` was silently a no-op (no response_template → TRL skipped masking). Fixed in `finetune/train_modal.py` r8: removed `completion_only_loss`, added `train_on_responses_only(instruction_part="<|im_start|>user\n", response_part="<|im_start|>assistant\n")` after trainer init. Unsloth 2025.7+ re-exports this from TRL. Note: Linear KAE-25 is the MoE-LoRA ticket (unrelated) — this fix has no Linear ticket.~~
-- **r8 SFT:** Extract 65 pending sessions on VM → rebuild qwen_sft (~8,600 expected records) → `modal run finetune/train_modal.py`. Loss masking now correct.
+- ~~**r8 SFT:** RUNNING Apr 13. Launched on Modal H100. Same r7 dataset (6,419 train after filtering). Loss masking correct via `train_on_responses_only`. 402 steps, ETA ~14h.~~

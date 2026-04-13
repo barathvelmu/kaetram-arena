@@ -14,7 +14,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r6 | Apr 4-5 | SFT | 3,853 train / 465 val | Niral's optimized run, 2 epochs | Deployed and tested end-to-end |
 | r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
-| r8 | Apr 12 | SFT | 6,423 train / 646 val (same as r7) | Loss masking fix (train_on_responses_only) | Ready to launch — VM needs git pull |
+| r8 | Apr 13 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | RUNNING on Modal H100. Launched ~16:30 UTC. 402 steps, ETA ~14h. |
 | r8-KTO | TBD | KTO | TBD | Preference learning on r8 merged weights | Pending r8 completion + Niral greenlight |
 
 ---
@@ -116,17 +116,17 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **Config:** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, H100 80GB. Experiment: `kaetram-qwen3.5-9b-r8`.
 
-**Status:** Ready to launch. VM at commit `aff589d` — needs `git pull` to get `cb8ec3e` (r8 fix) before running.
+**Status:** RUNNING. Launched Apr 13 ~16:30 UTC on Modal H100. Unsloth 2026.4.2, TRL 0.24.0, Transformers 5.5.0. `train_on_responses_only` applied successfully — 4/6,423 samples removed (all labels -100 after truncation). 402 steps, ETA ~14h. Monitor: modal.com dashboard.
 
 ---
 
-## r7-KTO — Preference Learning on Expanded Data (Apr 9, pending)
+## r8-KTO — Preference Learning (pending r8 SFT)
 
 **What changed from r6-KTO:**
 1. Quest progression scoring weights: XP 15%, levels 15%, quest progression 20% (actual state deltas), progress events 10%, exploration 15%, turn quality 15%.
 2. Chat template fix applied to `fmt_tok` in KTO script.
-3. Experiment name → `kaetram-qwen3.5-9b-r7-kto`.
-4. Will rebuild KTO dataset on r7 extracted data (577 sessions scored, 231 desirable / 173 undesirable / 173 neutral).
+3. Experiment name → `kaetram-qwen3.5-9b-r8-kto`.
+4. Will rebuild KTO dataset on r8 extracted data. Base SFT will be r8 merged weights (with correct loss masking).
 
 **Config:** Same as r6-KTO: beta=0.1, LR=5e-7, `ref_model=None + precompute_ref_log_probs=True`, window_size=5, stride=2.
 
@@ -137,7 +137,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 **Platform:** Modal (H100 80GB for SFT/KTO training, A100 40GB for inference serving). Unsloth for LoRA, TRL for KTO/GRPO trainers. SGLang for inference.
 
 **Serving endpoints (Modal):**
-- `kaetram-qwen-serve` — finetuned r7 model (SGLang, A100, `serve_modal.py`)
+- `kaetram-qwen-serve` — finetuned model (SGLang, A100, `serve_modal.py`) — currently pointed at r8 (will serve after training + deploy)
 - `kaetram-qwen-base` — unfinetuned Qwen3.5-9B baseline (SGLang, A100, `serve_modal_base.py`)
 - Both scale to 0 when idle ($0 cost). Cold start ~3-6 min (model download + SGLang init).
 
@@ -152,7 +152,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: **r7 SFT DONE** (Apr 10). Deploy verified — model produces correct tool calls. Base model endpoint also deployed (`serve_modal_base.py`, A100). Next: r7 KTO (`modal run finetune/train_kto_modal.py`) → eval (base vs r7-SFT vs r7-KTO). That 3-model comparison is the paper result.
+Immediate: **r8 SFT RUNNING** (Apr 13). Loss masking finally correct via `train_on_responses_only`. Same dataset as r7 (6,419 samples after 4 filtered). ETA ~Apr 14 06:00 UTC. After r8: deploy → eval (base vs r7-SFT vs r8-SFT) → r8-KTO → final 4-model comparison for paper.
 
 **Qwen agent infrastructure (Apr 10):**
 - Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`

@@ -305,21 +305,19 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 
 ## CURRENT STATUS
 
-**r7 SFT training live on Modal.** Experiment `kaetram-qwen3.5-9b-r7`. Launched 2026-04-09 ~15:12 UTC, ETA ~05:00 UTC 2026-04-10. Training is healthy — loss tracking eval, no divergence. Config: LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, `completion_only_loss=True`, bf16, H100 80GB. ~402 steps, ~12–14h wall time.
+**r8 SFT training RUNNING on Modal (Apr 13).** Experiment `kaetram-qwen3.5-9b-r8`. Launched ~16:30 UTC. Key fix: `train_on_responses_only` replaces broken `completion_only_loss` — now correctly masks system/user/tool tokens, trains only on assistant responses. Same dataset as r7 (6,419 train after 4 filtered, 646 val). Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, H100 80GB. 402 steps, ETA ~14h (~06:30 UTC Apr 14). Unsloth 2026.4.2, TRL 0.24.0, Transformers 5.5.0.
 
-**rsLoRA trap (resolved).** First r7 launch used `use_rslora=True` (`1/sqrt(r)` scaling per Kalajdzievski 2023, to stabilize LoRA at r=64). It diverged immediately — with `alpha=r=64`, rsLoRA gives ~8x effective LR vs standard `alpha/r=1.0` scaling. Reverted to standard LoRA scaling (`use_rslora=False`). The fix is a one-line comment on `finetune/train_modal.py:359` — keep it there so we don't fall into the same trap again.
+**r7 SFT DONE but loss masking was broken.** r7 used `completion_only_loss=True` with `dataset_text_field="text"` — TRL silently ignored it (only works with prompt+completion column format). r7 trained on ALL tokens including game state JSON. Final loss 0.072 was artificially low. r8 fixes this.
 
-**Multi-harness data collection active.** 614+ session logs on disk across 3 agents. Claude Code is the primary training data source. Codex and Gemini harnesses are integrated and tested but their logs are excluded from Qwen SFT training via `INCLUDED_HARNESSES` filter in `convert_to_qwen.py` (only Claude data goes into training). Resume: `./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --hours 0`.
+**Loss masking history:** r4 used explicit `DataCollatorForCompletionOnlyLM` (worked). r5-r7 switched to `completion_only_loss=True` flag (silently broken). r8 uses Unsloth's `train_on_responses_only()` which scans tokenized input_ids for `<|im_start|>assistant\n` markers — no template tags needed, handles multi-turn correctly. Minor gap: tool results included in loss (scanner stops at `<|im_start|>user\n`).
 
-**r7 dataset rebuild DONE.** 14,091 turns → **6,423 train / 646 val** (was 3,957/488 in r5/r6 — ~62% more data). Chat template fix + personality labels applied.
+**Why not TRL's `assistant_only_loss=True`?** Requires `{% generation %}` Jinja tags in chat template. Qwen team declined to add them (HuggingFace-specific extension). TRL v1.1.0 auto-substitutes a training template with these tags, but Unsloth caps TRL at <=0.24.0 which lacks this feature.
 
 **Personalities finalized (April 3).** Dropped EFFICIENT after audit. 3 orthogonal axes confirmed working in logs: combat approach / HP-gated preparation / exploration-first. Active: agent_0=AGGRESSIVE, agent_1=METHODICAL, agent_2=CURIOUS.
 
-**KTO pipeline validated, full run pending.** r6-KTO smoke test ran 10/10 steps cleanly (`train_loss=0.617`, KL active). The `ref_model=None + precompute_ref_log_probs=True` path is locked in — explicit reference-model KTO OOMs repeatedly on H100 80GB. r7-KTO will use the same config on top of r7 SFT merged weights once r7 finishes. Still awaiting Niral's greenlight for the full run.
+**KTO pipeline validated, full run pending.** r6-KTO smoke test ran 10/10 steps cleanly. Will rebuild on r8 SFT merged weights after r8 completes. r8-KTO comparison (base vs r7 vs r8 vs r8-KTO) is the paper result.
 
-**Compile-research cron loop working.** `scripts/run_research_staleness_check.sh` via VM cron has been auto-running `/compile-research` + committing + pushing on a regular cadence. Last two successful auto-compile commits: 2026-04-07, 2026-04-08 (see git log for `[auto] compile-research` entries). Do not rely on session-local Claude cron — that dies with the session.
-
-**r7 SFT DONE (Apr 10).** Qwen3.5-9B finetuned on 6,423 train / 646 val records. Final loss 0.072. Deployed on Modal SGLang (A100). Chat template patch preserves `<think>` in all turns. Model plays the game — navigates, accepts quests, attacks mobs, recovers from stuck. Known issues: observe-loop at spawn, Oak confusion, no loss masking (r8 fix).
+**Compile-research cron loop working.** `scripts/run_research_staleness_check.sh` via VM cron. Last auto-compile: 2026-04-11. Do not rely on session-local Claude cron — that dies with the session.
 
 **Qwen agent harness:**
 - `play_qwen.py` / `play_qwen.sh` — Calls finetuned model via OpenAI-compatible Modal endpoint. Spawns `mcp_game_server.py` as MCP subprocess for all 22 game tools. **This IS the finetuned model** harness.

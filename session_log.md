@@ -3,6 +3,16 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-13 — r8 SFT Training Launched
+
+**r8 training running on Modal H100.** Launched ~16:30 UTC. `train_on_responses_only` applied successfully — Unsloth scans tokenized `input_ids` for `<|im_start|>assistant\n` markers and masks everything else. 4 of 6,423 samples filtered (all labels -100 after truncation). 402 steps, ~14h ETA.
+
+**Dependency stack verified.** Unsloth 2026.4.2 caps TRL at <=0.24.0. TRL's `assistant_only_loss=True` requires `{% generation %}` Jinja tags that Qwen3.5 lacks (Qwen team declined to add them). TRL's `completion_only_loss=True` requires prompt+completion column format, not text field. Only viable path: Unsloth's `train_on_responses_only()` which bypasses template tags entirely. One minor gap: `<|im_start|>tool\n` messages included in loss (scanner stops at user markers only). Tool results are small — acceptable.
+
+**serve_modal.py updated to r8.** Will deploy after training completes.
+
+---
+
 ## 2026-04-12 — r8 Fix + Full Pipeline Audit
 
 **r8 loss masking fix committed and pushed (`cb8ec3e`).** `completion_only_loss=True` in r5–r7 was silently a no-op — TRL skips masking with `dataset_text_field="text"` if no `response_template` is set. r5–r7 trained on all tokens including game state JSON. Fix: replaced with `train_on_responses_only(instruction_part="<|im_start|>user\n", response_part="<|im_start|>assistant\n")` from Unsloth, applied after trainer init. Experiment bumped to `kaetram-qwen3.5-9b-r8`.

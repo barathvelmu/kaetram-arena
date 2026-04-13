@@ -3,6 +3,20 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-12 — r8 Fix + Full Pipeline Audit
+
+**r8 loss masking fix committed and pushed (`cb8ec3e`).** `completion_only_loss=True` in r5–r7 was silently a no-op — TRL skips masking with `dataset_text_field="text"` if no `response_template` is set. r5–r7 trained on all tokens including game state JSON. Fix: replaced with `train_on_responses_only(instruction_part="<|im_start|>user\n", response_part="<|im_start|>assistant\n")` from Unsloth, applied after trainer init. Experiment bumped to `kaetram-qwen3.5-9b-r8`.
+
+**Data audit (direct VM inspection).** The "65 pending sessions" in prior docs was wrong — subagent read stale docs, not the filesystem. Reality: 583 total claude logs (200+195+188 across agents 0-2), 650 extracted sessions. All 26 post-r7 logs are **Gemini** — zero new Claude data since Apr 9. `INCLUDED_HARNESSES = {"claude", "unknown"}` filter confirmed working. r8 trains on the same 7,069-record dataset as r7.
+
+**Inference harness solid.** `play_qwen.py` + `serve_modal.py` audit: all 22 tools dispatched, `<think>` patch in place at serve time, dual-path XML+JSON parsing, correct r7 checkpoint. Only minor: message-count truncation (not token-count), non-blocking.
+
+**Linear updated.** KAE-33 created (r8 SFT launch). KAE-13 (KTO) updated — now explicitly depends on r8, not r7. All research docs updated: `training-runs.md` (r8 entry), `data-quality.md` (corrected counts + harness breakdown table), `INDEX.md` (loss masking fix marked done).
+
+**VM needs `git pull` before r8 launch.** VM is at `aff589d` (Apr 11), needs `cb8ec3e`.
+
+---
+
 ## 2026-04-10 — Codex + Gemini CLI Integration
 
 **Two new harnesses integrated end-to-end.** Both `--codex` (GPT-5.4) and `--gemini` (Gemini 2.5 Flash) are now drop-in replacements alongside `--claude`. All three share the same MCP server (`mcp_game_server.py`), system prompt, and orchestration pipeline.

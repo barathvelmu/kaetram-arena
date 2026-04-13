@@ -15,7 +15,9 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
     → 6,423 train / 646 val (7,069 total Qwen3.5 9B SFT records, ~23.7M tokens)
 ```
 
-Previous pipeline state (April 8): 509 raw → 395 extracted → 3,957/488 (4,445 total). The r7 rebuild (April 9) re-extracted all sessions and produced ~62% more data. As of April 11: 640 raw logs on disk — 65 new sessions collected since r7 extraction, pending for r8.
+Previous pipeline state (April 8): 509 raw → 395 extracted → 3,957/488 (4,445 total). The r7 rebuild (April 9) re-extracted all sessions and produced ~62% more data.
+
+**Verified Apr 12 (direct VM inspection):** 640 raw logs on disk, 650 extracted sessions. Zero new Claude sessions since r7 extraction — all 26 post-Apr-9 logs are Gemini (excluded by `INCLUDED_HARNESSES = {"claude", "unknown"}`). The "65 pending" figure in earlier docs was incorrect (subagent reading stale docs, not the filesystem). r8 trains on the identical 7,069-record dataset as r7. The r8 improvement comes entirely from the loss masking fix.
 
 ---
 
@@ -98,10 +100,21 @@ Each turn is scored 0.0-1.0 on three axes:
 | move | 7.1% |
 | click_tile | 3.9% |
 
-**Source data (640 raw sessions across 3 agents, as of April 11):**
-- Agent 0 (AGGRESSIVE): 39% of dataset, combat-heavy sessions
-- Agent 1 (METHODICAL): 31% of dataset, quest-focused sessions (April 3+ only — pre-April 3 contaminated by catch-22 prompt)
-- Agent 2 (CURIOUS): 29% of dataset, exploration-heavy sessions
+**Source data (verified Apr 12 via direct VM inspection):**
+
+| Agent | Total logs | Claude logs | Gemini | Codex | Extracted |
+|-------|-----------|-------------|--------|-------|-----------|
+| agent_0 (AGGRESSIVE) | 220 | 200 | 12 | 8 | 218 |
+| agent_1 (METHODICAL) | 213 | 195 | 11 | 7 | 217 |
+| agent_2 (CURIOUS) | 207 | 188 | 10 | 9 | 215 |
+| **Total** | **640** | **583** | **33** | **24** | **650** |
+
+Only the 583 claude logs feed into training. Gemini/Codex are collected for comparison but excluded via `INCLUDED_HARNESSES = {"claude", "unknown"}` in `convert_to_qwen.py`. The 650 extracted count slightly exceeds 583 claude logs because extraction runs on all harnesses — the harness filter applies at the convert step.
+
+**Personality split (within claude training data):**
+- Agent 0 (AGGRESSIVE): ~39% of dataset, combat-heavy sessions
+- Agent 1 (METHODICAL): ~31% of dataset, quest-focused (April 3+ only — pre-April 3 catch-22 prompt)
+- Agent 2 (CURIOUS): ~29% of dataset, exploration-heavy sessions
 
 **Previous builds for reference:**
 | Build | Train | Val | Total | Notes |
@@ -123,7 +136,7 @@ Each turn is scored 0.0-1.0 on three axes:
 2. **Personality imbalance:** AGGRESSIVE produces more combat turns, CURIOUS more NPC interactions. Stratified split by session helps but doesn't guarantee action-type balance.
 3. **Session length bias:** Long sessions (100+ turns) dominate the dataset. Short sessions (< 20 turns) are often crashes or rate-limit kills.
 4. **Qwen tokenizer mismatch:** Qwen3.5 and Qwen3-VL share a base but have different special tokens. Training uses Qwen3.5 tokenizer; must match at inference.
-5. **New-session marginal quality:** The r7 rebuild was a significant jump (+62% records), but future gains will depend on genuinely diverse, higher-signal sessions. As of April 11, 640 raw logs exist but only 575 were extracted for r7 — 65 new sessions pending re-extraction before next SFT rebuild.
+5. **No new Claude data since r7:** As of April 12, all 26 logs collected after r7 extraction (Apr 9) are Gemini — zero new Claude sessions. The next SFT rebuild requires a new Claude data collection run to meaningfully grow the dataset. r8 trains on the same 7,069 records as r7.
 6. **accept_quest underrepresented:** Only 8 `accept_quest` actions in the full 7,069-record dataset despite active questing in logs. Likely a conversion/filter issue — `interact_npc` auto-accepts most quests, so explicit `accept_quest` calls are rare. May not be a bug.
 7. **Multi-harness data exclusion:** Codex and Gemini harness logs are collected but excluded from Qwen SFT training via `INCLUDED_HARNESSES` filter in `convert_to_qwen.py`. Only Claude data trains the student model.
 

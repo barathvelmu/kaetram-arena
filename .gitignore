@@ -36,3 +36,7 @@ dataset/session*/
 
 # Claude session-local scheduler state
 .claude/scheduled_tasks.lock
+
+# Ephemeral runtime state
+.turn_counter
+state/

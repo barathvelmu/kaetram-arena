@@ -14,7 +14,8 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r6 | Apr 4-5 | SFT | 3,853 train / 465 val | Niral's optimized run, 2 epochs | Deployed and tested end-to-end |
 | r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
-| r7-KTO | TBD | KTO | TBD | Quest progression scoring, rebuilt on r7 SFT | Pending (after r7 SFT completes) |
+| r8 | Apr 12 | SFT | 6,423 train / 646 val (same as r7) | Loss masking fix (train_on_responses_only) | Ready to launch — VM needs git pull |
+| r8-KTO | TBD | KTO | TBD | Preference learning on r8 merged weights | Pending r8 completion + Niral greenlight |
 
 ---
 
@@ -101,6 +102,21 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 **Status:** COMPLETE. Launched Apr 9 ~15:12 UTC, finished Apr 10 ~05:30 UTC (~14.5h). Final train loss: 0.072. Loss curve: 2.38 → 0.072, grad norms stable 0.007-0.017 throughout. First attempt died at 8h timeout (step 222/402); retried with 18h cap. Model deployed and tested via `play_qwen.py` — produces correct XML tool calls, follows priority system.
 
 **Estimated:** 402 steps, ~12-14h wall time on H100.
+
+---
+
+## r8 — Loss Masking Fix (Apr 12)
+
+**What changed:**
+- **`train_on_responses_only` replaces broken `completion_only_loss`:** r5–r7 used `completion_only_loss=True` in `SFTConfig` with `dataset_text_field="text"`. TRL's `DataCollatorForCompletionOnlyLM` needs a `response_template` to identify where completions start — without one it silently skips masking. r5–r7 trained on ALL tokens including game state JSON, ASCII maps, and system prompts. Fix: removed `completion_only_loss`, added `train_on_responses_only(instruction_part="<|im_start|>user\n", response_part="<|im_start|>assistant\n")` from Unsloth after trainer init. This correctly zeros labels on all non-assistant tokens and trains only on `<think>` reasoning + tool calls.
+
+**Note on r4 vs r5–r7:** r4 used `DataCollatorForCompletionOnlyLM` explicitly with a response template — this worked correctly. r5+ switched to `completion_only_loss=True` without a `response_template`, which silently regressed to full-token loss. r8 returns to correct masking.
+
+**What's the same:** Dataset identical to r7 (6,423 train / 646 val). All 26 post-r7 logs are Gemini — zero new Claude data (verified by direct VM inspection Apr 12). r8 improvement comes entirely from correct loss masking.
+
+**Config:** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, H100 80GB. Experiment: `kaetram-qwen3.5-9b-r8`.
+
+**Status:** Ready to launch. VM at commit `aff589d` — needs `git pull` to get `cb8ec3e` (r8 fix) before running.
 
 ---
 

@@ -442,11 +442,17 @@
   .qwen-status-dot.live { background: var(--green); animation: qpulse 1.5s infinite; box-shadow: 0 0 6px rgba(92,184,112,0.4); }
   .qwen-status-dot.stale { background: var(--red); box-shadow: 0 0 6px rgba(196,90,90,0.3); }
   @keyframes qpulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .qwen-actions { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .qwen-actions { overflow-y: auto; padding: 4px 0; }
+  .qwen-actions.collapsed { max-height: 0; overflow: hidden; }
+  .qwen-actions.expanded { max-height: 300px; }
   .qwen-action { padding: 5px 14px; border-bottom: 1px solid rgba(201,175,120,0.06); font-size: 10px; }
   .qwen-action .qa-turn { color: #363848; margin-right: 6px; }
   .qwen-action .qa-text { color: var(--green); }
   .qwen-action .qa-text.warp { color: var(--cyan); }
+  .log-toggle { cursor: pointer; padding: 4px 14px; font-size: 10px; color: var(--text-dim); background: rgba(0,0,0,0.2); border: none; width: 100%; text-align: left; user-select: none; }
+  .log-toggle:hover { color: var(--gold); }
+  .log-toggle::before { content: '\25B6'; margin-right: 6px; font-size: 8px; display: inline-block; transition: transform 0.15s; }
+  .log-toggle.open::before { transform: rotate(90deg); }
   .tab[data-tab="qwen"].active { color: var(--cyan) !important; border-bottom-color: var(--cyan) !important; }
   .tab[data-tab="eval"].active { color: var(--green) !important; border-bottom-color: var(--green) !important; }
 
@@ -616,7 +622,8 @@
           <img id="qw-img-ft" src="" alt="Finetuned stream">
           <div class="no-signal" id="qw-nosig-ft">FINETUNED — WAITING</div>
         </div>
-        <div class="qwen-actions" id="qw-log-ft"></div>
+        <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
+        <div class="qwen-actions collapsed" id="qw-log-ft"></div>
       </div>
       <!-- RIGHT: Base (agent_5) -->
       <div class="qwen-panel" id="qp-base">
@@ -632,7 +639,8 @@
           <img id="qw-img-base" src="" alt="Base stream">
           <div class="no-signal" id="qw-nosig-base">BASE — WAITING</div>
         </div>
-        <div class="qwen-actions" id="qw-log-base"></div>
+        <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
+        <div class="qwen-actions collapsed" id="qw-log-base"></div>
       </div>
     </div>
   </div>
@@ -654,7 +662,8 @@
           <img id="ev-img-sft" src="" alt="r8-SFT eval stream">
           <div class="no-signal" id="ev-nosig-sft">r8-SFT — WAITING</div>
         </div>
-        <div class="qwen-actions" id="ev-log-sft"></div>
+        <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
+        <div class="qwen-actions collapsed" id="ev-log-sft"></div>
       </div>
       <div class="qwen-panel">
         <div class="qwen-panel-header base">
@@ -669,7 +678,8 @@
           <img id="ev-img-base" src="" alt="Base eval stream">
           <div class="no-signal" id="ev-nosig-base">BASE — WAITING</div>
         </div>
-        <div class="qwen-actions" id="ev-log-base"></div>
+        <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
+        <div class="qwen-actions collapsed" id="ev-log-base"></div>
       </div>
     </div>
     <!-- Completed eval metrics -->
@@ -810,6 +820,15 @@ document.addEventListener('keydown', e => {
 
 // === Helpers ===
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function toggleLog(btn) {
+  const logEl = btn.nextElementSibling;
+  const isOpen = logEl.classList.contains('expanded');
+  logEl.classList.toggle('collapsed', isOpen);
+  logEl.classList.toggle('expanded', !isOpen);
+  btn.classList.toggle('open', !isOpen);
+  if (!isOpen) logEl.scrollTop = logEl.scrollHeight;
+}
 function humanTime(s) {
   if (s < 0) return 'never';
   if (s < 60) return s + 's ago';
@@ -1843,6 +1862,7 @@ async function pollEvalLive() {
 
       // Append new log entries
       const logEl = document.getElementById(p.log);
+      const toggleBtn = logEl.previousElementSibling;
       if (entries.length !== p.count) {
         // Reset if new episode (fewer entries than before)
         if (entries.length < p.count) { logEl.innerHTML = ''; p.count = 0; }
@@ -1856,9 +1876,12 @@ async function pollEvalLive() {
           div.innerHTML = '<span class="qa-turn">[' + (e.turn || i) + '] ' + label + '</span> <span class="qa-text' + (role === 'tool' ? ' warp' : '') + '">' + esc(text) + '</span>';
           logEl.appendChild(div);
         }
-        logEl.scrollTop = logEl.scrollHeight;
+        if (logEl.classList.contains('expanded')) logEl.scrollTop = logEl.scrollHeight;
         while (logEl.children.length > 100) logEl.removeChild(logEl.firstChild);
         p.count = entries.length;
+        if (toggleBtn && toggleBtn.classList.contains('log-toggle')) {
+          toggleBtn.textContent = 'Log (' + entries.length + ' entries)';
+        }
       }
     }
   } catch(e) {}

@@ -229,17 +229,6 @@ def parse_log(log_path: Path) -> list[dict]:
     return entries
 
 
-def read_game_state(sandbox: str) -> dict | None:
-    """Read final game_state.json (written by observe() in play_qwen.py)."""
-    gs_path = Path(sandbox) / "state" / "game_state.json"
-    if not gs_path.is_file():
-        return None
-    try:
-        with open(gs_path) as f:
-            return json.loads(f.read())
-    except (json.JSONDecodeError, OSError):
-        return None
-
 
 def _entropy(counts: Counter) -> float:
     """Shannon entropy of a Counter in bits."""
@@ -252,9 +241,32 @@ def _entropy(counts: Counter) -> float:
     )
 
 
-def compute_episode_metrics(log_entries: list[dict], game_state: dict | None) -> dict:
-    """Compute per-episode metrics from parsed log + final game state."""
-    # Count assistant turns and tool calls
+def _parse_tool_json(content: str) -> dict | None:
+    """Try to parse JSON from a tool result string like 'tool_name: {...}'."""
+    if ": " in content:
+        json_str = content.split(": ", 1)[1]
+    else:
+        json_str = content
+    try:
+        return json.loads(json_str)
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+# Known XP values per mob type (from game_knowledge.md)
+MOB_XP = {
+    "Rat": 18, "Batterfly": 50, "Goblin": 72, "Snek": 80,
+    "Crab": 90, "Skeleton": 100, "Ogre": 120, "Zombie": 130,
+    "Piranha": 110, "Spooky Skeleton": 140, "Desert Scorpion": 124,
+}
+
+
+def compute_episode_metrics(log_entries: list[dict]) -> dict:
+    """Compute per-episode metrics from parsed log entries.
+
+    All metrics are derived from log entries (tool call results) rather than
+    game_state.json snapshots, which are often stale or missing.
+    """
     assistant_turns = 0
     tool_calls_valid = 0
     action_counts = Counter()
@@ -262,8 +274,19 @@ def compute_episode_metrics(log_entries: list[dict], game_state: dict | None) ->
     stuck_resets = 0
     click_tiles = 0
 
+    # Log-derived metrics
+    kills = 0
+    kills_by_mob = Counter()
+    xp_estimated = 0
+    max_level = 1
+    max_hp = 69  # default Level 1
+    positions = set()
+    quests_completed = 0
+    quests_accepted_set = set()
+
     for entry in log_entries:
         role = entry.get("role", "")
+        content = entry.get("content", "")
 
         if role == "assistant":
             assistant_turns += 1
@@ -280,61 +303,90 @@ def compute_episode_metrics(log_entries: list[dict], game_state: dict | None) ->
                     elif name == "click_tile":
                         click_tiles += 1
 
+        elif role == "tool":
+            parsed = _parse_tool_json(content)
+            if not parsed:
+                continue
+
+            # --- Attack results: kills, HP, positions ---
+            post = parsed.get("post_attack", {})
+            if post.get("killed"):
+                mob_name = parsed.get("attacking", "Unknown")
+                kills += 1
+                kills_by_mob[mob_name] += 1
+                xp_estimated += MOB_XP.get(mob_name, 30)
+            # Track player position + max HP from attack results
+            ppos = parsed.get("player_pos", {})
+            if ppos.get("x") and ppos.get("y"):
+                positions.add((ppos["x"], ppos["y"]))
+            p_max_hp = post.get("player_max_hp", 0)
+            if p_max_hp > max_hp:
+                max_hp = p_max_hp
+
+            # --- Observe results: level, quests, position ---
+            if content.startswith("observe:"):
+                ps = parsed.get("player_stats", {})
+                if isinstance(ps, dict):
+                    lvl = int(ps.get("level", 1) or 1)
+                    if lvl > max_level:
+                        max_level = lvl
+                pp = parsed.get("player_position", {})
+                if pp.get("x") and pp.get("y"):
+                    positions.add((pp["x"], pp["y"]))
+                # Quest tracking from observe
+                obs_quests = parsed.get("quests", [])
+                if isinstance(obs_quests, list):
+                    for q in obs_quests:
+                        if isinstance(q, dict):
+                            qkey = q.get("key", q.get("name", ""))
+                            stage = q.get("stage", 0)
+                            if stage > 0 and qkey:
+                                quests_accepted_set.add(qkey)
+                            if stage == 9999 or q.get("finished") or q.get("completed"):
+                                quests_completed += 1
+                elif isinstance(obs_quests, dict):
+                    for qkey, qdata in obs_quests.items():
+                        if isinstance(qdata, dict):
+                            stage = qdata.get("stage", 0)
+                            if stage > 0:
+                                quests_accepted_set.add(qkey)
+                            if stage == 9999 or qdata.get("finished") or qdata.get("completed"):
+                                quests_completed += 1
+
+            # --- Navigate / move results: position ---
+            if content.startswith("navigate:") or content.startswith("move:"):
+                ppos = parsed.get("player_pos", {})
+                if ppos.get("x") and ppos.get("y"):
+                    positions.add((ppos["x"], ppos["y"]))
+
+            # --- Interact NPC: quest acceptance from dialogue ---
+            if content.startswith("interact_npc:"):
+                if parsed.get("quest_opened") or parsed.get("quest_started"):
+                    qname = parsed.get("quest_name", parsed.get("npc", ""))
+                    if qname:
+                        quests_accepted_set.add(qname)
+
     turns_played = assistant_turns
     tool_parse_rate = tool_calls_valid / max(1, assistant_turns)
-
-    # Extract final state from game_state.json
-    xp_delta = 0
-    level_delta = 0
-    quests_completed = 0
-    quests_accepted = 0
-    unique_positions = 0
-
-    if game_state:
-        ps = game_state.get("player_stats", {})
-        if isinstance(ps, str):
-            try:
-                ps = json.loads(ps)
-            except (json.JSONDecodeError, ValueError):
-                ps = {}
-
-        xp_delta = int(ps.get("experience", 0) or 0)
-        level_delta = max(0, int(ps.get("level", 1) or 1) - 1)
-
-        # Quest info from final state
-        quests = game_state.get("quests", {})
-        if isinstance(quests, dict):
-            for _qname, qdata in quests.items():
-                if isinstance(qdata, dict):
-                    stage = qdata.get("stage", 0)
-                    if stage == 9999 or qdata.get("completed"):
-                        quests_completed += 1
-                    if stage > 0:
-                        quests_accepted += 1
-        elif isinstance(quests, list):
-            for qdata in quests:
-                if isinstance(qdata, dict):
-                    stage = qdata.get("stage", 0)
-                    if stage == 9999 or qdata.get("completed"):
-                        quests_completed += 1
-                    if stage > 0:
-                        quests_accepted += 1
-
-    xp_per_turn = xp_delta / max(1, turns_played)
+    level_delta = max_level - 1
+    xp_per_turn = xp_estimated / max(1, turns_played)
 
     return {
         "turns_played": turns_played,
         "tool_calls_attempted": assistant_turns,
         "tool_calls_valid": tool_calls_valid,
         "tool_parse_rate": round(tool_parse_rate, 4),
-        "xp_delta": xp_delta,
+        "kills": kills,
+        "kills_by_mob": dict(kills_by_mob),
+        "xp_estimated": xp_estimated,
         "xp_per_turn": round(xp_per_turn, 4),
+        "level_reached": max_level,
         "level_delta": level_delta,
         "deaths": deaths,
         "survived": deaths == 0,
         "quests_completed": quests_completed,
-        "quests_accepted": quests_accepted,
-        "unique_positions": unique_positions,
+        "quests_accepted": len(quests_accepted_set),
+        "unique_positions": len(positions),
         "action_counts": dict(action_counts),
         "action_entropy": round(_entropy(action_counts), 4),
         "stuck_resets": stuck_resets,
@@ -349,8 +401,8 @@ def compute_episode_metrics(log_entries: list[dict], game_state: dict | None) ->
 def check_scenario_success(scenario: str, metrics: dict) -> bool:
     """Check if an episode met the scenario-specific success criteria."""
     if scenario == "A":
-        # Rat Grind: model should have gained XP from killing rats
-        return metrics["xp_delta"] > 0 and metrics["action_counts"].get("attack", 0) >= 5
+        # Rat Grind: killed at least 5 rats
+        return metrics["kills"] >= 5 and metrics["action_counts"].get("attack", 0) >= 5
     elif scenario == "B":
         # Snek Quest: completed at least one quest
         return metrics["quests_completed"] >= 1
@@ -455,60 +507,97 @@ def run_model_eval(
             if f.is_file() and f.name not in ("live_screen.jpg", "mcp_server.log"):
                 f.unlink()
 
-        # 2. Run episode
-        print(f"  Running play_qwen.py (max {max_turns} turns)...")
-        run_info = run_episode(
-            project_dir=project_dir,
-            endpoint=endpoint,
-            model_api_name=api_name,
-            sandbox=sandbox,
-            max_turns=max_turns,
-            system_prompt_file=str(prompt_file),
-            username=username,
-            server_port=server_port,
-        )
+        # 2. Run episode with sub-session continuation
+        # The model's context window fills up after ~30 turns, so play_qwen.py
+        # exits. We restart it (same DB state, player continues) until we reach
+        # max_turns total across all sub-sessions.
+        all_log_entries = []
+        total_duration = 0.0
+        sub_session = 0
+        last_returncode = 0
 
-        # 3. Parse results
-        log_path = find_latest_log(sandbox)
-        if log_path is None:
-            print(f"  No log file found — episode failed to start")
+        while len([e for e in all_log_entries if e.get("role") == "assistant"]) < max_turns:
+            turns_so_far = len([e for e in all_log_entries if e.get("role") == "assistant"])
+            remaining = max_turns - turns_so_far
+            if remaining <= 0:
+                break
+
+            sub_session += 1
+            print(f"  Sub-session {sub_session}: {turns_so_far}/{max_turns} turns so far, {remaining} remaining...")
+
+            run_info = run_episode(
+                project_dir=project_dir,
+                endpoint=endpoint,
+                model_api_name=api_name,
+                sandbox=sandbox,
+                max_turns=remaining,
+                system_prompt_file=str(prompt_file),
+                username=username,
+                server_port=server_port,
+            )
+            total_duration += run_info["duration_seconds"]
+            last_returncode = run_info["returncode"]
+
+            # Find and parse the latest sub-session log
+            log_path = find_latest_log(sandbox)
+            if log_path is None:
+                print(f"  Sub-session {sub_session}: no log file — stopping")
+                break
+
+            sub_entries = parse_log(log_path)
+            sub_turns = len([e for e in sub_entries if e.get("role") == "assistant"])
+            print(f"  Sub-session {sub_session}: {sub_turns} turns ({run_info['duration_seconds']:.0f}s)")
+
+            if sub_turns == 0:
+                # Session failed to produce any turns — stop to avoid infinite loop
+                print(f"  Sub-session {sub_session}: 0 turns produced, stopping episode")
+                break
+
+            all_log_entries.extend(sub_entries)
+
+        # 3. Parse aggregated results from all sub-sessions
+        total_turns = len([e for e in all_log_entries if e.get("role") == "assistant"])
+        if total_turns == 0:
+            print(f"  No turns produced across {sub_session} sub-sessions — episode failed")
             episode = {
                 "episode": ep_num,
                 "status": "no_log",
-                "duration_seconds": run_info["duration_seconds"],
-                "returncode": run_info["returncode"],
+                "duration_seconds": total_duration,
+                "returncode": last_returncode,
             }
             episodes.append(episode)
             continue
 
-        # Copy log to eval output directory
+        # Save combined log to eval output directory
         dest_log = model_output_dir / f"episode_{ep_num:03d}.jsonl"
-        dest_log.write_text(log_path.read_text())
+        with open(dest_log, "w") as f:
+            for entry in all_log_entries:
+                f.write(json.dumps(entry) + "\n")
 
-        log_entries = parse_log(log_path)
-        game_state = read_game_state(sandbox)
-        metrics = compute_episode_metrics(log_entries, game_state)
+        metrics = compute_episode_metrics(all_log_entries)
         success = check_scenario_success(scenario, metrics)
 
         episode = {
             "episode": ep_num,
             "status": "ok",
             "success": success,
-            "duration_seconds": run_info["duration_seconds"],
-            "returncode": run_info["returncode"],
+            "duration_seconds": total_duration,
+            "returncode": last_returncode,
+            "sub_sessions": sub_session,
             "log_file": str(dest_log),
             **metrics,
         }
         episodes.append(episode)
 
         # Progress summary
-        print(f"  Done: {metrics['turns_played']} turns, "
+        print(f"  Done: {metrics['turns_played']} turns ({sub_session} sub-sessions), "
               f"TPR={metrics['tool_parse_rate']:.2f}, "
-              f"XP={metrics['xp_delta']}, "
+              f"kills={metrics['kills']}, XP~{metrics['xp_estimated']}, "
+              f"level={metrics['level_reached']}, "
               f"deaths={metrics['deaths']}, "
               f"quests={metrics['quests_completed']}, "
               f"{'SUCCESS' if success else 'no-success'} "
-              f"({run_info['duration_seconds']:.0f}s)")
+              f"({total_duration:.0f}s)")
 
         # 4. Save intermediate results (crash-safe)
         _save_results(results_path, model_name, endpoint, scenario, episodes)
@@ -541,7 +630,9 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "tool_parse_rate": [e.get("tool_parse_rate", 0) for e in ok_episodes],
             "deaths_per_session": [e.get("deaths", 0) for e in ok_episodes],
             # Tier 2
-            "xp_delta": [e.get("xp_delta", 0) for e in ok_episodes],
+            "kills": [e.get("kills", 0) for e in ok_episodes],
+            "xp_estimated": [e.get("xp_estimated", 0) for e in ok_episodes],
+            "level_reached": [e.get("level_reached", 1) for e in ok_episodes],
             "level_delta": [e.get("level_delta", 0) for e in ok_episodes],
             "action_entropy": [e.get("action_entropy", 0) for e in ok_episodes],
             "stuck_resets": [e.get("stuck_resets", 0) for e in ok_episodes],
@@ -774,7 +865,10 @@ Examples:
         print(f"\n  {model_name} ({n} episodes):")
         print(f"    Tool Parse Rate:      {_mean(metrics.get('tool_parse_rate', [])):.3f}")
         print(f"    Quest Completion Rate: {_mean(metrics.get('quest_completion_rate', [])):.3f}")
+        print(f"    Kills (mean):         {_mean(metrics.get('kills', [])):.1f}")
+        print(f"    XP estimated (mean):  {_mean(metrics.get('xp_estimated', [])):.0f}")
         print(f"    XP per Turn:          {_mean(metrics.get('xp_per_turn', [])):.3f}")
+        print(f"    Level reached (mean): {_mean(metrics.get('level_reached', [])):.1f}")
         print(f"    Survival Rate:        {_mean(metrics.get('survival_rate', [])):.3f}")
         print(f"    Deaths per Session:   {_mean(metrics.get('deaths_per_session', [])):.2f}")
         print(f"    Scenario Success:     {_mean(metrics.get('success_rate', [])):.3f}")

@@ -42,10 +42,19 @@ from pathlib import Path
 # Constants
 # ---------------------------------------------------------------------------
 
-# Default Modal endpoints
-DEFAULT_ENDPOINTS = {
-    "base": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
-    "r8-sft": "https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1",
+# Default Modal endpoints with per-model config
+# Each model gets its own username (no hyphens — Kaetram rejects them) and game server port.
+DEFAULT_MODELS = {
+    "base": {
+        "endpoint": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
+        "username": "evalbotBase",
+        "server_port": "9041",
+    },
+    "r8-sft": {
+        "endpoint": "https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1",
+        "username": "evalbotSFT",
+        "server_port": "9001",
+    },
 }
 
 # Evaluation scenarios from KAE-34 / reference/EVALS.md
@@ -87,8 +96,10 @@ MONGO_COLLECTIONS = [
 
 def reset_player_db(username: str) -> bool:
     """Delete all MongoDB records for a specific player username."""
+    # Kaetram stores usernames lowercase
+    username_lower = username.lower()
     js_parts = [
-        f"db.{c}.deleteMany({{username: '{username}'}})"
+        f"db.{c}.deleteMany({{username: '{username_lower}'}})"
         for c in MONGO_COLLECTIONS
     ]
     js = "; ".join(js_parts) + "; print('reset_ok');"
@@ -156,7 +167,7 @@ def run_episode(
     if server_port:
         cmd.extend(["--server-port", server_port])
 
-    env = {**os.environ, "KAETRAM_USERNAME": username}
+    env = {**os.environ, "KAETRAM_USERNAME": username, "PYTHONUNBUFFERED": "1"}
 
     start = time.time()
     try:
@@ -171,11 +182,22 @@ def run_episode(
         result = type("R", (), {"stdout": "", "stderr": "TIMEOUT"})()
     duration = time.time() - start
 
+    # Save full stdout/stderr for debugging
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+    if stdout or stderr:
+        debug_dir = Path(sandbox) / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        if stdout:
+            (debug_dir / "stdout.log").write_text(stdout)
+        if stderr:
+            (debug_dir / "stderr.log").write_text(stderr)
+
     return {
         "returncode": returncode,
         "duration_seconds": round(duration, 1),
-        "stdout_tail": (result.stdout or "")[-500:],
-        "stderr_tail": (result.stderr or "")[-300:],
+        "stdout_tail": stdout[-1000:],
+        "stderr_tail": stderr[-500:],
     }
 
 
@@ -378,7 +400,35 @@ def run_model_eval(
     print(f"  Episodes:  {n_episodes} (resuming from {resume_from})")
     print(f"  Sandbox:   {sandbox}")
     print(f"  Username:  {username}")
+    print(f"  Port:      {server_port}")
     print(f"{'='*60}\n")
+
+    # Ensure game server is running on the required port
+    # Uses direct node command (same as orchestrate.py / start-qwen.sh)
+    _game_server_proc = None
+    if server_port:
+        import shutil
+        check_cmd = f"ss -tlnp 2>/dev/null | grep -q ':{server_port} '"
+        if subprocess.run(check_cmd, shell=True).returncode != 0:
+            nvm_sh = os.path.expanduser("~/.nvm/nvm.sh")
+            server_dir = os.path.expanduser("~/projects/Kaetram-Open/packages/server")
+            if os.path.isdir(server_dir):
+                print(f"  Starting game server on port {server_port}...")
+                gs_cmd = f'source "{nvm_sh}" && nvm use 20 --silent && exec node --enable-source-maps dist/main.js --port {server_port}'
+                gs_log = open(f"/tmp/eval_gameserver_{server_port}.log", "w")
+                _game_server_proc = subprocess.Popen(
+                    ["bash", "-c", gs_cmd], cwd=server_dir,
+                    stdout=gs_log, stderr=gs_log,
+                    env={**os.environ, "ACCEPT_LICENSE": "true", "SKIP_DATABASE": "false"},
+                )
+                # Wait for port
+                for _i in range(60):
+                    if subprocess.run(check_cmd, shell=True).returncode == 0:
+                        print(f"  Game server ready on port {server_port} ({_i+1}s)")
+                        break
+                    time.sleep(1)
+                else:
+                    print(f"  WARNING: Game server on port {server_port} not detected after 60s")
 
     episodes = []
 
@@ -398,11 +448,11 @@ def run_model_eval(
         if not reset_player_db(username):
             print(f"  Warning: DB reset may have failed, continuing anyway")
 
-        # Clear sandbox state
+        # Clear sandbox state (keep live_screen.jpg and mcp_server.log for dashboard)
         state_dir = Path(sandbox) / "state"
         state_dir.mkdir(parents=True, exist_ok=True)
         for f in state_dir.glob("*"):
-            if f.is_file():
+            if f.is_file() and f.name not in ("live_screen.jpg", "mcp_server.log"):
                 f.unlink()
 
         # 2. Run episode
@@ -462,6 +512,15 @@ def run_model_eval(
 
         # 4. Save intermediate results (crash-safe)
         _save_results(results_path, model_name, endpoint, scenario, episodes)
+
+    # Clean up game server if we started one
+    if _game_server_proc and _game_server_proc.poll() is None:
+        print(f"  Stopping game server on port {server_port}...")
+        _game_server_proc.terminate()
+        try:
+            _game_server_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _game_server_proc.kill()
 
     # Final save
     results = _save_results(results_path, model_name, endpoint, scenario, episodes)
@@ -556,11 +615,11 @@ Examples:
     )
     parser.add_argument(
         "--server-port", default="",
-        help="Game server WebSocket port (default: auto)",
+        help="Game server WebSocket port (default: per-model from DEFAULT_MODELS)",
     )
     parser.add_argument(
-        "--username", default="evalbot",
-        help="In-game username for eval bot (default: evalbot)",
+        "--username", default="",
+        help="In-game username (default: per-model from DEFAULT_MODELS, no hyphens)",
     )
     parser.add_argument(
         "--project-dir", default=os.path.dirname(os.path.abspath(__file__)),
@@ -570,6 +629,10 @@ Examples:
         "--resume", type=int, default=0,
         help="Resume from episode N (skip first N episodes)",
     )
+    parser.add_argument(
+        "--parallel", action="store_true",
+        help="Run all models in parallel (each in its own subprocess with isolated game server)",
+    )
     args = parser.parse_args()
 
     # Parse model definitions
@@ -578,18 +641,30 @@ Examples:
         for m in args.models:
             if "=" in m:
                 name, endpoint = m.split("=", 1)
-                models[name] = endpoint
+                models[name] = {"endpoint": endpoint}
             else:
                 print(f"Error: model must be name=endpoint, got: {m}")
                 sys.exit(1)
     else:
-        models = dict(DEFAULT_ENDPOINTS)
+        models = dict(DEFAULT_MODELS)
+
+    # Apply CLI overrides to each model config
+    for name in models:
+        if "username" not in models[name]:
+            models[name]["username"] = args.username or f"evalbot{name.replace('-', '').title()}"
+        if "server_port" not in models[name]:
+            models[name]["server_port"] = args.server_port
+        if args.username:
+            models[name]["username"] = args.username
+        if args.server_port:
+            models[name]["server_port"] = args.server_port
 
     # Preflight checks
     print("Eval Harness — Preflight Checks")
     print(f"  Scenario: {args.scenario} — {SCENARIOS[args.scenario]['name']}")
     print(f"  Episodes: {args.episodes} per model")
     print(f"  Models:   {', '.join(models.keys())}")
+    print(f"  Parallel: {args.parallel}")
     print(f"  Output:   {args.output_dir}")
 
     # Check MongoDB
@@ -606,30 +681,89 @@ Examples:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Run eval for each model
-    all_results = {}
-    for model_name, endpoint in models.items():
-        results = run_model_eval(
-            model_name=model_name,
-            endpoint=endpoint,
-            n_episodes=args.episodes,
-            scenario=args.scenario,
-            output_dir=args.output_dir,
-            project_dir=args.project_dir,
-            username=args.username,
-            server_port=args.server_port,
-            resume_from=args.resume,
-        )
-        all_results[model_name] = results
+    if args.parallel and len(models) > 1:
+        # Parallel mode: launch each model as a separate subprocess of this script
+        # Each gets its own game server, username, and sandbox — full isolation.
+        print(f"\nLaunching {len(models)} models in parallel...")
+        procs = {}
+        log_files = {}
+        for model_name, model_cfg in models.items():
+            log_path = f"/tmp/eval_{model_name}.log"
+            log_f = open(log_path, "w")
+            cmd = [
+                sys.executable, __file__,
+                "--models", f"{model_name}={model_cfg['endpoint']}",
+                "--episodes", str(args.episodes),
+                "--scenario", args.scenario,
+                "--output-dir", str(args.output_dir),
+                "--project-dir", args.project_dir,
+                "--username", model_cfg["username"],
+                "--server-port", model_cfg["server_port"],
+            ]
+            if args.resume:
+                cmd.extend(["--resume", str(args.resume)])
+            print(f"  {model_name}: port={model_cfg['server_port']} user={model_cfg['username']} log={log_path}")
+            procs[model_name] = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT)
+            log_files[model_name] = log_f
+
+        # Wait for all to complete, printing progress
+        import time as _t
+        while any(p.poll() is None for p in procs.values()):
+            _t.sleep(30)
+            for name, p in procs.items():
+                status = "running" if p.poll() is None else f"done (rc={p.returncode})"
+                # Check how many episodes completed
+                results_path = args.output_dir / name / "results.json"
+                ep_done = 0
+                if results_path.is_file():
+                    try:
+                        with open(results_path) as f:
+                            ep_done = len(json.load(f).get("episodes", []))
+                    except Exception:
+                        pass
+                print(f"  [{name}] {status}, {ep_done}/{args.episodes} episodes")
+
+        # Close log files
+        for f in log_files.values():
+            f.close()
+
+        # Collect results
+        all_results = {}
+        for model_name in models:
+            results_path = args.output_dir / model_name / "results.json"
+            if results_path.is_file():
+                with open(results_path) as f:
+                    all_results[model_name] = json.load(f)
+            else:
+                all_results[model_name] = {"meta": {"ok_episodes": 0}, "metrics": {}}
+            rc = procs[model_name].returncode
+            if rc != 0:
+                print(f"\n  WARNING: {model_name} exited with code {rc}. See /tmp/eval_{model_name}.log")
+    else:
+        # Sequential mode (single model or explicit sequential)
+        all_results = {}
+        for model_name, model_cfg in models.items():
+            results = run_model_eval(
+                model_name=model_name,
+                endpoint=model_cfg["endpoint"],
+                n_episodes=args.episodes,
+                scenario=args.scenario,
+                output_dir=args.output_dir,
+                project_dir=args.project_dir,
+                username=model_cfg.get("username", args.username or "evalbot"),
+                server_port=model_cfg.get("server_port", args.server_port),
+                resume_from=args.resume,
+            )
+            all_results[model_name] = results
 
     # Print summary
     print(f"\n{'='*60}")
     print("EVAL COMPLETE — Summary")
     print(f"{'='*60}")
     for model_name, results in all_results.items():
-        meta = results["meta"]
+        meta = results.get("meta", {})
         metrics = results.get("metrics", {})
-        n = meta["ok_episodes"]
+        n = meta.get("ok_episodes", 0)
         if n == 0:
             print(f"\n  {model_name}: 0 successful episodes")
             continue

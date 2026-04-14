@@ -644,3 +644,67 @@ class APIMixin:
 
         APIMixin._eval_cache = {"data": comparison, "mtime": newest_mtime}
         self._send_json(comparison)
+
+    # ── Eval live status (running eval sessions) ──
+
+    def send_eval_live(self):
+        """Return live status from running eval sandboxes (/tmp/kaetram_eval_*)."""
+        import glob as _glob
+        models = {}
+        for sandbox_dir in sorted(_glob.glob("/tmp/kaetram_eval_*")):
+            model_name = os.path.basename(sandbox_dir).replace("kaetram_eval_", "")
+            state_dir = os.path.join(sandbox_dir, "state")
+            log_dir = os.path.join(sandbox_dir, "logs")
+
+            model = {"name": model_name, "active": False, "entries": [],
+                     "game_state": {}, "screenshot_age": 9999, "episode": 0, "turn": 0}
+
+            # Screenshot age
+            ss_path = os.path.join(state_dir, "live_screen.jpg")
+            if os.path.isfile(ss_path):
+                model["screenshot_age"] = time.time() - os.path.getmtime(ss_path)
+                model["active"] = model["screenshot_age"] < 120
+
+            # Game state (longer staleness window for eval — turns can be slow)
+            gs_path = os.path.join(state_dir, "game_state.json")
+            if os.path.isfile(gs_path) and (time.time() - os.path.getmtime(gs_path)) < 600:
+                try:
+                    with open(gs_path) as f:
+                        model["game_state"] = json.load(f)
+                except Exception:
+                    pass
+
+            # Latest session log entries
+            if os.path.isdir(log_dir):
+                logs = sorted(_glob.glob(os.path.join(log_dir, "*.log")), key=os.path.getmtime)
+                if logs:
+                    log_path = logs[-1]
+                    model["episode"] = len(logs)
+                    try:
+                        with open(log_path) as f:
+                            entries = []
+                            for line in f:
+                                try:
+                                    entries.append(json.loads(line))
+                                except json.JSONDecodeError:
+                                    continue
+                            model["entries"] = entries[-100:]
+                            model["turn"] = len(entries) // 2
+                    except Exception:
+                        pass
+
+            # Completed episode count from results.json
+            results_path = os.path.join(DATASET_DIR, "eval", model_name, "results.json")
+            if os.path.isfile(results_path):
+                try:
+                    with open(results_path) as f:
+                        rd = json.load(f)
+                    ok = [e for e in rd.get("episodes", []) if e.get("status") == "ok"]
+                    model["completed_episodes"] = len(ok)
+                    model["total_episodes"] = rd.get("meta", {}).get("total_episodes", 0)
+                except Exception:
+                    pass
+
+            models[model_name] = model
+
+        self._send_json({"models": models, "eval_running": any(m["active"] for m in models.values())})

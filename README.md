@@ -13,12 +13,13 @@ An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-O
 - Supports multi-agent mode: run N agents in parallel for scaled data collection
 - 3 agent playstyles (aggressive, methodical, curious) for diverse training data
 
-## Current status (April 10, 2026)
+## Current status (April 14, 2026)
 
 - **Multi-harness support.** Three production-ready harnesses: `--claude` (primary), `--codex` (GPT-5.4), `--gemini` (Gemini 2.5 Flash). All share the same MCP server and system prompt.
-- **Dataset:** 6,423 train / 646 val Qwen3.5 9B SFT records from ~614 Claude sessions. Codex/Gemini logs collected but excluded from training until validated.
-- **Training:** `r7` SFT run on Modal H100. Expanded dataset + chat template fix + personality labels. See [`research/experiments/training-runs.md`](research/experiments/training-runs.md).
-- **KTO pipeline** validated end-to-end. Full `r7-KTO` run pending `r7` SFT completion.
+- **Dataset:** 6,419 train / 646 val Qwen3.5 9B SFT records from ~640 Claude sessions. Codex/Gemini logs collected but excluded from training.
+- **Training:** `r8` SFT complete on Modal H100. Key fix: correct loss masking via `train_on_responses_only` (r5-r7 had silently broken masking). See [`research/experiments/training-runs.md`](research/experiments/training-runs.md).
+- **Eval harness** set up — `dataset/eval/` with base vs r8-SFT system prompts, `play_qwen.py` ready for comparison runs. No eval runs executed yet.
+- **KTO pipeline** validated end-to-end. Full `r8-KTO` run pending eval results.
 - **World model** — WIP concept in `world/`. Not prioritized.
 
 ## Architecture

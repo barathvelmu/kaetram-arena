@@ -170,13 +170,11 @@ Run each in its own terminal:
 
 2. **Terminal 2 — Dashboard** (optional)
    ```bash
-   python3 dashboard.py
+   ./scripts/start-dashboard.sh       # Start (kills existing first)
+   ./scripts/stop-dashboard.sh        # Stop
+   ./scripts/restart-dashboard.sh     # Restart (after template/code changes)
    ```
-   **Restart dashboard** (e.g. after template/code changes):
-   ```bash
-   kill $(pgrep -f "python3 dashboard.py"); sleep 2; nohup .venv/bin/python3 dashboard.py > /tmp/dashboard.log 2>&1 &
-   ```
-   Note: `kill` may report "no such process" if the shell already reaped it — this is harmless, the new process still launches. The `exit code 144` from zsh on `kill` of a backgrounded process is normal.
+   Log: `/tmp/dashboard.log`. Exit code 144 from zsh on `kill` is normal.
 
 3. **Terminal 3 — Agent loop** — MUST be separate terminal (never subprocess)
    ```bash
@@ -228,7 +226,7 @@ Each Qwen agent has its own sandbox (`/tmp/kaetram_agent_N/`), MCP server, brows
 
 **Database**: MongoDB (`kaetram-mongo` Docker container, port 27017, db `kaetram_devlopment`) persists player state across 9 collections (`player_info`, `player_skills`, `player_equipment`, `player_inventory`, `player_bank`, `player_quests`, `player_achievements`, `player_statistics`, `player_abilities`). Note: MongoDB only saves on autosave/logout — positions and HP go stale during gameplay.
 
-**Dashboard game state**: Two-source merge. Live volatile state (position, HP, entities) comes from `game_state.json` written by each MCP server's `observe()` tool. Persistent data (quests, skills, equipment, inventory) comes from MongoDB via `pymongo`. The dashboard merges both — file for what's happening now, DB for accumulated progress. If `game_state.json` is stale (>2min), falls back to DB-only, then log parsing.
+**Dashboard game state**: Two-source merge. Live volatile state (position, HP, entities) comes from `game_state.json` written by each MCP server's `observe()` tool. Persistent data (quests, skills, equipment, inventory) comes from MongoDB via `pymongo`. The dashboard merges both — file for what's happening now, DB for accumulated progress. If `game_state.json` is stale (>2min), falls back to DB-only, then log parsing. **Full dashboard reference (architecture, all endpoints, editing guide, gotchas): `dashboard/DASHBOARD.md`.**
 
 ### End-to-end data collection pipeline
 
@@ -311,7 +309,7 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 
 ## CURRENT STATUS
 
-**r8 SFT training RUNNING on Modal (Apr 13).** Experiment `kaetram-qwen3.5-9b-r8`. Launched ~16:30 UTC. Key fix: `train_on_responses_only` replaces broken `completion_only_loss` — now correctly masks system/user/tool tokens, trains only on assistant responses. Same dataset as r7 (6,419 train after 4 filtered, 646 val). Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, H100 80GB. 402 steps, ETA ~14h (~06:30 UTC Apr 14). Unsloth 2026.4.2, TRL 0.24.0, Transformers 5.5.0.
+**r8 SFT COMPLETE (Apr 14).** Experiment `kaetram-qwen3.5-9b-r8`. Key fix: `train_on_responses_only` replaces broken `completion_only_loss` — correctly masks system/user/tool tokens, trains only on assistant responses. Same dataset as r7 (6,419 train after 4 filtered, 646 val). Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, H100 80GB. 402 steps. Deployed on Modal via `serve_modal.py`.
 
 **r7 SFT DONE but loss masking was broken.** r7 used `completion_only_loss=True` with `dataset_text_field="text"` — TRL silently ignored it (only works with prompt+completion column format). r7 trained on ALL tokens including game state JSON. Final loss 0.072 was artificially low. r8 fixes this.
 
@@ -321,7 +319,9 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 
 **Personalities finalized (April 3).** Dropped EFFICIENT after audit. 3 orthogonal axes confirmed working in logs: combat approach / HP-gated preparation / exploration-first. Active: agent_0=AGGRESSIVE, agent_1=METHODICAL, agent_2=CURIOUS.
 
-**KTO pipeline validated, full run pending.** r6-KTO smoke test ran 10/10 steps cleanly. Will rebuild on r8 SFT merged weights after r8 completes. r8-KTO comparison (base vs r7 vs r8 vs r8-KTO) is the paper result.
+**Eval harness set up.** `dataset/eval/` with `base/` and `r8-sft/` subdirectories containing system prompts. Qwen agent harness (`play_qwen.py`) ready for base vs r8-SFT comparison. No eval runs executed yet.
+
+**KTO pipeline validated, full run pending.** r6-KTO smoke test ran 10/10 steps cleanly. Will rebuild on r8 SFT merged weights. r8-KTO comparison (base vs r8 vs r8-KTO) is the paper result.
 
 **Compile-research cron loop working.** `scripts/run_research_staleness_check.sh` via VM cron. Last auto-compile: 2026-04-11. Do not rely on session-local Claude cron — that dies with the session.
 

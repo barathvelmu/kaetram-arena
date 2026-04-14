@@ -71,6 +71,8 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.send_qwen_log(agent_id=int(agent_id))
             elif path == "/api/eval/latest":
                 self.send_eval_latest()
+            elif path == "/api/eval/live":
+                self.send_eval_live()
             elif path == "/api/raw":
                 which = qs.get("file", [None])[0]
                 self.send_raw_file(which, qs)
@@ -190,6 +192,9 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         if len(parts) >= 2 and parts[1].startswith("agent_"):
             idx = parts[1].replace("agent_", "")
             ss_path = os.path.join("/tmp", f"kaetram_agent_{idx}", "state", "live_screen.jpg")
+        elif len(parts) >= 2 and parts[1].startswith("eval_"):
+            name = parts[1].replace("eval_", "")
+            ss_path = os.path.join("/tmp", f"kaetram_eval_{name}", "state", "live_screen.jpg")
         else:
             ss_path = os.path.join(STATE_DIR, "live_screen.jpg")
 

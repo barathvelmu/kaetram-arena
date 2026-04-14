@@ -14,7 +14,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r6 | Apr 4-5 | SFT | 3,853 train / 465 val | Niral's optimized run, 2 epochs | Deployed and tested end-to-end |
 | r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
-| r8 | Apr 13 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | RUNNING on Modal H100. Launched ~16:30 UTC. 402 steps, ETA ~14h. |
+| r8 | Apr 13-14 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | COMPLETE. Deployed on Modal. Eval harness set up (base vs r8-SFT). |
 | r8-KTO | TBD | KTO | TBD | Preference learning on r8 merged weights | Pending r8 completion + Niral greenlight |
 
 ---
@@ -116,7 +116,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **Config:** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, H100 80GB. Experiment: `kaetram-qwen3.5-9b-r8`.
 
-**Status:** RUNNING. Launched Apr 13 ~16:30 UTC on Modal H100. Unsloth 2026.4.2, TRL 0.24.0, Transformers 5.5.0. `train_on_responses_only` applied successfully — 4/6,423 samples removed (all labels -100 after truncation). 402 steps, ETA ~14h. Monitor: modal.com dashboard.
+**Status:** COMPLETE. Launched Apr 13 ~16:30 UTC, finished ~06:30 UTC Apr 14 on Modal H100. Unsloth 2026.4.2, TRL 0.24.0, Transformers 5.5.0. `train_on_responses_only` applied successfully — 4/6,423 samples removed (all labels -100 after truncation). 402 steps. Merged weights deployed via `serve_modal.py`. Eval harness set up with `dataset/eval/` (base vs r8-SFT system prompts).
 
 ---
 
@@ -152,7 +152,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: **r8 SFT RUNNING** (Apr 13). Loss masking finally correct via `train_on_responses_only`. Same dataset as r7 (6,419 samples after 4 filtered). ETA ~Apr 14 06:00 UTC. After r8: deploy → eval (base vs r7-SFT vs r8-SFT) → r8-KTO → final 4-model comparison for paper.
+Immediate: **r8 SFT COMPLETE** (Apr 14). Loss masking correct via `train_on_responses_only`. Deployed on Modal. Eval harness set up (`dataset/eval/` with base and r8-sft system prompts, `play_qwen.py` ready). Next: run eval (base vs r8-SFT) → r8-KTO → final comparison for paper.
 
 **Qwen agent infrastructure (Apr 10):**
 - Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`

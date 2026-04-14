@@ -639,6 +639,40 @@
 
   <!-- ===== EVAL TAB ===== -->
   <div class="tab-content" id="tab-eval">
+    <!-- Live eval view (side-by-side streams while eval is running) -->
+    <div class="qwen-split" id="eval-live" style="display:none; height: 45vh;">
+      <div class="qwen-panel">
+        <div class="qwen-panel-header finetuned">
+          <span class="qwen-status-dot stale" id="ev-dot-sft"></span>
+          <span class="qwen-badge ft">r8-SFT EVAL</span>
+          <span class="qval ft" id="ev-hp-sft">?/?</span>
+          <span class="qlabel">EP</span><span class="qval ft" id="ev-ep-sft">0</span>
+          <span class="qlabel">T</span><span class="qval ft" id="ev-turn-sft">0</span>
+        </div>
+        <div id="ev-stats-sft" style="padding:4px 8px;font-size:10px;color:var(--text-dim);display:flex;flex-wrap:wrap;gap:10px;background:rgba(0,0,0,0.3);border-bottom:1px solid rgba(201,175,120,0.08)"></div>
+        <div class="qwen-stream">
+          <img id="ev-img-sft" src="" alt="r8-SFT eval stream">
+          <div class="no-signal" id="ev-nosig-sft">r8-SFT — WAITING</div>
+        </div>
+        <div class="qwen-actions" id="ev-log-sft"></div>
+      </div>
+      <div class="qwen-panel">
+        <div class="qwen-panel-header base">
+          <span class="qwen-status-dot stale" id="ev-dot-base"></span>
+          <span class="qwen-badge base">BASE EVAL</span>
+          <span class="qval base" id="ev-hp-base">?/?</span>
+          <span class="qlabel">EP</span><span class="qval base" id="ev-ep-base">0</span>
+          <span class="qlabel">T</span><span class="qval base" id="ev-turn-base">0</span>
+        </div>
+        <div id="ev-stats-base" style="padding:4px 8px;font-size:10px;color:var(--text-dim);display:flex;flex-wrap:wrap;gap:10px;background:rgba(0,0,0,0.3);border-bottom:1px solid rgba(201,175,120,0.08)"></div>
+        <div class="qwen-stream">
+          <img id="ev-img-base" src="" alt="Base eval stream">
+          <div class="no-signal" id="ev-nosig-base">BASE — WAITING</div>
+        </div>
+        <div class="qwen-actions" id="ev-log-base"></div>
+      </div>
+    </div>
+    <!-- Completed eval metrics -->
     <div class="eval-container" id="eval-content">
       <div class="eval-empty" id="eval-loading">Loading eval results...</div>
     </div>
@@ -749,7 +783,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'prompt' && !promptLoaded) loadPrompt();
     if (tab.dataset.tab === 'sessions') { loadSessionNotes(); loadDatasetStats(); loadSftStats(); }
-    if (tab.dataset.tab === 'eval') loadEvalResults();
+    if (tab.dataset.tab === 'eval') { loadEvalResults(); startEvalRefresh(); } else { stopEvalRefresh(); }
   });
 });
 
@@ -1704,8 +1738,132 @@ setInterval(refreshSlow, 8000);
   setInterval(pollAll, 500);
 })();
 
-// === Eval Tab ===
+// === Eval Tab (live + results) ===
 let evalLoaded = false;
+let evalLiveTimer = null;
+let evalResultsTimer = null;
+const evalPanels = {
+  'r8-sft': { dot: 'ev-dot-sft', hp: 'ev-hp-sft', ep: 'ev-ep-sft', turn: 'ev-turn-sft',
+               img: 'ev-img-sft', nosig: 'ev-nosig-sft', log: 'ev-log-sft', count: 0 },
+  'base':   { dot: 'ev-dot-base', hp: 'ev-hp-base', ep: 'ev-ep-base', turn: 'ev-turn-base',
+               img: 'ev-img-base', nosig: 'ev-nosig-base', log: 'ev-log-base', count: 0 }
+};
+
+function startEvalRefresh() {
+  if (!evalLiveTimer) evalLiveTimer = setInterval(pollEvalLive, 2000);
+  if (!evalResultsTimer) evalResultsTimer = setInterval(loadEvalResults, 15000);
+  // Start MJPEG streams
+  for (const [name, p] of Object.entries(evalPanels)) {
+    const img = document.getElementById(p.img);
+    img.src = '/stream/eval_' + name + '?t=' + Date.now();
+    img.style.display = '';
+    document.getElementById(p.nosig).style.display = 'none';
+    img.onerror = function() {
+      document.getElementById(p.nosig).style.display = '';
+      img.style.display = 'none';
+      setTimeout(() => { if (evalLiveTimer) { img.src = '/stream/eval_' + name + '?t=' + Date.now(); img.style.display = ''; } }, 3000);
+    };
+  }
+  pollEvalLive();
+}
+
+function stopEvalRefresh() {
+  if (evalLiveTimer) { clearInterval(evalLiveTimer); evalLiveTimer = null; }
+  if (evalResultsTimer) { clearInterval(evalResultsTimer); evalResultsTimer = null; }
+  for (const p of Object.values(evalPanels)) {
+    document.getElementById(p.img).src = '';
+  }
+}
+
+async function pollEvalLive() {
+  try {
+    const res = await fetch('/api/eval/live');
+    const data = await res.json();
+    const liveDiv = document.getElementById('eval-live');
+
+    if (data.eval_running) {
+      liveDiv.style.display = '';
+    } else {
+      liveDiv.style.display = 'none';
+      return;
+    }
+
+    for (const [name, p] of Object.entries(evalPanels)) {
+      const m = (data.models || {})[name];
+      if (!m) continue;
+      const gs = m.game_state || {};
+      const ps = gs.player_stats || {};
+      document.getElementById(p.dot).className = 'qwen-status-dot ' + (m.active ? 'live' : 'stale');
+      document.getElementById(p.hp).textContent = (ps.hp || '?') + '/' + (ps.max_hp || '?');
+      document.getElementById(p.ep).textContent = m.completed_episodes !== undefined ? (m.completed_episodes + '/' + (m.total_episodes || '?')) : m.episode || '0';
+      document.getElementById(p.turn).textContent = m.turn || 0;
+
+      // Live metrics from game_state + log entries
+      const entries = m.entries || [];
+      const pp = gs.player_position || {};
+      const nav = gs.navigation || {};
+      const ui = gs.ui_state || {};
+      const quests = gs.quests || [];
+      const inv = gs.inventory || [];
+      const lc = gs.last_combat || {};
+      const lx = gs.last_xp_event || {};
+
+      // Count tool calls and errors from entries
+      let toolCalls = 0, errors = 0, kills = 0;
+      const toolCounts = {};
+      for (const e of entries) {
+        if (e.role === 'tool') {
+          const c = e.content || '';
+          const tn = c.split(':')[0];
+          if (tn) { toolCounts[tn] = (toolCounts[tn] || 0) + 1; toolCalls++; }
+          if (c.includes('"error"')) errors++;
+          if (c.includes('"killed": true') || c.includes('"killed":true')) kills++;
+        }
+      }
+      // Top 3 tools
+      const topTools = Object.entries(toolCounts).sort((a,b) => b[1]-a[1]).slice(0,3).map(([t,c]) => t+'='+c).join(', ');
+
+      // Show live stats bar
+      const statsId = 'ev-stats-' + (name === 'r8-sft' ? 'sft' : 'base');
+      const statsEl = document.getElementById(statsId);
+      if (!statsEl) continue;
+      const isDead = ui.is_dead || false;
+      const activeQuests = quests.filter(q => q.stage && q.stage !== 'not_started').length;
+      statsEl.innerHTML =
+        `<span>LV <b style="color:var(--green)">${ps.level || '?'}</b></span>` +
+        `<span>XP <b style="color:var(--cyan)">${ps.experience || 0}</b></span>` +
+        `<span>Pos <b>${(pp.x||'?')},${(pp.y||'?')}</b></span>` +
+        `<span>Kills <b style="color:var(--green)">${kills}</b></span>` +
+        `<span>Quests <b style="color:var(--purple)">${activeQuests}</b></span>` +
+        `<span>Inv <b>${inv.length}</b></span>` +
+        `<span>Tools <b>${toolCalls}</b></span>` +
+        `<span>Errs <b style="color:${errors > 0 ? '#f87171' : 'inherit'}">${errors}</b></span>` +
+        (isDead ? `<span style="color:#f87171;font-weight:bold">DEAD</span>` : '') +
+        `<span style="color:var(--dim)">${topTools}</span>`;
+
+      // Append new log entries
+      const logEl = document.getElementById(p.log);
+      if (entries.length !== p.count) {
+        // Reset if new episode (fewer entries than before)
+        if (entries.length < p.count) { logEl.innerHTML = ''; p.count = 0; }
+        for (let i = p.count; i < entries.length; i++) {
+          const e = entries[i];
+          const div = document.createElement('div');
+          div.className = 'qwen-action';
+          const role = e.role || '';
+          const label = role === 'tool' ? 'TOOL' : 'AI';
+          const text = (e.content || '').slice(0, 150);
+          div.innerHTML = '<span class="qa-turn">[' + (e.turn || i) + '] ' + label + '</span> <span class="qa-text' + (role === 'tool' ? ' warp' : '') + '">' + esc(text) + '</span>';
+          logEl.appendChild(div);
+        }
+        logEl.scrollTop = logEl.scrollHeight;
+        while (logEl.children.length > 100) logEl.removeChild(logEl.firstChild);
+        p.count = entries.length;
+      }
+    }
+  } catch(e) {}
+}
+
 async function loadEvalResults() {
   const container = document.getElementById('eval-content');
   try {
@@ -1741,15 +1899,16 @@ async function loadEvalResults() {
       }
       html += '</table></div>';
     } else {
-      // No comparisons — just show per-model summaries
-      html += '<div class="eval-card"><h3>Model Summaries</h3>';
+      // No comparisons yet — show per-model summaries side-by-side
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">';
       for (const m of data.models) {
-        html += `<h4 style="color:var(--text-bright);margin:12px 0 6px">${m.name} (${m.ok_episodes} episodes)</h4>`;
+        const color = m.name === 'base' ? 'var(--amber)' : 'var(--cyan)';
+        html += `<div class="eval-card"><h3 style="color:${color}">${m.name} <span style="font-size:11px;color:var(--text-dim)">(${m.ok_episodes} episodes)</span></h3>`;
         html += '<table class="eval-table"><tr><th>Metric</th><th>Value</th></tr>';
         for (const [key, val] of Object.entries(m.metrics)) {
           html += `<tr><td class="metric-name">${key}</td><td>${val.mean.toFixed(3)}</td></tr>`;
         }
-        html += '</table>';
+        html += '</table></div>';
       }
       html += '</div>';
     }

@@ -53,7 +53,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - ~~**Deploy base model serving:** DONE Apr 10. `serve_modal_base.py` — unfinetuned Qwen3.5-9B on Modal A100 for baseline comparison.~~
 - ~~**Qwen agent management:** DONE Apr 10. `start-qwen.sh`, `stop-qwen.sh`, `restart-qwen.sh`, `status-qwen.sh`. Agent slots: agent_4=finetuned (QwenBot), agent_5=base (QwenBase).~~
 - ~~**Dashboard Qwen Live tab:** DONE Apr 10. Split-screen MJPEG streaming (finetuned vs base), 4 FPS, `/stream/agent_N` endpoint.~~
-- **Launch r7 KTO:** Rebuild KTO dataset on scored sessions, then `modal run finetune/train_kto_modal.py`.
-- **Eval protocol:** Define primary metric (quest progress? XP/hr?) and run base vs r7-SFT vs r7-KTO comparison. Baseline endpoint now exists. This is the paper blocker.
+- **Eval runs:** Eval harness set up (`dataset/eval/` with base + r8-sft system prompts, `play_qwen.py` ready). Need to execute base vs r8-SFT comparison runs. This is the paper blocker.
+- **Launch r8 KTO:** Rebuild KTO dataset on scored sessions, then `modal run finetune/train_kto_modal.py`. Depends on r8 SFT merged weights (done).
 - ~~**Loss masking fix:** DONE Apr 12. `completion_only_loss=True` with `dataset_text_field="text"` was silently a no-op (no response_template → TRL skipped masking). Fixed in `finetune/train_modal.py` r8: removed `completion_only_loss`, added `train_on_responses_only(instruction_part="<|im_start|>user\n", response_part="<|im_start|>assistant\n")` after trainer init. Unsloth 2025.7+ re-exports this from TRL. Note: Linear KAE-25 is the MoE-LoRA ticket (unrelated) — this fix has no Linear ticket.~~
-- ~~**r8 SFT:** RUNNING Apr 13. Launched on Modal H100. Same r7 dataset (6,419 train after filtering). Loss masking correct via `train_on_responses_only`. 402 steps, ETA ~14h.~~
+- ~~**r8 SFT:** COMPLETE Apr 14. Modal H100. Same r7 dataset (6,419 train after filtering). Loss masking correct via `train_on_responses_only`. 402 steps. Deployed on Modal.~~

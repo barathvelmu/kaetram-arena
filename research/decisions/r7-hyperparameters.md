@@ -56,16 +56,18 @@ Research-backed rationale for every training parameter in the r7 SFT and r7-KTO 
 - FireAct (arXiv 2310.05915): 500 trajectories is the emergence threshold for agent SFT. We are 12x above this.
 - Agent-FLAN (arXiv 2403.12881): 34k for multi-task multi-benchmark. Single-domain needs far less.
 
-### Loss Masking: completion_only_loss=True
+### Loss Masking: train_on_responses_only (r8 fix)
 
-**Decision:** Keep completion-only loss. Mask all system/user tokens. Train on assistant responses (`<think>` reasoning + tool calls).
+**Decision:** Mask all system/user tokens. Train on assistant responses only (`<think>` reasoning + tool calls).
+
+**r7 implementation (`completion_only_loss=True`) was silently broken.** TRL ignores `completion_only_loss` for `dataset_text_field="text"` datasets without an explicit `response_template`. r5-r7 trained on ALL tokens including game state JSON. r8 fixed this with Unsloth's `train_on_responses_only(instruction_part="<|im_start|>user\n", response_part="<|im_start|>assistant\n")` which scans tokenized `input_ids` for assistant markers — no template tags needed, handles multi-turn correctly.
 
 **Why:** Game state JSON and ASCII maps are observation tokens — they should inform the model's predictions but not be predicted themselves. Loss masking prevents the model from wasting capacity memorizing observation format.
 
 **Research:**
 - Structured Agent Distillation (arXiv 2505.13820): +8 percentage points task success from loss masking alone. Segment-aware masking on [REASON] and [ACT] spans.
 - Agent-R1 (arXiv 2511.14460): Explicit masking for environment/tool outputs in policy gradient — only compute gradients on model's own reasoning + action tokens. Consensus best practice.
-- arXiv 2401.13586 ("Does Prompt Loss Matter?"): For short completions (tool calls), a small prompt loss weight (0.1) can regularize. Our completions include `<think>` blocks (medium length), so full masking is appropriate. Potential r8 experiment: PLW=0.1.
+- arXiv 2401.13586 ("Does Prompt Loss Matter?"): For short completions (tool calls), a small prompt loss weight (0.1) can regularize. Our completions include `<think>` blocks (medium length), so full masking is appropriate.
 
 ### Packing: Disabled
 
@@ -165,7 +167,7 @@ Research-backed rationale for every training parameter in the r7 SFT and r7-KTO 
 
 **Deployment:** Merged model saved to Modal volume `kaetram-model-vol`. Serving via SGLang on A100 40GB. Chat template patch applied at inference. Tested with `play_qwen.py` — model produces correct Qwen XML tool calls, follows priority system (heal before attack at low HP), and plays the game autonomously.
 
-**Known limitation:** `completion_only_loss=True` was not actually masking — TRL ignores it for `text`-field datasets. Model trained on all tokens including game state JSON. Still functional but suboptimal. Fix planned for r8 (`assistant_only_loss=True` with raw messages format).
+**Known limitation (fixed in r8):** `completion_only_loss=True` was not actually masking — TRL ignores it for `text`-field datasets. r7 trained on all tokens including game state JSON. r8 fixed this with `train_on_responses_only()` from Unsloth.
 
 ---
 

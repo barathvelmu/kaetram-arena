@@ -45,11 +45,23 @@ fi
 
 SANDBOX="/tmp/kaetram_agent_${AGENT_ID}"
 
-# Check if already running
+# Clean up any orphans from previous crashed runs for THIS agent
+# (matches nuke-agents.sh approach: kill first, ask questions never)
 if pgrep -f "play_qwen.py.*agent_${AGENT_ID}" > /dev/null 2>&1; then
-  echo "Qwen agent is already running. Use ./scripts/stop-qwen.sh first."
-  exit 1
+  echo "Cleaning up stale agent_${AGENT_ID} processes..."
+  pkill -f "play_qwen.py.*agent_${AGENT_ID}" 2>/dev/null || true
+  pkill -f "play_qwen.sh.*agent-id $AGENT_ID" 2>/dev/null || true
+  sleep 1
 fi
+# Kill any orphaned browsers/MCP for this agent's sandbox
+for pid in $(pgrep -f "kaetram_agent_${AGENT_ID}" 2>/dev/null || true); do
+  # Only kill mcp/playwright, not unrelated processes
+  cmdline=$(cat /proc/$pid/cmdline 2>/dev/null | tr '\0' ' ')
+  if echo "$cmdline" | grep -qE "mcp_game_server|playwright|chrome"; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+done
+tmux kill-session -t "qwen-${AGENT_ID}" 2>/dev/null || true
 
 # Reset player data if requested
 if $RESET; then
@@ -63,6 +75,14 @@ for col in ['player_info','player_skills','player_equipment','player_inventory',
     db[col].delete_many({'username': '${USERNAME,,}'})
 print('  Player data cleared')
 "
+  # Archive logs before clearing (never destroy session data)
+  ARCHIVE_DIR="$PROJECT_DIR/dataset/raw/agent_${AGENT_ID}/logs"
+  mkdir -p "$ARCHIVE_DIR"
+  if ls "$SANDBOX/logs/"*.log 1>/dev/null 2>&1; then
+    cp "$SANDBOX/logs/"*.log "$ARCHIVE_DIR/"
+    ARCHIVED=$(ls "$SANDBOX/logs/"*.log | wc -l)
+    echo "  Archived $ARCHIVED session log(s) to $ARCHIVE_DIR"
+  fi
   rm -rf "$SANDBOX/state/"* "$SANDBOX/logs/"*
   echo "  Sandbox cleared"
 fi

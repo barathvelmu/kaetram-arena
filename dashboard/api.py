@@ -400,7 +400,12 @@ class APIMixin:
     _qwen_log_cache: dict = {}
 
     def send_qwen_log(self, agent_id: int = 4):
-        """Return latest log entries + state from a Qwen agent sandbox."""
+        """Return latest log entries + state from a Qwen agent sandbox.
+
+        Only returns entries from actively running agents. If the agent is
+        stopped (no log file modified in last 120s), returns empty entries
+        and clears the cache to prevent stale logs from persisting.
+        """
         import glob as _glob
         sandbox = f"/tmp/kaetram_agent_{agent_id}"
         state_dir = os.path.join(sandbox, "state")
@@ -416,20 +421,30 @@ class APIMixin:
                 result["screenshot_age"] = time.time() - os.path.getmtime(ss)
                 break
 
-        # Game state
+        # Game state — only show if recent (< 120s)
         gs_path = os.path.join(state_dir, "game_state.json")
         if os.path.isfile(gs_path):
-            try:
-                with open(gs_path) as f:
-                    result["game_state"] = json.load(f)
-            except Exception:
-                pass
+            gs_age = time.time() - os.path.getmtime(gs_path)
+            if gs_age < 120:
+                try:
+                    with open(gs_path) as f:
+                        result["game_state"] = json.load(f)
+                except Exception:
+                    pass
 
         # Parse latest log file (incremental — seek to last read position)
         if os.path.isdir(log_dir):
             logs = sorted(_glob.glob(os.path.join(log_dir, "*.log")), key=os.path.getmtime)
             if logs:
                 log_path = logs[-1]
+                log_age = time.time() - os.path.getmtime(log_path)
+
+                # If latest log is stale (>120s), agent is stopped — clear cache, return empty
+                if log_age > 120:
+                    APIMixin._qwen_log_cache.pop(agent_id, None)
+                    self._send_json(result)
+                    return
+
                 cache = APIMixin._qwen_log_cache
                 cached_path, offset, entries = cache.get(agent_id, (None, 0, []))
                 # Reset cache if log file changed (new session)
@@ -511,3 +526,121 @@ class APIMixin:
 
         entries.sort(key=lambda e: e["time"], reverse=True)
         self._send_json(entries[:50])
+
+    # ── Eval results ──
+
+    _eval_cache = {"data": None, "mtime": 0}
+
+    def send_eval_latest(self):
+        """Return latest eval comparison results from dataset/eval/."""
+        eval_dir = os.path.join(DATASET_DIR, "eval")
+        if not os.path.isdir(eval_dir):
+            return self._send_json({"status": "no_eval_data", "models": []})
+
+        # Find all results.json files
+        results_files = sorted(
+            glob.glob(os.path.join(eval_dir, "*/results.json")),
+            key=os.path.getmtime, reverse=True,
+        )
+        if not results_files:
+            return self._send_json({"status": "no_eval_data", "models": []})
+
+        # Check cache freshness
+        newest_mtime = max(os.path.getmtime(f) for f in results_files)
+        if APIMixin._eval_cache["data"] and APIMixin._eval_cache["mtime"] >= newest_mtime:
+            return self._send_json(APIMixin._eval_cache["data"])
+
+        # Load all model results
+        models = []
+        for rf in results_files:
+            try:
+                with open(rf) as f:
+                    data = json.load(f)
+                models.append(data)
+            except (json.JSONDecodeError, OSError):
+                continue
+
+        if not models:
+            return self._send_json({"status": "no_eval_data", "models": []})
+
+        # Build comparison if we have 2+ models
+        comparison = {"status": "ok", "models": []}
+        base_data = None
+        for m in models:
+            meta = m.get("meta", {})
+            metrics = m.get("metrics", {})
+            episodes = m.get("episodes", [])
+            ok_eps = [e for e in episodes if e.get("status") == "ok"]
+
+            # Aggregate action counts across episodes
+            action_totals = {}
+            for ep in ok_eps:
+                for tool, count in ep.get("action_counts", {}).items():
+                    action_totals[tool] = action_totals.get(tool, 0) + count
+
+            model_summary = {
+                "name": meta.get("model", "unknown"),
+                "scenario": meta.get("scenario", "?"),
+                "total_episodes": meta.get("total_episodes", 0),
+                "ok_episodes": meta.get("ok_episodes", 0),
+                "timestamp": meta.get("timestamp", ""),
+                "metrics": {},
+                "action_distribution": action_totals,
+            }
+
+            # Compute per-metric summaries
+            for key in ["tool_parse_rate", "quest_completion_rate", "xp_per_turn",
+                        "survival_rate", "deaths_per_session", "xp_delta",
+                        "level_delta", "action_entropy", "success_rate",
+                        "stuck_resets", "click_tiles"]:
+                vals = metrics.get(key, [])
+                if vals:
+                    mean = sum(vals) / len(vals)
+                    model_summary["metrics"][key] = {
+                        "mean": round(mean, 4),
+                        "values": vals,
+                        "n": len(vals),
+                    }
+
+            comparison["models"].append(model_summary)
+            if meta.get("model") == "base":
+                base_data = model_summary
+
+        # Compute pairwise stats if base + treatment exist
+        if base_data and len(comparison["models"]) >= 2:
+            import math
+            comparison["comparisons"] = []
+            for m in comparison["models"]:
+                if m["name"] == "base":
+                    continue
+                tier1 = []
+                tier1_metrics = [
+                    ("tool_parse_rate", "Tool Parse Rate", "higher"),
+                    ("quest_completion_rate", "Quest Completion", "higher"),
+                    ("xp_per_turn", "XP per Turn", "higher"),
+                    ("survival_rate", "Survival Rate", "higher"),
+                    ("deaths_per_session", "Deaths/Session", "lower"),
+                ]
+                for key, label, direction in tier1_metrics:
+                    bv = base_data["metrics"].get(key, {}).get("values", [])
+                    tv = m["metrics"].get(key, {}).get("values", [])
+                    if not bv or not tv:
+                        continue
+                    b_mean = sum(bv) / len(bv)
+                    t_mean = sum(tv) / len(tv)
+                    # Glass's delta
+                    b_sd = math.sqrt(sum((x - b_mean)**2 for x in bv) / max(1, len(bv)-1)) if len(bv) > 1 else 0.001
+                    g_delta = (t_mean - b_mean) / max(b_sd, 0.001)
+                    if direction == "lower":
+                        g_delta = -g_delta
+                    tier1.append({
+                        "key": key, "label": label, "direction": direction,
+                        "base_mean": round(b_mean, 4), "treat_mean": round(t_mean, 4),
+                        "delta": round(g_delta, 2),
+                    })
+                comparison["comparisons"].append({
+                    "base": "base", "treatment": m["name"], "tier1": tier1,
+                })
+
+        APIMixin._eval_cache = {"data": comparison, "mtime": newest_mtime}
+        self._send_json(comparison)

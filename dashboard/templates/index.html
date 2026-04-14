@@ -448,6 +448,31 @@
   .qwen-action .qa-text { color: var(--green); }
   .qwen-action .qa-text.warp { color: var(--cyan); }
   .tab[data-tab="qwen"].active { color: var(--cyan) !important; border-bottom-color: var(--cyan) !important; }
+  .tab[data-tab="eval"].active { color: var(--green) !important; border-bottom-color: var(--green) !important; }
+
+  /* Eval tab */
+  .eval-container { padding: 20px; max-width: 1100px; }
+  .eval-card { background: var(--card-bg); border: 1px solid rgba(201,175,120,0.1); border-radius: 8px; padding: 18px; margin-bottom: 16px; }
+  .eval-card h3 { color: var(--gold); margin: 0 0 14px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; }
+  .eval-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .eval-table th { text-align: left; padding: 8px 12px; color: var(--text-dim); border-bottom: 1px solid rgba(201,175,120,0.15); font-weight: 500; }
+  .eval-table td { padding: 8px 12px; border-bottom: 1px solid rgba(201,175,120,0.06); }
+  .eval-table .metric-name { color: var(--text-bright); font-weight: 500; }
+  .eval-table .val-base { color: var(--amber); }
+  .eval-table .val-treat { color: var(--cyan); }
+  .eval-delta-pos { color: #4ade80; font-weight: 600; }
+  .eval-delta-neg { color: #f87171; font-weight: 600; }
+  .eval-delta-nil { color: var(--text-dim); }
+  .eval-bar-row { display: flex; align-items: center; margin: 4px 0; font-size: 11px; }
+  .eval-bar-label { width: 90px; color: var(--text-dim); text-align: right; padding-right: 8px; flex-shrink: 0; }
+  .eval-bar-track { flex: 1; height: 16px; position: relative; background: rgba(201,175,120,0.05); border-radius: 3px; overflow: hidden; }
+  .eval-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+  .eval-bar-fill.base { background: var(--amber); opacity: 0.7; }
+  .eval-bar-fill.treat { background: var(--cyan); opacity: 0.7; }
+  .eval-bar-pct { width: 45px; text-align: right; padding-left: 6px; color: var(--text-dim); flex-shrink: 0; }
+  .eval-empty { color: var(--text-dim); text-align: center; padding: 60px 20px; font-size: 14px; }
+  .eval-meta { display: flex; gap: 24px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
+  .eval-meta span { background: rgba(201,175,120,0.06); padding: 4px 10px; border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -477,6 +502,7 @@
   <div class="tab" data-tab="sessions">Sessions</div>
   <div class="tab" data-tab="prompt">Prompt</div>
   <div class="tab" data-tab="qwen" style="color:var(--cyan);border-bottom-color:transparent" onclick="this.style.borderBottomColor=this.classList.contains('active')?'var(--cyan)':'transparent'">QWEN LIVE</div>
+  <div class="tab" data-tab="eval" style="color:var(--green);border-bottom-color:transparent" onclick="this.style.borderBottomColor=this.classList.contains('active')?'var(--green)':'transparent'">EVAL</div>
 </div>
 
 <main>
@@ -580,7 +606,7 @@
       <div class="qwen-panel" id="qp-ft">
         <div class="qwen-panel-header finetuned">
           <span class="qwen-status-dot stale" id="qw-dot-ft"></span>
-          <span class="qwen-badge ft">r7-SFT FINETUNED</span>
+          <span class="qwen-badge ft">r8-SFT FINETUNED</span>
           <span class="qval ft" id="qw-hp-ft">?/?</span>
           <span class="qlabel">LV</span><span class="qval ft" id="qw-lv-ft">?</span>
           <span class="qlabel">POS</span><span class="qval ft" id="qw-pos-ft">?,?</span>
@@ -608,6 +634,13 @@
         </div>
         <div class="qwen-actions" id="qw-log-base"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ===== EVAL TAB ===== -->
+  <div class="tab-content" id="tab-eval">
+    <div class="eval-container" id="eval-content">
+      <div class="eval-empty" id="eval-loading">Loading eval results...</div>
     </div>
   </div>
 
@@ -716,6 +749,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'prompt' && !promptLoaded) loadPrompt();
     if (tab.dataset.tab === 'sessions') { loadSessionNotes(); loadDatasetStats(); loadSftStats(); }
+    if (tab.dataset.tab === 'eval') loadEvalResults();
   });
 });
 
@@ -1669,6 +1703,88 @@ setInterval(refreshSlow, 8000);
 
   setInterval(pollAll, 500);
 })();
+
+// === Eval Tab ===
+let evalLoaded = false;
+async function loadEvalResults() {
+  const container = document.getElementById('eval-content');
+  try {
+    const res = await fetch('/api/eval/latest');
+    const data = await res.json();
+    if (data.status !== 'ok' || !data.models || data.models.length === 0) {
+      container.innerHTML = '<div class="eval-empty">No eval results yet.<br><br><span style="font-size:12px;color:#555">Run: <code>python3 eval_harness.py --episodes 30</code><br>Then: <code>python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r8-sft/results.json</code></span></div>';
+      return;
+    }
+    evalLoaded = true;
+    let html = '';
+
+    // Run info card
+    const meta = data.models.map(m => `<span>${m.name}: ${m.ok_episodes} episodes</span>`).join('');
+    const scenario = data.models[0]?.scenario || '?';
+    const ts = data.models[0]?.timestamp || '';
+    html += `<div class="eval-card"><h3>Run Info</h3><div class="eval-meta">${meta}<span>Scenario ${scenario}</span><span>${ts.split('T')[0] || ''}</span></div></div>`;
+
+    // Tier 1 metrics table
+    if (data.comparisons && data.comparisons.length > 0) {
+      const comp = data.comparisons[0];
+      html += '<div class="eval-card"><h3>Tier 1 Metrics — ' + comp.treatment + ' vs ' + comp.base + '</h3>';
+      html += '<table class="eval-table"><tr><th>Metric</th><th class="val-base">Base</th><th class="val-treat">' + comp.treatment + '</th><th>Glass\'s d</th></tr>';
+      for (const m of comp.tier1) {
+        const bm = data.models.find(x => x.name === comp.base)?.metrics[m.key];
+        const tm = data.models.find(x => x.name === comp.treatment)?.metrics[m.key];
+        const bStr = bm ? bm.mean.toFixed(3) : '—';
+        const tStr = tm ? tm.mean.toFixed(3) : '—';
+        const dCls = m.delta > 0.2 ? 'eval-delta-pos' : (m.delta < -0.2 ? 'eval-delta-neg' : 'eval-delta-nil');
+        const dSign = m.delta > 0 ? '+' : '';
+        const dLabel = Math.abs(m.delta) < 0.2 ? 'negligible' : (Math.abs(m.delta) < 0.5 ? 'small' : (Math.abs(m.delta) < 0.8 ? 'medium' : 'large'));
+        html += `<tr><td class="metric-name">${m.label}</td><td class="val-base">${bStr}</td><td class="val-treat">${tStr}</td><td class="${dCls}">${dSign}${m.delta.toFixed(2)} (${dLabel})</td></tr>`;
+      }
+      html += '</table></div>';
+    } else {
+      // No comparisons — just show per-model summaries
+      html += '<div class="eval-card"><h3>Model Summaries</h3>';
+      for (const m of data.models) {
+        html += `<h4 style="color:var(--text-bright);margin:12px 0 6px">${m.name} (${m.ok_episodes} episodes)</h4>`;
+        html += '<table class="eval-table"><tr><th>Metric</th><th>Value</th></tr>';
+        for (const [key, val] of Object.entries(m.metrics)) {
+          html += `<tr><td class="metric-name">${key}</td><td>${val.mean.toFixed(3)}</td></tr>`;
+        }
+        html += '</table>';
+      }
+      html += '</div>';
+    }
+
+    // Action distribution chart
+    html += '<div class="eval-card"><h3>Action Distribution</h3>';
+    const allTools = new Set();
+    for (const m of data.models) {
+      for (const t of Object.keys(m.action_distribution || {})) allTools.add(t);
+    }
+    const toolList = [...allTools].sort((a, b) => {
+      const total = (k) => data.models.reduce((s, m) => s + (m.action_distribution?.[k] || 0), 0);
+      return total(b) - total(a);
+    });
+    for (const tool of toolList.slice(0, 15)) {
+      const vals = data.models.map(m => m.action_distribution?.[tool] || 0);
+      const maxVal = Math.max(...vals, 1);
+      html += `<div class="eval-bar-row"><div class="eval-bar-label">${tool}</div><div class="eval-bar-track">`;
+      const colors = ['base', 'treat'];
+      for (let i = 0; i < data.models.length; i++) {
+        const pct = (vals[i] / maxVal * 100).toFixed(0);
+        html += `<div class="eval-bar-fill ${colors[i] || 'treat'}" style="width:${pct}%;position:absolute;height:${i === 0 ? '8px' : '8px'};top:${i * 8}px"></div>`;
+      }
+      html += `</div><div class="eval-bar-pct">${vals.map(v => v).join(' / ')}</div></div>`;
+    }
+    // Legend
+    html += '<div style="margin-top:8px;font-size:10px;color:var(--text-dim)">';
+    html += data.models.map((m, i) => `<span style="color:${i === 0 ? 'var(--amber)' : 'var(--cyan)'}">\u25CF ${m.name}</span>`).join(' &nbsp; ');
+    html += '</div></div>';
+
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div class="eval-empty">Error loading eval results: ${err.message}</div>`;
+  }
+}
 </script>
 </body>
 </html>

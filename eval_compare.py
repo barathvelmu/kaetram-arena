@@ -40,14 +40,16 @@ from pathlib import Path
 TIER1_METRICS = [
     ("tool_parse_rate", "Tool Parse Rate", "higher"),
     ("quest_completion_rate", "Quest Completion Rate", "higher"),
-    ("xp_per_turn", "XP per Turn", "higher"),
+    ("xp_per_turn", "XP per Turn (est)", "higher"),
     ("survival_rate", "Survival Rate", "higher"),
     ("deaths_per_session", "Deaths per Session", "lower"),
 ]
 
 # Tier 2 metrics (diagnostic/appendix — no Bonferroni)
 TIER2_METRICS = [
-    ("xp_delta", "XP Delta", "higher"),
+    ("kills", "Kills", "higher"),
+    ("xp_estimated", "XP Estimated", "higher"),
+    ("level_reached", "Level Reached", "higher"),
     ("level_delta", "Level Delta", "higher"),
     ("action_entropy", "Action Entropy", "higher"),
     ("stuck_resets", "Stuck Resets", "lower"),

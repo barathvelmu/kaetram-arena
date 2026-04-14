@@ -39,6 +39,7 @@ if $BASE; then
   ENDPOINT="$BASE_ENDPOINT"
   USERNAME="QwenBase"
   AGENT_ID=5
+  SERVER_PORT=9041  # Separate game server for base — avoids mob/NPC interference
   echo "*** BASELINE MODE — using unfinetuned Qwen3.5-9B ***"
 fi
 
@@ -69,23 +70,35 @@ fi
 # Ensure sandbox exists
 mkdir -p "$SANDBOX/state" "$SANDBOX/logs"
 
-# Start game server if not running on any port
-GAME_RUNNING=false
-for port in $SERVER_PORT 9001; do
-  if ss -tlnp 2>/dev/null | grep -q ":$port "; then
-    SERVER_PORT=$port
-    GAME_RUNNING=true
-    break
-  fi
-done
-if ! $GAME_RUNNING; then
-  echo "Starting game server..."
-  "$SCRIPT_DIR/start-kaetram.sh" &
-  sleep 8
-  SERVER_PORT=9001
-  echo "  Game server started on port $SERVER_PORT"
-else
+# Start game server if not running on the required port
+if ss -tlnp 2>/dev/null | grep -q ":$SERVER_PORT "; then
   echo "Game server running on port $SERVER_PORT"
+else
+  # Check if default 9001 is available and finetuned agent can use it instead
+  if [ "$SERVER_PORT" = "9031" ] && ss -tlnp 2>/dev/null | grep -q ":9001 "; then
+    SERVER_PORT=9001
+    echo "Game server running on port $SERVER_PORT"
+  else
+    echo "Starting game server on port $SERVER_PORT..."
+    # Start game server directly (same as orchestrate.py) — NOT 'yarn start' which
+    # starts all packages. The --port CLI arg overrides config.port, bypassing .env.
+    (
+      source "$HOME/.nvm/nvm.sh" && nvm use 20 --silent
+      cd ~/projects/Kaetram-Open/packages/server
+      ACCEPT_LICENSE=true SKIP_DATABASE=false exec node --enable-source-maps dist/main.js --port "$SERVER_PORT"
+    ) &
+    # Wait for server to actually be listening (up to 60s)
+    for i in $(seq 1 60); do
+      if ss -tlnp 2>/dev/null | grep -q ":$SERVER_PORT "; then
+        echo "  Game server ready on port $SERVER_PORT (${i}s)"
+        break
+      fi
+      sleep 1
+    done
+    if ! ss -tlnp 2>/dev/null | grep -q ":$SERVER_PORT "; then
+      echo "  WARNING: Game server on port $SERVER_PORT not detected after 60s"
+    fi
+  fi
 fi
 
 # Ensure dashboard is running
@@ -103,7 +116,7 @@ tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
 tmux new-session -d -s "$TMUX_SESSION" -c "$PROJECT_DIR" \
   "bash -c './play_qwen.sh --agent-id $AGENT_ID --server-port $SERVER_PORT --max-turns $MAX_TURNS --endpoint $ENDPOINT --username $USERNAME 2>&1 | tee /tmp/qwen_agent_${AGENT_ID}.log'"
 
-VARIANT=$($BASE && echo "BASE (unfinetuned)" || echo "r7-SFT (finetuned)")
+VARIANT=$($BASE && echo "BASE (unfinetuned)" || echo "r8-SFT (finetuned)")
 echo ""
 echo "Qwen agent running [$VARIANT]:"
 echo "  tmux attach -t $TMUX_SESSION"

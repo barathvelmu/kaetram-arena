@@ -26,19 +26,31 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Agent ID validation — Qwen agents use IDs 4-5 only (0-3 are Claude/Codex/Gemini)
+if [ "$AGENT_ID" -lt 4 ] || [ "$AGENT_ID" -gt 5 ]; then
+  echo "ERROR: Qwen agent_id must be 4 (finetuned) or 5 (base). Got: $AGENT_ID"
+  echo "  Agent IDs 0-3 are reserved for Claude/Codex/Gemini harnesses."
+  exit 1
+fi
+
 # Sandbox setup
 SANDBOX="/tmp/kaetram_agent_${AGENT_ID}"
 STATE_DIR="$SANDBOX/state"
 LOG_DIR="$SANDBOX/logs"
 mkdir -p "$STATE_DIR" "$LOG_DIR"
 
-# Write metadata for dashboard
+# Write metadata for dashboard — distinguish finetuned vs base
+if [ "$AGENT_ID" = "4" ]; then
+  MODEL_LABEL="Qwen3.5-9B (r8-SFT finetuned)"
+else
+  MODEL_LABEL="Qwen3.5-9B (base, unfinetuned)"
+fi
 cat > "$SANDBOX/metadata.json" << EOF
 {
   "personality": "qwen",
   "username": "$USERNAME",
   "agent_id": $AGENT_ID,
-  "model": "Qwen3.5-9B (finetuned)",
+  "model": "$MODEL_LABEL",
   "harness": "play_qwen.py"
 }
 EOF

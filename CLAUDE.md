@@ -203,10 +203,16 @@ Port allocation: agent N gets server WS port `9001 + N*10` (9001, 9011, 9021, 90
 
 **Reserved agent slots:**
 - **agent_0–3**: Claude Code agents (data collection, training data source)
-- **agent_4**: Finetuned Qwen 3.5 9B (`QwenBot`, r7-SFT model via Modal)
+- **agent_4**: Finetuned Qwen 3.5 9B (`QwenBot`, r8-SFT model via Modal)
+  - Sandbox: `/tmp/kaetram_agent_4/` (state/, logs/)
+  - Game server: port 9001 (reuses existing, or starts one if needed)
 - **agent_5**: Base Qwen 3.5 9B (`QwenBase`, unfinetuned baseline via Modal)
+  - Sandbox: `/tmp/kaetram_agent_5/` (state/, logs/)
+  - Game server: port 9041 (dedicated, separate from finetuned — avoids mob/NPC interference)
 
-Qwen agents share game server port 9001 with Claude agents. Each has its own sandbox (`/tmp/kaetram_agent_N/`), MCP server, and browser instance. Dashboard Qwen Live tab shows both side-by-side.
+Each Qwen agent has its own sandbox (`/tmp/kaetram_agent_N/`), MCP server, browser instance, and game server. Dashboard Qwen Live tab shows both side-by-side. Claude agents (agent_0-3) use sandboxes at `/tmp/kaetram_agent_0/` through `/tmp/kaetram_agent_3/` with ports 9001-9031.
+
+**GOTCHA — Kaetram game server port override:** `PORT=X yarn start` does NOT work. Kaetram's config reads PORT from the `.env` file, not `process.env`. Use `node --enable-source-maps dist/main.js --port X` from `packages/server/` instead (the `--port` CLI arg overrides config directly). This is how both `orchestrate.py` (Claude agents) and `start-qwen.sh` (Qwen agents) start game servers.
 
 **Agent playstyles:** Each agent gets a playstyle that defines its DECIDE priorities in `system.md`. Playstyle files in `prompts/personalities/` are injected via the `__PERSONALITY_BLOCK__` placeholder. All agents get `game_knowledge.md` appended. Dashboard shows playstyle badges (red=AGGRESSIVE, amber=METHODICAL, blue=CURIOUS). Active collection uses 3 agents. Each agent's sandbox gets a `metadata.json` with its playstyle.
 

@@ -2192,6 +2192,73 @@ async function loadEvalResults() {
     }
     html += '</div>';
 
+    // Tier 2 metrics comparison (if we have both models)
+    if (data.models.length >= 2) {
+      const tier2Keys = [
+        ['kills', 'Kills', 'higher'],
+        ['xp_estimated', 'XP Estimated', 'higher'],
+        ['level_reached', 'Level Reached', 'higher'],
+        ['action_entropy', 'Action Entropy', 'higher'],
+        ['click_tiles', 'Click Tiles', 'lower'],
+        ['stuck_resets', 'Stuck Resets', 'lower'],
+      ];
+      html += '<div class="eval-card"><h3>Tier 2 Metrics (Diagnostic)</h3>';
+      html += '<table class="eval-table"><tr><th>Metric</th>';
+      for (const m of data.models) {
+        const c = m.name === 'base' ? 'val-base' : 'val-treat';
+        html += `<th class="${c}">${m.name}</th>`;
+      }
+      html += '<th>Range</th></tr>';
+      for (const [key, label, dir] of tier2Keys) {
+        html += `<tr><td class="metric-name">${label}</td>`;
+        for (const m of data.models) {
+          const v = m.metrics[key];
+          const c = m.name === 'base' ? 'val-base' : 'val-treat';
+          html += `<td class="${c}" style="font-weight:600;font-variant-numeric:tabular-nums">${v ? v.mean.toFixed(1) : '—'}</td>`;
+        }
+        // Show range across all episodes
+        const allVals = data.models.flatMap(m => (m.metrics[key]?.values || []));
+        if (allVals.length) {
+          html += `<td style="color:var(--dim);font-size:10px">${Math.min(...allVals).toFixed(0)}–${Math.max(...allVals).toFixed(0)}</td>`;
+        } else {
+          html += '<td>—</td>';
+        }
+        html += '</tr>';
+      }
+      html += '</table></div>';
+    }
+
+    // Per-episode breakdown
+    if (data.models.some(m => m.episodes && m.episodes.length > 0)) {
+      html += '<div class="eval-card"><h3>Per-Episode Breakdown</h3>';
+      for (const m of data.models) {
+        if (!m.episodes || !m.episodes.length) continue;
+        const c = m.name === 'base' ? 'var(--amber)' : 'var(--cyan)';
+        html += `<div style="margin-bottom:16px"><span style="color:${c};font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">${m.name}</span>`;
+        html += '<table class="eval-table" style="margin-top:6px"><tr><th>Ep</th><th>Kills</th><th>Level</th><th>XP</th><th>Deaths</th><th>Quests</th><th>Positions</th><th>Entropy</th><th>Tiles</th><th>Time</th><th>Mobs Killed</th></tr>';
+        for (const ep of m.episodes) {
+          const mins = (ep.duration_seconds / 60).toFixed(0);
+          const mobStr = Object.entries(ep.kills_by_mob || {}).map(([k,v]) => `${k}:${v}`).join(', ') || '—';
+          const deathCls = ep.deaths > 0 ? ' style="color:#f87171;font-weight:600"' : '';
+          html += `<tr>`;
+          html += `<td style="color:${c};font-weight:600">${ep.episode}</td>`;
+          html += `<td style="font-weight:600">${ep.kills}</td>`;
+          html += `<td style="color:var(--green);font-weight:600">${ep.level_reached}</td>`;
+          html += `<td>${ep.xp_estimated}</td>`;
+          html += `<td${deathCls}>${ep.deaths}</td>`;
+          html += `<td>${ep.quests_completed}/${ep.quests_accepted}</td>`;
+          html += `<td>${ep.unique_positions}</td>`;
+          html += `<td>${ep.action_entropy.toFixed(2)}</td>`;
+          html += `<td>${ep.click_tiles}</td>`;
+          html += `<td>${mins}m</td>`;
+          html += `<td style="font-size:10px;color:var(--dim)">${mobStr}</td>`;
+          html += `</tr>`;
+        }
+        html += '</table></div>';
+      }
+      html += '</div>';
+    }
+
     container.innerHTML = html;
   } catch (err) {
     container.innerHTML = `<div class="eval-empty">Error loading eval results: ${err.message}</div>`;

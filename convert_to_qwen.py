@@ -726,10 +726,9 @@ def build_user_message(turn: dict, prev_turn: dict | None = None, memory: dict |
 
     parts = []
 
-    # Memory block (only on first turn of a window)
-    if memory is not None:
-        mem_json = json.dumps(memory, separators=(",", ":"))
-        parts.append(f"<memory>\n{mem_json}\n</memory>")
+    # r9 fix: removed <memory> block. Training had it on every window's
+    # first turn but play_qwen.py never injects one at inference (F8).
+    # Keeping memory causes the model to expect context that never comes.
 
     parts.append(f"<game_state>\n{state_json}\n</game_state>")
 
@@ -1341,6 +1340,31 @@ def main():
     if not conversations:
         print("No valid conversations produced.", file=sys.stderr)
         sys.exit(1)
+
+    # r9 fix: filter degenerate records (F9 click_tile spam, F10 stuck loops)
+    pre_filter = len(conversations)
+    filtered_conversations = []
+    for c in conversations:
+        actions = []
+        has_assistant = False
+        for m in c["messages"]:
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                has_assistant = True
+                for tc in m["tool_calls"]:
+                    actions.append(tc["function"]["name"])
+        if not has_assistant:
+            continue  # F13: drop records with no assistant turns
+        if actions:
+            click_pct = actions.count("click_tile") / len(actions)
+            recovery_pct = (actions.count("cancel_nav") + actions.count("stuck_reset")) / len(actions)
+            if click_pct > 0.5:
+                continue  # F9: >50% click_tile spam
+            if recovery_pct > 0.75:
+                continue  # F10: >75% stuck recovery loops
+        filtered_conversations.append(c)
+    degenerate_removed = pre_filter - len(filtered_conversations)
+    print(f"  Degenerate filter: removed {degenerate_removed} records ({100*degenerate_removed/pre_filter:.1f}%)")
+    conversations = filtered_conversations
 
     # Stratified split by session, with fallback to record-level split
     sessions = sorted(set(c["_session"] for c in conversations))

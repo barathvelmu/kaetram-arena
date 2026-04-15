@@ -7,7 +7,7 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
 ## Pipeline Overview
 
 ```
-640 raw logs (agents 0-2 on VM, as of April 11)
+640 raw logs (agents 0-2 on VM, as of April 12 — no new Claude data since r7)
   → extract_turns.py (OODA turn extraction)
     → 575 extracted session dirs
       → 14,091 turns

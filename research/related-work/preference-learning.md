@@ -12,7 +12,7 @@ Survey of preference optimization methods relevant to game agent distillation. C
 
 **What it needs:** Unpaired examples with binary labels. No need to match good/bad pairs for the same prompt.
 
-**Why we chose it (over DPO):** Our data is unpaired — we have 640 sessions (as of April 11) labeled by outcome (XP gain, deaths, quest progress), not pairs of good/bad actions from the same game state. KTO fits our data natively. DPO would require constructing artificial pairs. (KAE-13)
+**Why we chose it (over DPO):** Our data is unpaired — we have 640 sessions labeled by outcome (XP gain, deaths, quest progress), not pairs of good/bad actions from the same game state. KTO fits our data natively. DPO would require constructing artificial pairs. (KAE-13)
 
 **Our implementation:** Score sessions 0-1 from outcome signals → top 40% desirable, bottom 30% undesirable → sliding windows (size=5, stride=2) → TRL `KTOTrainer` on r6 SFT checkpoint.
 
@@ -107,13 +107,14 @@ World Model Policy Optimization: world model rollouts + on-policy GRPO. Showed e
 ## Our Pipeline Sequence
 
 ```
-r7 SFT (DONE Apr 10 — final loss 0.072, deployed on Modal)
-  → r7-KTO (preference learning, pending)
-    → Dr. GRPO + DAPO fixes (KAE-12, next)
-      → Self-play loop (KAE-16)
-        → Tree-GRPO with world model rollouts (KAE-17 + KAE-18)
+r8 SFT (DONE Apr 14 — correct loss masking via train_on_responses_only, deployed on Modal)
+  → Eval: base vs r8-SFT (eval harness implemented, runs pending)
+    → r8-KTO (preference learning on r8 merged weights, pending)
+      → Dr. GRPO + DAPO fixes (KAE-12, next)
+        → Self-play loop (KAE-16)
+          → Tree-GRPO with world model rollouts (KAE-17 + KAE-18)
 ```
 
 Each stage builds on the previous. KTO is the bridge from "imitate everything" to "prefer good actions." GRPO adds reward-shaped RL. Self-play closes the loop.
 
-**Eval infrastructure (Apr 10):** Base Qwen3.5-9B serving endpoint deployed (`serve_modal_base.py`, A100). Both finetuned and base models share the same `play_qwen.py` harness and agent slots (agent_4=finetuned, agent_5=base). Dashboard Qwen Live tab shows split-screen comparison. This unblocks the 3-model eval (base vs r7-SFT vs r7-KTO).
+**Eval infrastructure (Apr 15):** Base Qwen3.5-9B serving endpoint deployed (`serve_modal_base.py`, A100). Both finetuned and base models share the same `play_qwen.py` harness and agent slots (agent_4=finetuned, agent_5=base). Dashboard Qwen Live tab + eval tab live. Eval harness implemented: `eval_harness.py` (parallel model runs, log-based metrics), `eval_compare.py` (Glass's delta, bootstrap CIs), `eval_offline.py` (action-prediction accuracy on held-out Claude sessions). This unblocks the 3-model eval (base vs r8-SFT vs r8-KTO).

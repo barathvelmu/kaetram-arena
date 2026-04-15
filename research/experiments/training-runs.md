@@ -55,7 +55,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **What changed:** Niral's optimized run on same r5 dataset. Specific optimizations not documented — need to backfill from Niral.
 
-**Result:** Deployed and tested. Serve stopped to save Modal cost. This is the current SFT checkpoint that KTO builds on.
+**Result:** Deployed and tested. Serve stopped to save Modal cost. Superseded by r8 SFT (loss masking fix).
 
 ---
 
@@ -152,7 +152,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: **r8 SFT COMPLETE** (Apr 14). Loss masking correct via `train_on_responses_only`. Deployed on Modal. Eval harness set up (`dataset/eval/` with base and r8-sft system prompts, `play_qwen.py` ready). Next: run eval (base vs r8-SFT) → r8-KTO → final comparison for paper.
+Immediate: **r8 SFT COMPLETE** (Apr 14). Loss masking correct via `train_on_responses_only`. Deployed on Modal. **Eval harness IMPLEMENTED** (Apr 15): `eval_harness.py` (parallel model runs, log-based metrics), `eval_compare.py` (Glass's delta, bootstrap CIs, Bonferroni), `eval_offline.py` (offline action-prediction accuracy), `scripts/run-eval.sh`, dashboard eval tab. Next: **execute eval runs** (base vs r8-SFT) → r8-KTO → final comparison for paper.
 
 **Qwen agent infrastructure (Apr 10):**
 - Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`

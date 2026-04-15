@@ -63,12 +63,12 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 |----------|---------------|--------|
 | SFT only vs SFT + KTO | KTO improves over pure imitation | Pending r8-KTO (r6-KTO smoke test passed, will rebuild on r8 SFT merged weights) |
 | 1 personality vs 3 personalities | Diversity improves student policy | Need to train on AGGRESSIVE-only, compare |
-| Loss masking vs full loss | Training on game state tokens hurts | r8 (correct masking) vs r7 (broken masking, same data) — natural ablation |
+| Loss masking vs full loss | Training on game state tokens hurts | r8 (correct masking) vs r7 (broken masking, same data) — natural ablation. Same dataset, only difference is loss masking. |
 | 22 tools vs filtered tools | Tool filtering helps small models | Pending KAE-15 implementation. Now at 22 tools (above RAG-MCP 19-tool threshold) — ablation more urgent. |
 | With/without click_tile filter | Data quality > quantity | r5 vs pre-filter comparison (have data) |
 | ORAK 3-stream vs monolithic SFT | Decomposed training improves action accuracy | Pending KAE-19 |
 
-**Most paper-ready now:** loss masking and click_tile filtering. Personality diversity is promising but still needs a direct ablation.
+**Most paper-ready now:** loss masking (r7 vs r8 natural ablation) and click_tile filtering. Personality diversity is promising but still needs a direct ablation. **Eval harness implemented** (Apr 15) — `eval_harness.py`, `eval_compare.py`, `eval_offline.py` ready to produce ablation numbers.
 
 ---
 
@@ -103,7 +103,7 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 |--------|---------------|-------------|
 | Architecture diagram | End-to-end pipeline: Claude → MCP → logs → SFT → KTO → Qwen | Manual |
 | Action distribution | What actions each personality produces (stacked bar) | extract_turns.py output |
-| Training loss curves | r5/r6 SFT + r6-KTO loss over steps | Modal training logs |
+| Training loss curves | r7/r8 SFT + r8-KTO loss over steps | Modal training logs |
 | Ablation table | All ablations with metrics | Training runs |
 | Example gameplay | Side-by-side: Claude vs finetuned Qwen on same scenario | play_qwen.py screenshots |
 | Score distribution | Session scores before/after KTO | score_sessions.py output |
@@ -112,11 +112,13 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 
 ## Open Questions
 
-1. **Evaluation metric — proposed solution (from TiG comparison):**
-   - **Action prediction accuracy on held-out Claude sessions:** hold out 10-15% of Claude sessions, measure whether finetuned Qwen reproduces Claude's tool call given the same observation. Directly analogous to TiG's 90.91% headline. Avoids circular dependence on KTO reward signal.
-   - **Live gameplay metrics (N=20 runs per model):** quest completion rate, turns to first quest completion, deaths per session. Starting condition: Level 1, Mudwich, Bronze Axe. These are NOT in the KTO scoring function (which uses XP/level delta/exploration) — clean separation.
+1. **Evaluation metric — IMPLEMENTED (Apr 15):**
+   - **Offline action prediction accuracy:** `eval_offline.py` holds out Claude sessions, measures whether finetuned Qwen reproduces Claude's tool call given the same observation. Directly analogous to TiG's 90.91% headline. Avoids circular dependence on KTO reward signal.
+   - **Live gameplay metrics:** `eval_harness.py` runs N episodes per model with DB reset between episodes. Log-based metrics: XP/turn, quest completion, deaths, tool call success rate. `eval_compare.py` computes Glass's delta, bootstrap CIs, Bonferroni correction. `scripts/run-eval.sh` wrapper for parallel model runs.
+   - Dashboard eval tab shows live progress.
    - Both metrics together give a strong story: "student reproduces teacher at X% and achieves Y% quest completion vs Z% baseline."
-2. **Baseline:** Vanilla Qwen3.5-9B (no finetuning) deployed as baseline (`serve_modal_base.py`, agent_5). Eval harness set up (`dataset/eval/` with base + r8-sft system prompts). Three-way comparison: base → SFT (r8) → SFT+KTO (r8).
+   - **Status: implemented, runs pending.**
+2. **Baseline:** Vanilla Qwen3.5-9B (no finetuning) deployed as baseline (`serve_modal_base.py`, agent_5). Three-way comparison: base → SFT (r8) → SFT+KTO (r8).
 3. **Reproducibility:** N=20 runs per model per condition. Same seed conditions. Report mean ± std. Kaetram-Open is public — full reproduction possible.
 4. **Core intro framing (vs. all comparables, not just TiG):** "Unlike prior work where LLMs serve as decision advisors for human players (TiG), generate raw code or click pixels (CRADLE, Voyager), or operate in episodic single-player environments (Orak, GamingAgent), our agent operates fully autonomously in a persistent open world using a shared typed tool API as the teacher-student interface." This single sentence covers all five main comparables simultaneously.
 5. **Ethics section:** Agent plays a game, no human subjects. Address: compute cost of teacher data collection, environmental impact of 24/7 agent runs.

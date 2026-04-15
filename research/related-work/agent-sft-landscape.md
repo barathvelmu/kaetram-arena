@@ -37,7 +37,7 @@ Most directly relevant to our setup. Segments trajectories into [REASON] and [AC
 - 12x model compression with minimal performance drop
 - Masking observation tokens is critical — model wastes capacity memorizing environment format
 
-**Our relevance:** We use `completion_only_loss=True` which masks observations. We train on both reasoning and action tokens equally. Potential improvement: weight action spans higher.
+**Our relevance:** r8 uses `train_on_responses_only()` from Unsloth which correctly masks all non-assistant tokens. (r5-r7 used `completion_only_loss=True` which was silently broken — TRL ignored it without a `response_template`.) We train on both reasoning and action tokens equally. Potential improvement: weight action spans higher.
 
 ### AgentTrek (arXiv 2412.09605, ICLR 2025 Spotlight)
 
@@ -70,7 +70,7 @@ End-to-end agent RL with explicit loss masking.
 - GRPO performed best among RL methods for agents (avg EM 0.3877)
 - Explicit masking for environment/tool outputs — only compute gradients on model's reasoning + action tokens
 
-**Our relevance:** Validates our SFT → KTO → GRPO pipeline. Loss masking consensus matches our `completion_only_loss` approach.
+**Our relevance:** Validates our SFT → KTO → GRPO pipeline. Loss masking consensus matches our r8 `train_on_responses_only` approach (fixed from broken `completion_only_loss` in r5-r7).
 
 ### Chain-of-Agents / AFM (arXiv 2508.13167, Aug 2025)
 

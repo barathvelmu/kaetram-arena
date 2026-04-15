@@ -3,6 +3,20 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-15 — Research Compile Pass
+
+**Compile-research pass.** 8 stale items found and fixed across 6 research files:
+- INDEX.md: Updated eval harness gap — implementation DONE (eval_harness.py, eval_compare.py, eval_offline.py, run-eval.sh). Only actual runs remain.
+- preference-learning.md: Pipeline sequence updated r7→r8 SFT. Eval infra section updated to reflect implemented harness.
+- agent-sft-landscape.md: Fixed 2 stale references to `completion_only_loss=True` → now references r8's `train_on_responses_only`.
+- training-runs.md: r6 entry no longer claims "current SFT checkpoint." What's Next section updated with eval harness implementation.
+- paper/contribution.md: Ablation table, eval metrics, and figures table updated for r8 + implemented eval harness.
+- data-quality.md: Clarified log count date + no new Claude data.
+
+**No new gaps identified.** All existing gaps remain valid. Biggest blocker unchanged: execute eval runs (base vs r8-SFT).
+
+---
+
 ## 2026-04-14 — r8 SFT Complete, Eval Harness Ready
 
 **r8 SFT COMPLETE.** Training finished ~06:30 UTC Apr 14 on Modal H100. `train_on_responses_only` applied correctly — loss masking verified. `serve_modal.py` deployed with r8 merged weights. Endpoint active and serving.

@@ -309,19 +309,21 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 
 ## CURRENT STATUS
 
-**r8 SFT COMPLETE (Apr 14).** Experiment `kaetram-qwen3.5-9b-r8`. Key fix: `train_on_responses_only` replaces broken `completion_only_loss` — correctly masks system/user/tool tokens, trains only on assistant responses. Same dataset as r7 (6,419 train after 4 filtered, 646 val). Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, H100 80GB. 402 steps. Deployed on Modal via `serve_modal.py`.
+**r9 SFT training LAUNCHED on Modal (Apr 15, 23:22 UTC).** Experiment `kaetram-qwen3.5-9b-r9`. Key fixes over r8: system prompt aligned with inference (`prompts/system.md` + `game_knowledge.md`), reasoning on 100% of turns, MAX_SEQ_LEN 16384, removed double tool definitions from system prompt, removed `<memory>` block, degenerate turn filtering. Dataset: 5,871 train / 575 val. Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, H100 80GB.
 
-**r7 SFT DONE but loss masking was broken.** r7 used `completion_only_loss=True` with `dataset_text_field="text"` — TRL silently ignored it (only works with prompt+completion column format). r7 trained on ALL tokens including game state JSON. Final loss 0.072 was artificially low. r8 fixes this.
+**New Sonnet data collection running.** 3 Claude agents, 4h session. Collecting fresh data with updated prompts.
 
-**Loss masking history:** r4 used explicit `DataCollatorForCompletionOnlyLM` (worked). r5-r7 switched to `completion_only_loss=True` flag (silently broken). r8 uses Unsloth's `train_on_responses_only()` which scans tokenized input_ids for `<|im_start|>assistant\n` markers — no template tags needed, handles multi-turn correctly. Minor gap: tool results included in loss (scanner stops at `<|im_start|>user\n`).
+**r8 SFT DONE but underperformed base due to train/inference mismatch.** r8 fixed loss masking (`train_on_responses_only`) but trained on a system prompt that differed from the inference-time prompt — the model learned a different task framing than it saw at serve time. r9 addresses this.
+
+**Loss masking history:** r4 used explicit `DataCollatorForCompletionOnlyLM` (worked). r5-r7 switched to `completion_only_loss=True` flag (silently broken — trained on all tokens). r8 uses Unsloth's `train_on_responses_only()` which scans tokenized input_ids for `<|im_start|>assistant\n` markers — handles multi-turn correctly. Tool results (role:tool) are correctly masked because Qwen3.5 renders them as `<|im_start|>user`, so the scanner treats them as user turns.
 
 **Why not TRL's `assistant_only_loss=True`?** Requires `{% generation %}` Jinja tags in chat template. Qwen team declined to add them (HuggingFace-specific extension). TRL v1.1.0 auto-substitutes a training template with these tags, but Unsloth caps TRL at <=0.24.0 which lacks this feature.
 
 **Personalities finalized (April 3).** Dropped EFFICIENT after audit. 3 orthogonal axes confirmed working in logs: combat approach / HP-gated preparation / exploration-first. Active: agent_0=AGGRESSIVE, agent_1=METHODICAL, agent_2=CURIOUS.
 
-**Eval harness set up.** `dataset/eval/` with `base/` and `r8-sft/` subdirectories containing system prompts. Qwen agent harness (`play_qwen.py`) ready for base vs r8-SFT comparison. No eval runs executed yet.
+**Eval harness set up.** `dataset/eval/` with `base/` and `r8-sft/` subdirectories containing system prompts. Qwen agent harness (`play_qwen.py`) ready for base vs r9-SFT comparison.
 
-**KTO pipeline validated, full run pending.** r6-KTO smoke test ran 10/10 steps cleanly. Will rebuild on r8 SFT merged weights. r8-KTO comparison (base vs r8 vs r8-KTO) is the paper result.
+**KTO pipeline validated, full run pending.** r6-KTO smoke test ran 10/10 steps cleanly. Will rebuild on r9 SFT merged weights. Comparison (base vs r9 vs r9-KTO) is the paper result.
 
 **Compile-research cron loop working.** `scripts/run_research_staleness_check.sh` via VM cron. Last auto-compile: 2026-04-11. Do not rely on session-local Claude cron — that dies with the session.
 

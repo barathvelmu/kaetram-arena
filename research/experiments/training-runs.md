@@ -15,7 +15,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
 | r8 | Apr 13-14 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | COMPLETE. Deployed on Modal. Eval harness set up (base vs r8-SFT). |
-| r9 | Apr 15 | SFT | 6,380 train / 689 val | Train/inference alignment fix (system prompt, reasoning, seq length) | Dataset ready. Awaiting Niral review before launch. |
+| r9 | Apr 15 | SFT | 5,871 train / 575 val | Train/inference alignment fix (system prompt, reasoning, seq length) + degenerate filtering | LAUNCHED on Modal H100 (23:22 UTC Apr 15) |
 | r9-KTO | TBD | KTO | TBD | Preference learning on r9 merged weights | Pending r9 completion |
 
 ---
@@ -139,9 +139,15 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **Config:** Same as r8 (LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, H100 80GB) except `MAX_SEQ_LEN=16384`. Experiment: `kaetram-qwen3.5-9b-r9`.
 
-**Dataset:** 6,380 train / 689 val (regenerated with fixed `convert_to_qwen.py`). Same source data as r7/r8 (583 Claude logs). 21 tool definitions in metadata (was 15). 100% `<think>` coverage (was 30.6%).
+**Second commit (998b865) — additional fixes before launch:**
+- **F3:** Removed `tools=` parameter from `apply_chat_template` — tool definitions were being double-injected (once via system prompt, once via template parameter), inflating token count.
+- **F8:** Removed `<memory>` block injection — was leaking session-local agent memory into training records.
+- **F9/F10:** Degenerate session filter — removes sessions with >50% `click_tile` actions (blind clicking) or >75% stuck loops (stuck_reset/cancel_nav cycles). These sessions contain no useful learning signal.
+- **F14:** Experiment name set to `kaetram-qwen3.5-9b-r9`.
 
-**Status:** Dataset regenerated on VM (`dataset/qwen_sft/`). r8 backup at `dataset/qwen_sft_r8_backup/`. Awaiting Niral review before Modal launch.
+**Dataset:** 5,871 train / 575 val (was 6,380/689 before degenerate filtering). Same source data as r7/r8 (583 Claude logs). 21 tool definitions in metadata (was 15). 100% `<think>` coverage (was 30.6%).
+
+**Status:** LAUNCHED on Modal H100 at 23:22 UTC Apr 15. Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16384`. Experiment: `kaetram-qwen3.5-9b-r9`.
 
 ---
 
@@ -183,7 +189,7 @@ Replaces r8-KTO. Same pipeline, but base SFT will be r9 merged weights.
 
 ## What's Next
 
-Immediate: **r9 dataset ready** (Apr 15). Fixes the train/inference mismatch that caused r8-SFT to underperform base. Awaiting Niral review → launch r9 on Modal → eval base vs r8 vs r9. If r9 beats base: proceed to r9-KTO. Paper comparison table: base → r8 (broken SFT) → r9 (fixed SFT) → r9-KTO. The r8→r9 delta tells the data quality story. KAE-37 (GRPO) created for post-KTO RL.
+Immediate: **r9 RUNNING on Modal** (launched 23:22 UTC Apr 15). Next step: eval after training completes — compare base vs r8 vs r9. If r9 beats base: proceed to r9-KTO. Paper comparison table: base → r8 (broken SFT) → r9 (fixed SFT) → r9-KTO. The r8→r9 delta tells the data quality story. KAE-37 (GRPO) created for post-KTO RL.
 
 **Qwen agent infrastructure (Apr 10):**
 - Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`

@@ -3,6 +3,25 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-15 — r8 Root Cause Analysis + r9 Fixes + Eval Runs
+
+**r8-SFT underperforms base model.** Niral ran 2-episode evals (scenario D, 300 turns, aggressive personality). Base gets 2x kills (17.5 vs 8.5), higher level (20 vs 14.5), more quests (2 vs 1.5). Both achieve 100% tool parse rate. Root cause investigation launched.
+
+**Root cause identified: train/inference mismatch.** Three critical issues found and fixed (commit `40a2dfc`):
+1. **System prompt mismatch** — training used a hardcoded 50-line "Priority System" (8 rules, legacy tool names like `heal`, `equip`, `click`). Inference used full `prompts/system.md` with OODA loop (12 rules, correct MCP names, game knowledge). Model learned wrong instructions.
+2. **69% of turns had no reasoning** — `include_thinking=is_last` meant only the last turn in each multi-turn window got `<think>`. Changed to `include_thinking=True` (100% coverage).
+3. **55% of records silently truncated** — `MAX_SEQ_LEN=8192` too small. Bumped to 16384.
+
+**Additional fix: paraphrase crash** — `train_modal.py` split on `"## Entity Types"` which didn't exist in the new prompt. Updated marker to `"<game_knowledge>"` with try/except fallback.
+
+**r9 dataset regenerated on VM.** 6,380 train / 689 val. 100% reasoning coverage (was 30.6%). 21 tools in metadata (was 15). System prompt is now the real inference prompt (11,382 chars vs old 2,490). Backup at `dataset/qwen_sft_r8_backup/`.
+
+**Eval runs in progress (Niral).** Base vs r8-SFT with no-personality run active. Previous aggressive-personality runs complete. KAE-37 (GRPO) created in Linear.
+
+**Awaiting Niral review before r9 launch.** Code pushed to main, dataset ready on VM. Next: Niral reviews → launch r9 on Modal → eval base vs r8 vs r9.
+
+---
+
 ## 2026-04-15 — Research Compile Pass
 
 **Compile-research pass.** 8 stale items found and fixed across 6 research files:

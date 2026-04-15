@@ -15,7 +15,8 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
 | r8 | Apr 13-14 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | COMPLETE. Deployed on Modal. Eval harness set up (base vs r8-SFT). |
-| r8-KTO | TBD | KTO | TBD | Preference learning on r8 merged weights | Pending r8 completion + Niral greenlight |
+| r9 | Apr 15 | SFT | 6,380 train / 689 val | Train/inference alignment fix (system prompt, reasoning, seq length) | Dataset ready. Awaiting Niral review before launch. |
+| r9-KTO | TBD | KTO | TBD | Preference learning on r9 merged weights | Pending r9 completion |
 
 ---
 
@@ -120,7 +121,37 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ---
 
-## r8-KTO — Preference Learning (pending r8 SFT)
+## r9 — Train/Inference Alignment Fix (Apr 15)
+
+**What changed:** Three fixes to eliminate the distribution shift between training and inference that caused r8-SFT to underperform the base model.
+
+1. **System prompt aligned with inference (commit `40a2dfc`):** Replaced the hardcoded 50-line `SYSTEM_PROMPT` in `convert_to_qwen.py` (2,490 chars, "Priority System" with 8 rules, legacy tool names `heal`/`equip`/`click`/`set_style`/`wait`) with dynamic loading of `prompts/system.md` + `game_knowledge.md` (11,382 chars, OODA loop, 12-rule decision tree, XML-tagged sections, correct MCP tool names, full mob stats + quest walkthroughs). The model now trains on the exact same instructions it receives at inference.
+
+2. **Reasoning on 100% of turns:** Changed `include_thinking=is_last` to `include_thinking=True` in `build_multi_turn_records()`. r8 had `<think>` blocks on only 30.6% of assistant messages (6,346/20,735). r9 has 100% (22,796/22,796). The model learns "think before every action" as the default.
+
+3. **Sequence length restored:** `MAX_SEQ_LEN` bumped from 8,192 to 16,384 in `train_modal.py`. With the old 8k limit, 55.5% of records were being silently truncated — losing the final assistant turns (the actual training signal). At 16k, ~91% of records fit.
+
+**Additional fix:** `_BODY_SPLIT_MARKER` in `train_modal.py` updated from `"## Entity Types"` (didn't exist in the new prompt) to `"<game_knowledge>"` with try/except fallback. Paraphrase intro variants updated to match the new prompt structure.
+
+**Why r8 failed:** The base model followed the OODA system prompt faithfully because it's a strong instruction follower with no conflicting signal. r8-SFT was trained on different instructions ("Priority System"), different tool names, no game knowledge, and action-without-reasoning on 69% of turns. At inference, the model fought its own training. r9 removes this contradiction.
+
+**Eval context (r8 vs base, Apr 15):** 2 episodes each, scenario D (Open Play, 300 turns), aggressive personality. Base: 17.5 kills avg, level 20, 2 quests. r8-SFT: 8.5 kills avg, level 14.5, 1.5 quests. Both 100% tool parse rate, 0 deaths. r8-SFT faster (58 min avg vs 79 min) but less productive per turn.
+
+**Config:** Same as r8 (LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, H100 80GB) except `MAX_SEQ_LEN=16384`. Experiment: `kaetram-qwen3.5-9b-r9`.
+
+**Dataset:** 6,380 train / 689 val (regenerated with fixed `convert_to_qwen.py`). Same source data as r7/r8 (583 Claude logs). 21 tool definitions in metadata (was 15). 100% `<think>` coverage (was 30.6%).
+
+**Status:** Dataset regenerated on VM (`dataset/qwen_sft/`). r8 backup at `dataset/qwen_sft_r8_backup/`. Awaiting Niral review before Modal launch.
+
+---
+
+## r9-KTO — Preference Learning (pending r9 SFT)
+
+Replaces r8-KTO. Same pipeline, but base SFT will be r9 merged weights.
+
+---
+
+## r8-KTO — Preference Learning (SUPERSEDED by r9-KTO)
 
 **What changed from r6-KTO:**
 1. Quest progression scoring weights: XP 15%, levels 15%, quest progression 20% (actual state deltas), progress events 10%, exploration 15%, turn quality 15%.
@@ -152,7 +183,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ## What's Next
 
-Immediate: **r8 SFT COMPLETE** (Apr 14). Loss masking correct via `train_on_responses_only`. Deployed on Modal. **Eval harness IMPLEMENTED** (Apr 15): `eval_harness.py` (parallel model runs, log-based metrics), `eval_compare.py` (Glass's delta, bootstrap CIs, Bonferroni), `eval_offline.py` (offline action-prediction accuracy), `scripts/run-eval.sh`, dashboard eval tab. Next: **execute eval runs** (base vs r8-SFT) → r8-KTO → final comparison for paper.
+Immediate: **r9 dataset ready** (Apr 15). Fixes the train/inference mismatch that caused r8-SFT to underperform base. Awaiting Niral review → launch r9 on Modal → eval base vs r8 vs r9. If r9 beats base: proceed to r9-KTO. Paper comparison table: base → r8 (broken SFT) → r9 (fixed SFT) → r9-KTO. The r8→r9 delta tells the data quality story. KAE-37 (GRPO) created for post-KTO RL.
 
 **Qwen agent infrastructure (Apr 10):**
 - Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`

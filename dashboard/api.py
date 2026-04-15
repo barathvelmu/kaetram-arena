@@ -532,8 +532,11 @@ class APIMixin:
     _eval_cache = {"data": None, "mtime": 0}
 
     def send_eval_latest(self):
-        """Return latest eval comparison results from dataset/eval/."""
-        eval_dir = os.path.join(DATASET_DIR, "eval")
+        """Return latest eval comparison results from dataset/eval/latest/ (or dataset/eval/)."""
+        # Prefer latest symlink (new run-dir layout), fall back to flat layout
+        eval_dir = os.path.join(DATASET_DIR, "eval", "latest")
+        if not os.path.isdir(eval_dir):
+            eval_dir = os.path.join(DATASET_DIR, "eval")
         if not os.path.isdir(eval_dir):
             return self._send_json({"status": "no_eval_data", "models": []})
 
@@ -737,8 +740,10 @@ class APIMixin:
                     except Exception:
                         pass
 
-            # Completed episode count from results.json
-            results_path = os.path.join(DATASET_DIR, "eval", model_name, "results.json")
+            # Completed episode count from results.json (check latest symlink first)
+            results_path = os.path.join(DATASET_DIR, "eval", "latest", model_name, "results.json")
+            if not os.path.isfile(results_path):
+                results_path = os.path.join(DATASET_DIR, "eval", model_name, "results.json")
             if os.path.isfile(results_path):
                 try:
                     with open(results_path) as f:

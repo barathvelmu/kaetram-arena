@@ -1,0 +1,105 @@
+{
+  "meta": {
+    "model": "base",
+    "endpoint": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
+    "scenario": "D",
+    "scenario_name": "Open Play",
+    "max_turns": 300,
+    "total_episodes": 1,
+    "ok_episodes": 1,
+    "timestamp": "2026-04-15T22:34:50.948728",
+    "git_sha": "dc8600a"
+  },
+  "episodes": [
+    {
+      "episode": 1,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 4509.3,
+      "returncode": 0,
+      "sub_sessions": 13,
+      "log_file": "/home/patnir41/projects/kaetram-agent/dataset/eval/runs/20260415_211929/base/episode_001.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 14,
+      "kills_by_mob": {
+        "Rat": 12,
+        "Goblin": 2
+      },
+      "xp_estimated": 360,
+      "xp_per_turn": 1.2,
+      "level_reached": 18,
+      "level_delta": 17,
+      "deaths": 0,
+      "survived": true,
+      "quests_completed": 2,
+      "quests_accepted": 7,
+      "unique_positions": 81,
+      "action_counts": {
+        "observe": 60,
+        "interact_npc": 15,
+        "navigate": 33,
+        "cancel_nav": 2,
+        "warp": 4,
+        "attack": 96,
+        "loot": 11,
+        "talk_npc": 3,
+        "equip_item": 5,
+        "gather": 58,
+        "move": 2,
+        "eat_food": 1,
+        "set_attack_style": 1,
+        "buy_item": 1,
+        "query_quest": 4,
+        "click_tile": 2,
+        "accept_quest": 2
+      },
+      "action_entropy": 2.7961,
+      "stuck_resets": 0,
+      "click_tiles": 2
+    }
+  ],
+  "metrics": {
+    "quest_completion_rate": [
+      1
+    ],
+    "xp_per_turn": [
+      1.2
+    ],
+    "survival_rate": [
+      1
+    ],
+    "tool_parse_rate": [
+      1.0
+    ],
+    "deaths_per_session": [
+      0
+    ],
+    "kills": [
+      14
+    ],
+    "xp_estimated": [
+      360
+    ],
+    "level_reached": [
+      18
+    ],
+    "level_delta": [
+      17
+    ],
+    "action_entropy": [
+      2.7961
+    ],
+    "stuck_resets": [
+      0
+    ],
+    "click_tiles": [
+      2
+    ],
+    "success_rate": [
+      1
+    ]
+  }
+}

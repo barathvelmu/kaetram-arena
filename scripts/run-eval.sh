@@ -27,6 +27,12 @@ done
 PERS_FLAG=""
 [ -n "$PERSONALITY" ] && PERS_FLAG="--personality $PERSONALITY"
 
+# ── Run directory (timestamped, preserves history) ──
+RUN_TAG="$(date +%Y%m%d_%H%M%S)"
+[ -n "$PERSONALITY" ] && RUN_TAG="${RUN_TAG}_${PERSONALITY}"
+RUN_DIR="$PROJECT_DIR/dataset/eval/runs/${RUN_TAG}"
+mkdir -p "$RUN_DIR"
+
 # ── Cleanup ──
 echo "Cleaning up previous eval runs..."
 pkill -9 -f "eval_harness" 2>/dev/null || true
@@ -38,8 +44,8 @@ BASE_GS_PID=$(ss -tlnp 2>/dev/null | grep ":9041 " | grep -oP 'pid=\K[0-9]+' | h
 [ -n "$BASE_GS_PID" ] && kill -9 "$BASE_GS_PID" 2>/dev/null || true
 sleep 2
 
-# Clean eval sandboxes and results
-rm -rf /tmp/kaetram_eval_* dataset/eval/r8-sft dataset/eval/base
+# Clean eval sandboxes (temp data only — results are preserved in runs/)
+rm -rf /tmp/kaetram_eval_*
 
 # Reset eval player data in MongoDB
 source "$PROJECT_DIR/.venv/bin/activate" 2>/dev/null || true
@@ -82,12 +88,13 @@ fi
 # ── Launch evals in parallel ──
 echo ""
 echo "Starting eval: $EPISODES episodes × 2 models, scenario $SCENARIO"
+echo "  Run dir: $RUN_DIR"
 echo ""
 
 PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/eval_harness.py" \
   --models "r8-sft=https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1" \
   --episodes "$EPISODES" --scenario "$SCENARIO" \
-  --username evalbotSFT --server-port 9001 $PERS_FLAG \
+  --username evalbotSFT --server-port 9001 --output-dir "$RUN_DIR" $PERS_FLAG \
   > /tmp/eval_r8sft.log 2>&1 &
 SFT_PID=$!
 echo "  r8-SFT eval started (PID $SFT_PID, log: /tmp/eval_r8sft.log, personality: ${PERSONALITY:-none})"
@@ -95,10 +102,13 @@ echo "  r8-SFT eval started (PID $SFT_PID, log: /tmp/eval_r8sft.log, personality
 PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/eval_harness.py" \
   --models "base=https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1" \
   --episodes "$EPISODES" --scenario "$SCENARIO" \
-  --username evalbotBase --server-port 9041 $PERS_FLAG \
+  --username evalbotBase --server-port 9041 --output-dir "$RUN_DIR" $PERS_FLAG \
   > /tmp/eval_base.log 2>&1 &
 BASE_PID=$!
 echo "  Base eval started (PID $BASE_PID, log: /tmp/eval_base.log, personality: ${PERSONALITY:-none})"
+
+# Symlink latest for dashboard
+ln -sfn "$RUN_DIR" "$PROJECT_DIR/dataset/eval/latest"
 
 echo ""
 echo "Both evals running in parallel."
@@ -117,8 +127,8 @@ while kill -0 $SFT_PID 2>/dev/null || kill -0 $BASE_PID 2>/dev/null; do
   kill -0 $BASE_PID 2>/dev/null || BASE_STATUS="done (rc=$(wait $BASE_PID 2>/dev/null; echo $?))"
 
   SFT_EP=0; BASE_EP=0
-  [ -f dataset/eval/r8-sft/results.json ] && SFT_EP=$(python3 -c "import json; print(len([e for e in json.load(open('dataset/eval/r8-sft/results.json'))['episodes'] if e.get('status')=='ok']))" 2>/dev/null || echo 0)
-  [ -f dataset/eval/base/results.json ] && BASE_EP=$(python3 -c "import json; print(len([e for e in json.load(open('dataset/eval/base/results.json'))['episodes'] if e.get('status')=='ok']))" 2>/dev/null || echo 0)
+  [ -f "$RUN_DIR/r8-sft/results.json" ] && SFT_EP=$(python3 -c "import json; print(len([e for e in json.load(open('$RUN_DIR/r8-sft/results.json'))['episodes'] if e.get('status')=='ok']))" 2>/dev/null || echo 0)
+  [ -f "$RUN_DIR/base/results.json" ] && BASE_EP=$(python3 -c "import json; print(len([e for e in json.load(open('$RUN_DIR/base/results.json'))['episodes'] if e.get('status')=='ok']))" 2>/dev/null || echo 0)
 
   echo "[$(date +%H:%M)] r8-sft: $SFT_STATUS ($SFT_EP/$EPISODES eps) | base: $BASE_STATUS ($BASE_EP/$EPISODES eps)"
 done
@@ -129,7 +139,10 @@ BASE_GS_PID=$(ss -tlnp 2>/dev/null | grep ":9041 " | grep -oP 'pid=\K[0-9]+' | h
 
 echo ""
 echo "EVAL COMPLETE"
-echo "  Results: dataset/eval/r8-sft/results.json"
-echo "           dataset/eval/base/results.json"
+echo "  Run dir: $RUN_DIR"
+echo "  Results: $RUN_DIR/r8-sft/results.json"
+echo "           $RUN_DIR/base/results.json"
+echo "  Symlink: dataset/eval/latest → $RUN_DIR"
 echo ""
-echo "Compare: python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r8-sft/results.json"
+echo "Compare: python3 eval_compare.py $RUN_DIR/base/results.json $RUN_DIR/r8-sft/results.json"
+echo "History: ls dataset/eval/runs/"

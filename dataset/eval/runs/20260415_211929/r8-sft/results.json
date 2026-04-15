@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "model": "r8-sft",
+    "endpoint": "https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1",
+    "scenario": "D",
+    "scenario_name": "Open Play",
+    "max_turns": 300,
+    "total_episodes": 1,
+    "ok_episodes": 1,
+    "timestamp": "2026-04-15T22:28:03.704377",
+    "git_sha": "40a2dfc"
+  },
+  "episodes": [
+    {
+      "episode": 1,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 4102.1,
+      "returncode": 0,
+      "sub_sessions": 12,
+      "log_file": "/home/patnir41/projects/kaetram-agent/dataset/eval/runs/20260415_211929/r8-sft/episode_001.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 0,
+      "kills_by_mob": {},
+      "xp_estimated": 0,
+      "xp_per_turn": 0.0,
+      "level_reached": 3,
+      "level_delta": 2,
+      "deaths": 0,
+      "survived": true,
+      "quests_completed": 1,
+      "quests_accepted": 7,
+      "unique_positions": 59,
+      "action_counts": {
+        "warp": 24,
+        "observe": 60,
+        "interact_npc": 30,
+        "navigate": 64,
+        "move": 27,
+        "click_tile": 12,
+        "talk_npc": 6,
+        "buy_item": 6,
+        "cancel_nav": 9,
+        "equip_item": 7,
+        "set_attack_style": 2,
+        "gather": 34,
+        "attack": 16,
+        "stuck_reset": 2,
+        "clear_combat": 1
+      },
+      "action_entropy": 3.2714,
+      "stuck_resets": 2,
+      "click_tiles": 12
+    }
+  ],
+  "metrics": {
+    "quest_completion_rate": [
+      1
+    ],
+    "xp_per_turn": [
+      0.0
+    ],
+    "survival_rate": [
+      1
+    ],
+    "tool_parse_rate": [
+      1.0
+    ],
+    "deaths_per_session": [
+      0
+    ],
+    "kills": [
+      0
+    ],
+    "xp_estimated": [
+      0
+    ],
+    "level_reached": [
+      3
+    ],
+    "level_delta": [
+      2
+    ],
+    "action_entropy": [
+      3.2714
+    ],
+    "stuck_resets": [
+      2
+    ],
+    "click_tiles": [
+      12
+    ],
+    "success_rate": [
+      1
+    ]
+  }
+}

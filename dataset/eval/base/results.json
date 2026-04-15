@@ -5,54 +5,53 @@
     "scenario": "D",
     "scenario_name": "Open Play",
     "max_turns": 300,
-    "total_episodes": 3,
-    "ok_episodes": 3,
-    "timestamp": "2026-04-15T16:01:25.107080",
-    "git_sha": "bc3f3a0"
+    "total_episodes": 2,
+    "ok_episodes": 2,
+    "timestamp": "2026-04-15T20:47:50.260111",
+    "git_sha": "52a5043"
   },
   "episodes": [
     {
       "episode": 1,
       "status": "ok",
       "success": true,
-      "duration_seconds": 3955.3999999999996,
+      "duration_seconds": 4996.9,
       "returncode": 0,
-      "sub_sessions": 12,
+      "sub_sessions": 13,
       "log_file": "dataset/eval/base/episode_001.jsonl",
       "turns_played": 300,
       "tool_calls_attempted": 300,
       "tool_calls_valid": 300,
       "tool_parse_rate": 1.0,
-      "kills": 38,
+      "kills": 12,
       "kills_by_mob": {
-        "Batterfly": 1,
-        "Rat": 34,
-        "Goblin": 3
+        "Batterfly": 4,
+        "Rat": 6,
+        "Goblin": 2
       },
-      "xp_estimated": 878,
-      "xp_per_turn": 2.9267,
-      "level_reached": 25,
-      "level_delta": 24,
+      "xp_estimated": 452,
+      "xp_per_turn": 1.5067,
+      "level_reached": 19,
+      "level_delta": 18,
       "deaths": 0,
       "survived": true,
       "quests_completed": 2,
       "quests_accepted": 7,
-      "unique_positions": 93,
+      "unique_positions": 71,
       "action_counts": {
-        "observe": 42,
-        "set_attack_style": 6,
-        "warp": 1,
-        "equip_item": 5,
-        "interact_npc": 9,
-        "talk_npc": 2,
-        "attack": 152,
-        "loot": 7,
-        "navigate": 19,
-        "gather": 52,
-        "query_quest": 1,
-        "move": 4
+        "observe": 56,
+        "set_attack_style": 8,
+        "warp": 2,
+        "interact_npc": 13,
+        "talk_npc": 5,
+        "equip_item": 6,
+        "navigate": 23,
+        "gather": 82,
+        "attack": 95,
+        "loot": 9,
+        "eat_food": 1
       },
-      "action_entropy": 2.2602,
+      "action_entropy": 2.5473,
       "stuck_resets": 0,
       "click_tiles": 0
     },
@@ -60,160 +59,102 @@
       "episode": 2,
       "status": "ok",
       "success": true,
-      "duration_seconds": 4655.599999999999,
+      "duration_seconds": 4447.3,
       "returncode": 0,
-      "sub_sessions": 13,
+      "sub_sessions": 14,
       "log_file": "dataset/eval/base/episode_002.jsonl",
       "turns_played": 300,
       "tool_calls_attempted": 300,
       "tool_calls_valid": 300,
       "tool_parse_rate": 1.0,
-      "kills": 18,
+      "kills": 23,
       "kills_by_mob": {
-        "Rat": 17,
-        "Batterfly": 1
+        "Rat": 18,
+        "Batterfly": 4,
+        "Snek": 1
       },
-      "xp_estimated": 356,
-      "xp_per_turn": 1.1867,
+      "xp_estimated": 604,
+      "xp_per_turn": 2.0133,
       "level_reached": 21,
       "level_delta": 20,
       "deaths": 0,
       "survived": true,
       "quests_completed": 2,
-      "quests_accepted": 7,
-      "unique_positions": 86,
+      "quests_accepted": 6,
+      "unique_positions": 68,
       "action_counts": {
-        "observe": 54,
-        "navigate": 23,
-        "cancel_nav": 1,
-        "warp": 2,
-        "interact_npc": 10,
-        "gather": 53,
-        "attack": 121,
-        "loot": 14,
-        "query_quest": 2,
-        "equip_item": 13,
-        "talk_npc": 1,
-        "move": 4,
-        "click_tile": 2
-      },
-      "action_entropy": 2.5482,
-      "stuck_resets": 0,
-      "click_tiles": 2
-    },
-    {
-      "episode": 3,
-      "status": "ok",
-      "success": true,
-      "duration_seconds": 4217.6,
-      "returncode": 0,
-      "sub_sessions": 12,
-      "log_file": "dataset/eval/base/episode_003.jsonl",
-      "turns_played": 300,
-      "tool_calls_attempted": 300,
-      "tool_calls_valid": 300,
-      "tool_parse_rate": 1.0,
-      "kills": 32,
-      "kills_by_mob": {
-        "Rat": 31,
-        "Desert Scorpion": 1
-      },
-      "xp_estimated": 682,
-      "xp_per_turn": 2.2733,
-      "level_reached": 32,
-      "level_delta": 31,
-      "deaths": 1,
-      "survived": false,
-      "quests_completed": 1,
-      "quests_accepted": 5,
-      "unique_positions": 98,
-      "action_counts": {
-        "observe": 46,
-        "set_attack_style": 4,
+        "observe": 48,
+        "set_attack_style": 2,
         "warp": 3,
-        "attack": 155,
-        "loot": 9,
-        "equip_item": 2,
-        "navigate": 23,
-        "interact_npc": 8,
-        "query_quest": 2,
-        "gather": 39,
-        "talk_npc": 1,
-        "accept_quest": 1,
-        "click_tile": 2,
-        "eat_food": 2,
-        "respawn": 1,
-        "move": 1,
-        "drop_item": 1
+        "interact_npc": 11,
+        "talk_npc": 3,
+        "navigate": 20,
+        "gather": 72,
+        "attack": 106,
+        "loot": 13,
+        "equip_item": 4,
+        "query_quest": 3,
+        "click_tile": 1,
+        "eat_food": 3,
+        "move": 2,
+        "cancel_nav": 1,
+        "drop_item": 8
       },
-      "action_entropy": 2.3444,
+      "action_entropy": 2.7185,
       "stuck_resets": 0,
-      "click_tiles": 2
+      "click_tiles": 1
     }
   ],
   "metrics": {
     "quest_completion_rate": [
       1,
-      1,
       1
     ],
     "xp_per_turn": [
-      2.9267,
-      1.1867,
-      2.2733
+      1.5067,
+      2.0133
     ],
     "survival_rate": [
       1,
-      1,
-      0
+      1
     ],
     "tool_parse_rate": [
-      1.0,
       1.0,
       1.0
     ],
     "deaths_per_session": [
       0,
-      0,
-      1
+      0
     ],
     "kills": [
-      38,
-      18,
-      32
+      12,
+      23
     ],
     "xp_estimated": [
-      878,
-      356,
-      682
+      452,
+      604
     ],
     "level_reached": [
-      25,
-      21,
-      32
+      19,
+      21
     ],
     "level_delta": [
-      24,
-      20,
-      31
+      18,
+      20
     ],
     "action_entropy": [
-      2.2602,
-      2.5482,
-      2.3444
+      2.5473,
+      2.7185
     ],
     "stuck_resets": [
-      0,
       0,
       0
     ],
     "click_tiles": [
       0,
-      2,
-      2
+      1
     ],
     "success_rate": [
-      1,
       1,
       1
     ]

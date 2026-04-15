@@ -210,9 +210,10 @@ for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
   if [ -d "$sandbox/state" ]; then
     rm -f "$sandbox/state/screenshot.png" \
           "$sandbox/state/live_screen.png" \
+          "$sandbox/state/live_screen.jpg" \
           "$sandbox/state/game_state.json" \
           "$sandbox/state/.session_counter"
-    find "$sandbox/state" -name "*.png" -delete 2>/dev/null || true
+    find "$sandbox/state" \( -name "*.png" -o -name "*.jpg" \) -delete 2>/dev/null || true
   fi
   # Clean stale files from previous architectures (old scripts, workarounds)
   rm -f "$sandbox"/*.js "$sandbox"/*.py "$sandbox"/package.json "$sandbox"/package-lock.json 2>/dev/null
@@ -229,6 +230,7 @@ pkill -f "chromium.*kaetram\|chromium.*headless" 2>/dev/null || true
 # Also clear single-agent state
 rm -f "$PROJECT_DIR/state/screenshot.png" \
       "$PROJECT_DIR/state/live_screen.png" \
+      "$PROJECT_DIR/state/live_screen.jpg" \
       "$PROJECT_DIR/state/game_state.json"
 
 # Count preserved logs

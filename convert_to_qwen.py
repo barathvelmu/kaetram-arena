@@ -57,57 +57,37 @@ TOOL_DEFINITIONS = [
 WARP_IDS = {"Mudwich": 0, "Crossroads": 1, "Lakesworld": 2, "Patsow": 3, "Crullfield": 4, "Undersea": 5}
 STYLE_IDS = {"Hack": 6, "Chop": 7, "Defensive": 3, "Stab": 1, "Slash": 2}
 
-# Condensed game rules for the system message
-SYSTEM_PROMPT = """\
-You are an AI agent playing Kaetram, a 2D pixel MMORPG. You observe the game via structured game state and an ASCII map, then decide and execute actions.
+# System prompt: load the ACTUAL inference prompt (prompts/system.md + game_knowledge.md)
+# so that training and inference see the same instructions.
+# r8 and earlier used a condensed, divergent prompt here — that mismatch was the
+# primary cause of r8-SFT underperforming the base model.
+def _load_system_prompt() -> str:
+    """Load the real inference system prompt with game knowledge inlined."""
+    script_dir = Path(__file__).resolve().parent
+    system_md = script_dir / "prompts" / "system.md"
+    game_knowledge_md = script_dir / "prompts" / "game_knowledge.md"
 
-## Entity Types
-- type 0: other player
-- type 1: NPC (quest_npc=true means active quest target, has_achievement=true means achievement available)
-- type 3: mob (attackable — has HP)
-- type 4: item drop (lootable)
-- type 12: harvestable (tree, rock, fish spot)
+    if not system_md.exists():
+        raise FileNotFoundError(f"prompts/system.md not found at {system_md}")
 
-## Actions
-- attack(mob_name): Attack nearest mob matching name. Auto-walks and auto-attacks.
-- interact_npc(npc_name): Walk to NPC and initiate dialogue.
-- talk_npc(instance_id): Advance NPC dialogue by one line.
-- navigate(x, y): Long-distance pathfinding to grid coordinates.
-- move(x, y): Short-distance movement to nearby grid coordinates.
-- click(x, y): Click canvas at pixel coordinates. For mobs, NPCs, loot, or walking.
-- click_entity(label): Click entity by ASCII map label (E0, E1...).
-- click_tile(x, y): Click specific grid tile.
-- equip(slot=N): Equip item from inventory slot N.
-- heal(slot=N): Consume edible item at slot N to restore HP.
-- warp(location): Fast travel (Mudwich, Crossroads, Lakesworld, Patsow, Crullfield, Undersea).
-- quest_accept(): Accept or progress a quest.
-- set_style(style): Change attack style (Hack, Chop, Defensive).
-- wait(Ns): Wait N seconds for combat/regen.
-- respawn(): Click respawn button after death.
+    prompt = system_md.read_text()
 
-## Priority System
-1. RESPAWN — Dead? Click respawn, then warp to Mudwich.
-2. HEAL — HP below 50%? Eat food (edible=true in inventory).
-3. LOOT — Item drop nearby (type=4)? Click it.
-4. EQUIP — Better gear available (equippable=true)? Equip it.
-5. QUEST NPC — NPC with quest_npc=true? Walk close, interact, accept quest.
-6. QUEST — Active quest? Work on objective (kill, gather, deliver).
-7. GRIND — Kill nearest mob for XP using attack(mob_name).
-8. EXPLORE — Navigate to a new area.
+    # Inline game knowledge (same substitution as play_qwen.sh)
+    if game_knowledge_md.exists():
+        gk = game_knowledge_md.read_text()
+        prompt = prompt.replace("__GAME_KNOWLEDGE_BLOCK__", gk)
+    else:
+        prompt = prompt.replace("__GAME_KNOWLEDGE_BLOCK__", "")
 
-## Combat
-Use attack(mob_name) to auto-walk and auto-attack. Wait 5-6s per kill cycle.
-After kill, observe state before next action. Fight mobs near your level.
+    # Replace remaining placeholders with generic training values
+    prompt = prompt.replace("__USERNAME__", "KaetramAgent")
+    prompt = prompt.replace("__SERVER_PORT__", "9001")
+    prompt = prompt.replace("__PERSONALITY_BLOCK__", "")  # personality appended separately
 
-## Navigation
-Use navigate(x, y) for distances > 15 tiles. Use move(x, y) for < 15 tiles.
-Check navigation.status: 'arrived' = done, 'stuck' = warp to Mudwich instead.
+    return prompt
 
-## Key Info
-- Canvas center ≈ player position. Entities have click_x/click_y when on_screen=true.
-- Distance ≤ 3: can click directly. Distance > 3: walk toward them first.
-- After death: respawn(), then warp(Mudwich), re-equip weapon, set_style(Hack).
-- Mudwich village center: approximately (188, 157)."""
+
+SYSTEM_PROMPT = _load_system_prompt()
 
 # Condensed personality suffixes (2-3 sentences each)
 PERSONALITY_SUFFIXES = {
@@ -1022,9 +1002,10 @@ def build_multi_turn_records(
             user_text = build_user_message(turn, prev_turn=prev, memory=mem)
             messages.append({"role": "user", "content": user_text})
 
-            # Qwen3.5 guidance: only include <think> on the LAST assistant turn
-            is_last = i == len(valid_window) - 1
-            asst_msg = build_assistant_message(turn, include_thinking=is_last)
+            # r9 fix: include <think> on ALL turns, not just the last.
+            # r8 and earlier only included reasoning on the final turn (69% of
+            # training had no reasoning), teaching the model to act without thinking.
+            asst_msg = build_assistant_message(turn, include_thinking=True)
             if asst_msg is None:
                 continue  # Skip update_memory turns
 

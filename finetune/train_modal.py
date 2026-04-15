@@ -74,7 +74,7 @@ with train_image.imports():
 # ---------------------------------------------------------------------------
 
 MODEL_ID = "unsloth/Qwen3.5-9B"  # Unsloth-optimized, Apache 2.0
-MAX_SEQ_LEN = 8192   # Round 6: halved from 16k (median=3.6k, P90=12.7k — 8k covers ~90%)
+MAX_SEQ_LEN = 16384  # r9: restored from 8k. New system prompt (~3.8k tokens) + tools (~1.2k) + 5-turn windows need headroom. H100 80GB handles this.
 LORA_R = 64       # Round 2: 4x more capacity (was 16)
 LORA_ALPHA = 64   # alpha = r recommended for Qwen3.5
 LORA_TARGETS = [
@@ -113,16 +113,12 @@ EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r8"
 import random as _random
 
 SYSTEM_PROMPT_INTRO_VARIANTS = [
-    # Original
-    "You are an AI agent playing Kaetram, a 2D pixel MMORPG. You observe the game via structured game state and an ASCII map, then decide and execute actions.",
-    # Paraphrases
-    "You control a character in Kaetram, an online 2D RPG. Each turn you receive game state data and an ASCII map, then choose what to do next.",
-    "As an AI playing the Kaetram MMORPG, you read structured game state and an ASCII map representation of your surroundings, then select an action.",
-    "You are playing Kaetram (a 2D pixel MMORPG) as an automated agent. You perceive the world through structured state data and an ASCII map, then act.",
-    "In Kaetram, a 2D online RPG, you are an AI agent. You receive game observations as structured data with an ASCII map and decide your next move.",
-    "You operate as an AI player in Kaetram, a pixel-art MMORPG. Your inputs are structured game state and an ASCII map. Pick one action per turn.",
-    "Acting as an autonomous agent in the Kaetram game world, you analyze structured game state and an ASCII map each turn, then execute an action.",
-    "You are an automated player in Kaetram (2D MMORPG). Observe the game through structured state and ASCII map data, then decide and act.",
+    # Original (matches prompts/system.md opening)
+    "# Kaetram Game Agent\n\nYou are KaetramAgent, an autonomous agent playing Kaetram (2D pixel MMORPG).\n\nYour goal: complete all quests. Every decision should advance quest progress. Grinding, exploring, and gathering exist only to serve quest completion.\n\nYou play continuously for the entire session. Do not stop, ask for help, or wait for input.",
+    # Paraphrases (same structure: title + identity + goal + continuity)
+    "# Kaetram Game Agent\n\nYou control KaetramAgent in Kaetram, an online 2D pixel RPG.\n\nYour objective: finish every quest. All actions should move toward quest completion. Combat and exploration only matter when they serve that goal.\n\nKeep playing non-stop for the whole session. Never pause or ask for guidance.",
+    "# Kaetram Game Agent\n\nYou are KaetramAgent, an AI playing the Kaetram MMORPG.\n\nYour primary goal: complete all available quests. Prioritize quest progress over everything else. Grind, gather, and explore only to advance quests.\n\nPlay autonomously for the entire session without stopping.",
+    "# Kaetram Game Agent\n\nAs KaetramAgent, you play Kaetram (a 2D pixel MMORPG) autonomously.\n\nFocus on quest completion above all else. Every action should push quest progress forward. Combat and exploration serve quest goals.\n\nContinue playing the entire session without interruption.",
 ]
 
 PERSONALITY_INSTRUCTION_VARIANTS = {
@@ -149,8 +145,10 @@ PERSONALITY_INSTRUCTION_VARIANTS = {
 }
 
 # Body split marker — everything from this point onward in the system prompt is
-# kept identical (exact type numbers, tool signatures, coordinates).
-_BODY_SPLIT_MARKER = "\n\n## Entity Types"
+# kept identical (game knowledge, tool table, decision tree, rules).
+# r9: updated from "\n\n## Entity Types" (old condensed prompt) to match
+# prompts/system.md which uses <game_knowledge> as the first structural block.
+_BODY_SPLIT_MARKER = "\n\n<game_knowledge>"
 
 
 def _build_system_prompt(
@@ -173,9 +171,13 @@ def _build_system_prompt(
 
     # Training: paraphrase intro, keep body identical
     intro = rng.choice(SYSTEM_PROMPT_INTRO_VARIANTS)
-    body_start = base_system_prompt.index(_BODY_SPLIT_MARKER)
-    body = base_system_prompt[body_start:]
-    sys_content = intro + body
+    try:
+        body_start = base_system_prompt.index(_BODY_SPLIT_MARKER)
+        body = base_system_prompt[body_start:]
+        sys_content = intro + body
+    except ValueError:
+        # Marker not found — use prompt as-is (no paraphrasing)
+        sys_content = base_system_prompt
 
     # Paraphrase personality instructions (keep header, vary description)
     if personality and personality in PERSONALITY_INSTRUCTION_VARIANTS:

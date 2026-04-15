@@ -153,7 +153,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
                 return self.send_error(403)
             state_dir = os.path.join("/tmp", f"kaetram_agent_{idx}", "state")
-            if filename in ("live_screen.jpg", "screenshot.png"):
+            if filename in ("live_screen.jpg", "live_screen.png", "screenshot.png"):
                 filepath = self._newest_screenshot(state_dir)
             else:
                 filepath = os.path.join(state_dir, filename)
@@ -161,7 +161,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
             filename = os.path.basename(raw)
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
                 return self.send_error(403)
-            if filename in ("live_screen.jpg", "screenshot.png"):
+            if filename in ("live_screen.jpg", "live_screen.png", "screenshot.png"):
                 filepath = self._newest_screenshot(STATE_DIR)
             else:
                 filepath = os.path.join(STATE_DIR, filename)

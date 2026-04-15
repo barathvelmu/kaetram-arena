@@ -99,7 +99,7 @@ LOGGING_STEPS = 10
 MASK_INPUT_TOKENS = True
 
 # Output
-EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r8"
+EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r9"
 
 
 # ---------------------------------------------------------------------------
@@ -294,11 +294,15 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
 
                 messages.append(m)
 
-            # Apply chat template with tools
+            # Apply chat template WITHOUT tools= parameter.
+            # r9 fix: the system prompt (from metadata.json) already contains the
+            # <tools> markdown table from prompts/system.md. Passing tools= here
+            # would inject a SECOND native tool block (1,725 extra tokens) in a
+            # different format, creating double definitions. At inference,
+            # play_qwen.py also doesn't pass tools= to the API.
             try:
                 formatted = tokenizer.apply_chat_template(
                     messages,
-                    tools=tool_definitions,
                     tokenize=False,
                     add_generation_prompt=False,
                 )

@@ -40,3 +40,6 @@ dataset/session*/
 # Ephemeral runtime state
 .turn_counter
 state/
+
+# Kaetram Learn (separate repo)
+kaetram-learn/

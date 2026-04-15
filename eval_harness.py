@@ -119,8 +119,8 @@ def reset_player_db(username: str) -> bool:
 # System prompt resolution
 # ---------------------------------------------------------------------------
 
-def resolve_system_prompt(project_dir: str, username: str) -> str:
-    """Resolve system.md template with game knowledge, no personality (neutral eval)."""
+def resolve_system_prompt(project_dir: str, username: str, personality: str = "") -> str:
+    """Resolve system.md template with game knowledge and optional personality."""
     system_path = os.path.join(project_dir, "prompts", "system.md")
     knowledge_path = os.path.join(project_dir, "prompts", "game_knowledge.md")
 
@@ -131,10 +131,20 @@ def resolve_system_prompt(project_dir: str, username: str) -> str:
         with open(knowledge_path) as f:
             knowledge = f.read()
 
+    # Load personality block if specified
+    personality_block = ""
+    if personality:
+        pers_path = os.path.join(project_dir, "prompts", "personalities", f"{personality}.md")
+        if os.path.isfile(pers_path):
+            with open(pers_path) as f:
+                personality_block = f.read()
+            print(f"  Personality: {personality} ({len(personality_block)} chars)")
+        else:
+            print(f"  WARNING: personality file not found: {pers_path}")
+
     prompt = prompt.replace("__USERNAME__", username)
     prompt = prompt.replace("__GAME_KNOWLEDGE_BLOCK__", knowledge)
-    # No personality for neutral eval — remove the placeholder line
-    prompt = prompt.replace("__PERSONALITY_BLOCK__", "")
+    prompt = prompt.replace("__PERSONALITY_BLOCK__", personality_block)
     prompt = prompt.replace("__PROJECT_DIR__", project_dir)
     prompt = prompt.replace("__SERVER_PORT__", "")
     return prompt
@@ -247,6 +257,9 @@ def _parse_tool_json(content: str) -> dict | None:
         json_str = content.split(": ", 1)[1]
     else:
         json_str = content
+    # observe results append ASCII_MAP after the JSON — strip it before parsing
+    if "\n\nASCII_MAP:" in json_str:
+        json_str = json_str.split("\n\nASCII_MAP:")[0]
     try:
         return json.loads(json_str)
     except (json.JSONDecodeError, ValueError):
@@ -310,7 +323,8 @@ def compute_episode_metrics(log_entries: list[dict]) -> dict:
 
             # --- Attack results: kills, HP, positions ---
             post = parsed.get("post_attack", {})
-            if post.get("killed"):
+            has_error = "error" in parsed
+            if post.get("killed") and not has_error:
                 mob_name = parsed.get("attacking", "Unknown")
                 kills += 1
                 kills_by_mob[mob_name] += 1
@@ -430,6 +444,7 @@ def run_model_eval(
     username: str,
     server_port: str,
     resume_from: int = 0,
+    personality: str = "",
 ) -> dict:
     """Run all episodes for one model. Returns full results dict."""
     scenario_cfg = SCENARIOS[scenario]
@@ -439,7 +454,7 @@ def run_model_eval(
     model_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Resolve system prompt once, write to temp file
-    prompt_text = resolve_system_prompt(project_dir, username)
+    prompt_text = resolve_system_prompt(project_dir, username, personality)
     prompt_file = model_output_dir / "system_prompt.md"
     prompt_file.write_text(prompt_text)
 
@@ -731,6 +746,11 @@ Examples:
         "--parallel", action="store_true",
         help="Run all models in parallel (each in its own subprocess with isolated game server)",
     )
+    parser.add_argument(
+        "--personality", default="",
+        choices=["", "aggressive", "methodical", "curious"],
+        help="Inject a personality block into the system prompt (default: none)",
+    )
     args = parser.parse_args()
 
     # Parse model definitions
@@ -800,7 +820,9 @@ Examples:
             ]
             if args.resume:
                 cmd.extend(["--resume", str(args.resume)])
-            print(f"  {model_name}: port={model_cfg['server_port']} user={model_cfg['username']} log={log_path}")
+            if args.personality:
+                cmd.extend(["--personality", args.personality])
+            print(f"  {model_name}: port={model_cfg['server_port']} user={model_cfg['username']} personality={args.personality or 'none'} log={log_path}")
             procs[model_name] = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT)
             log_files[model_name] = log_f
 
@@ -851,6 +873,7 @@ Examples:
                 username=model_cfg.get("username", args.username or "evalbot"),
                 server_port=model_cfg.get("server_port", args.server_port),
                 resume_from=args.resume,
+                personality=args.personality,
             )
             all_results[model_name] = results
 

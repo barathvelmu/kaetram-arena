@@ -413,8 +413,9 @@
   .qwen-panel-header.finetuned { color: var(--cyan); }
   .qwen-panel-header.base { color: var(--amber); }
   .qwen-stream {
-    position: relative; background: #050608; flex: 0 0 45%;
+    position: relative; background: #050608; flex: 1 1 auto;
     display: flex; align-items: center; justify-content: center; overflow: hidden;
+    min-height: 250px;
   }
   .qwen-stream img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .qwen-stream .no-signal { color: #2a2d3a; font-size: 16px; font-family: var(--font-display); position: absolute; letter-spacing: 2px; }
@@ -483,6 +484,22 @@
   .eval-empty { color: var(--text-dim); text-align: center; padding: 60px 20px; font-size: 14px; }
   .eval-meta { display: flex; gap: 24px; flex-wrap: wrap; font-size: 11px; color: var(--text-dim); }
   .eval-meta span { background: rgba(201,175,120,0.06); padding: 4px 10px; border-radius: 4px; }
+
+  /* ── Mobile responsive fixes ── */
+  @media (max-width: 800px) {
+    .qwen-split { grid-template-columns: 1fr; height: auto; }
+    .qwen-panel { min-height: 55vh; border-right: none; border-bottom: 1px solid var(--border); }
+    .qwen-panel:last-child { border-bottom: none; }
+    .inv-grid { grid-template-columns: repeat(3, 1fr); }
+    .drawer { width: 100%; max-width: 100%; }
+    .tab { padding: 11px 14px; font-size: 9px; letter-spacing: 0.8px; }
+    header h1 { font-size: 14px; letter-spacing: 1.5px; }
+    header h1 span { display: none; }
+    main { padding: 12px 10px; }
+    .eval-container { padding: 10px; }
+    .eval-table { font-size: 11px; }
+    .eval-table th, .eval-table td { padding: 6px 8px; }
+  }
 </style>
 </head>
 <body>
@@ -652,7 +669,7 @@
   <!-- ===== EVAL TAB ===== -->
   <div class="tab-content" id="tab-eval">
     <!-- Live eval view (side-by-side streams while eval is running) -->
-    <div class="qwen-split" id="eval-live" style="display:none; height: 45vh;">
+    <div class="qwen-split" id="eval-live" style="display:none;">
       <div class="qwen-panel">
         <div class="qwen-panel-header finetuned">
           <span class="qwen-status-dot stale" id="ev-dot-sft"></span>

@@ -407,10 +407,9 @@
   .agent-selector button:hover { border-color: rgba(201,175,120,0.2); color: var(--text); }
   .agent-selector button.active { border-color: var(--gold); color: var(--gold); background: rgba(201,175,120,0.08); }
 
-  /* ── Qwen Live Tab (split screen) ── */
+  /* ── Qwen Live Tab ── */
   .qwen-split { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 130px); gap: 0; }
-  .qwen-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
-  .qwen-panel:last-child { border-right: none; }
+  .qwen-panel { display: flex; flex-direction: column; overflow: hidden; }
   .qwen-panel-header {
     padding: 8px 14px; border-bottom: 1px solid var(--border);
     font-size: 11px; font-weight: 600; font-family: var(--font-display); letter-spacing: 1px;
@@ -619,9 +618,6 @@
     .gallery { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
 
     /* Qwen split */
-    .qwen-split { grid-template-columns: 1fr; height: auto; }
-    .qwen-panel { min-height: 45vh; border-right: none; border-bottom: 1px solid var(--border); }
-    .qwen-panel:last-child { border-bottom: none; }
     .qwen-panel-header { padding: 6px 10px; font-size: 10px; flex-wrap: wrap; gap: 6px; }
     .qwen-overlay { padding: 6px 10px; gap: 8px; }
     .qwen-stream { min-height: 200px; }
@@ -783,41 +779,21 @@
 
   <!-- ===== QWEN LIVE TAB (split screen: finetuned vs base) ===== -->
   <div class="tab-content" id="tab-qwen">
-    <div class="qwen-split">
-      <!-- LEFT: Finetuned (agent_4) -->
-      <div class="qwen-panel" id="qp-ft">
-        <div class="qwen-panel-header finetuned">
-          <span class="qwen-status-dot stale" id="qw-dot-ft"></span>
-          <span class="qwen-badge ft">r8-SFT FINETUNED</span>
-          <span class="qval ft" id="qw-hp-ft">?/?</span>
-          <span class="qlabel">LV</span><span class="qval ft" id="qw-lv-ft">?</span>
-          <span class="qlabel">POS</span><span class="qval ft" id="qw-pos-ft">?,?</span>
-          <span class="qlabel">T</span><span class="qval ft" id="qw-turn-ft">0</span>
-        </div>
-        <div class="qwen-stream">
-          <img id="qw-img-ft" src="" alt="Finetuned stream">
-          <div class="no-signal" id="qw-nosig-ft">FINETUNED — WAITING</div>
-        </div>
-        <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
-        <div class="qwen-actions collapsed" id="qw-log-ft"></div>
+    <div class="qwen-panel" id="qp-ft" style="height:calc(100vh - 130px);display:flex;flex-direction:column;overflow:hidden;">
+      <div class="qwen-panel-header finetuned">
+        <span class="qwen-status-dot stale" id="qw-dot-ft"></span>
+        <span class="qwen-badge ft">r8-SFT FINETUNED</span>
+        <span class="qval ft" id="qw-hp-ft">?/?</span>
+        <span class="qlabel">LV</span><span class="qval ft" id="qw-lv-ft">?</span>
+        <span class="qlabel">POS</span><span class="qval ft" id="qw-pos-ft">?,?</span>
+        <span class="qlabel">T</span><span class="qval ft" id="qw-turn-ft">0</span>
       </div>
-      <!-- RIGHT: Base (agent_5) -->
-      <div class="qwen-panel" id="qp-base">
-        <div class="qwen-panel-header base">
-          <span class="qwen-status-dot stale" id="qw-dot-base"></span>
-          <span class="qwen-badge base">BASE (unfinetuned)</span>
-          <span class="qval base" id="qw-hp-base">?/?</span>
-          <span class="qlabel">LV</span><span class="qval base" id="qw-lv-base">?</span>
-          <span class="qlabel">POS</span><span class="qval base" id="qw-pos-base">?,?</span>
-          <span class="qlabel">T</span><span class="qval base" id="qw-turn-base">0</span>
-        </div>
-        <div class="qwen-stream">
-          <img id="qw-img-base" src="" alt="Base stream">
-          <div class="no-signal" id="qw-nosig-base">BASE — WAITING</div>
-        </div>
-        <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
-        <div class="qwen-actions collapsed" id="qw-log-base"></div>
+      <div class="qwen-stream" style="flex:1;">
+        <img id="qw-img-ft" src="" alt="Finetuned stream">
+        <div class="no-signal" id="qw-nosig-ft">FINETUNED — WAITING</div>
       </div>
+      <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
+      <div class="qwen-actions collapsed" id="qw-log-ft"></div>
     </div>
   </div>
 
@@ -1879,57 +1855,51 @@ function updateEvalTabIndicator(running) {
   }
 }
 
-// ── Qwen Live Tab (split screen) ──
+// ── Qwen Live Tab (finetuned agent_4 only) ──
 (function() {
   let qwenActive = false;
-
-  // Panel state for each agent
-  function makePanel(agentId, prefix) {
-    return {
-      id: agentId,
-      img: document.getElementById('qw-img-' + prefix),
-      noSig: document.getElementById('qw-nosig-' + prefix),
-      dot: document.getElementById('qw-dot-' + prefix),
-      hp: document.getElementById('qw-hp-' + prefix),
-      lv: document.getElementById('qw-lv-' + prefix),
-      pos: document.getElementById('qw-pos-' + prefix),
-      turn: document.getElementById('qw-turn-' + prefix),
-      log: document.getElementById('qw-log-' + prefix),
-      count: 0
-    };
-  }
-  const panels = [makePanel(4, 'ft'), makePanel(5, 'base')];
+  const p = {
+    id: 4,
+    img: document.getElementById('qw-img-ft'),
+    noSig: document.getElementById('qw-nosig-ft'),
+    dot: document.getElementById('qw-dot-ft'),
+    hp: document.getElementById('qw-hp-ft'),
+    lv: document.getElementById('qw-lv-ft'),
+    pos: document.getElementById('qw-pos-ft'),
+    turn: document.getElementById('qw-turn-ft'),
+    log: document.getElementById('qw-log-ft'),
+    count: 0
+  };
 
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      if (tab.dataset.tab === 'qwen') startStreams();
-      else stopStreams();
+      if (tab.dataset.tab === 'qwen') startStream();
+      else stopStream();
     });
   });
 
-  function startStreams() {
+  function startStream() {
     if (qwenActive) return;
     qwenActive = true;
-    panels.forEach(p => {
-      p.img.src = '/stream/agent_' + p.id + '?t=' + Date.now();
-      p.img.style.display = '';
-      p.noSig.style.display = 'none';
-      p.img.onerror = function() {
-        p.noSig.style.display = '';
-        p.img.style.display = 'none';
-        setTimeout(() => {
-          if (qwenActive) { p.img.src = '/stream/agent_' + p.id + '?t=' + Date.now(); p.img.style.display = ''; }
-        }, 3000);
-      };
-    });
+    p.img.src = '/stream/agent_' + p.id + '?t=' + Date.now();
+    p.img.style.display = '';
+    p.noSig.style.display = 'none';
+    p.img.onerror = function() {
+      p.noSig.style.display = '';
+      p.img.style.display = 'none';
+      setTimeout(() => {
+        if (qwenActive) { p.img.src = '/stream/agent_' + p.id + '?t=' + Date.now(); p.img.style.display = ''; }
+      }, 3000);
+    };
   }
 
-  function stopStreams() {
+  function stopStream() {
     qwenActive = false;
-    panels.forEach(p => { p.img.src = ''; });
+    p.img.src = '';
   }
 
-  async function pollPanel(p) {
+  async function poll() {
+    if (!qwenActive) return;
     try {
       const res = await fetch('/api/qwen-log?agent=' + p.id);
       if (!res.ok) return;
@@ -1965,12 +1935,7 @@ function updateEvalTabIndicator(running) {
     } catch(e) {}
   }
 
-  async function pollAll() {
-    if (!qwenActive) return;
-    await Promise.all(panels.map(p => pollPanel(p)));
-  }
-
-  setInterval(pollAll, 500);
+  setInterval(poll, 500);
 })();
 
 // === Eval Tab (live + results) ===

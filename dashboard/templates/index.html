@@ -445,10 +445,14 @@
   .qwen-actions { overflow-y: auto; padding: 4px 0; }
   .qwen-actions.collapsed { max-height: 0; overflow: hidden; }
   .qwen-actions.expanded { max-height: 300px; }
-  .qwen-action { padding: 5px 14px; border-bottom: 1px solid rgba(201,175,120,0.06); font-size: 10px; }
+  .qwen-action { padding: 5px 14px; border-bottom: 1px solid rgba(201,175,120,0.06); font-size: 10px; cursor: pointer; }
+  .qwen-action:hover { background: rgba(201,175,120,0.04); }
   .qwen-action .qa-turn { color: #363848; margin-right: 6px; }
   .qwen-action .qa-text { color: var(--green); }
   .qwen-action .qa-text.warp { color: var(--cyan); }
+  .qwen-action .qa-full { display: none; margin-top: 4px; padding: 6px 8px; background: rgba(0,0,0,0.3); border-radius: 4px; font-family: monospace; font-size: 9px; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
+  .qwen-action.open .qa-full { display: block; }
+  .qwen-action.open .qa-preview { color: var(--gold); }
   .log-toggle { cursor: pointer; padding: 4px 14px; font-size: 10px; color: var(--text-dim); background: rgba(0,0,0,0.2); border: none; width: 100%; text-align: left; user-select: none; }
   .log-toggle:hover { color: var(--gold); }
   .log-toggle::before { content: '\25B6'; margin-right: 6px; font-size: 8px; display: inline-block; transition: transform 0.15s; }
@@ -1814,7 +1818,10 @@ async function pollEvalLive() {
       const ps = gs.player_stats || {};
       document.getElementById(p.dot).className = 'qwen-status-dot ' + (m.active ? 'live' : 'stale');
       document.getElementById(p.hp).textContent = (ps.hp || '?') + '/' + (ps.max_hp || '?');
-      document.getElementById(p.ep).textContent = m.completed_episodes !== undefined ? (m.completed_episodes + '/' + (m.total_episodes || '?')) : m.episode || '0';
+      const epDone = m.completed_episodes || 0;
+      const epTotal = m.total_episodes || '?';
+      const subSess = m.sub_sessions || 0;
+      document.getElementById(p.ep).textContent = epDone + '/' + epTotal + ' (ss' + subSess + ')';
       document.getElementById(p.turn).textContent = m.turn || 0;
 
       // Live metrics from game_state + log entries
@@ -1872,8 +1879,10 @@ async function pollEvalLive() {
           div.className = 'qwen-action';
           const role = e.role || '';
           const label = role === 'tool' ? 'TOOL' : 'AI';
-          const text = (e.content || '').slice(0, 150);
-          div.innerHTML = '<span class="qa-turn">[' + (e.turn || i) + '] ' + label + '</span> <span class="qa-text' + (role === 'tool' ? ' warp' : '') + '">' + esc(text) + '</span>';
+          const full = e.content || '';
+          const preview = full.slice(0, 150) + (full.length > 150 ? '...' : '');
+          div.onclick = function() { this.classList.toggle('open'); };
+          div.innerHTML = '<span class="qa-turn">[' + (e.turn || i) + '] ' + label + '</span> <span class="qa-text qa-preview' + (role === 'tool' ? ' warp' : '') + '">' + esc(preview) + '</span>' + (full.length > 150 ? '<div class="qa-full">' + esc(full) + '</div>' : '');
           logEl.appendChild(div);
         }
         if (logEl.classList.contains('expanded')) logEl.scrollTop = logEl.scrollHeight;

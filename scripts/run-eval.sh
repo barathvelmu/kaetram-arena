@@ -13,14 +13,19 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 EPISODES=3
 SCENARIO=D
+PERSONALITY=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --episodes)  EPISODES="$2"; shift 2;;
-    --scenario)  SCENARIO="$2"; shift 2;;
-    *)           shift;;
+    --episodes)     EPISODES="$2"; shift 2;;
+    --scenario)     SCENARIO="$2"; shift 2;;
+    --personality)  PERSONALITY="$2"; shift 2;;
+    *)              shift;;
   esac
 done
+
+PERS_FLAG=""
+[ -n "$PERSONALITY" ] && PERS_FLAG="--personality $PERSONALITY"
 
 # ── Cleanup ──
 echo "Cleaning up previous eval runs..."
@@ -82,18 +87,18 @@ echo ""
 PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/eval_harness.py" \
   --models "r8-sft=https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1" \
   --episodes "$EPISODES" --scenario "$SCENARIO" \
-  --username evalbotSFT --server-port 9001 \
+  --username evalbotSFT --server-port 9001 $PERS_FLAG \
   > /tmp/eval_r8sft.log 2>&1 &
 SFT_PID=$!
-echo "  r8-SFT eval started (PID $SFT_PID, log: /tmp/eval_r8sft.log)"
+echo "  r8-SFT eval started (PID $SFT_PID, log: /tmp/eval_r8sft.log, personality: ${PERSONALITY:-none})"
 
 PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/eval_harness.py" \
   --models "base=https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1" \
   --episodes "$EPISODES" --scenario "$SCENARIO" \
-  --username evalbotBase --server-port 9041 \
+  --username evalbotBase --server-port 9041 $PERS_FLAG \
   > /tmp/eval_base.log 2>&1 &
 BASE_PID=$!
-echo "  Base eval started (PID $BASE_PID, log: /tmp/eval_base.log)"
+echo "  Base eval started (PID $BASE_PID, log: /tmp/eval_base.log, personality: ${PERSONALITY:-none})"
 
 echo ""
 echo "Both evals running in parallel."

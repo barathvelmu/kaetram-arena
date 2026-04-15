@@ -281,7 +281,7 @@ def compute_episode_metrics(log_entries: list[dict]) -> dict:
     max_level = 1
     max_hp = 69  # default Level 1
     positions = set()
-    quests_completed = 0
+    quests_completed_set = set()
     quests_accepted_set = set()
 
     for entry in log_entries:
@@ -343,7 +343,8 @@ def compute_episode_metrics(log_entries: list[dict]) -> dict:
                             if stage > 0 and qkey:
                                 quests_accepted_set.add(qkey)
                             if stage == 9999 or q.get("finished") or q.get("completed"):
-                                quests_completed += 1
+                                if qkey:
+                                    quests_completed_set.add(qkey)
                 elif isinstance(obs_quests, dict):
                     for qkey, qdata in obs_quests.items():
                         if isinstance(qdata, dict):
@@ -351,7 +352,7 @@ def compute_episode_metrics(log_entries: list[dict]) -> dict:
                             if stage > 0:
                                 quests_accepted_set.add(qkey)
                             if stage == 9999 or qdata.get("finished") or qdata.get("completed"):
-                                quests_completed += 1
+                                quests_completed_set.add(qkey)
 
             # --- Navigate / move results: position ---
             if content.startswith("navigate:") or content.startswith("move:"):
@@ -384,7 +385,7 @@ def compute_episode_metrics(log_entries: list[dict]) -> dict:
         "level_delta": level_delta,
         "deaths": deaths,
         "survived": deaths == 0,
-        "quests_completed": quests_completed,
+        "quests_completed": len(quests_completed_set),
         "quests_accepted": len(quests_accepted_set),
         "unique_positions": len(positions),
         "action_counts": dict(action_counts),
@@ -505,6 +506,12 @@ def run_model_eval(
         state_dir.mkdir(parents=True, exist_ok=True)
         for f in state_dir.glob("*"):
             if f.is_file() and f.name not in ("live_screen.jpg", "mcp_server.log"):
+                f.unlink()
+
+        # Clear sub-session logs from previous episode
+        log_dir = Path(sandbox) / "logs"
+        if log_dir.is_dir():
+            for f in log_dir.glob("session_*.log"):
                 f.unlink()
 
         # 2. Run episode with sub-session continuation

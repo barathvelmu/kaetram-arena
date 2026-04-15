@@ -674,22 +674,23 @@ class APIMixin:
                 except Exception:
                     pass
 
-            # Latest session log entries
+            # Latest session log entries (read all sub-session logs for current episode)
             if os.path.isdir(log_dir):
                 logs = sorted(_glob.glob(os.path.join(log_dir, "*.log")), key=os.path.getmtime)
                 if logs:
-                    log_path = logs[-1]
-                    model["episode"] = len(logs)
+                    model["sub_sessions"] = len(logs)
+                    # Read entries from ALL sub-session logs (they accumulate within one episode)
+                    all_entries = []
                     try:
-                        with open(log_path) as f:
-                            entries = []
-                            for line in f:
-                                try:
-                                    entries.append(json.loads(line))
-                                except json.JSONDecodeError:
-                                    continue
-                            model["entries"] = entries[-100:]
-                            model["turn"] = len(entries) // 2
+                        for lp in logs:
+                            with open(lp) as f:
+                                for line in f:
+                                    try:
+                                        all_entries.append(json.loads(line))
+                                    except json.JSONDecodeError:
+                                        continue
+                        model["entries"] = all_entries[-100:]
+                        model["turn"] = len([e for e in all_entries if e.get("role") == "assistant"])
                     except Exception:
                         pass
 

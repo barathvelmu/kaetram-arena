@@ -3,6 +3,8 @@
 <head>
 <title>Kaetram AI Agent — Live Dashboard</title>
 <link rel="icon" type="image/png" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/favicon.ico">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -524,8 +526,9 @@
   .eval-bar-fill.base { background: linear-gradient(90deg, rgba(201,175,120,0.5), var(--amber)); }
   .eval-bar-fill.treat { background: linear-gradient(90deg, rgba(90,184,201,0.5), var(--cyan)); }
   .eval-bar-pct {
-    width: 65px; text-align: right; padding-left: 8px; color: var(--dim);
+    min-width: 75px; text-align: right; padding-left: 8px; color: var(--dim);
     flex-shrink: 0; font-variant-numeric: tabular-nums; font-size: 10px;
+    white-space: nowrap;
   }
   .eval-empty { color: var(--dim); text-align: center; padding: 60px 20px; font-size: 13px; line-height: 1.8; }
   .eval-empty code { background: rgba(201,175,120,0.06); padding: 2px 6px; border-radius: 3px; color: var(--green); border: 1px solid rgba(201,175,120,0.08); }
@@ -540,7 +543,7 @@
   /* Tablet */
   @media (max-width: 1024px) {
     .eval-bar-label { width: 80px; font-size: 9px; }
-    .eval-bar-pct { width: 55px; font-size: 9px; }
+    .eval-bar-pct { min-width: 60px; font-size: 9px; white-space: nowrap; }
     .agent-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
   }
 
@@ -633,7 +636,7 @@
     .eval-delta-badge { font-size: 9px; padding: 2px 6px; }
     .eval-bar-row { font-size: 10px; margin: 4px 0; }
     .eval-bar-label { width: 70px; font-size: 9px; padding-right: 6px; }
-    .eval-bar-pct { width: 50px; font-size: 9px; padding-left: 4px; }
+    .eval-bar-pct { min-width: 55px; font-size: 9px; padding-left: 4px; white-space: nowrap; }
     .eval-meta { gap: 6px; font-size: 10px; }
     .eval-meta span { padding: 4px 8px; }
     /* Eval side-by-side model cards → stack on mobile */

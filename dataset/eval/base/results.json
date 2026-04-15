@@ -1,0 +1,223 @@
+{
+  "meta": {
+    "model": "base",
+    "endpoint": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
+    "scenario": "D",
+    "scenario_name": "Open Play",
+    "max_turns": 300,
+    "total_episodes": 3,
+    "ok_episodes": 3,
+    "timestamp": "2026-04-15T05:54:24.491111",
+    "git_sha": "05a324d"
+  },
+  "episodes": [
+    {
+      "episode": 1,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 5912.7,
+      "returncode": 0,
+      "sub_sessions": 15,
+      "log_file": "dataset/eval/base/episode_001.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 16,
+      "kills_by_mob": {
+        "Unknown": 5,
+        "Batterfly": 1,
+        "Rat": 10
+      },
+      "xp_estimated": 380,
+      "xp_per_turn": 1.2667,
+      "level_reached": 1,
+      "level_delta": 0,
+      "deaths": 0,
+      "survived": true,
+      "quests_completed": 0,
+      "quests_accepted": 4,
+      "unique_positions": 57,
+      "action_counts": {
+        "observe": 69,
+        "set_attack_style": 2,
+        "warp": 4,
+        "navigate": 38,
+        "interact_npc": 24,
+        "gather": 73,
+        "attack": 63,
+        "loot": 5,
+        "equip_item": 10,
+        "buy_item": 2,
+        "eat_food": 1,
+        "talk_npc": 5,
+        "query_quest": 1,
+        "cancel_nav": 1,
+        "move": 1,
+        "click_tile": 1
+      },
+      "action_entropy": 2.8028,
+      "stuck_resets": 0,
+      "click_tiles": 1
+    },
+    {
+      "episode": 2,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 4275.4,
+      "returncode": 0,
+      "sub_sessions": 12,
+      "log_file": "dataset/eval/base/episode_002.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 22,
+      "kills_by_mob": {
+        "Rat": 21,
+        "Unknown": 1
+      },
+      "xp_estimated": 408,
+      "xp_per_turn": 1.36,
+      "level_reached": 1,
+      "level_delta": 0,
+      "deaths": 0,
+      "survived": true,
+      "quests_completed": 0,
+      "quests_accepted": 4,
+      "unique_positions": 70,
+      "action_counts": {
+        "observe": 41,
+        "interact_npc": 16,
+        "navigate": 24,
+        "warp": 2,
+        "gather": 60,
+        "equip_item": 5,
+        "attack": 135,
+        "loot": 8,
+        "talk_npc": 3,
+        "query_quest": 1,
+        "move": 5
+      },
+      "action_entropy": 2.3706,
+      "stuck_resets": 0,
+      "click_tiles": 0
+    },
+    {
+      "episode": 3,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 4564.599999999999,
+      "returncode": 0,
+      "sub_sessions": 13,
+      "log_file": "dataset/eval/base/episode_003.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 41,
+      "kills_by_mob": {
+        "Unknown": 26,
+        "Rat": 13,
+        "Snek": 1,
+        "Batterfly": 1
+      },
+      "xp_estimated": 1144,
+      "xp_per_turn": 3.8133,
+      "level_reached": 1,
+      "level_delta": 0,
+      "deaths": 0,
+      "survived": true,
+      "quests_completed": 0,
+      "quests_accepted": 4,
+      "unique_positions": 59,
+      "action_counts": {
+        "observe": 53,
+        "interact_npc": 13,
+        "navigate": 28,
+        "cancel_nav": 2,
+        "attack": 99,
+        "loot": 4,
+        "set_attack_style": 1,
+        "warp": 3,
+        "talk_npc": 1,
+        "gather": 79,
+        "buy_item": 1,
+        "equip_item": 8,
+        "eat_food": 1,
+        "query_quest": 2,
+        "drop_item": 5
+      },
+      "action_entropy": 2.5856,
+      "stuck_resets": 0,
+      "click_tiles": 0
+    }
+  ],
+  "metrics": {
+    "quest_completion_rate": [
+      0,
+      0,
+      0
+    ],
+    "xp_per_turn": [
+      1.2667,
+      1.36,
+      3.8133
+    ],
+    "survival_rate": [
+      1,
+      1,
+      1
+    ],
+    "tool_parse_rate": [
+      1.0,
+      1.0,
+      1.0
+    ],
+    "deaths_per_session": [
+      0,
+      0,
+      0
+    ],
+    "kills": [
+      16,
+      22,
+      41
+    ],
+    "xp_estimated": [
+      380,
+      408,
+      1144
+    ],
+    "level_reached": [
+      1,
+      1,
+      1
+    ],
+    "level_delta": [
+      0,
+      0,
+      0
+    ],
+    "action_entropy": [
+      2.8028,
+      2.3706,
+      2.5856
+    ],
+    "stuck_resets": [
+      0,
+      0,
+      0
+    ],
+    "click_tiles": [
+      1,
+      0,
+      0
+    ],
+    "success_rate": [
+      1,
+      1,
+      1
+    ]
+  }
+}

@@ -578,6 +578,28 @@ class APIMixin:
                 for tool, count in ep.get("action_counts", {}).items():
                     action_totals[tool] = action_totals.get(tool, 0) + count
 
+            # Per-episode summary for drill-down
+            episode_summaries = []
+            for ep in ok_eps:
+                episode_summaries.append({
+                    "episode": ep.get("episode", 0),
+                    "kills": ep.get("kills", 0),
+                    "kills_by_mob": ep.get("kills_by_mob", {}),
+                    "xp_estimated": ep.get("xp_estimated", 0),
+                    "level_reached": ep.get("level_reached", 1),
+                    "deaths": ep.get("deaths", 0),
+                    "quests_completed": ep.get("quests_completed", 0),
+                    "quests_accepted": ep.get("quests_accepted", 0),
+                    "unique_positions": ep.get("unique_positions", 0),
+                    "turns_played": ep.get("turns_played", 0),
+                    "sub_sessions": ep.get("sub_sessions", 0),
+                    "duration_seconds": ep.get("duration_seconds", 0),
+                    "action_entropy": ep.get("action_entropy", 0),
+                    "tool_parse_rate": ep.get("tool_parse_rate", 0),
+                    "click_tiles": ep.get("click_tiles", 0),
+                    "stuck_resets": ep.get("stuck_resets", 0),
+                })
+
             model_summary = {
                 "name": meta.get("model", "unknown"),
                 "scenario": meta.get("scenario", "?"),
@@ -586,13 +608,17 @@ class APIMixin:
                 "timestamp": meta.get("timestamp", ""),
                 "metrics": {},
                 "action_distribution": action_totals,
+                "episodes": episode_summaries,
             }
 
             # Compute per-metric summaries
-            for key in ["tool_parse_rate", "quest_completion_rate", "xp_per_turn",
-                        "survival_rate", "deaths_per_session", "xp_delta",
-                        "level_delta", "action_entropy", "success_rate",
-                        "stuck_resets", "click_tiles"]:
+            all_metric_keys = [
+                "tool_parse_rate", "quest_completion_rate", "xp_per_turn",
+                "survival_rate", "deaths_per_session",
+                "kills", "xp_estimated", "level_reached", "level_delta",
+                "action_entropy", "success_rate", "stuck_resets", "click_tiles",
+            ]
+            for key in all_metric_keys:
                 vals = metrics.get(key, [])
                 if vals:
                     mean = sum(vals) / len(vals)

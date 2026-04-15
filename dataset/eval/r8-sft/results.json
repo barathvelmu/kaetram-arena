@@ -7,15 +7,15 @@
     "max_turns": 300,
     "total_episodes": 3,
     "ok_episodes": 3,
-    "timestamp": "2026-04-15T04:44:34.379087",
-    "git_sha": "c7a1d29"
+    "timestamp": "2026-04-15T15:56:41.661987",
+    "git_sha": "bc3f3a0"
   },
   "episodes": [
     {
       "episode": 1,
       "status": "ok",
       "success": true,
-      "duration_seconds": 3393.4000000000005,
+      "duration_seconds": 3834.2,
       "returncode": 0,
       "sub_sessions": 11,
       "log_file": "dataset/eval/r8-sft/episode_001.jsonl",
@@ -23,47 +23,46 @@
       "tool_calls_attempted": 300,
       "tool_calls_valid": 300,
       "tool_parse_rate": 1.0,
-      "kills": 16,
+      "kills": 5,
       "kills_by_mob": {
-        "Unknown": 6,
-        "Rat": 10
+        "Rat": 4,
+        "Goblin": 1
       },
-      "xp_estimated": 360,
-      "xp_per_turn": 1.2,
-      "level_reached": 1,
-      "level_delta": 0,
-      "deaths": 0,
-      "survived": true,
+      "xp_estimated": 144,
+      "xp_per_turn": 0.48,
+      "level_reached": 9,
+      "level_delta": 8,
+      "deaths": 1,
+      "survived": false,
       "quests_completed": 0,
-      "quests_accepted": 4,
-      "unique_positions": 68,
+      "quests_accepted": 5,
+      "unique_positions": 71,
       "action_counts": {
-        "move": 22,
-        "warp": 12,
-        "observe": 34,
-        "interact_npc": 56,
-        "navigate": 51,
-        "gather": 39,
-        "equip_item": 4,
-        "click_tile": 18,
+        "warp": 6,
+        "observe": 41,
+        "equip_item": 2,
+        "attack": 52,
+        "loot": 3,
+        "interact_npc": 20,
+        "navigate": 50,
+        "gather": 84,
+        "click_tile": 12,
+        "respawn": 1,
+        "cancel_nav": 4,
+        "move": 15,
+        "set_attack_style": 2,
         "buy_item": 2,
-        "drop_item": 4,
-        "clear_combat": 4,
-        "stuck_reset": 1,
-        "cancel_nav": 3,
-        "attack": 41,
-        "talk_npc": 8,
-        "login": 1
+        "drop_item": 6
       },
-      "action_entropy": 3.2815,
-      "stuck_resets": 1,
-      "click_tiles": 18
+      "action_entropy": 2.9853,
+      "stuck_resets": 0,
+      "click_tiles": 12
     },
     {
       "episode": 2,
       "status": "ok",
       "success": true,
-      "duration_seconds": 3357.6,
+      "duration_seconds": 4086.3,
       "returncode": 0,
       "sub_sessions": 12,
       "log_file": "dataset/eval/r8-sft/episode_002.jsonl",
@@ -71,153 +70,150 @@
       "tool_calls_attempted": 300,
       "tool_calls_valid": 300,
       "tool_parse_rate": 1.0,
-      "kills": 2,
+      "kills": 4,
       "kills_by_mob": {
-        "Goblin": 2
+        "Rat": 4
       },
-      "xp_estimated": 144,
-      "xp_per_turn": 0.48,
-      "level_reached": 1,
-      "level_delta": 0,
+      "xp_estimated": 72,
+      "xp_per_turn": 0.24,
+      "level_reached": 4,
+      "level_delta": 3,
       "deaths": 1,
       "survived": false,
-      "quests_completed": 0,
-      "quests_accepted": 3,
-      "unique_positions": 55,
+      "quests_completed": 1,
+      "quests_accepted": 7,
+      "unique_positions": 57,
       "action_counts": {
-        "navigate": 67,
-        "clear_combat": 2,
-        "warp": 16,
-        "observe": 37,
-        "cancel_nav": 11,
-        "move": 54,
-        "click_tile": 31,
-        "interact_npc": 7,
-        "navigateTo": 1,
-        "set_attack_style": 2,
+        "navigate": 45,
+        "warp": 17,
+        "observe": 42,
+        "interact_npc": 19,
+        "move": 60,
+        "gather": 45,
         "equip_item": 1,
-        "attack": 26,
+        "attack": 40,
         "loot": 1,
-        "gather": 42,
-        "eat_food": 1,
+        "clear_combat": 2,
+        "set_attack_style": 1,
+        "click_tile": 4,
+        "buy_item": 22,
         "respawn": 1
       },
-      "action_entropy": 3.1024,
+      "action_entropy": 3.0744,
       "stuck_resets": 0,
-      "click_tiles": 31
+      "click_tiles": 4
     },
     {
       "episode": 3,
       "status": "ok",
       "success": true,
-      "duration_seconds": 3812.1000000000004,
+      "duration_seconds": 4622.5,
       "returncode": 0,
-      "sub_sessions": 11,
+      "sub_sessions": 13,
       "log_file": "dataset/eval/r8-sft/episode_003.jsonl",
       "turns_played": 300,
       "tool_calls_attempted": 300,
-      "tool_calls_valid": 299,
-      "tool_parse_rate": 0.9967,
-      "kills": 8,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 4,
       "kills_by_mob": {
-        "Unknown": 5,
-        "Goblin": 2,
-        "Snek": 1
+        "Rat": 4
       },
-      "xp_estimated": 374,
-      "xp_per_turn": 1.2467,
-      "level_reached": 1,
-      "level_delta": 0,
-      "deaths": 2,
+      "xp_estimated": 72,
+      "xp_per_turn": 0.24,
+      "level_reached": 8,
+      "level_delta": 7,
+      "deaths": 1,
       "survived": false,
-      "quests_completed": 0,
-      "quests_accepted": 4,
-      "unique_positions": 69,
+      "quests_completed": 2,
+      "quests_accepted": 10,
+      "unique_positions": 96,
       "action_counts": {
-        "navigate": 49,
-        "cancel_nav": 4,
-        "warp": 9,
-        "observe": 44,
-        "interact_npc": 9,
-        "move": 22,
-        "click_tile": 60,
-        "talk_npc": 2,
-        "respawn": 2,
-        "clear_combat": 1,
-        "equip_item": 2,
-        "gather": 26,
-        "attack": 63,
-        "loot": 2,
-        "stuck_reset": 1,
-        "buy_item": 1,
-        "drop_item": 1,
-        "set_attack_style": 1
+        "navigate": 61,
+        "warp": 27,
+        "observe": 62,
+        "interact_npc": 24,
+        "move": 33,
+        "attack": 23,
+        "gather": 28,
+        "equip_item": 8,
+        "talk_npc": 3,
+        "cancel_nav": 9,
+        "loot": 1,
+        "drop_item": 8,
+        "clear_combat": 3,
+        "click_tile": 4,
+        "eat_food": 1,
+        "set_attack_style": 1,
+        "respawn": 1,
+        "query_quest": 2,
+        "accept_quest": 1
       },
-      "action_entropy": 3.0745,
-      "stuck_resets": 1,
-      "click_tiles": 60
+      "action_entropy": 3.3271,
+      "stuck_resets": 0,
+      "click_tiles": 4
     }
   ],
   "metrics": {
     "quest_completion_rate": [
       0,
-      0,
-      0
+      1,
+      1
     ],
     "xp_per_turn": [
-      1.2,
       0.48,
-      1.2467
+      0.24,
+      0.24
     ],
     "survival_rate": [
-      1,
+      0,
       0,
       0
     ],
     "tool_parse_rate": [
       1.0,
       1.0,
-      0.9967
+      1.0
     ],
     "deaths_per_session": [
-      0,
-      1,
-      2
-    ],
-    "kills": [
-      16,
-      2,
-      8
-    ],
-    "xp_estimated": [
-      360,
-      144,
-      374
-    ],
-    "level_reached": [
       1,
       1,
       1
     ],
+    "kills": [
+      5,
+      4,
+      4
+    ],
+    "xp_estimated": [
+      144,
+      72,
+      72
+    ],
+    "level_reached": [
+      9,
+      4,
+      8
+    ],
     "level_delta": [
+      8,
+      3,
+      7
+    ],
+    "action_entropy": [
+      2.9853,
+      3.0744,
+      3.3271
+    ],
+    "stuck_resets": [
       0,
       0,
       0
     ],
-    "action_entropy": [
-      3.2815,
-      3.1024,
-      3.0745
-    ],
-    "stuck_resets": [
-      1,
-      0,
-      1
-    ],
     "click_tiles": [
-      18,
-      31,
-      60
+      12,
+      4,
+      4
     ],
     "success_rate": [
       1,

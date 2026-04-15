@@ -629,8 +629,12 @@ class APIMixin:
                     b_mean = sum(bv) / len(bv)
                     t_mean = sum(tv) / len(tv)
                     # Glass's delta
-                    b_sd = math.sqrt(sum((x - b_mean)**2 for x in bv) / max(1, len(bv)-1)) if len(bv) > 1 else 0.001
-                    g_delta = (t_mean - b_mean) / max(b_sd, 0.001)
+                    # Glass's delta — suppress when N < 3 (not enough data for meaningful SD)
+                    if len(bv) >= 3:
+                        b_sd = math.sqrt(sum((x - b_mean)**2 for x in bv) / (len(bv)-1))
+                        g_delta = (t_mean - b_mean) / max(b_sd, 0.001)
+                    else:
+                        g_delta = 0.0  # Not enough data
                     if direction == "lower":
                         g_delta = -g_delta
                     tier1.append({
@@ -691,6 +695,19 @@ class APIMixin:
                                         continue
                         model["entries"] = all_entries[-100:]
                         model["turn"] = len([e for e in all_entries if e.get("role") == "assistant"])
+                        # Compute cumulative stats across ALL entries (not just last 100)
+                        cum_kills = 0
+                        cum_tools = 0
+                        cum_errors = 0
+                        for e in all_entries:
+                            if e.get("role") == "tool":
+                                c = e.get("content", "")
+                                cum_tools += 1
+                                if '"error"' in c:
+                                    cum_errors += 1
+                                if '"killed": true' in c or '"killed":true' in c:
+                                    cum_kills += 1
+                        model["cumulative"] = {"kills": cum_kills, "tools": cum_tools, "errors": cum_errors}
                     except Exception:
                         pass
 

@@ -336,7 +336,7 @@ Reminder:
                 # Tool result as user message (apply_chat_template renders tool_response under user)
                 messages.append({"role": "user", "content": f"<tool_response>\n{result}\n</tool_response>"})
                 log_turn(log_file, turn, "assistant", content, [{"name": fn_name, "args": fn_args}])
-                log_turn(log_file, turn, "tool", f"{fn_name}: {result[:300]}")
+                log_turn(log_file, turn, "tool", f"{fn_name}: {result}")
 
                 # Save game state for dashboard when model calls observe
                 if fn_name == "observe" and "\n\nASCII_MAP:" in result:
@@ -368,7 +368,7 @@ Reminder:
 
                     messages.append({"role": "user", "content": f"Tool result ({fn_name}):\n{result}"})
                     log_turn(log_file, turn, "assistant", content, [{"name": fn_name, "args": fn_args}])
-                    log_turn(log_file, turn, "tool", f"{fn_name}: {result[:300]}")
+                    log_turn(log_file, turn, "tool", f"{fn_name}: {result}")
 
                     # Save game state for dashboard when model calls observe
                     if fn_name == "observe" and "\n\nASCII_MAP:" in result:

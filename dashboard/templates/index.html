@@ -1851,19 +1851,17 @@ async function pollEvalLive() {
       const lc = gs.last_combat || {};
       const lx = gs.last_xp_event || {};
 
-      // Count tool calls and errors from entries
-      let toolCalls = 0, errors = 0, kills = 0;
+      // Use cumulative stats from server (covers all entries, not just last 100)
+      const cum = m.cumulative || {};
+      let toolCalls = cum.tools || 0, errors = cum.errors || 0, kills = cum.kills || 0;
+      // Top 3 tools from visible entries (approximation — full data would need server-side)
       const toolCounts = {};
       for (const e of entries) {
         if (e.role === 'tool') {
-          const c = e.content || '';
-          const tn = c.split(':')[0];
-          if (tn) { toolCounts[tn] = (toolCounts[tn] || 0) + 1; toolCalls++; }
-          if (c.includes('"error"')) errors++;
-          if (c.includes('"killed": true') || c.includes('"killed":true')) kills++;
+          const tn = (e.content || '').split(':')[0];
+          if (tn) toolCounts[tn] = (toolCounts[tn] || 0) + 1;
         }
       }
-      // Top 3 tools
       const topTools = Object.entries(toolCounts).sort((a,b) => b[1]-a[1]).slice(0,3).map(([t,c]) => t+'='+c).join(', ');
 
       // Show live stats bar

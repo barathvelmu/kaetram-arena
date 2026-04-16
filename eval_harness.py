@@ -48,12 +48,12 @@ DEFAULT_MODELS = {
     "base": {
         "endpoint": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
         "username": "evalbotBase",
-        "server_port": "9071",
+        "server_port": "9041",
     },
     "r9-sft": {
         "endpoint": "https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1",
-        "username": "evalbotSFT",
-        "server_port": "9061",
+        "username": "evalbotR9",
+        "server_port": "9001",
     },
 }
 
@@ -266,6 +266,73 @@ def _parse_tool_json(content: str) -> dict | None:
         return None
 
 
+def _read_player_db_snapshot(username: str) -> dict | None:
+    """Read authoritative MongoDB metrics for one player."""
+    try:
+        from pymongo import MongoClient
+        from dashboard.db import COMBAT_SKILL_TYPES, _exp_to_level
+    except ImportError:
+        return None
+
+    client = MongoClient("localhost", 27017, serverSelectionTimeoutMS=2000)
+    try:
+        db = client[MONGO_DB]
+        username_lower = username.lower()
+
+        stats_doc = db["player_statistics"].find_one({"username": username_lower}, {"_id": 0, "mobKills": 1})
+        mob_kills = stats_doc.get("mobKills", {}) if stats_doc else {}
+        kills_total = sum(v for v in mob_kills.values() if isinstance(v, (int, float)))
+
+        skills_doc = db["player_skills"].find_one({"username": username_lower}, {"_id": 0, "skills": 1})
+        total_xp = 0
+        skill_levels = {}
+        if skills_doc and isinstance(skills_doc.get("skills"), list):
+            for skill in skills_doc["skills"]:
+                exp = int(skill.get("experience", 0) or 0)
+                skill_type = skill.get("type", -1)
+                total_xp += exp
+                skill_levels[skill_type] = _exp_to_level(exp)
+
+        combat_level = 1
+        for skill_type in COMBAT_SKILL_TYPES:
+            combat_level += skill_levels.get(skill_type, 1) - 1
+
+        return {
+            "kills_total": int(kills_total),
+            "xp_total": int(total_xp),
+            "level": int(combat_level),
+        }
+    except Exception:
+        return None
+    finally:
+        client.close()
+
+
+def _diff_player_db_metrics(before: dict | None, after: dict | None) -> dict:
+    """Compute delta metrics from MongoDB snapshots."""
+    before = before or {"kills_total": 0, "xp_total": 0, "level": 1}
+    after = after or {"kills_total": 0, "xp_total": 0, "level": 1}
+    return {
+        "kills_db": after["kills_total"],
+        "kills_db_delta": max(0, after["kills_total"] - before["kills_total"]),
+        "xp_db": after["xp_total"],
+        "xp_db_delta": max(0, after["xp_total"] - before["xp_total"]),
+        "level_reached_db": after["level"],
+        "level_delta_db": after["level"] - before["level"],
+    }
+
+
+def _read_player_db_snapshot_with_retry(username: str, retries: int = 5, delay: float = 1.0) -> dict | None:
+    """Retry MongoDB reads briefly to allow autosave/logout persistence."""
+    for attempt in range(retries):
+        snapshot = _read_player_db_snapshot(username)
+        if snapshot is not None:
+            return snapshot
+        if attempt < retries - 1:
+            time.sleep(delay)
+    return None
+
+
 # Known XP values per mob type (from game_knowledge.md)
 MOB_XP = {
     "Rat": 18, "Batterfly": 50, "Goblin": 72, "Snek": 80,
@@ -274,7 +341,11 @@ MOB_XP = {
 }
 
 
-def compute_episode_metrics(log_entries: list[dict]) -> dict:
+def compute_episode_metrics(
+    log_entries: list[dict],
+    db_before: dict | None = None,
+    db_after: dict | None = None,
+) -> dict:
     """Compute per-episode metrics from parsed log entries.
 
     All metrics are derived from log entries (tool call results) rather than
@@ -386,7 +457,7 @@ def compute_episode_metrics(log_entries: list[dict]) -> dict:
     level_delta = max_level - 1
     xp_per_turn = xp_estimated / max(1, turns_played)
 
-    return {
+    metrics = {
         "turns_played": turns_played,
         "tool_calls_attempted": assistant_turns,
         "tool_calls_valid": tool_calls_valid,
@@ -407,6 +478,8 @@ def compute_episode_metrics(log_entries: list[dict]) -> dict:
         "stuck_resets": stuck_resets,
         "click_tiles": click_tiles,
     }
+    metrics.update(_diff_player_db_metrics(db_before, db_after))
+    return metrics
 
 
 # ---------------------------------------------------------------------------
@@ -472,7 +545,7 @@ def run_model_eval(
     print(f"{'='*60}\n")
 
     # Ensure game server is running on the required port
-    # Uses direct node command (same as orchestrate.py)
+    # Uses direct node command (same as orchestrate.py / start-qwen.sh)
     _game_server_proc = None
     if server_port:
         import shutil
@@ -515,6 +588,7 @@ def run_model_eval(
         print(f"  Resetting MongoDB for {username}...")
         if not reset_player_db(username):
             print(f"  Warning: DB reset may have failed, continuing anyway")
+        db_before = _read_player_db_snapshot(username)
 
         # Clear sandbox state (keep live_screen.jpg and mcp_server.log for dashboard)
         state_dir = Path(sandbox) / "state"
@@ -596,7 +670,8 @@ def run_model_eval(
             for entry in all_log_entries:
                 f.write(json.dumps(entry) + "\n")
 
-        metrics = compute_episode_metrics(all_log_entries)
+        db_after = _read_player_db_snapshot_with_retry(username)
+        metrics = compute_episode_metrics(all_log_entries, db_before=db_before, db_after=db_after)
         success = check_scenario_success(scenario, metrics)
 
         episode = {
@@ -653,9 +728,13 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "deaths_per_session": [e.get("deaths", 0) for e in ok_episodes],
             # Tier 2
             "kills": [e.get("kills", 0) for e in ok_episodes],
+            "kills_db_delta": [e.get("kills_db_delta", 0) for e in ok_episodes],
             "xp_estimated": [e.get("xp_estimated", 0) for e in ok_episodes],
+            "xp_db_delta": [e.get("xp_db_delta", 0) for e in ok_episodes],
             "level_reached": [e.get("level_reached", 1) for e in ok_episodes],
             "level_delta": [e.get("level_delta", 0) for e in ok_episodes],
+            "level_reached_db": [e.get("level_reached_db", 1) for e in ok_episodes],
+            "level_delta_db": [e.get("level_delta_db", 0) for e in ok_episodes],
             "action_entropy": [e.get("action_entropy", 0) for e in ok_episodes],
             "stuck_resets": [e.get("stuck_resets", 0) for e in ok_episodes],
             "click_tiles": [e.get("click_tiles", 0) for e in ok_episodes],
@@ -896,9 +975,12 @@ Examples:
         print(f"    Tool Parse Rate:      {_mean(metrics.get('tool_parse_rate', [])):.3f}")
         print(f"    Quest Completion Rate: {_mean(metrics.get('quest_completion_rate', [])):.3f}")
         print(f"    Kills (mean):         {_mean(metrics.get('kills', [])):.1f}")
+        print(f"    Kills DB delta:       {_mean(metrics.get('kills_db_delta', [])):.1f}")
         print(f"    XP estimated (mean):  {_mean(metrics.get('xp_estimated', [])):.0f}")
+        print(f"    XP DB delta (mean):   {_mean(metrics.get('xp_db_delta', [])):.0f}")
         print(f"    XP per Turn:          {_mean(metrics.get('xp_per_turn', [])):.3f}")
         print(f"    Level reached (mean): {_mean(metrics.get('level_reached', [])):.1f}")
+        print(f"    Level DB reached:     {_mean(metrics.get('level_reached_db', [])):.1f}")
         print(f"    Survival Rate:        {_mean(metrics.get('survival_rate', [])):.3f}")
         print(f"    Deaths per Session:   {_mean(metrics.get('deaths_per_session', [])):.2f}")
         print(f"    Scenario Success:     {_mean(metrics.get('success_rate', [])):.3f}")

@@ -67,8 +67,8 @@ def _patch_qwen_chat_template(tokenizer):
     image=serve_image,
     gpu="A100",
     volumes={"/model_cache": model_cache_vol},
-    min_containers=0,
-    scaledown_window=300,
+    min_containers=1,
+    scaledown_window=600,
     timeout=300,
 )
 class Inference:
@@ -76,6 +76,7 @@ class Inference:
     def load_model(self):
         """Load the BASE Qwen3.5-9B (no finetuning)."""
         print(f"Loading BASE model {BASE_MODEL_ID}...")
+        self.loaded_model_path = BASE_MODEL_ID
         import sglang as sgl
 
         self.engine = sgl.Engine(
@@ -102,7 +103,12 @@ class Inference:
 
         @web_app.get("/health")
         async def health():
-            return {"status": "ok", "model": BASE_MODEL_ID, "variant": "base"}
+            return {
+                "status": "ok",
+                "model": BASE_MODEL_ID,
+                "variant": "base",
+                "loaded_model_path": getattr(self, "loaded_model_path", None),
+            }
 
         @web_app.get("/v1/models")
         async def list_models():
@@ -114,12 +120,16 @@ class Inference:
             import re as _re
             body = await request.json()
             messages = body.get("messages", [])
+            tools = body.get("tools")
             temperature = body.get("temperature", 0.7)
             max_tokens = body.get("max_tokens", 512)
             top_p = body.get("top_p", 0.9)
 
             prompt = self.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
+                messages,
+                tools=tools,
+                tokenize=False,
+                add_generation_prompt=True,
             )
 
             output = await self.engine.async_generate(

@@ -14,8 +14,7 @@
 #   ./scripts/restart-agent.sh 2            # 2 agents, 24 hours
 #   ./scripts/restart-agent.sh 4 8          # 4 agents, 8 hours
 #   ./scripts/restart-agent.sh 4 0          # 4 agents, no time limit
-#   ./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --efficient 1
-#   ./scripts/restart-agent.sh --aggressive 2 --efficient 2 --hours 0
+#   ./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1
 
 set -euo pipefail
 
@@ -28,7 +27,6 @@ MAX_BUDGET=""
 N_AGGRESSIVE=""
 N_METHODICAL=""
 N_CURIOUS=""
-N_EFFICIENT=""
 N_CLAUDE=""
 N_CODEX=""
 N_GEMINI=""
@@ -109,7 +107,6 @@ if $HAS_PERSONALITY; then
   [ -n "$N_AGGRESSIVE" ] && [ "$N_AGGRESSIVE" -gt 0 ] && echo "  Aggressive:  $N_AGGRESSIVE"
   [ -n "$N_METHODICAL" ] && [ "$N_METHODICAL" -gt 0 ] && echo "  Methodical:  $N_METHODICAL"
   [ -n "$N_CURIOUS" ] && [ "$N_CURIOUS" -gt 0 ] && echo "  Curious:     $N_CURIOUS"
-  [ -n "$N_EFFICIENT" ] && [ "$N_EFFICIENT" -gt 0 ] && echo "  Efficient:   $N_EFFICIENT"
   echo "  Total:    $TOTAL_AGENTS"
 else
   echo "  Agents: $TOTAL_AGENTS (round-robin personalities)"

@@ -40,7 +40,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --codex          Switch agent to Codex CLI"
       echo "  --kimi           Switch agent to Kimi CLI"
       echo "  --qwen-code      Switch agent to Qwen Code CLI"
-      echo "  --personality X  Change personality (aggressive/methodical/curious/efficient)"
+      echo "  --personality X  Change personality (aggressive/methodical/curious)"
       exit 0;;
     *)
       if [ -z "$AGENT_ID" ] && [[ "$1" =~ ^[0-9]+$ ]]; then
@@ -69,12 +69,12 @@ fi
 if [ -f "$METADATA" ]; then
   CUR_USERNAME=$(python3 -c "import json; print(json.load(open('$METADATA')).get('username','Agent$AGENT_ID'))" 2>/dev/null || echo "Agent$AGENT_ID")
   CUR_HARNESS=$(python3 -c "import json; print(json.load(open('$METADATA')).get('harness','claude'))" 2>/dev/null || echo "claude")
-  CUR_PERSONALITY=$(python3 -c "import json; print(json.load(open('$METADATA')).get('personality','efficient'))" 2>/dev/null || echo "efficient")
+  CUR_PERSONALITY=$(python3 -c "import json; print(json.load(open('$METADATA')).get('personality','aggressive'))" 2>/dev/null || echo "aggressive")
   CUR_PORT=$(python3 -c "import json; print(json.load(open('$METADATA')).get('server_port', $((9001 + AGENT_ID * 10))))" 2>/dev/null || echo "$((9001 + AGENT_ID * 10))")
 else
   CUR_USERNAME="Agent$AGENT_ID"
   CUR_HARNESS="claude"
-  CUR_PERSONALITY="efficient"
+  CUR_PERSONALITY="aggressive"
   CUR_PORT=$((9001 + AGENT_ID * 10))
 fi
 
@@ -85,8 +85,8 @@ PERSONALITY="${NEW_PERSONALITY:-$CUR_PERSONALITY}"
 # Validate personality
 if [ -n "$NEW_PERSONALITY" ]; then
   case "$NEW_PERSONALITY" in
-    aggressive|methodical|curious|efficient) ;;
-    *) echo "ERROR: Invalid personality '$NEW_PERSONALITY'. Use: aggressive, methodical, curious, efficient" >&2; exit 1;;
+    aggressive|methodical|curious) ;;
+    *) echo "ERROR: Invalid personality '$NEW_PERSONALITY'. Use: aggressive, methodical, curious" >&2; exit 1;;
   esac
 fi
 

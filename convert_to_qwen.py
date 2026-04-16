@@ -36,7 +36,7 @@ TOOL_DEFINITIONS = [
     {"type": "function", "function": {"name": "move", "description": "Short-distance movement to nearby grid coordinates (<15 tiles).", "parameters": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}}},
     {"type": "function", "function": {"name": "interact_npc", "description": "Walk to an NPC and initiate dialogue.", "parameters": {"type": "object", "properties": {"npc_name": {"type": "string", "description": "Name of the NPC"}}, "required": ["npc_name"]}}},
     {"type": "function", "function": {"name": "talk_npc", "description": "Advance NPC dialogue by one line.", "parameters": {"type": "object", "properties": {"instance_id": {"type": "string", "description": "NPC instance ID (e.g. '1-4266948')"}}, "required": ["instance_id"]}}},
-    {"type": "function", "function": {"name": "warp", "description": "Fast travel to a known location.", "parameters": {"type": "object", "properties": {"location": {"type": "string", "description": "Location name: mudwich, crossroads, lakesworld, patsow, crullfield, undersea"}}, "required": ["location"]}}},
+    {"type": "function", "function": {"name": "warp", "description": "Fast travel to a known location.", "parameters": {"type": "object", "properties": {"location": {"type": "string", "description": "Location name: mudwich, aynor, lakesworld, crullfield, patsow, undersea"}}, "required": ["location"]}}},
     {"type": "function", "function": {"name": "accept_quest", "description": "Click the quest accept/progress button.", "parameters": {"type": "object", "properties": {}, "required": []}}},
     {"type": "function", "function": {"name": "eat_food", "description": "Consume an edible item from inventory to restore HP.", "parameters": {"type": "object", "properties": {"slot": {"type": "integer", "description": "Inventory slot number"}}, "required": ["slot"]}}},
     {"type": "function", "function": {"name": "equip_item", "description": "Equip an item from inventory.", "parameters": {"type": "object", "properties": {"slot": {"type": "integer", "description": "Inventory slot number"}}, "required": ["slot"]}}},
@@ -54,7 +54,7 @@ TOOL_DEFINITIONS = [
 ]
 
 # Warp location IDs and attack style IDs
-WARP_IDS = {"Mudwich": 0, "Crossroads": 1, "Lakesworld": 2, "Patsow": 3, "Crullfield": 4, "Undersea": 5}
+WARP_IDS = {"Mudwich": 0, "Aynor": 1, "Lakesworld": 2, "Crullfield": 3, "Patsow": 4, "Undersea": 5}
 STYLE_IDS = {"Hack": 6, "Chop": 7, "Defensive": 3, "Stab": 1, "Slash": 2}
 
 # System prompt: load the ACTUAL inference prompt (prompts/system.md + game_knowledge.md)
@@ -94,8 +94,24 @@ PERSONALITY_SUFFIXES = {
     "aggressive": "\n\n## Playstyle: AGGRESSIVE\nPrioritize combat above all. Push into harder zones and fight mobs at the edge of your capability. Accept death as part of progression — re-engage immediately after respawn.",
     "methodical": "\n\n## Playstyle: METHODICAL\nPrepare thoroughly before advancing. Complete quests in order, gather resources, build skills. Keep HP above 60% and always carry food before entering dangerous areas.",
     "curious": "\n\n## Playstyle: CURIOUS\nExplore the world broadly. Talk to every NPC, enter every building, warp to new locations. Discovery matters more than efficiency — find quests and areas others miss.",
-    "efficient": "\n\n## Playstyle: EFFICIENT\nOptimize quest completion. Accept multiple quests, batch objectives, minimize travel. No wasted turns — every action should progress toward a quest or level goal.",
 }
+
+LOGIN_LOOP_RESULT_MARKERS = (
+    "game did not load",
+    "browser/context closed",
+    "connection closed",
+    "login failed",
+)
+
+LOGIN_LOOP_REASONING_MARKERS = (
+    "login",
+    "mcp server",
+    "playwright",
+    "websocket",
+    "register",
+    "browser",
+    "game did not load",
+)
 
 
 def _ensure_dict(val):
@@ -400,7 +416,7 @@ def score_turn(turn: dict) -> float:
         "attack": ["attack", "kill", "fight", "mob", "combat", "damage"],
         "heal": ["heal", "food", "hp", "health", "eat", "low hp"],
         "navigate": ["navigate", "walk", "go to", "head to", "move to"],
-        "warp": ["warp", "teleport", "fast travel", "mudwich", "crossroads", "lakesworld"],
+        "warp": ["warp", "teleport", "fast travel", "mudwich", "aynor", "lakesworld", "crullfield", "patsow", "undersea"],
         "interact_npc": ["npc", "talk", "quest", "interact", "dialogue"],
         "equip": ["equip", "weapon", "armor", "gear", "sword", "axe"],
         "respawn": ["dead", "died", "respawn", "death"],
@@ -1120,9 +1136,10 @@ def turn_to_conversation(turn: dict, personality: str | None = None, min_score: 
     return {"messages": msgs, "personality": personality}
 
 
-# Agents excluded from training — EFFICIENT dropped April 3 (45% click_tile, lowest levels)
-# Uses path segments (not substrings) to avoid false matches like "agent_40"
-EXCLUDED_AGENTS = {"agent_3", "agent_4"}
+# Agents excluded from training. Uses path segments (not substrings) to avoid
+# false matches like "agent_40". agent_4/agent_5 are Qwen finetuned/base
+# harness logs, not teacher Sonnet data.
+EXCLUDED_AGENTS = {"agent_3", "agent_4", "agent_5"}
 
 # Only include turns from these harnesses in training data.
 # Codex/Kimi/Qwen turns are excluded until validated.
@@ -1135,15 +1152,54 @@ def _is_excluded_agent(path: Path) -> bool:
     return any(agent in parts for agent in EXCLUDED_AGENTS)
 
 
+def _is_reasoningless_tool_turn(turn: dict) -> bool:
+    """Drop turns where a tool action was emitted without any coalesced reasoning."""
+    return bool(turn.get("action_structured")) and not str(turn.get("reasoning", "")).strip()
+
+
+def _is_login_loop_session(turns: list[dict]) -> bool:
+    """Detect sessions dominated by login/browser recovery debugging instead of gameplay."""
+    if not turns:
+        return False
+
+    first_reasoning = str(turns[0].get("reasoning", "")).lower()
+    first_meta_hits = sum(marker in first_reasoning for marker in LOGIN_LOOP_REASONING_MARKERS)
+    if first_meta_hits >= 5:
+        return True
+
+    flagged = 0
+    for turn in turns[:5]:
+        result_text = str(turn.get("action_result_raw", "")).lower()
+        reasoning = str(turn.get("reasoning", "")).lower()
+        meta_hits = sum(marker in reasoning for marker in LOGIN_LOOP_REASONING_MARKERS)
+        if any(marker in result_text for marker in LOGIN_LOOP_RESULT_MARKERS) or meta_hits >= 3:
+            flagged += 1
+
+    return flagged >= 2 or (len(turns) <= 2 and flagged >= 1)
+
+
+def _filter_session_turns(turns: list[dict]) -> tuple[list[dict], bool, int]:
+    """Filter a session without mutating on-disk extracted turns."""
+    if _is_login_loop_session(turns):
+        return [], True, 0
+
+    filtered = [turn for turn in turns if not _is_reasoningless_tool_turn(turn)]
+    dropped = len(turns) - len(filtered)
+    return filtered, False, dropped
+
+
 def load_turns(input_dir: Path) -> list[tuple[str, dict]]:
     """Load all turns from extracted dataset directory. Returns (session_name, turn) pairs."""
     all_turns = []
     skipped_harnesses: dict[str, int] = {}
+    dropped_login_sessions = 0
+    dropped_reasoningless_turns = 0
     for jsonl in sorted(input_dir.rglob("turns.jsonl")):
-        # Skip excluded agents (e.g., agent_3/efficient, agent_4/codex)
+        # Skip excluded agents (deprecated agent_3, non-Claude agent_4)
         if _is_excluded_agent(jsonl):
             continue
         session = jsonl.parent.name
+        session_turns = []
         for line in open(jsonl):
             try:
                 turn = json.loads(line)
@@ -1152,18 +1208,30 @@ def load_turns(input_dir: Path) -> list[tuple[str, dict]]:
                 if harness not in INCLUDED_HARNESSES:
                     skipped_harnesses[harness] = skipped_harnesses.get(harness, 0) + 1
                     continue
-                all_turns.append((session, turn))
+                session_turns.append(turn)
             except json.JSONDecodeError:
                 continue
+        session_turns, dropped_session, dropped_turns = _filter_session_turns(session_turns)
+        if dropped_session:
+            dropped_login_sessions += 1
+            continue
+        dropped_reasoningless_turns += dropped_turns
+        all_turns.extend((session, turn) for turn in session_turns)
     if skipped_harnesses:
         for h, count in skipped_harnesses.items():
             print(f"  [filter] Skipped {count} turns from harness '{h}'")
+    if dropped_login_sessions:
+        print(f"  [filter] Dropped {dropped_login_sessions} login-loop sessions")
+    if dropped_reasoningless_turns:
+        print(f"  [filter] Dropped {dropped_reasoningless_turns} tool turns with no reasoning")
     return all_turns
 
 
 def load_turns_by_session(input_dir: Path) -> dict[str, list[dict]]:
     """Load turns grouped by session, preserving chronological order."""
     sessions = {}
+    dropped_login_sessions = 0
+    dropped_reasoningless_turns = 0
     for jsonl in sorted(input_dir.rglob("turns.jsonl")):
         if _is_excluded_agent(jsonl):
             continue
@@ -1179,8 +1247,17 @@ def load_turns_by_session(input_dir: Path) -> dict[str, list[dict]]:
                 turns.append(turn)
             except json.JSONDecodeError:
                 continue
+        turns, dropped_session, dropped_turns = _filter_session_turns(turns)
+        if dropped_session:
+            dropped_login_sessions += 1
+            continue
+        dropped_reasoningless_turns += dropped_turns
         if turns:
             sessions[session] = turns
+    if dropped_login_sessions:
+        print(f"  [filter] Dropped {dropped_login_sessions} login-loop sessions")
+    if dropped_reasoningless_turns:
+        print(f"  [filter] Dropped {dropped_reasoningless_turns} tool turns with no reasoning")
     return sessions
 
 

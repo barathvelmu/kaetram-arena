@@ -333,6 +333,96 @@ def _read_player_db_snapshot_with_retry(username: str, retries: int = 5, delay: 
     return None
 
 
+def _read_quest_achievement_snapshot(username: str) -> dict | None:
+    """Read DB-authoritative quest & achievement state for one player.
+
+    Delegates parsing to dashboard.db (shared with the live dashboard), then
+    reshapes list-of-dicts → key-indexed map for cheap episode diffing.
+    """
+    try:
+        from pymongo import MongoClient
+        from dashboard.db import summarize_quest_doc, summarize_achievement_doc
+    except ImportError:
+        return None
+
+    client = MongoClient("localhost", 27017, serverSelectionTimeoutMS=2000)
+    try:
+        db = client[MONGO_DB]
+        username_lower = username.lower()
+
+        quest_doc = db["player_quests"].find_one({"username": username_lower}, {"_id": 0, "quests": 1})
+        quests_list, _ = summarize_quest_doc(quest_doc)
+        quests = {q["key"]: {
+            "stage": q["stage"],
+            "stage_count": q["stageCount"],
+            "started": q["started"],
+            "finished": q["finished"],
+        } for q in quests_list if q.get("key")}
+
+        ach_doc = db["player_achievements"].find_one({"username": username_lower}, {"_id": 0, "achievements": 1})
+        ach_list, _ = summarize_achievement_doc(ach_doc)
+        achievements = {a["key"]: {
+            "stage": a["stage"],
+            "stage_count": a["stageCount"],
+            "started": a["started"],
+            "finished": a["finished"],
+        } for a in ach_list if a.get("key")}
+
+        return {"quests": quests, "achievements": achievements}
+    except Exception:
+        return None
+    finally:
+        client.close()
+
+
+def _read_quest_achievement_snapshot_with_retry(username: str, retries: int = 5, delay: float = 1.0) -> dict | None:
+    """Retry quest/achievement reads briefly to allow autosave/logout persistence."""
+    for attempt in range(retries):
+        snapshot = _read_quest_achievement_snapshot(username)
+        if snapshot is not None:
+            return snapshot
+        if attempt < retries - 1:
+            time.sleep(delay)
+    return None
+
+
+def _diff_quest_achievement_metrics(before: dict | None, after: dict | None) -> dict:
+    """Compute episode delta + cumulative metrics from quest/achievement snapshots."""
+    before = before or {"quests": {}, "achievements": {}}
+    after = after or {"quests": {}, "achievements": {}}
+
+    def _summarize(before_map: dict, after_map: dict) -> tuple[int, int, int, int, int]:
+        completed_cum = sum(1 for v in after_map.values() if v.get("finished"))
+        started_cum = sum(1 for v in after_map.values() if v.get("started"))
+        completed_delta = 0
+        started_delta = 0
+        stages_advanced = 0
+        for key, after_entry in after_map.items():
+            before_entry = before_map.get(key, {"stage": 0, "started": False, "finished": False})
+            if after_entry.get("finished") and not before_entry.get("finished"):
+                completed_delta += 1
+            if after_entry.get("started") and not before_entry.get("started"):
+                started_delta += 1
+            stages_advanced += max(0, int(after_entry.get("stage", 0)) - int(before_entry.get("stage", 0)))
+        return completed_cum, started_cum, completed_delta, started_delta, stages_advanced
+
+    q_done, q_started, q_done_delta, q_started_delta, q_stages = _summarize(before["quests"], after["quests"])
+    a_done, a_started, a_done_delta, a_started_delta, a_stages = _summarize(before["achievements"], after["achievements"])
+
+    return {
+        "quests_completed_db": q_done,
+        "quests_accepted_db": q_started,
+        "quests_completed_delta": q_done_delta,
+        "quests_accepted_delta": q_started_delta,
+        "quest_stages_advanced": q_stages,
+        "achievements_completed_db": a_done,
+        "achievements_started_db": a_started,
+        "achievements_completed_delta": a_done_delta,
+        "achievements_started_delta": a_started_delta,
+        "achievement_stages_advanced": a_stages,
+    }
+
+
 # Known XP values per mob type (from game_knowledge.md)
 MOB_XP = {
     "Rat": 18, "Batterfly": 50, "Goblin": 72, "Snek": 80,
@@ -345,6 +435,8 @@ def compute_episode_metrics(
     log_entries: list[dict],
     db_before: dict | None = None,
     db_after: dict | None = None,
+    qa_before: dict | None = None,
+    qa_after: dict | None = None,
 ) -> dict:
     """Compute per-episode metrics from parsed log entries.
 
@@ -479,6 +571,7 @@ def compute_episode_metrics(
         "click_tiles": click_tiles,
     }
     metrics.update(_diff_player_db_metrics(db_before, db_after))
+    metrics.update(_diff_quest_achievement_metrics(qa_before, qa_after))
     return metrics
 
 
@@ -589,6 +682,7 @@ def run_model_eval(
         if not reset_player_db(username):
             print(f"  Warning: DB reset may have failed, continuing anyway")
         db_before = _read_player_db_snapshot(username)
+        qa_before = _read_quest_achievement_snapshot(username)
 
         # Clear sandbox state (keep live_screen.jpg and mcp_server.log for dashboard)
         state_dir = Path(sandbox) / "state"
@@ -671,7 +765,12 @@ def run_model_eval(
                 f.write(json.dumps(entry) + "\n")
 
         db_after = _read_player_db_snapshot_with_retry(username)
-        metrics = compute_episode_metrics(all_log_entries, db_before=db_before, db_after=db_after)
+        qa_after = _read_quest_achievement_snapshot_with_retry(username)
+        metrics = compute_episode_metrics(
+            all_log_entries,
+            db_before=db_before, db_after=db_after,
+            qa_before=qa_before, qa_after=qa_after,
+        )
         success = check_scenario_success(scenario, metrics)
 
         episode = {
@@ -692,7 +791,11 @@ def run_model_eval(
               f"kills={metrics['kills']}, XP~{metrics['xp_estimated']}, "
               f"level={metrics['level_reached']}, "
               f"deaths={metrics['deaths']}, "
-              f"quests={metrics['quests_completed']}, "
+              f"quests={metrics.get('quests_completed_delta', metrics.get('quests_completed', 0))}"
+              f"/{metrics.get('quests_accepted_delta', metrics.get('quests_accepted', 0))} "
+              f"(stages+{metrics.get('quest_stages_advanced', 0)}), "
+              f"ach={metrics.get('achievements_completed_delta', 0)} "
+              f"(stages+{metrics.get('achievement_stages_advanced', 0)}), "
               f"{'SUCCESS' if success else 'no-success'} "
               f"({total_duration:.0f}s)")
 
@@ -720,8 +823,14 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
     ok_episodes = [e for e in episodes if e.get("status") == "ok"]
     metrics = {}
     if ok_episodes:
+        def _quest_done(e: dict) -> int:
+            # Prefer DB-authoritative episode delta; fall back to log-parsed for old runs.
+            if "quests_completed_delta" in e:
+                return 1 if e["quests_completed_delta"] > 0 else 0
+            return 1 if e.get("quests_completed", 0) > 0 else 0
+
         metrics = {
-            "quest_completion_rate": [1 if e.get("quests_completed", 0) > 0 else 0 for e in ok_episodes],
+            "quest_completion_rate": [_quest_done(e) for e in ok_episodes],
             "xp_per_turn": [e.get("xp_per_turn", 0) for e in ok_episodes],
             "survival_rate": [1 if e.get("survived", False) else 0 for e in ok_episodes],
             "tool_parse_rate": [e.get("tool_parse_rate", 0) for e in ok_episodes],
@@ -735,6 +844,12 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "level_delta": [e.get("level_delta", 0) for e in ok_episodes],
             "level_reached_db": [e.get("level_reached_db", 1) for e in ok_episodes],
             "level_delta_db": [e.get("level_delta_db", 0) for e in ok_episodes],
+            "quests_completed_delta": [e.get("quests_completed_delta", 0) for e in ok_episodes],
+            "quests_accepted_delta": [e.get("quests_accepted_delta", 0) for e in ok_episodes],
+            "quest_stages_advanced": [e.get("quest_stages_advanced", 0) for e in ok_episodes],
+            "achievements_completed_delta": [e.get("achievements_completed_delta", 0) for e in ok_episodes],
+            "achievements_started_delta": [e.get("achievements_started_delta", 0) for e in ok_episodes],
+            "achievement_stages_advanced": [e.get("achievement_stages_advanced", 0) for e in ok_episodes],
             "action_entropy": [e.get("action_entropy", 0) for e in ok_episodes],
             "stuck_resets": [e.get("stuck_resets", 0) for e in ok_episodes],
             "click_tiles": [e.get("click_tiles", 0) for e in ok_episodes],
@@ -974,6 +1089,9 @@ Examples:
         print(f"\n  {model_name} ({n} episodes):")
         print(f"    Tool Parse Rate:      {_mean(metrics.get('tool_parse_rate', [])):.3f}")
         print(f"    Quest Completion Rate: {_mean(metrics.get('quest_completion_rate', [])):.3f}")
+        print(f"    Quest Stages Advanced: {_mean(metrics.get('quest_stages_advanced', [])):.1f}")
+        print(f"    Achievements Done:     {_mean(metrics.get('achievements_completed_delta', [])):.2f}")
+        print(f"    Ach. Stages Advanced:  {_mean(metrics.get('achievement_stages_advanced', [])):.1f}")
         print(f"    Kills (mean):         {_mean(metrics.get('kills', [])):.1f}")
         print(f"    Kills DB delta:       {_mean(metrics.get('kills_db_delta', [])):.1f}")
         print(f"    XP estimated (mean):  {_mean(metrics.get('xp_estimated', [])):.0f}")

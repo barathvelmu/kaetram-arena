@@ -2095,18 +2095,27 @@ async function loadEvalResults() {
         if (!m.episodes || !m.episodes.length) continue;
         const c = m.name === 'base' ? 'var(--amber)' : 'var(--cyan)';
         html += `<div style="margin-bottom:16px"><span style="color:${c};font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">${m.name}</span>`;
-        html += '<table class="eval-table" style="margin-top:6px"><tr><th>Ep</th><th>Kills</th><th>Level</th><th>XP</th><th>Deaths</th><th>Quests</th><th>Positions</th><th>Entropy</th><th>Tiles</th><th>Time</th><th>Mobs Killed</th></tr>';
+        html += '<table class="eval-table" style="margin-top:6px"><tr><th>Ep</th><th>Kills</th><th>Level</th><th>XP</th><th>Deaths</th><th>Quests</th><th>Ach</th><th>Positions</th><th>Entropy</th><th>Tiles</th><th>Time</th><th>Mobs Killed</th></tr>';
         for (const ep of m.episodes) {
           const mins = (ep.duration_seconds / 60).toFixed(0);
           const mobStr = Object.entries(ep.kills_by_mob || {}).map(([k,v]) => `${k}:${v}`).join(', ') || '—';
           const deathCls = ep.deaths > 0 ? ' style="color:#f87171;font-weight:600"' : '';
+          const qStages = ep.quest_stages_advanced || 0;
+          const aStages = ep.achievement_stages_advanced || 0;
+          const questCell = qStages > 0
+            ? `${ep.quests_completed}/${ep.quests_accepted} <span style="color:var(--dim);font-size:10px">+${qStages}</span>`
+            : `${ep.quests_completed}/${ep.quests_accepted}`;
+          const achCell = aStages > 0
+            ? `${ep.achievements_completed || 0} <span style="color:var(--dim);font-size:10px">+${aStages}</span>`
+            : `${ep.achievements_completed || 0}`;
           html += `<tr>`;
           html += `<td style="color:${c};font-weight:600">${ep.episode}</td>`;
           html += `<td style="font-weight:600">${ep.kills}</td>`;
           html += `<td style="color:var(--green);font-weight:600">${ep.level_reached}</td>`;
           html += `<td>${ep.xp_estimated}</td>`;
           html += `<td${deathCls}>${ep.deaths}</td>`;
-          html += `<td>${ep.quests_completed}/${ep.quests_accepted}</td>`;
+          html += `<td>${questCell}</td>`;
+          html += `<td>${achCell}</td>`;
           html += `<td>${ep.unique_positions}</td>`;
           html += `<td>${ep.action_entropy.toFixed(2)}</td>`;
           html += `<td>${ep.click_tiles}</td>`;

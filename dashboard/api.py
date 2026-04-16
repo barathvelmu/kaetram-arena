@@ -510,18 +510,26 @@ class APIMixin:
                 for tool, count in ep.get("action_counts", {}).items():
                     action_totals[tool] = action_totals.get(tool, 0) + count
 
-            # Per-episode summary for drill-down
+            # Per-episode summary for drill-down.
+            # Quest/achievement fields prefer DB-authoritative episode deltas
+            # (present on runs after the DB-truth migration) and fall back to
+            # log-parsed values for older archived runs.
             episode_summaries = []
             for ep in ok_eps:
+                quests_completed = ep.get("quests_completed_delta", ep.get("quests_completed", 0))
+                quests_accepted = ep.get("quests_accepted_delta", ep.get("quests_accepted", 0))
                 episode_summaries.append({
                     "episode": ep.get("episode", 0),
-                    "kills": ep.get("kills", 0),
+                    "kills": ep.get("kills_db_delta", ep.get("kills", 0)),
                     "kills_by_mob": ep.get("kills_by_mob", {}),
-                    "xp_estimated": ep.get("xp_estimated", 0),
-                    "level_reached": ep.get("level_reached", 1),
+                    "xp_estimated": ep.get("xp_db_delta", ep.get("xp_estimated", 0)),
+                    "level_reached": ep.get("level_reached_db", ep.get("level_reached", 1)),
                     "deaths": ep.get("deaths", 0),
-                    "quests_completed": ep.get("quests_completed", 0),
-                    "quests_accepted": ep.get("quests_accepted", 0),
+                    "quests_completed": quests_completed,
+                    "quests_accepted": quests_accepted,
+                    "quest_stages_advanced": ep.get("quest_stages_advanced", 0),
+                    "achievements_completed": ep.get("achievements_completed_delta", 0),
+                    "achievement_stages_advanced": ep.get("achievement_stages_advanced", 0),
                     "unique_positions": ep.get("unique_positions", 0),
                     "turns_played": ep.get("turns_played", 0),
                     "sub_sessions": ep.get("sub_sessions", 0),
@@ -547,7 +555,10 @@ class APIMixin:
             all_metric_keys = [
                 "tool_parse_rate", "quest_completion_rate", "xp_per_turn",
                 "survival_rate", "deaths_per_session",
-                "kills", "xp_estimated", "level_reached", "level_delta",
+                "kills", "kills_db_delta", "xp_estimated", "xp_db_delta",
+                "level_reached", "level_delta", "level_reached_db", "level_delta_db",
+                "quests_completed_delta", "quest_stages_advanced",
+                "achievements_completed_delta", "achievement_stages_advanced",
                 "action_entropy", "success_rate", "stuck_resets", "click_tiles",
             ]
             for key in all_metric_keys:

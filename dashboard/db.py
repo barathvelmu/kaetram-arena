@@ -136,6 +136,81 @@ QUEST_DEFS = _load_quest_definitions()
 ACHIEVEMENT_DEFS = _load_achievement_definitions()
 
 
+def summarize_quest_doc(quest_doc: dict | None) -> tuple[list[dict], dict]:
+    """Parse a player_quests MongoDB doc into (quests_list, summary).
+
+    Server truth: isFinished() = stage >= stageCount (quest.ts:484).
+    Tutorial is marked finished unconditionally since agents skip it via warp.
+    """
+    quests: list[dict] = []
+    if not quest_doc or not isinstance(quest_doc.get("quests"), list):
+        return quests, {"completed": 0, "total": 0, "remaining": 0}
+
+    completed = 0
+    for q in quest_doc["quests"]:
+        key = q.get("key", "")
+        stage = int(q.get("stage", 0) or 0)
+        sub_stage = int(q.get("subStage", 0) or 0)
+        qdef = QUEST_DEFS.get(key, {})
+        stage_count = int(qdef.get("stageCount", 1) or 1)
+        name = qdef.get("name", key.replace("_", " ").title())
+        description = qdef.get("description", "")
+        difficulty = qdef.get("difficulty", "")
+        started = stage > 0
+        finished = stage >= stage_count or key == "tutorial"
+        if finished:
+            completed += 1
+        quests.append({
+            "key": key,
+            "name": name,
+            "description": description,
+            "difficulty": difficulty,
+            "stage": stage,
+            "subStage": sub_stage,
+            "stageCount": stage_count,
+            "started": started,
+            "finished": finished,
+            "status": "DONE" if finished else ("IN PROGRESS" if started else "NEW"),
+        })
+    total = len(quests)
+    return quests, {"completed": completed, "total": total, "remaining": total - completed}
+
+
+def summarize_achievement_doc(ach_doc: dict | None) -> tuple[list[dict], dict]:
+    """Parse a player_achievements MongoDB doc into (achievements_list, summary).
+
+    Server truth: finished = stage >= stageCount AND stage > 0. stageCount is
+    stored on the doc itself (unlike quests, which require the JSON lookup).
+    """
+    achievements: list[dict] = []
+    if not ach_doc or not isinstance(ach_doc.get("achievements"), list):
+        return achievements, {"completed": 0, "total": 0, "remaining": 0}
+
+    completed = 0
+    for a in ach_doc["achievements"]:
+        key = a.get("key", "")
+        stage = int(a.get("stage", 0) or 0)
+        stage_count = int(a.get("stageCount", 1) or 1)
+        adef = ACHIEVEMENT_DEFS.get(key, {})
+        name = adef.get("name", key.replace("_", " ").title())
+        description = adef.get("description", "")
+        started = stage > 0
+        finished = stage >= stage_count and stage > 0
+        if finished:
+            completed += 1
+        achievements.append({
+            "key": key,
+            "name": name,
+            "description": description,
+            "stage": stage,
+            "stageCount": stage_count,
+            "started": started,
+            "finished": finished,
+        })
+    total = len(achievements)
+    return achievements, {"completed": completed, "total": total, "remaining": total - completed}
+
+
 def _build_xp_table():
     """Build the Kaetram XP→level table (RuneScape formula).
 
@@ -331,93 +406,18 @@ class MongoReader:
                     })
             state["inventory"] = inventory
 
-        # ── Quests ──
-        # MongoDB does NOT store stageCount or quest name — we must look them
-        # up from the quest definition JSON files loaded at module init.
-        # Server logic: isFinished() = stage >= stageCount  (quest.ts:484)
+        # ── Quests & Achievements (shared parsers at module top) ──
         quest_doc = db["player_quests"].find_one({"username": username}, {"_id": 0})
-        if quest_doc and "quests" in quest_doc:
-            quests = []
-            completed = 0
-            total = len(quest_doc["quests"])
-            for q in quest_doc["quests"]:
-                key = q.get("key", "")
-                stage = q.get("stage", 0)
-                sub_stage = q.get("subStage", 0)
-
-                # Get authoritative stageCount and name from definitions
-                qdef = QUEST_DEFS.get(key, {})
-                stage_count = qdef.get("stageCount", 1)
-                name = qdef.get("name", key.replace("_", " ").title())
-                description = qdef.get("description", "")
-                difficulty = qdef.get("difficulty", "")
-
-                # Match server logic: isFinished() = stage >= stageCount
-                # Agents skip the tutorial via warp — mark it as done
-                started = stage > 0
-                finished = stage >= stage_count or key == "tutorial"
-
-                if finished:
-                    completed += 1
-
-                status = "DONE" if finished else ("IN PROGRESS" if started else "NEW")
-
-                quests.append({
-                    "key": key,
-                    "name": name,
-                    "description": description,
-                    "difficulty": difficulty,
-                    "stage": stage,
-                    "subStage": sub_stage,
-                    "stageCount": stage_count,
-                    "started": started,
-                    "finished": finished,
-                    "status": status,
-                })
+        quests, quest_summary = summarize_quest_doc(quest_doc)
+        if quests:
             state["quests"] = quests
-            state["quest_summary"] = {
-                "completed": completed,
-                "total": total,
-                "remaining": total - completed,
-            }
+            state["quest_summary"] = quest_summary
 
-        # ── Achievements ──
         ach_doc = db["player_achievements"].find_one({"username": username}, {"_id": 0})
-        if ach_doc and "achievements" in ach_doc:
-            achievements = []
-            ach_completed = 0
-            ach_total = len(ach_doc["achievements"])
-            for a in ach_doc["achievements"]:
-                key = a.get("key", "")
-                stage = a.get("stage", 0)
-                stage_count = a.get("stageCount", 1)
-
-                # Get name from definitions
-                adef = ACHIEVEMENT_DEFS.get(key, {})
-                name = adef.get("name", key.replace("_", " ").title())
-                description = adef.get("description", "")
-
-                started = stage > 0
-                finished = stage >= stage_count and stage > 0
-
-                if finished:
-                    ach_completed += 1
-
-                achievements.append({
-                    "key": key,
-                    "name": name,
-                    "description": description,
-                    "stage": stage,
-                    "stageCount": stage_count,
-                    "started": started,
-                    "finished": finished,
-                })
+        achievements, ach_summary = summarize_achievement_doc(ach_doc)
+        if achievements:
             state["achievements"] = achievements
-            state["achievement_summary"] = {
-                "completed": ach_completed,
-                "total": ach_total,
-                "remaining": ach_total - ach_completed,
-            }
+            state["achievement_summary"] = ach_summary
 
         # ── Statistics ──
         stats_doc = db["player_statistics"].find_one(

@@ -99,7 +99,7 @@ LOGGING_STEPS = 10
 MASK_INPUT_TOKENS = True
 
 # Output
-EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r9"
+EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r10"
 
 
 # ---------------------------------------------------------------------------

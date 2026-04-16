@@ -91,11 +91,14 @@ def _patch_qwen_chat_template(tokenizer):
         "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
         "        {%- endif %}"
     )
-    if old in template:
-        tokenizer.chat_template = template.replace(old, new)
-        print("  Patched Qwen 3.5 chat template: <think> now preserved in all turns")
-    else:
-        print("  WARNING: chat template patch target not found — template may have changed")
+    if old not in template:
+        raise RuntimeError(
+            "Qwen 3.5 chat template patch target not found — tokenizer revision has changed "
+            "the reasoning_content stripping block. Inspect tokenizer.chat_template, update the "
+            "`old` pattern, and re-verify <think> survives in multi-turn apply_chat_template output."
+        )
+    tokenizer.chat_template = template.replace(old, new)
+    print("  Patched Qwen 3.5 chat template: <think> now preserved in all turns")
 
 
 # ---------------------------------------------------------------------------

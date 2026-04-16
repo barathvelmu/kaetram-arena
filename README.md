@@ -160,7 +160,7 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 | `set_attack_style(style)` | hack, chop, or defensive |
 | `navigate(x, y)` | BFS pathfinding to grid coords |
 | `move(x, y)` | Short-distance movement (< 15 tiles) |
-| `warp(location)` | Fast travel (mudwich, crossroads, lakesworld). Auto-waits combat cooldown. |
+| `warp(location)` | Fast travel (mudwich, aynor, lakesworld, crullfield, patsow, undersea). Auto-waits combat cooldown. |
 | `cancel_nav` | Cancel navigation |
 | `interact_npc(npc_name)` | Walk to NPC, talk through all dialogue, auto-accept quest |
 | `talk_npc(instance_id)` | Continue dialogue with adjacent NPC |

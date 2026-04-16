@@ -37,22 +37,16 @@ Bosses also grant achievements on kill (Water Guardian L36, Skeleton King L32, O
 
 ## QUESTS
 
-| Quest | NPC (location) | Action | Prereqs | Reward |
-|-------|---------------|--------|---------|--------|
-| Foresting | Forester (~216,114) | Deliver 20 logs (2×10) | None | Iron Axe |
-| Anvil's Echoes | Blacksmith (~199,169) | Talk twice | None | Smithing Boots + 420 Smithing XP |
-| Desert Quest | Dying Soldier (~288,134) | Deliver CD to Wife via door (310,264), return | None | Unlocks Crullfield+Lakesworld warps |
-| Scavenger | Village Girl (~136,146) → Old Lady via door (147,113) | Deliver 2 tomato + 2 strawberry + 1 string | None | 7500 gold |
-| Sorcery | Sorcerer via door (~194,218) | Deliver 3 beads from Warrior Crabs | None | Magic Staff |
-| Miner's Quest | Miner (~323,178) | Deliver 15 nisoc ore | None | Miner store + 2000 Mining XP |
-| Herbalist | Herby Mc. Herb (~333,281) in Lakesworld | Stage 1: 3 blue lilies. Stage 2: 2 paprika + 2 tomato | None | Hot Sauce + 1500 Foraging XP |
-| Royal Drama | Royal Guard 2 (~282,887) | Talk chain (guard → rat → king) | None | 10000 gold |
-| Scientist's Potion | Scientist (~763,666) | Talk (1 stage) | None | 2000 Alchemy XP |
-| Coder's Glitch | Programmer (~331,890) | Kill Skeleton King (L32, 1850 HP) | Foresting+Desert+Sorcery; Acc15/Str20/Def15 | Club + 5000 Str XP |
+Call `query_quest(quest_name)` for walkthroughs, item requirements, prereqs, boss stats, and exact coordinates of any quest. The table below covers the Mudwich starter set only — there are more quests unlocked by progression.
 
-More quests available at higher levels — use `query_quest` to discover them.
+| Quest | NPC (location) | Action | Reward |
+|-------|---------------|--------|--------|
+| Foresting | Forester (~216,114) | Deliver 20 logs (2×10) | Iron Axe |
+| Anvil's Echoes | Blacksmith (~199,169) | Talk twice | Smithing Boots + 420 Smithing XP |
+| Desert Quest | Dying Soldier (~288,134) | Deliver CD to Wife via door (310,264), return | Unlocks Crullfield+Lakesworld warps |
+| Scavenger | Village Girl (~136,146) → Old Lady via door (147,113) | Deliver 2 tomato + 2 strawberry + 1 string | 7500 gold |
 
-Use `query_quest(quest_name)` for detailed step-by-step walkthroughs of any quest.
+Known later quests (use `query_quest` for details): Sorcery, Miner's Quest, Herbalist, Royal Drama, Scientist's Potion, Coder's Glitch. More unlock as you level.
 
 ---
 

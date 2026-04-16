@@ -107,14 +107,16 @@ World Model Policy Optimization: world model rollouts + on-policy GRPO. Showed e
 ## Our Pipeline Sequence
 
 ```
-r8 SFT (DONE Apr 14 — correct loss masking via train_on_responses_only, deployed on Modal)
-  → Eval: base vs r8-SFT (eval harness implemented, runs pending)
-    → r8-KTO (preference learning on r8 merged weights, pending)
-      → Dr. GRPO + DAPO fixes (KAE-12, next)
-        → Self-play loop (KAE-16)
-          → Tree-GRPO with world model rollouts (KAE-17 + KAE-18)
+r8 SFT (DONE Apr 14 — correct loss masking, but train/inference mismatch caused underperformance)
+  → Eval: base vs r8-SFT (DONE Apr 15 — base 2x kills, higher level than r8-SFT)
+    → r9 SFT (TRAINING on Modal, launched Apr 15 — fixes system prompt, reasoning, seq length)
+      → Eval: base vs r8 vs r9 (pending r9 completion)
+        → r9-KTO (preference learning on r9 merged weights, pending)
+          → Dr. GRPO + DAPO fixes (KAE-12, next)
+            → Self-play loop (KAE-16)
+              → Tree-GRPO with world model rollouts (KAE-17 + KAE-18)
 ```
 
 Each stage builds on the previous. KTO is the bridge from "imitate everything" to "prefer good actions." GRPO adds reward-shaped RL. Self-play closes the loop.
 
-**Eval infrastructure (Apr 15):** Base Qwen3.5-9B serving endpoint deployed (`serve_modal_base.py`, A100). Both finetuned and base models share the same `play_qwen.py` harness and agent slots (agent_4=finetuned, agent_5=base). Dashboard Qwen Live tab + eval tab live. Eval harness implemented: `eval_harness.py` (parallel model runs, log-based metrics), `eval_compare.py` (Glass's delta, bootstrap CIs), `eval_offline.py` (action-prediction accuracy on held-out Claude sessions). This unblocks the 3-model eval (base vs r8-SFT vs r8-KTO).
+**Eval infrastructure (Apr 15):** Base Qwen3.5-9B serving endpoint deployed (`serve_modal_base.py`, A100). Both finetuned and base models share the same `play_qwen.py` harness and agent slots (agent_4=finetuned, agent_5=base). Dashboard Qwen Live tab + eval tab live. Eval harness implemented: `eval_harness.py` (parallel model runs, log-based metrics), `eval_compare.py` (Glass's delta, bootstrap CIs), `eval_offline.py` (action-prediction accuracy on held-out Claude sessions). r8 eval completed — base outperformed r8-SFT due to train/inference system prompt mismatch. r9 fixes this. Next eval: 3-model comparison (base vs r8 vs r9).

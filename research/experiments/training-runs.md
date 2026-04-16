@@ -15,7 +15,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r6-KTO | Apr 5 | KTO | 2,771 train / 273 val KTO windows | Preference learning on scored sessions | Pipeline validated — 10/10 smoke steps, train_loss=0.617, KL active. Awaiting full run. |
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
 | r8 | Apr 13-14 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | COMPLETE. Deployed on Modal. Eval harness set up (base vs r8-SFT). |
-| r9 | Apr 15 | SFT | 5,871 train / 575 val | Train/inference alignment fix (system prompt, reasoning, seq length) + degenerate filtering | LAUNCHED on Modal H100 (23:22 UTC Apr 15) |
+| r9 | Apr 15-16 | SFT | 5,871 train / 575 val | Train/inference alignment fix (system prompt, reasoning, seq length) + degenerate filtering | TRAINING on Modal H100 (367 steps, ~5.5 min/step, est. ~33h) |
 | r9-KTO | TBD | KTO | TBD | Preference learning on r9 merged weights | Pending r9 completion |
 
 ---
@@ -147,7 +147,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **Dataset:** 5,871 train / 575 val (was 6,380/689 before degenerate filtering). Same source data as r7/r8 (583 Claude logs). 21 tool definitions in metadata (was 15). 100% `<think>` coverage (was 30.6%).
 
-**Status:** LAUNCHED on Modal H100 at 23:22 UTC Apr 15. Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16384`. Experiment: `kaetram-qwen3.5-9b-r9`.
+**Status:** TRAINING on Modal H100. Launched 23:22 UTC Apr 15. 367 steps total. As of Apr 16 ~00:05 UTC: step 6/367 (~5.5 min/step, est. ~33h total wall time). Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16384`. Experiment: `kaetram-qwen3.5-9b-r9`.
 
 ---
 
@@ -174,7 +174,7 @@ Replaces r8-KTO. Same pipeline, but base SFT will be r9 merged weights.
 **Platform:** Modal (H100 80GB for SFT/KTO training, A100 40GB for inference serving). Unsloth for LoRA, TRL for KTO/GRPO trainers. SGLang for inference.
 
 **Serving endpoints (Modal):**
-- `kaetram-qwen-serve` — finetuned model (SGLang, A100, `serve_modal.py`) — currently pointed at r8 (will serve after training + deploy)
+- `kaetram-qwen-serve` — finetuned model (SGLang, A100, `serve_modal.py`) — currently pointed at r8. Will update to r9 after training completes (~Apr 17).
 - `kaetram-qwen-base` — unfinetuned Qwen3.5-9B baseline (SGLang, A100, `serve_modal_base.py`)
 - Both scale to 0 when idle ($0 cost). Cold start ~3-6 min (model download + SGLang init).
 
@@ -189,7 +189,7 @@ Replaces r8-KTO. Same pipeline, but base SFT will be r9 merged weights.
 
 ## What's Next
 
-Immediate: **r9 RUNNING on Modal** (launched 23:22 UTC Apr 15). Next step: eval after training completes — compare base vs r8 vs r9. If r9 beats base: proceed to r9-KTO. Paper comparison table: base → r8 (broken SFT) → r9 (fixed SFT) → r9-KTO. The r8→r9 delta tells the data quality story. KAE-37 (GRPO) created for post-KTO RL.
+Immediate: **r9 TRAINING on Modal** (launched 23:22 UTC Apr 15, est. completion ~Apr 17). 367 steps at ~5.5 min/step on H100 80GB. Next step: eval after training completes — compare base vs r8 vs r9. If r9 beats base: proceed to r9-KTO. Paper comparison table: base → r8 (broken SFT) → r9 (fixed SFT) → r9-KTO. The r8→r9 delta tells the data quality story. KAE-37 (GRPO) created for post-KTO RL.
 
 **Qwen agent infrastructure (Apr 10):**
 - Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`

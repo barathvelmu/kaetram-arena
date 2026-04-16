@@ -1,6 +1,6 @@
-# Kaetram Arena — Research Knowledge Base
+# Kaetram Arena / AgentScape — Research Knowledge Base
 
-Compiled knowledge for the Kaetram AI agent distillation project. Target: ICLR 2027.
+Compiled knowledge for the AgentScape research lab. Two independent papers: Paper 1 (Kaetram distillation, ICLR 2027) and Paper 2 (RuneScape adversarial multi-agent, planned). See `research/decisions/acquihire-trajectory.md` for company scope and competitive analysis.
 
 **Rule:** After any training run, data rebuild, or design decision, update the relevant file here. If no file fits, create one and link it below. Without this, the wiki dies.
 
@@ -28,10 +28,12 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 - [why-kto-over-ppo.md](decisions/why-kto-over-ppo.md) — Binary labels from game outcomes, why KTO fits our data, computational tradeoffs
 - [r7-hyperparameters.md](decisions/r7-hyperparameters.md) — Research-backed rationale for every r7 SFT + KTO parameter
+- [acquihire-trajectory.md](decisions/acquihire-trajectory.md) — Workshop Labs → Thinking Machines precedent, AgentScape competitive analysis, visibility gaps, critical path to paper
 
 ## Paper
 
-- [contribution.md](paper/contribution.md) — What's novel, framing, outline, key ablations needed
+- [contribution.md](paper/contribution.md) — Paper 1: What's novel, framing, outline, key ablations needed
+- [paper2-runescape-vision.md](paper/paper2-runescape-vision.md) — Paper 2: RuneScape adversarial multi-agent — research tracks, platform (LostCityRS + rs-sdk), prior work, setup TODOs
 
 ---
 

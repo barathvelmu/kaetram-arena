@@ -1,6 +1,10 @@
-# Paper: Contribution & Framing
+# Paper 1: Contribution & Framing
 
-Working notes for the ICLR 2027 submission. This is a thinking document — not paper-ready prose.
+Working notes for the ICLR 2027 submission (Paper 1 of the AgentScape two-paper roadmap). This is a thinking document — not paper-ready prose.
+
+**Context:** This is Paper 1 (Kaetram distillation). Paper 2 (RuneScape adversarial multi-agent) is in [paper2-runescape-vision.md](paper2-runescape-vision.md). The two papers are fully independent — do not conflate them. Paper 1 proves the distillation infrastructure. Paper 2 is the agent safety contribution. Both publish under the AgentScape banner on arXiv.
+
+**Publication strategy:** arXiv-first + simultaneous ICLR/NeurIPS submission. Post to arXiv the day we submit — community reads immediately, conference review runs in parallel. Do NOT skip conference submission — one Spotlight/Oral is disproportionately valuable for the acqui-hire path.
 
 ---
 

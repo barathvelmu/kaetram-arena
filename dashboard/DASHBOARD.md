@@ -30,8 +30,7 @@ dashboard/
 | World | `/api/game-state` | Nearby entities, screenshot gallery |
 | Sessions | `/api/sessions`, `/api/dataset-stats`, `/api/sft-stats` | Session history, cost/turns/duration, SFT pipeline stats |
 | Prompt | `/api/prompt`, `/api/session-log` | System prompt viewer, personality grid, game knowledge, CLAUDE.md |
-| Qwen Live | `/api/qwen-log?agent=4`, `/api/qwen-log?agent=5` | Split-screen: finetuned r8-SFT (left) vs base model (right) |
-| Eval | `/api/eval/latest`, `/api/eval/live` | Eval comparison: models vs base, Glass's delta, action distributions |
+| Eval | `/api/eval/latest`, `/api/eval/live` | Eval comparison: r9-sft vs base, live split-screen + results (Glass's delta, action distributions) |
 
 ## API Endpoints
 
@@ -47,7 +46,6 @@ dashboard/
 | `/api/sft-stats` | GET | — | Extracted turns count + Qwen SFT train/val record counts |
 | `/api/prompt` | GET | — | System prompt, game knowledge, personality files |
 | `/api/session-log` | GET | — | session_log.md content |
-| `/api/qwen-log` | GET | `?agent=N` | Qwen agent log tail (incremental, cached by file offset) |
 | `/api/eval/latest` | GET | — | Eval comparison results (models vs base) |
 | `/api/eval/live` | GET | — | Live eval sandbox status |
 | `/api/raw` | GET | `?file=X` | Raw file viewer (game_state, session_log, claude_md, state_extractor, orchestrate) |
@@ -64,7 +62,6 @@ Everything is cached to avoid redundant work on the 4-vCPU VM:
 | `_agents_cache` | 5s | Avoids re-parsing logs + port probing on every dashboard poll |
 | `_ss_cache` (ss -tlnp) | 5s | Avoids forking subprocess per request |
 | MongoDB player state | 3s | DB only saves on autosave/logout — more frequent queries waste cycles |
-| `_qwen_log_cache` | by file offset | Incremental tail read — only reads new bytes |
 | Session log parser | by file size | Re-parses only when log grows |
 | HTML template | import-time | Loaded once, never re-read (restart dashboard after template edits) |
 

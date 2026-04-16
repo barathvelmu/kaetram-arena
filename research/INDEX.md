@@ -51,8 +51,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - ~~**Launch r7 SFT:** DONE Apr 10. Final loss 0.072, 14.5h on H100. Deployed on Modal, tested with play_qwen.py — model produces correct tool calls.~~
 - ~~**Deploy r7 serving:** DONE Apr 10. serve_modal.py updated to r7, chat template patch applied at inference, verified with curl + play_qwen.py.~~
 - ~~**Deploy base model serving:** DONE Apr 10. `serve_modal_base.py` — unfinetuned Qwen3.5-9B on Modal A100 for baseline comparison.~~
-- ~~**Qwen agent management:** DONE Apr 10. `start-qwen.sh`, `stop-qwen.sh`, `restart-qwen.sh`, `status-qwen.sh`. Agent slots: agent_4=finetuned (QwenBot), agent_5=base (QwenBase).~~
-- ~~**Dashboard Qwen Live tab:** DONE Apr 10. Split-screen MJPEG streaming (finetuned vs base), 4 FPS, `/stream/agent_N` endpoint.~~
+- ~~**Eval infrastructure:** DONE Apr 16. `eval_harness.py` + `scripts/run-eval.sh` with dedicated ports (9061 r9-sft, 9071 base). Dashboard Eval tab for live monitoring + results. Qwen Live tab and agent_4/5 slots removed — eval is the sole model comparison path.~~
 - ~~**Eval runs (r8):** r8 evals COMPLETE (Apr 15): base outperformed r8-SFT (17.5 vs 8.5 kills, level 20 vs 14.5). Root cause: train/inference system prompt mismatch.~~
 - **Eval runs (r9):** Pending r9 training completion (~Apr 17). Will compare base vs r8 vs r9. This is the paper blocker.
 - **Launch r9 KTO:** Rebuild KTO dataset on scored sessions, then `modal run finetune/train_kto_modal.py`. Depends on r9 SFT merged weights (r9 training in progress).

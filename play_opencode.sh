@@ -6,8 +6,8 @@
 # shows it alongside Claude agents without interference.
 #
 # Usage:
-#   ./play_opencode.sh                          # defaults: agent_4, QwenBot
-#   ./play_opencode.sh --agent-id 5 --username QwenBot2
+#   ./play_opencode.sh
+#   ./play_opencode.sh --agent-id eval_sft --username evalbotSFT
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,8 +15,8 @@ SYSTEM_PROMPT_FILE="$PROJECT_DIR/prompts/system.md"
 GAME_KNOWLEDGE_FILE="$PROJECT_DIR/prompts/game_knowledge.md"
 
 # Defaults
-AGENT_ID=4
-USERNAME="QwenBot"
+AGENT_ID="eval_sft"
+USERNAME="evalbotSFT"
 SERVER_PORT=""
 MAX_SESSION_SECONDS=$((150 * 30))  # ~75 minutes per session
 PAUSE_BETWEEN=10

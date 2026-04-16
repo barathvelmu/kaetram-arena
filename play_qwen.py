@@ -9,8 +9,8 @@ browser interaction, combat timers, navigation, etc.
 Usage:
     python3 play_qwen.py --endpoint https://your-modal-url/v1 \
         --system-prompt /path/to/system.md \
-        --sandbox /tmp/kaetram_agent_4 \
-        --username QwenBot
+        --sandbox /tmp/kaetram_eval_sft \
+        --username evalbotSFT
 """
 
 import argparse
@@ -215,7 +215,7 @@ async def run_agent(args):
 
     mcp_env = {
         "KAETRAM_PORT": args.server_port or "",
-        "KAETRAM_USERNAME": os.environ.get("KAETRAM_USERNAME", "QwenBot"),
+        "KAETRAM_USERNAME": os.environ.get("KAETRAM_USERNAME", "evalbotSFT"),
         "KAETRAM_EXTRACTOR": os.path.join(project_dir, "state_extractor.js"),
         "KAETRAM_SCREENSHOT_DIR": str(state_dir),
     }
@@ -419,7 +419,7 @@ def main():
     parser.add_argument("--api-key", default=None, help="API key (default: not-needed)")
     parser.add_argument("--system-prompt", default=None, help="System prompt file or text")
     parser.add_argument("--user-prompt", default=None, help="Initial user message")
-    parser.add_argument("--sandbox", default="/tmp/kaetram_agent_4", help="Sandbox directory")
+    parser.add_argument("--sandbox", default="/tmp/kaetram_eval_sft", help="Sandbox directory")
     parser.add_argument("--max-turns", type=int, default=300, help="Max conversation turns")
     parser.add_argument("--server-port", default="", help="Game server WebSocket port (e.g. 9031)")
     parser.add_argument("--project-dir", default=os.path.dirname(os.path.abspath(__file__)),

@@ -7,8 +7,8 @@ SYSTEM_PROMPT_FILE="$PROJECT_DIR/prompts/system.md"
 GAME_KNOWLEDGE_FILE="$PROJECT_DIR/prompts/game_knowledge.md"
 
 # Defaults
-AGENT_ID=4
-USERNAME="QwenBot"
+AGENT_ID=""
+USERNAME="evalbotSFT"
 SERVER_PORT=""
 MAX_TURNS=300
 PAUSE_BETWEEN=10
@@ -26,31 +26,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Agent ID validation — Qwen agents use IDs 4-5 only (0-3 are Claude/Codex/Gemini)
-if [ "$AGENT_ID" -lt 4 ] || [ "$AGENT_ID" -gt 5 ]; then
-  echo "ERROR: Qwen agent_id must be 4 (finetuned) or 5 (base). Got: $AGENT_ID"
-  echo "  Agent IDs 0-3 are reserved for Claude/Codex/Gemini harnesses."
-  exit 1
+# Sandbox setup — eval uses /tmp/kaetram_eval_* sandboxes
+if [ -n "$AGENT_ID" ]; then
+  SANDBOX="/tmp/kaetram_eval_${AGENT_ID}"
+else
+  SANDBOX="/tmp/kaetram_eval_sft"
 fi
-
-# Sandbox setup
-SANDBOX="/tmp/kaetram_agent_${AGENT_ID}"
 STATE_DIR="$SANDBOX/state"
 LOG_DIR="$SANDBOX/logs"
 mkdir -p "$STATE_DIR" "$LOG_DIR"
 
-# Write metadata for dashboard — distinguish finetuned vs base
-if [ "$AGENT_ID" = "4" ]; then
-  MODEL_LABEL="Qwen3.5-9B (r8-SFT finetuned)"
-else
-  MODEL_LABEL="Qwen3.5-9B (base, unfinetuned)"
-fi
+# Write metadata for eval tracking
 cat > "$SANDBOX/metadata.json" << EOF
 {
-  "personality": "qwen",
   "username": "$USERNAME",
-  "agent_id": $AGENT_ID,
-  "model": "$MODEL_LABEL",
+  "model": "Qwen3.5-9B",
   "harness": "play_qwen.py"
 }
 EOF
@@ -95,7 +85,7 @@ Then: attack mobs, navigate to NPCs, accept quests. Use native game tools (attac
 
   KAETRAM_USERNAME="$USERNAME" python3 "$PROJECT_DIR/play_qwen.py" \
     --endpoint "$ENDPOINT" \
-    --model kaetram \
+    --model "$MODEL_NAME" \
     --system-prompt "$SYSTEM_TMP" \
     --user-prompt "$PROMPT" \
     --sandbox "$SANDBOX" \

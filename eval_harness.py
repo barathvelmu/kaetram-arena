@@ -17,11 +17,11 @@ Usage:
 
     # Custom endpoints
     python3 eval_harness.py \
-        --models base=https://...base.../v1 r8-sft=https://...serve.../v1 \
+        --models base=https://...base.../v1 r9-sft=https://...serve.../v1 \
         --episodes 30 --scenario D
 
     # Single model
-    python3 eval_harness.py --models r8-sft=https://...serve.../v1 --episodes 10
+    python3 eval_harness.py --models r9-sft=https://...serve.../v1 --episodes 10
 
 Requires: game server running on --server-port, MongoDB in Docker (kaetram-mongo).
 """
@@ -48,12 +48,12 @@ DEFAULT_MODELS = {
     "base": {
         "endpoint": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
         "username": "evalbotBase",
-        "server_port": "9041",
+        "server_port": "9071",
     },
-    "r8-sft": {
+    "r9-sft": {
         "endpoint": "https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1",
         "username": "evalbotSFT",
-        "server_port": "9001",
+        "server_port": "9061",
     },
 }
 
@@ -472,7 +472,7 @@ def run_model_eval(
     print(f"{'='*60}\n")
 
     # Ensure game server is running on the required port
-    # Uses direct node command (same as orchestrate.py / start-qwen.sh)
+    # Uses direct node command (same as orchestrate.py)
     _game_server_proc = None
     if server_port:
         import shutil
@@ -706,13 +706,13 @@ def main():
 Examples:
   python3 eval_harness.py --episodes 30
   python3 eval_harness.py --episodes 50 --scenario A
-  python3 eval_harness.py --models r8-sft=https://your-endpoint/v1 --episodes 10
+  python3 eval_harness.py --models r9-sft=https://your-endpoint/v1 --episodes 10
         """,
     )
     parser.add_argument(
         "--models", nargs="*",
         help="Model definitions as name=endpoint pairs. "
-             "Default: base + r8-sft with standard Modal endpoints",
+             "Default: base + r9-sft with standard Modal endpoints",
     )
     parser.add_argument(
         "--episodes", type=int, default=30,
@@ -904,7 +904,7 @@ Examples:
         print(f"    Scenario Success:     {_mean(metrics.get('success_rate', [])):.3f}")
 
     print(f"\nResults saved to: {args.output_dir}/")
-    print("Next: python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r8-sft/results.json")
+    print("Next: python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json")
 
 
 if __name__ == "__main__":

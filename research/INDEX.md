@@ -16,7 +16,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 ## Experiments
 
-- [training-runs.md](experiments/training-runs.md) — r1 through r8-SFT (+ r6-KTO smoke test): hyperparams, results, failures, what improved
+- [training-runs.md](experiments/training-runs.md) — r1 through r9-SFT (+ r6-KTO smoke test): hyperparams, results, failures, what improved
 - [data-quality.md](experiments/data-quality.md) — Filters applied, before/after metrics, what got cut and why
 
 ## Related Work
@@ -41,7 +41,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - **World model evaluation** — Per-field accuracy, rollout drift, MCTS impact on gameplay. `world/evaluate.py` exists but results not compiled.
 - **Agent distillation landscape** — ~~Filled: see [agent-sft-landscape.md](related-work/agent-sft-landscape.md)~~ CRADLE, Voyager still need detailed comparison.
 - **Multi-harness analysis** — Claude, Codex, and Gemini all integrated end-to-end (Apr 10). No comparative analysis of harness quality, action patterns, or reasoning quality across backends yet.
-- ~~**Finetuned vs base quantitative eval** — Protocol defined in [`reference/EVALS.md`](../reference/EVALS.md). 3-tier metrics taxonomy, 4 fixed scenarios, statistical methodology (Glass's delta, bootstrap CIs, Bonferroni). Implementation DONE (Apr 15): `eval_harness.py`, `eval_compare.py`, `eval_offline.py`, `scripts/run-eval.sh`. Dashboard eval tab added. Still need: actual eval runs (base vs r8-SFT).~~
+- ~~**Finetuned vs base quantitative eval** — Protocol defined in [`reference/EVALS.md`](../reference/EVALS.md). 3-tier metrics taxonomy, 4 fixed scenarios, statistical methodology (Glass's delta, bootstrap CIs, Bonferroni). Implementation DONE (Apr 15): `eval_harness.py`, `eval_compare.py`, `eval_offline.py`, `scripts/run-eval.sh`. Dashboard eval tab added. r8 evals completed (Apr 15): base outperformed r8-SFT (2x kills, higher level). r9 evals pending after training completes.~~
 - **Self-play loop design** — STaR, ReST-EM, ETO patterns. Becomes relevant when KAE-16 starts.
 - **Tool count scaling analysis** — MCP server grew from 18 → 22 tools (April 8). RAG-MCP threshold is 19. Need to measure tool selection accuracy in student model at 22 tools vs filtered subsets. Informs KAE-15 priority.
 
@@ -53,7 +53,8 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - ~~**Deploy base model serving:** DONE Apr 10. `serve_modal_base.py` — unfinetuned Qwen3.5-9B on Modal A100 for baseline comparison.~~
 - ~~**Qwen agent management:** DONE Apr 10. `start-qwen.sh`, `stop-qwen.sh`, `restart-qwen.sh`, `status-qwen.sh`. Agent slots: agent_4=finetuned (QwenBot), agent_5=base (QwenBase).~~
 - ~~**Dashboard Qwen Live tab:** DONE Apr 10. Split-screen MJPEG streaming (finetuned vs base), 4 FPS, `/stream/agent_N` endpoint.~~
-- **Eval runs:** Eval harness IMPLEMENTED (Apr 15): `eval_harness.py` (N episodes, parallel models, log-based metrics), `eval_compare.py` (Glass's delta, bootstrap CIs, Bonferroni), `eval_offline.py` (offline action-prediction accuracy), `scripts/run-eval.sh` (wrapper). Dashboard eval tab live. Need to execute base vs r8-SFT comparison runs. This is the paper blocker.
-- **Launch r8 KTO:** Rebuild KTO dataset on scored sessions, then `modal run finetune/train_kto_modal.py`. Depends on r8 SFT merged weights (done).
+- ~~**Eval runs (r8):** r8 evals COMPLETE (Apr 15): base outperformed r8-SFT (17.5 vs 8.5 kills, level 20 vs 14.5). Root cause: train/inference system prompt mismatch.~~
+- **Eval runs (r9):** Pending r9 training completion (~Apr 17). Will compare base vs r8 vs r9. This is the paper blocker.
+- **Launch r9 KTO:** Rebuild KTO dataset on scored sessions, then `modal run finetune/train_kto_modal.py`. Depends on r9 SFT merged weights (r9 training in progress).
 - ~~**Loss masking fix:** DONE Apr 12. `completion_only_loss=True` with `dataset_text_field="text"` was silently a no-op (no response_template → TRL skipped masking). Fixed in `finetune/train_modal.py` r8: removed `completion_only_loss`, added `train_on_responses_only(instruction_part="<|im_start|>user\n", response_part="<|im_start|>assistant\n")` after trainer init. Unsloth 2025.7+ re-exports this from TRL. Note: Linear KAE-25 is the MoE-LoRA ticket (unrelated) — this fix has no Linear ticket.~~
 - ~~**r8 SFT:** COMPLETE Apr 14. Modal H100. Same r7 dataset (6,419 train after filtering). Loss masking correct via `train_on_responses_only`. 402 steps. Deployed on Modal.~~

@@ -7,17 +7,18 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
 ## Pipeline Overview
 
 ```
-640 raw logs (agents 0-2 on VM, as of April 12 — no new Claude data since r7)
+675 raw logs (agents 0-2 on VM, as of April 16 — includes new Claude data from Apr 15 collection run)
   → extract_turns.py (OODA turn extraction)
-    → 575 extracted session dirs
+    → 650 extracted session dirs (from 583 Claude + other harnesses)
       → 14,091 turns
-  → convert_to_qwen.py (quality scoring + format conversion)
-    → 6,423 train / 646 val (7,069 total Qwen3.5 9B SFT records, ~23.7M tokens)
+  → convert_to_qwen.py (quality scoring + format conversion + r9 degenerate filtering)
+    → 5,871 train / 575 val (6,446 total Qwen3.5 9B SFT records)
+    (was 6,423/646 = 7,069 pre-r9 filtering)
 ```
 
 Previous pipeline state (April 8): 509 raw → 395 extracted → 3,957/488 (4,445 total). The r7 rebuild (April 9) re-extracted all sessions and produced ~62% more data.
 
-**Verified Apr 12 (direct VM inspection):** 640 raw logs on disk, 650 extracted sessions. Zero new Claude sessions since r7 extraction — all 26 post-Apr-9 logs are Gemini (excluded by `INCLUDED_HARNESSES = {"claude", "unknown"}`). The "65 pending" figure in earlier docs was incorrect (subagent reading stale docs, not the filesystem). r8 trains on the identical 7,069-record dataset as r7. The r8 improvement comes entirely from the loss masking fix.
+**Verified Apr 16 (direct VM inspection):** 675 raw logs on disk, 650 extracted sessions. New Claude data collected Apr 15 (3-agent, 4h run) — adds ~35 logs across agents 0-2. These new logs have NOT been re-extracted yet; current training data (r9) uses the same 583 Claude logs as r7/r8. The next re-extraction will incorporate the Apr 15 data. r9 trains on 5,871/575 records (down from 7,069 after degenerate session filtering — removed >50% click_tile and >75% stuck-loop sessions).
 
 ---
 
@@ -104,12 +105,14 @@ Each turn is scored 0.0-1.0 on three axes:
 
 | Agent | Total logs | Claude logs | Gemini | Codex | Extracted |
 |-------|-----------|-------------|--------|-------|-----------|
-| agent_0 (AGGRESSIVE) | 220 | 200 | 12 | 8 | 218 |
-| agent_1 (METHODICAL) | 213 | 195 | 11 | 7 | 217 |
-| agent_2 (CURIOUS) | 207 | 188 | 10 | 9 | 215 |
-| **Total** | **640** | **583** | **33** | **24** | **650** |
+| agent_0 (AGGRESSIVE) | 223 | ~213 | 12 | 8 | 218+ |
+| agent_1 (METHODICAL) | 216 | ~206 | 11 | 7 | 217+ |
+| agent_2 (CURIOUS) | 210 | ~199 | 10 | 9 | 215+ |
+| **Total** | **675** | **~618** | **33** | **24** | **650** |
 
-Only the 583 claude logs feed into training. Gemini/Codex are collected for comparison but excluded via `INCLUDED_HARNESSES = {"claude", "unknown"}` in `convert_to_qwen.py`. The 650 extracted count slightly exceeds 583 claude logs because extraction runs on all harnesses — the harness filter applies at the convert step.
+*Updated Apr 16. ~35 new Claude logs from Apr 15 data collection run not yet re-extracted.* Agent_4 (Qwen finetuned) has 14 logs, agent_5 (Qwen base) has 12 — these are eval/test runs, not training data.
+
+Only Claude logs feed into training. Gemini/Codex are collected for comparison but excluded via `INCLUDED_HARNESSES = {"claude", "unknown"}` in `convert_to_qwen.py`. The 650 extracted count slightly exceeds 583 claude logs because extraction runs on all harnesses — the harness filter applies at the convert step.
 
 **Personality split (within claude training data):**
 - Agent 0 (AGGRESSIVE): ~39% of dataset, combat-heavy sessions
@@ -122,6 +125,7 @@ Only the 583 claude logs feed into training. Gemini/Codex are collected for comp
 | r5 (Apr 4) | 3,853 | 465 | 4,318 | First quality-filtered dataset |
 | Apr 5 rebuild | 3,957 | 488 | 4,445 | +127 records, click_tile 5.6% |
 | r7 (Apr 9) | 6,423 | 646 | 7,069 | +62% data, chat template fix, personality labels |
+| r9 (Apr 15) | 5,871 | 575 | 6,446 | Degenerate filtering (-623), 100% reasoning, real system prompt |
 
 **r7-specific improvements:**
 - Chat template fix (QwenLM/Qwen3#1831): `<think>` reasoning preserved in all assistant turns, not just the last
@@ -136,7 +140,7 @@ Only the 583 claude logs feed into training. Gemini/Codex are collected for comp
 2. **Personality imbalance:** AGGRESSIVE produces more combat turns, CURIOUS more NPC interactions. Stratified split by session helps but doesn't guarantee action-type balance.
 3. **Session length bias:** Long sessions (100+ turns) dominate the dataset. Short sessions (< 20 turns) are often crashes or rate-limit kills.
 4. **Qwen tokenizer mismatch:** Qwen3.5 and Qwen3-VL share a base but have different special tokens. Training uses Qwen3.5 tokenizer; must match at inference.
-5. **No new Claude data since r7:** As of April 12, all 26 logs collected after r7 extraction (Apr 9) are Gemini — zero new Claude sessions. The next SFT rebuild requires a new Claude data collection run to meaningfully grow the dataset. r8 trains on the same 7,069 records as r7.
+5. **New Claude data collected Apr 15 but not yet extracted:** 3-agent 4h collection run added ~35 new Claude logs. These need re-extraction before the next SFT rebuild. r8/r9 train on the same source sessions as r7 (583 Claude logs). r9 applies degenerate filtering → 5,871 train / 575 val (down from 7,069).
 6. **accept_quest underrepresented:** Only 8 `accept_quest` actions in the full 7,069-record dataset despite active questing in logs. Likely a conversion/filter issue — `interact_npc` auto-accepts most quests, so explicit `accept_quest` calls are rare. May not be a bug.
 7. **Multi-harness data exclusion:** Codex and Gemini harness logs are collected but excluded from Qwen SFT training via `INCLUDED_HARNESSES` filter in `convert_to_qwen.py`. Only Claude data trains the student model.
 

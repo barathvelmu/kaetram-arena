@@ -148,7 +148,7 @@ Restart a single running agent (0-3) without affecting others. Useful for:
 Flags:
 - `--reset` — Reset Level 1 + clear state (default: preserve progress)
 - `--claude`, `--codex`, `--kimi`, `--qwen-code` — Change harness
-- `--personality {aggressive,methodical,curious,efficient}` — Change playstyle
+- `--personality {aggressive,methodical,curious}` — Change playstyle
 
 **Important:** Always clears `.session_counter` to ensure fresh session starts (not resumption).
 
@@ -194,7 +194,7 @@ Run each in its own terminal:
 ./scripts/restart-agent.sh 2 8
 
 # One of each personality
-./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --efficient 1 --hours 0
+./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --hours 0
 ```
 
 Port allocation: agent N gets server WS port `9001 + N*10` (9001, 9011, 9021). All agents share the static client on port 9000. Each agent logs in as `ClaudeBotN`.
@@ -277,7 +277,7 @@ Combat:
 Movement:
 - `navigate(x, y)` — BFS pathfinding (max ~100 tiles — warp for longer)
 - `move(x, y)` — short-distance (<15 tiles)
-- `warp(location)` — fast travel ("mudwich", "crossroads", "lakesworld", "patsow", "crullfield", "undersea")
+- `warp(location)` — fast travel ("mudwich", "aynor", "lakesworld", "crullfield", "patsow", "undersea")
 - `cancel_nav()` — cancel active navigation
 - `stuck_reset()` — reset stuck detection
 - `click_tile(x, y)` — click grid tile (on-screen fallback)
@@ -482,7 +482,7 @@ When editing `prompts/system.md`, `prompts/game_knowledge.md`, or `prompts/perso
 - **Reference data at top, instructions at end**. "Lost in the middle" effect: middle 40-60% of context is systematically ignored (Stanford NLP). Put game_knowledge above decision tree.
 - **Personality = priority modifiers only**. Don't add new rules — modify ordering/thresholds of existing decision tree. Keep under 10 lines each. (ACL 2025: personality via explicit behavioral instructions works; instruction dilution from rule proliferation doesn't.)
 - **One tool per turn is correct** for game agents. Validated by ReAct (Yao et al.), GamingAgent (ICLR 2026), Claude Code architecture.
-- **22 tools is already past the RAG-MCP danger line.** Performance degrades beyond ~19 tools (RAG-MCP arXiv 2505.03275). We grew from 18 → 22 when `buy_item`, `gather`, `loot`, `query_quest` were added. Do not add more tools without removing/combining — context-dependent tool filtering (KAE-15) is now on the critical path for the student model. Monitor tool selection confusion in r7 and later runs.
+- **22 tools sits inside RAG-MCP's comfort zone.** Paper (arXiv 2505.03275) shows graceful degradation past ~30 tools and sharp drop past ~100 — we are well below both. Still prefer merging related tools over adding new ones (context budget, prompt drift), and context-dependent tool filtering (KAE-15) remains scoped for the student model.
 
 ## MCP server internals
 

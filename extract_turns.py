@@ -608,8 +608,8 @@ def structured_action(action_type: str, action_code: str, tool_input: dict | Non
             m = re.search(r"warp(\d+)", action_code)
         idx = m.group(1) if m else "0"
         locations = {
-            "0": "Mudwich", "1": "Crossroads", "2": "Lakesworld",
-            "3": "Patsow", "4": "Crullfield", "5": "Undersea",
+            "0": "Mudwich", "1": "Aynor", "2": "Lakesworld",
+            "3": "Crullfield", "4": "Patsow", "5": "Undersea",
         }
         return f"warp({locations.get(idx, idx)})"
 

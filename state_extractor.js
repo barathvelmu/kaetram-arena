@@ -580,7 +580,7 @@
   };
 
   // Warp with combat awareness — checks target, nearby aggro, and server combat cooldown.
-  // warpId: 0=Mudwich (default), 1=Crossroads, 2=Lakesworld
+  // warpId matches WARP_IDS in convert_to_qwen.py: 0=Mudwich, 1=Aynor, 2=Lakesworld, 3=Crullfield, 4=Patsow, 5=Undersea.
   // Sets warpPending for verification on next OBSERVE (check warp_status in game state).
   window.__safeWarp = function (warpId) {
     var game = window.game;

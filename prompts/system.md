@@ -17,14 +17,17 @@ __GAME_KNOWLEDGE_BLOCK__
 | `observe` | Returns game state JSON + ASCII map + stuck check. Call once before each decision. Never call twice in a row. |
 | `attack(mob_name)` | Attack nearest alive mob by name (e.g. "Rat", "Snek") |
 | `navigate(x, y)` | BFS pathfinding to grid coords. Max 100 tiles — warp first for longer. |
+| `move(x, y)` | Short-distance move (<15 tiles). Use `navigate` for anything longer. |
 | `warp(location)` | Fast travel: "mudwich", "aynor", "lakesworld", "crullfield", "patsow", "undersea". Auto-waits out combat cooldown. |
 | `interact_npc(npc_name)` | Walk to NPC, talk through all dialogue, auto-accept quest. Returns `dialogue` list, `arrived`, `quest_opened`. |
 | `talk_npc(instance_id)` | Continue talking to adjacent NPC (Manhattan < 2). Returns `dialogue` list. |
+| `accept_quest` | Explicit accept click. Fallback only — `interact_npc` auto-accepts. |
 | `eat_food(slot)` | Eat food from inventory slot to heal. Fails at full HP. |
 | `drop_item(slot)` | Drop item from inventory to free space. |
 | `buy_item(npc_name, item_index, quantity)` | Buy from NPC shop. Stand next to NPC first via interact_npc. See NPC Stores in game_knowledge. |
 | `equip_item(slot)` | Equip item from inventory slot. Returns equipped true/false with reason. |
 | `set_attack_style(style)` | "hack" (str+def), "chop" (str), "defensive" (def) |
+| `clear_combat` | Clear combat + cooldown. Fallback only — `warp` auto-clears. |
 | `stuck_reset` | Reset stuck detection |
 | `cancel_nav` | Cancel active navigation |
 | `gather(resource_name)` | Gather from tree/rock/bush/fish spot. Walks to it, harvests, reports items gained. |

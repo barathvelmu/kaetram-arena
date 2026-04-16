@@ -9,7 +9,7 @@
 #
 # Usage:
 #   ./scripts/resume-agent.sh                                    # resume all agents (default mode)
-#   ./scripts/resume-agent.sh --aggressive 1 --methodical 1 --curious 1 --efficient 1
+#   ./scripts/resume-agent.sh --aggressive 1 --methodical 1 --curious 1
 #   ./scripts/resume-agent.sh --hours 8                          # resume with time limit
 
 set -euo pipefail
@@ -20,7 +20,6 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 N_AGGRESSIVE=""
 N_METHODICAL=""
 N_CURIOUS=""
-N_EFFICIENT=""
 HOURS=""
 N_CLAUDE=""
 N_CODEX=""
@@ -32,7 +31,6 @@ while [[ $# -gt 0 ]]; do
     --aggressive)  N_AGGRESSIVE="$2"; shift 2;;
     --methodical)  N_METHODICAL="$2"; shift 2;;
     --curious)     N_CURIOUS="$2"; shift 2;;
-    --efficient)   N_EFFICIENT="$2"; shift 2;;
     --hours)       HOURS="$2"; shift 2;;
     --claude)
       if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
@@ -138,7 +136,7 @@ fi
 HAS_PERSONALITY=false
 PERSONALITY_ARGS=""
 PERSONALITY_TOTAL=0
-for p in aggressive methodical curious efficient; do
+for p in aggressive methodical curious; do
   eval "count=\$N_$(echo $p | tr '[:lower:]' '[:upper:]')"
   if [ -n "$count" ] && [ "$count" -gt 0 ]; then
     HAS_PERSONALITY=true
@@ -158,7 +156,6 @@ if $HAS_PERSONALITY; then
   [ -n "$N_AGGRESSIVE" ] && [ "$N_AGGRESSIVE" -gt 0 ] && echo "  Aggressive:  $N_AGGRESSIVE"
   [ -n "$N_METHODICAL" ] && [ "$N_METHODICAL" -gt 0 ] && echo "  Methodical:  $N_METHODICAL"
   [ -n "$N_CURIOUS" ] && [ "$N_CURIOUS" -gt 0 ] && echo "  Curious:     $N_CURIOUS"
-  [ -n "$N_EFFICIENT" ] && [ "$N_EFFICIENT" -gt 0 ] && echo "  Efficient:   $N_EFFICIENT"
   echo "  Total:       $N_AGENTS"
 else
   echo "  Agents to resume: $N_AGENTS (detected $DETECTED with state)"

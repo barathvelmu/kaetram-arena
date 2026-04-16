@@ -164,6 +164,7 @@ class Inference:
         else:
             merged_path = Path(BASE_MODEL_ID)
             print(f"WARNING: No finetuned model found, using base {BASE_MODEL_ID}")
+        self.loaded_model_path = str(merged_path)
 
         # Patch tokenizer_config.json if saved by transformers 5.x
         # (SGLang uses transformers 4.x which doesn't have TokenizersBackend)
@@ -205,7 +206,13 @@ class Inference:
 
         @web_app.get("/health")
         async def health():
-            return {"status": "ok", "model": BASE_MODEL_ID}
+            return {
+                "status": "ok",
+                "model": BASE_MODEL_ID,
+                "variant": "finetuned",
+                "sft_experiment": SFT_EXPERIMENT,
+                "loaded_model_path": getattr(self, "loaded_model_path", None),
+            }
 
         @web_app.get("/v1/models")
         async def list_models():
@@ -218,14 +225,16 @@ class Inference:
             import re as _re
             body = await request.json()
             messages = body.get("messages", [])
+            tools = body.get("tools")
             temperature = body.get("temperature", 0.7)
             max_tokens = body.get("max_tokens", 512)
             top_p = body.get("top_p", 0.9)
 
-            # Tool definitions are injected into the system prompt client-side
-            # (play_qwen.py), so we just render messages as-is.
             prompt = self.tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
+                messages,
+                tools=tools,
+                tokenize=False,
+                add_generation_prompt=True,
             )
 
             # Use async generate to avoid event loop conflict

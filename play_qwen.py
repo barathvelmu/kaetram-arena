@@ -9,8 +9,8 @@ browser interaction, combat timers, navigation, etc.
 Usage:
     python3 play_qwen.py --endpoint https://your-modal-url/v1 \
         --system-prompt /path/to/system.md \
-        --sandbox /tmp/kaetram_eval_sft \
-        --username evalbotSFT
+        --sandbox /tmp/kaetram_agent_4 \
+        --username QwenBot
 """
 
 import argparse
@@ -166,7 +166,7 @@ def parse_tool_calls_from_text(text: str) -> list[dict]:
 # Logging
 # ---------------------------------------------------------------------------
 
-def log_turn(log_file, turn: int, role: str, content: str, tool_calls=None):
+def log_turn(log_file, turn: int, role: str, content: str, tool_calls=None, usage=None):
     """Append a turn record to the session log."""
     # Tool results need full content — observe returns player_stats, quests, entities
     # which are critical for eval metrics. No truncation on tool results.
@@ -179,6 +179,8 @@ def log_turn(log_file, turn: int, role: str, content: str, tool_calls=None):
     }
     if tool_calls:
         record["tool_calls"] = tool_calls
+    if usage:
+        record["usage"] = usage
     with open(log_file, "a") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -215,7 +217,7 @@ async def run_agent(args):
 
     mcp_env = {
         "KAETRAM_PORT": args.server_port or "",
-        "KAETRAM_USERNAME": os.environ.get("KAETRAM_USERNAME", "evalbotSFT"),
+        "KAETRAM_USERNAME": os.environ.get("KAETRAM_USERNAME", "QwenBot"),
         "KAETRAM_EXTRACTOR": os.path.join(project_dir, "state_extractor.js"),
         "KAETRAM_SCREENSHOT_DIR": str(state_dir),
     }
@@ -235,41 +237,12 @@ async def run_agent(args):
         await mcp.close()
         return
 
-    # Build tool definitions block in Qwen3.5 Coder XML format
-    # (injected into system prompt so the server doesn't need tools= kwarg)
-    tool_defs = mcp.get_tool_definitions()
-    tool_block = "\n\n# Tools\n\nYou have access to the following functions:\n\n<tools>\n"
-    for t in tool_defs:
-        tool_block += json.dumps(t) + "\n"
-    tool_block += """</tools>
-
-If you choose to call a function ONLY reply in the following format with NO suffix:
-
-<tool_call>
-<function=example_function_name>
-<parameter=example_parameter_1>
-value_1
-</parameter>
-</function>
-</tool_call>
-
-<IMPORTANT>
-Reminder:
-- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags
-- Required parameters MUST be specified
-- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after
-- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls
-</IMPORTANT>"""
-
     # Load system prompt
     system_prompt = ""
     if args.system_prompt and os.path.isfile(args.system_prompt):
         system_prompt = open(args.system_prompt).read()
     elif args.system_prompt:
         system_prompt = args.system_prompt
-
-    # Append tool definitions to system prompt
-    system_prompt += tool_block
 
     # Build initial messages
     messages = [{"role": "system", "content": system_prompt}]
@@ -293,10 +266,12 @@ Reminder:
             response = client.chat.completions.create(
                 model=args.model,
                 messages=messages,
+                tools=mcp.get_tool_definitions(),
                 temperature=0.7,
                 max_tokens=2048,
             )
             choice = response.choices[0]
+            usage = response.usage.model_dump() if getattr(response, "usage", None) else None
             consecutive_errors = 0
         except Exception as e:
             print(f"  [{turn}] API error: {e}")
@@ -319,13 +294,20 @@ Reminder:
         if tool_calls:
             # Append assistant content as plain text (it contains the <tool_call> XML)
             messages.append({"role": "assistant", "content": content})
+            parsed_calls = []
             for tc in tool_calls:
                 fn_name = tc.function.name
                 try:
                     fn_args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
                 except json.JSONDecodeError:
                     fn_args = {}
+                parsed_calls.append({"name": fn_name, "args": fn_args})
 
+            log_turn(log_file, turn, "assistant", content, parsed_calls, usage=usage)
+
+            for parsed in parsed_calls:
+                fn_name = parsed["name"]
+                fn_args = parsed["args"]
                 print(f"  [{turn}] → {fn_name}({fn_args})")
                 try:
                     result = await mcp.call_tool(fn_name, fn_args)
@@ -335,7 +317,6 @@ Reminder:
 
                 # Tool result as user message (apply_chat_template renders tool_response under user)
                 messages.append({"role": "user", "content": f"<tool_response>\n{result}\n</tool_response>"})
-                log_turn(log_file, turn, "assistant", content, [{"name": fn_name, "args": fn_args}])
                 log_turn(log_file, turn, "tool", f"{fn_name}: {result}")
 
                 # Save game state for dashboard when model calls observe
@@ -350,6 +331,7 @@ Reminder:
             text_calls = parse_tool_calls_from_text(content)
             if text_calls:
                 messages.append({"role": "assistant", "content": content})
+                normalized_calls = []
                 for tc_dict in text_calls:
                     fn_name = tc_dict.get("name", "")
                     fn_args = tc_dict.get("arguments", {})
@@ -358,7 +340,13 @@ Reminder:
                             fn_args = json.loads(fn_args)
                         except json.JSONDecodeError:
                             fn_args = {}
+                    normalized_calls.append({"name": fn_name, "args": fn_args})
 
+                log_turn(log_file, turn, "assistant", content, normalized_calls, usage=usage)
+
+                for normalized in normalized_calls:
+                    fn_name = normalized["name"]
+                    fn_args = normalized["args"]
                     print(f"  [{turn}] → {fn_name}({fn_args}) [text-parsed]")
                     try:
                         result = await mcp.call_tool(fn_name, fn_args)
@@ -367,7 +355,6 @@ Reminder:
                     print(f"  [{turn}] ← {result[:120]}...")
 
                     messages.append({"role": "user", "content": f"Tool result ({fn_name}):\n{result}"})
-                    log_turn(log_file, turn, "assistant", content, [{"name": fn_name, "args": fn_args}])
                     log_turn(log_file, turn, "tool", f"{fn_name}: {result}")
 
                     # Save game state for dashboard when model calls observe
@@ -379,7 +366,7 @@ Reminder:
             else:
                 # Pure text, no tool calls
                 messages.append({"role": "assistant", "content": content})
-                log_turn(log_file, turn, "assistant", content)
+                log_turn(log_file, turn, "assistant", content, usage=usage)
                 if choice.finish_reason == "stop":
                     print(f"  [{turn}] Model stopped (no tool call). Continuing...")
                     time.sleep(2)
@@ -419,7 +406,7 @@ def main():
     parser.add_argument("--api-key", default=None, help="API key (default: not-needed)")
     parser.add_argument("--system-prompt", default=None, help="System prompt file or text")
     parser.add_argument("--user-prompt", default=None, help="Initial user message")
-    parser.add_argument("--sandbox", default="/tmp/kaetram_eval_sft", help="Sandbox directory")
+    parser.add_argument("--sandbox", default="/tmp/kaetram_agent_4", help="Sandbox directory")
     parser.add_argument("--max-turns", type=int, default=300, help="Max conversation turns")
     parser.add_argument("--server-port", default="", help="Game server WebSocket port (e.g. 9031)")
     parser.add_argument("--project-dir", default=os.path.dirname(os.path.abspath(__file__)),

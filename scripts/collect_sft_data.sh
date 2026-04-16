@@ -3,9 +3,9 @@
 #
 # Usage:
 #   ./scripts/collect_sft_data.sh [N_AGENTS] [HOURS]
-#   ./scripts/collect_sft_data.sh 4 8        # 4 agents for 8 hours
+#   ./scripts/collect_sft_data.sh 3 8        # 3 agents for 8 hours
 #   ./scripts/collect_sft_data.sh 2           # 2 agents, run until ctrl-c
-#   ./scripts/collect_sft_data.sh             # defaults: 4 agents, no time limit
+#   ./scripts/collect_sft_data.sh             # defaults: 3 agents, no time limit
 #
 # Steps:
 #   1. Check that the shared Kaetram client is running on port 9000
@@ -20,7 +20,7 @@ PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_DIR"
 
 # Parse args
-N_AGENTS="${1:-4}"
+N_AGENTS="${1:-3}"
 HOURS="${2:-}"
 N_CLAUDE=""
 N_CODEX=""
@@ -44,6 +44,7 @@ done
 echo "=== Kaetram SFT Data Collection Pipeline ==="
 echo "  Agents: $N_AGENTS"
 echo "  Hours: ${HOURS:-unlimited}"
+echo "  SFT corpus: agent_0, agent_1, agent_2 only"
 if [ -n "$N_CLAUDE" ] && [ -n "$N_CODEX" ]; then
   echo "  CLI: Mixed (Claude + Codex)"
 elif [ -n "$N_CODEX" ]; then
@@ -87,26 +88,27 @@ echo ""
 echo "--- Step 3: Extracting turns from session logs ---"
 RAW_DIR="$PROJECT_DIR/dataset/raw"
 EXTRACTED_DIR="$PROJECT_DIR/dataset/extracted"
+PYTHON_BIN="$PROJECT_DIR/.venv/bin/python3"
+if [ ! -x "$PYTHON_BIN" ]; then
+  PYTHON_BIN="python3"
+fi
 
 if [ -d "$RAW_DIR" ]; then
-  for agent_dir in "$RAW_DIR"/agent_*/logs; do
+  for agent_dir in "$RAW_DIR"/agent_{0,1,2}/logs; do
     if [ -d "$agent_dir" ]; then
-      echo "  Processing $agent_dir ..."
-      python3 extract_turns.py --log-dir "$agent_dir" --output-dir "$EXTRACTED_DIR" --no-frames
+      agent_name="$(basename "$(dirname "$agent_dir")")"
+      agent_output_dir="$EXTRACTED_DIR/$agent_name"
+      echo "  Processing $agent_dir -> $agent_output_dir ..."
+      "$PYTHON_BIN" extract_turns.py --log-dir "$agent_dir" --output-dir "$agent_output_dir"
     fi
   done
 fi
 
-# Also process any logs in the main logs/ directory
-if [ -d "$PROJECT_DIR/logs" ]; then
-  echo "  Processing logs/ ..."
-  python3 extract_turns.py --log-dir "$PROJECT_DIR/logs" --output-dir "$EXTRACTED_DIR" --no-frames
-fi
 echo ""
 
 # Step 4: Convert to Qwen3.5 SFT format
 echo "--- Step 4: Converting to Qwen3.5 9B SFT format ---"
-python3 convert_to_qwen.py --input "$EXTRACTED_DIR" --output "$PROJECT_DIR/dataset/qwen_sft"
+"$PYTHON_BIN" convert_to_qwen.py --input "$EXTRACTED_DIR" --output "$PROJECT_DIR/dataset/qwen_sft"
 echo ""
 
 # Step 5: Print stats
@@ -115,8 +117,8 @@ TRAIN="$PROJECT_DIR/dataset/qwen_sft/train.json"
 VAL="$PROJECT_DIR/dataset/qwen_sft/val.json"
 
 if [ -f "$TRAIN" ]; then
-  TRAIN_COUNT=$(python3 -c "import json; print(len(json.load(open('$TRAIN'))))")
-  VAL_COUNT=$(python3 -c "import json; print(len(json.load(open('$VAL'))))")
+  TRAIN_COUNT=$("$PYTHON_BIN" -c "import json; print(len(json.load(open('$TRAIN'))))")
+  VAL_COUNT=$("$PYTHON_BIN" -c "import json; print(len(json.load(open('$VAL'))))")
   echo "  Train examples: $TRAIN_COUNT"
   echo "  Val examples:   $VAL_COUNT"
   echo "  Total:          $((TRAIN_COUNT + VAL_COUNT))"

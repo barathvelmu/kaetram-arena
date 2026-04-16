@@ -5,158 +5,98 @@
     "scenario": "D",
     "scenario_name": "Open Play",
     "max_turns": 300,
-    "total_episodes": 2,
-    "ok_episodes": 2,
-    "timestamp": "2026-04-15T20:47:50.260111",
-    "git_sha": "52a5043"
+    "total_episodes": 1,
+    "ok_episodes": 1,
+    "timestamp": "2026-04-16T18:55:47.386131",
+    "git_sha": "daa9cb5"
   },
   "episodes": [
     {
       "episode": 1,
       "status": "ok",
-      "success": true,
-      "duration_seconds": 4996.9,
+      "success": false,
+      "duration_seconds": 2422.3,
       "returncode": 0,
-      "sub_sessions": 13,
+      "sub_sessions": 6,
       "log_file": "dataset/eval/base/episode_001.jsonl",
       "turns_played": 300,
       "tool_calls_attempted": 300,
-      "tool_calls_valid": 300,
-      "tool_parse_rate": 1.0,
-      "kills": 12,
-      "kills_by_mob": {
-        "Batterfly": 4,
-        "Rat": 6,
-        "Goblin": 2
-      },
-      "xp_estimated": 452,
-      "xp_per_turn": 1.5067,
-      "level_reached": 19,
-      "level_delta": 18,
+      "tool_calls_valid": 0,
+      "tool_parse_rate": 0.0,
+      "kills": 0,
+      "kills_by_mob": {},
+      "xp_estimated": 0,
+      "xp_per_turn": 0.0,
+      "level_reached": 1,
+      "level_delta": 0,
       "deaths": 0,
       "survived": true,
-      "quests_completed": 2,
-      "quests_accepted": 7,
-      "unique_positions": 71,
-      "action_counts": {
-        "observe": 56,
-        "set_attack_style": 8,
-        "warp": 2,
-        "interact_npc": 13,
-        "talk_npc": 5,
-        "equip_item": 6,
-        "navigate": 23,
-        "gather": 82,
-        "attack": 95,
-        "loot": 9,
-        "eat_food": 1
-      },
-      "action_entropy": 2.5473,
+      "quests_completed": 0,
+      "quests_accepted": 0,
+      "unique_positions": 0,
+      "action_counts": {},
+      "action_entropy": 0.0,
       "stuck_resets": 0,
-      "click_tiles": 0
-    },
-    {
-      "episode": 2,
-      "status": "ok",
-      "success": true,
-      "duration_seconds": 4447.3,
-      "returncode": 0,
-      "sub_sessions": 14,
-      "log_file": "dataset/eval/base/episode_002.jsonl",
-      "turns_played": 300,
-      "tool_calls_attempted": 300,
-      "tool_calls_valid": 300,
-      "tool_parse_rate": 1.0,
-      "kills": 23,
-      "kills_by_mob": {
-        "Rat": 18,
-        "Batterfly": 4,
-        "Snek": 1
-      },
-      "xp_estimated": 604,
-      "xp_per_turn": 2.0133,
-      "level_reached": 21,
-      "level_delta": 20,
-      "deaths": 0,
-      "survived": true,
-      "quests_completed": 2,
-      "quests_accepted": 6,
-      "unique_positions": 68,
-      "action_counts": {
-        "observe": 48,
-        "set_attack_style": 2,
-        "warp": 3,
-        "interact_npc": 11,
-        "talk_npc": 3,
-        "navigate": 20,
-        "gather": 72,
-        "attack": 106,
-        "loot": 13,
-        "equip_item": 4,
-        "query_quest": 3,
-        "click_tile": 1,
-        "eat_food": 3,
-        "move": 2,
-        "cancel_nav": 1,
-        "drop_item": 8
-      },
-      "action_entropy": 2.7185,
-      "stuck_resets": 0,
-      "click_tiles": 1
+      "click_tiles": 0,
+      "kills_db": 0,
+      "kills_db_delta": 0,
+      "xp_db": 3355,
+      "xp_db_delta": 3355,
+      "level_reached_db": 1,
+      "level_delta_db": 0
     }
   ],
   "metrics": {
     "quest_completion_rate": [
-      1,
-      1
+      0
     ],
     "xp_per_turn": [
-      1.5067,
-      2.0133
+      0.0
     ],
     "survival_rate": [
-      1,
       1
     ],
     "tool_parse_rate": [
-      1.0,
-      1.0
+      0.0
     ],
     "deaths_per_session": [
-      0,
       0
     ],
     "kills": [
-      12,
-      23
+      0
+    ],
+    "kills_db_delta": [
+      0
     ],
     "xp_estimated": [
-      452,
-      604
+      0
+    ],
+    "xp_db_delta": [
+      3355
     ],
     "level_reached": [
-      19,
-      21
+      1
     ],
     "level_delta": [
-      18,
-      20
+      0
+    ],
+    "level_reached_db": [
+      1
+    ],
+    "level_delta_db": [
+      0
     ],
     "action_entropy": [
-      2.5473,
-      2.7185
+      0.0
     ],
     "stuck_resets": [
-      0,
       0
     ],
     "click_tiles": [
-      0,
-      1
+      0
     ],
     "success_rate": [
-      1,
-      1
+      0
     ]
   }
 }

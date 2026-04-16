@@ -10,7 +10,7 @@ Usage:
     python3 orchestrate.py --agents 2 --hours 8           # auto-stop after 8h
     python3 orchestrate.py --codex                        # all agents use Codex
     python3 orchestrate.py --claude 2 --codex 2           # mixed: 2 Claude + 2 Codex
-    python3 orchestrate.py --claude 2 --codex 2 --aggressive 2 --efficient 2
+    python3 orchestrate.py --claude 2 --codex 2 --aggressive 2 --curious 2
 """
 
 import argparse

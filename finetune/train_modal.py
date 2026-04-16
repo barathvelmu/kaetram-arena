@@ -328,7 +328,7 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
 @app.function(
     image=train_image,
     gpu="H100",  # 80GB VRAM — bf16 LoRA on 9B fits easily
-    timeout=18 * 3600,  # 18 hours (r7: 402 steps × ~2min/step ≈ 14h)
+    timeout=30 * 3600,  # r9 hit the 18h cap before completion; keep headroom for full runs
     volumes={
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,

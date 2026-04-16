@@ -250,8 +250,8 @@ These explain WHY Tier 1 metrics differ between models.
 ### Design
 
 **Models under evaluation:**
-1. **Qwen 3.5 9B base** (unfinetuned) — `serve_modal_base.py`, agent_5 (QwenBase)
-2. **Qwen 3.5 9B r8-SFT** (finetuned) — `serve_modal.py`, agent_4 (QwenBot)
+1. **Qwen 3.5 9B base** (unfinetuned) — `serve_modal_base.py`, eval port 9071
+2. **Qwen 3.5 9B r9-SFT** (finetuned) — `serve_modal.py`, eval port 9061
 3. (Future: **r8-SFT + KTO** — after KTO training completes)
 
 **Controlled variables:**
@@ -461,7 +461,7 @@ Run on 50 samples per model. Report mean + distribution.
 | Agent harness | `play_qwen.py` | Runs episodes, produces JSONL logs |
 | Base model endpoint | `finetune/serve_modal_base.py` | Unfinetuned Qwen3.5-9B on Modal A100 |
 | Finetuned endpoint | `finetune/serve_modal.py` | r8-SFT model on Modal A100 |
-| Agent management | `scripts/start-qwen.sh --base` | Launches base model agent (agent_5) |
+| Eval launcher | `scripts/run-eval.sh` | Starts game servers (9061/9071), runs r9-sft vs base in parallel |
 | Turn extraction | `extract_turns.py` | Parses JSONL logs into OODA cycles |
 | Session scoring | `score_sessions.py` | 21-metric session quality score |
 | Turn scoring | `convert_to_qwen.py:score_turn()` | Per-turn quality (state completeness, action quality, reasoning) |

@@ -8,11 +8,11 @@ paper-ready markdown comparison table.
 
 Usage:
     # Compare two models
-    python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r8-sft/results.json
+    python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json
 
     # Compare three models (base vs SFT vs KTO)
     python3 eval_compare.py dataset/eval/base/results.json \
-        dataset/eval/r8-sft/results.json \
+        dataset/eval/r9-sft/results.json \
         dataset/eval/r8-kto/results.json
 
     # Save to file
@@ -428,7 +428,7 @@ The first results file is treated as the BASE (control) model.
 All subsequent files are compared against the base.
 
 Examples:
-  python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r8-sft/results.json
+  python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json
   python3 eval_compare.py base.json sft.json kto.json --output comparison.md
         """,
     )

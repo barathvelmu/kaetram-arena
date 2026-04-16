@@ -82,9 +82,9 @@ research/
 
 | Script | Purpose |
 |--------|---------|
-| `./scripts/restart-agent.sh [N] [H]` | **Primary command.** Kills everything, resets DB (fresh Level 1), clears state, relaunches N agents for H hours. Default: 4 agents, 24h. Use `0` for no time limit. Supports personality and harness flags. |
+| `./scripts/restart-agent.sh [N] [H]` | **Primary command.** Kills everything, resets DB (fresh Level 1), clears state, relaunches N agents for H hours. Default: 3 agents, 24h. Use `0` for no time limit. Supports personality and harness flags. |
 | `./scripts/resume-agent.sh` | Resume agents without DB reset. Preserves character progress. Supports personality and harness flags. |
-| `./scripts/restart-single-agent.sh <ID>` | Restart one running agent (agent 0-3) without affecting others. Clears session counter for fresh start. Supports `--reset`, personality, and harness switches. |
+| `./scripts/restart-single-agent.sh <ID>` | Restart one running agent (agent 0-2) without affecting others. Clears session counter for fresh start. Supports `--reset`, personality, and harness switches. |
 | `./scripts/nuke-agents.sh` | **Stop all agents.** SIGKILL everything agent-related — orchestrator, claude agents, MCP servers, browsers, game servers. Always use this to stop. |
 | `./scripts/reset-state.sh [N] [--force]` | Reset MongoDB player data only (no restart). Use `--force` to skip safety check. |
 | `./scripts/start-kaetram.sh` | Start Kaetram game server (single-agent mode, Node 20 required). |
@@ -102,8 +102,8 @@ research/
 ### Quick start (multi-agent)
 
 ```bash
-# Default: 4 Claude agents, 24h
-./scripts/restart-agent.sh 4 0
+# Default: 3 Claude agents, 24h
+./scripts/restart-agent.sh 3 0
 
 # 3 Codex agents with personalities
 ./scripts/restart-agent.sh --codex 3 --aggressive 1 --methodical 1 --curious 1 --hours 3
@@ -187,8 +187,8 @@ Run each in its own terminal:
 ### Multi-agent mode (scaled data collection)
 
 ```bash
-# 4 agents, no time limit (round-robin personalities)
-./scripts/restart-agent.sh 4 0
+# 3 agents, no time limit (round-robin personalities)
+./scripts/restart-agent.sh 3 0
 
 # 2 agents, 8 hours
 ./scripts/restart-agent.sh 2 8
@@ -197,20 +197,18 @@ Run each in its own terminal:
 ./scripts/restart-agent.sh --aggressive 1 --methodical 1 --curious 1 --efficient 1 --hours 0
 ```
 
-Port allocation: agent N gets server WS port `9001 + N*10` (9001, 9011, 9021, 9031). All agents share the static client on port 9000. Each agent logs in as `ClaudeBotN`.
+Port allocation: agent N gets server WS port `9001 + N*10` (9001, 9011, 9021). All agents share the static client on port 9000. Each agent logs in as `ClaudeBotN`.
 
-**Reserved agent slots:**
-- **agent_0–3**: Claude Code agents (data collection, training data source)
-- **agent_4**: Finetuned Qwen 3.5 9B (`QwenBot`, r8-SFT model via Modal)
-  - Sandbox: `/tmp/kaetram_agent_4/` (state/, logs/)
-  - Game server: port 9001 (reuses existing, or starts one if needed)
-- **agent_5**: Base Qwen 3.5 9B (`QwenBase`, unfinetuned baseline via Modal)
-  - Sandbox: `/tmp/kaetram_agent_5/` (state/, logs/)
-  - Game server: port 9041 (dedicated, separate from finetuned — avoids mob/NPC interference)
+**Agent slots:**
+- **agent_0–2**: Claude Code agents (data collection, training data source)
 
-Each Qwen agent has its own sandbox (`/tmp/kaetram_agent_N/`), MCP server, browser instance, and game server. Dashboard Qwen Live tab shows both side-by-side. Claude agents (agent_0-3) use sandboxes at `/tmp/kaetram_agent_0/` through `/tmp/kaetram_agent_3/` with ports 9001-9031.
+Claude agents use sandboxes at `/tmp/kaetram_agent_0/` through `/tmp/kaetram_agent_2/` with ports 9001, 9011, 9021.
 
-**GOTCHA — Kaetram game server port override:** `PORT=X yarn start` does NOT work. Kaetram's config reads PORT from the `.env` file, not `process.env`. Use `node --enable-source-maps dist/main.js --port X` from `packages/server/` instead (the `--port` CLI arg overrides config directly). This is how both `orchestrate.py` (Claude agents) and `start-qwen.sh` (Qwen agents) start game servers.
+**Eval slots** (separate from data collection, managed by `eval_harness.py` / `scripts/run-eval.sh`):
+- **eval r9-sft**: port 9061, username `evalbotSFT`, sandbox `/tmp/kaetram_eval_*`
+- **eval base**: port 9071, username `evalbotBase`, sandbox `/tmp/kaetram_eval_*`
+
+**GOTCHA — Kaetram game server port override:** `PORT=X yarn start` does NOT work. Kaetram's config reads PORT from the `.env` file, not `process.env`. Use `node --enable-source-maps dist/main.js --port X` from `packages/server/` instead (the `--port` CLI arg overrides config directly). This is how `orchestrate.py` starts game servers.
 
 **Agent playstyles:** Each agent gets a playstyle that defines its DECIDE priorities in `system.md`. Playstyle files in `prompts/personalities/` are injected via the `__PERSONALITY_BLOCK__` placeholder. All agents get `game_knowledge.md` appended. Dashboard shows playstyle badges (red=AGGRESSIVE, amber=METHODICAL, blue=CURIOUS). Active collection uses 3 agents. Each agent's sandbox gets a `metadata.json` with its playstyle.
 
@@ -232,7 +230,7 @@ Each Qwen agent has its own sandbox (`/tmp/kaetram_agent_N/`), MCP server, brows
 
 ```bash
 # Orchestrate → extract → convert in one script
-./scripts/collect_sft_data.sh 4 24    # 4 agents, 24 hours
+./scripts/collect_sft_data.sh 3 24    # 3 agents, 24 hours
 ```
 
 ---
@@ -321,26 +319,15 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 
 **Personalities finalized (April 3).** Dropped EFFICIENT after audit. 3 orthogonal axes confirmed working in logs: combat approach / HP-gated preparation / exploration-first. Active: agent_0=AGGRESSIVE, agent_1=METHODICAL, agent_2=CURIOUS.
 
-**Eval harness set up.** `dataset/eval/` with `base/` and `r8-sft/` subdirectories containing system prompts. Qwen agent harness (`play_qwen.py`) ready for base vs r9-SFT comparison.
+**Eval harness set up.** `eval_harness.py` runs `play_qwen.py` episodes with controlled conditions. Eval uses dedicated ports (9061 r9-sft, 9071 base) and sandboxes (`/tmp/kaetram_eval_*`). Dashboard Eval tab shows live side-by-side streams + results.
 
 **KTO pipeline validated, full run pending.** r6-KTO smoke test ran 10/10 steps cleanly. Will rebuild on r9 SFT merged weights. Comparison (base vs r9 vs r9-KTO) is the paper result.
 
 **Compile-research cron loop working.** `scripts/run_research_staleness_check.sh` via VM cron. Last auto-compile: 2026-04-11. Do not rely on session-local Claude cron — that dies with the session.
 
-**Qwen agent harness:**
-- `play_qwen.py` / `play_qwen.sh` — Calls finetuned model via OpenAI-compatible Modal endpoint. Spawns `mcp_game_server.py` as MCP subprocess for all 22 game tools. **This IS the finetuned model** harness.
+**Qwen eval harness:**
+- `play_qwen.py` / `play_qwen.sh` — Calls finetuned model via OpenAI-compatible Modal endpoint. Spawns `mcp_game_server.py` as MCP subprocess for all 22 game tools. Used by `eval_harness.py` for automated evaluation.
 - `QwenCodeAdapter` in `cli_adapter.py` — wraps the `qwen` CLI (Gemini CLI fork). Uses Playwright MCP, `stream-json` output. **This is NOT the finetuned model** — it calls the Qwen Code CLI which hits the Qwen API.
-- `play_opencode.sh` + `opencode.json` — OpenCode + Playwright MCP with Modal endpoint
-
-**Qwen management scripts:**
-```bash
-./scripts/start-qwen.sh              # Start finetuned (agent_4)
-./scripts/start-qwen.sh --base       # Start base/unfinetuned (agent_5)
-./scripts/start-qwen.sh --reset      # Reset to Level 1 first
-./scripts/stop-qwen.sh               # Stop all Qwen agents
-./scripts/restart-qwen.sh --reset    # Stop + reset + start
-./scripts/status-qwen.sh             # Process, HP, level, sessions
-```
 
 **World model (WIP concept).** Experimental 2.2M param Transformer forward dynamics model in `world/`. Not prioritized — see `world/README.md` for details.
 
@@ -396,8 +383,10 @@ Rate limit / budget:
 |------|------|
 | 9000 | Kaetram game client (HTTP, shared across agents) |
 | 9001 | Kaetram game server WS (single-agent default) |
-| 9001, 9011, 9021, 9031 | Game server WS (multi-agent, one per agent) |
-| 8080 | Dashboard (includes Qwen Live split-screen MJPEG at `/stream/agent_N`) |
+| 9001, 9011, 9021 | Game server WS (multi-agent, agent_0–2) |
+| 9061 | Eval game server WS (r9-sft) |
+| 9071 | Eval game server WS (base) |
+| 8080 | Dashboard (overview, activity, eval) |
 | 8081 | Dashboard WebSocket relay (realtime screenshot push) |
 
 ## Key files
@@ -418,13 +407,13 @@ Rate limit / budget:
 | `prompts/personalities/*.md` | Playstyle overrides (`aggressive.md`, `methodical.md`, `curious.md` — EFFICIENT was deprecated April 3 and its file is gone) |
 | `dashboard.py` | Live web dashboard (port 8080) |
 | `dashboard/parsers.py` | Session log parser — classifies MCP tool calls for activity feed |
-| `dashboard/api.py` | API endpoints — `/api/game-state`, `/api/agents`, `/api/activity`, `/api/qwen-log?agent=N` |
-| `play_qwen.py` | Finetuned Qwen agent harness — MCP tools via `mcp_game_server.py`, OpenAI-compatible Modal endpoint |
+| `dashboard/api.py` | API endpoints — `/api/game-state`, `/api/agents`, `/api/activity`, `/api/eval/live`, `/api/eval/latest` |
+| `play_qwen.py` | Qwen eval harness — MCP tools via `mcp_game_server.py`, OpenAI-compatible Modal endpoint. Used by `eval_harness.py`. |
 | `play_qwen.sh` | Session loop wrapper for `play_qwen.py` — system prompt substitution, auto-restart |
-| `finetune/serve_modal.py` | Modal SGLang endpoint for finetuned r7 model (A100, `/v1/chat/completions`) |
+| `eval_harness.py` | Eval orchestrator — runs N episodes per model, resets DB between episodes, outputs results JSON |
+| `scripts/run-eval.sh` | Eval launcher — starts game servers on 9061/9071, runs r9-sft vs base in parallel |
+| `finetune/serve_modal.py` | Modal SGLang endpoint for finetuned r9 model (A100, `/v1/chat/completions`) |
 | `finetune/serve_modal_base.py` | Modal SGLang endpoint for base Qwen3.5-9B (A100, baseline comparison) |
-| `scripts/start-qwen.sh` | Start finetuned (`--base` for unfinetuned) in tmux, manages game server + dashboard |
-| `scripts/stop-qwen.sh` | Stop all Qwen agents cleanly |
 
 ### Session log format (stream-json)
 

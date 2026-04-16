@@ -195,7 +195,6 @@ kaetram-agent/
 ├── state_extractor.js       # Injected into browser — game helpers (called by MCP server internally)
 ├── .mcp.json                # MCP config template (placeholders resolved at launch)
 ├── dashboard.py             # Live web dashboard launcher (port 8080)
-├── qwen_dashboard.py        # Lightweight MJPEG dashboard for Qwen agent (port 8082)
 ├── opencode.json            # OpenCode provider config (Modal/Ollama endpoints)
 ├── dashboard/               # Dashboard package (modular)
 │   ├── api.py               # API endpoints (DB-first, log-fallback game state)
@@ -301,8 +300,6 @@ The finetuned Qwen3.5-9B model can play autonomously using a lightweight 2-tool 
 # OpenCode mode — uses OpenCode + Playwright MCP with Ollama/Modal endpoint
 ./play_opencode.sh
 
-# Monitor Qwen agent (MJPEG dashboard on port 8082)
-python3 qwen_dashboard.py
 ```
 
 **Dual-VM architecture:**

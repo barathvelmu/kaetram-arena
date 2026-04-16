@@ -49,8 +49,8 @@ After SFT, we apply KTO using **game outcomes as reward signals** — XP gain, q
 ### Multi-harness comparison
 Same game, same tools, 5 different AI backends (Claude, Codex, Gemini, Kimi, Qwen Code). Interesting for analysis but not a paper contribution unless we do a rigorous comparison. Claude, Codex, and Gemini are fully integrated end-to-end (Apr 10); Kimi and Qwen Code are WIP.
 
-### Finetuned vs base model live comparison
-Dashboard Qwen Live tab (Apr 10) shows split-screen MJPEG streaming of finetuned r7 (agent_4) vs base Qwen3.5-9B (agent_5) playing simultaneously. Useful for qualitative analysis in the paper, but quantitative eval protocol still needed.
+### Finetuned vs base model comparison
+Eval harness (`eval_harness.py`) runs automated episodic comparison of finetuned r9-SFT vs base Qwen3.5-9B with controlled conditions. Dashboard Eval tab shows live split-screen streams and statistical results (Glass's delta, Bonferroni correction).
 
 ### Self-play improvement loop
 Planned (KAE-16) but not implemented. If it works, it's a strong contribution: student generates own data → score → retrain → iterate. STaR/ReST-EM pattern applied to game agents.
@@ -119,7 +119,7 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
    - Dashboard eval tab shows live progress.
    - Both metrics together give a strong story: "student reproduces teacher at X% and achieves Y% quest completion vs Z% baseline."
    - **Status: implemented, runs pending.**
-2. **Baseline:** Vanilla Qwen3.5-9B (no finetuning) deployed as baseline (`serve_modal_base.py`, agent_5). Comparison table: base → r8-SFT (broken alignment, shows what goes wrong) → r9-SFT (fixed alignment) → r9-KTO. The r8→r9 delta tells the data quality story.
+2. **Baseline:** Vanilla Qwen3.5-9B (no finetuning) deployed as baseline (`serve_modal_base.py`). Comparison table: base → r8-SFT (broken alignment, shows what goes wrong) → r9-SFT (fixed alignment) → r9-KTO. The r8→r9 delta tells the data quality story.
 3. **Reproducibility:** N=20 runs per model per condition. Same seed conditions. Report mean ± std. Kaetram-Open is public — full reproduction possible.
 4. **Core intro framing (vs. all comparables, not just TiG):** "Unlike prior work where LLMs serve as decision advisors for human players (TiG), generate raw code or click pixels (CRADLE, Voyager), or operate in episodic single-player environments (Orak, GamingAgent), our agent operates fully autonomously in a persistent open world using a shared typed tool API as the teacher-student interface." This single sentence covers all five main comparables simultaneously.
 5. **Ethics section:** Agent plays a game, no human subjects. Address: compute cost of teacher data collection, environmental impact of 24/7 agent runs.

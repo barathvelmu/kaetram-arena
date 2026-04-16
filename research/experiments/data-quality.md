@@ -54,8 +54,8 @@ March 28, 2026. Personalities fully stable from this date. Earlier data from age
 **How:** Trim to 500 chars in convert_to_qwen.py, prioritizing last 2-3 sentences (the decision) via reversed sentence iteration.
 **Why it matters:** Claude's extended thinking produces long reasoning chains. Most of it is restating the game state. The decision (last 2-3 sentences) is what matters for distillation. RAG-MCP (arxiv 2505.03275) confirms reasoning quality degrades when context > 3K tokens.
 
-### 4. Agent 3/4 code-level exclusion
-**How:** `EXCLUDED_AGENTS` set in `extract_turns.py`. Skips agent_3 and agent_4 directories entirely. Raw data deleted from VM for agent_4.
+### 4. Agent 3 code-level exclusion
+**How:** `EXCLUDED_AGENTS` set in `extract_turns.py`. Skips agent_3 directories entirely.
 **Why separate from date cutoff:** Agent 3 (EFFICIENT) produced data after March 28 but the personality itself was broken. Code-level exclusion is more reliable than date filtering.
 
 ### 5. Desert quest waste filter
@@ -110,7 +110,7 @@ Each turn is scored 0.0-1.0 on three axes:
 | agent_2 (CURIOUS) | 210 | ~199 | 10 | 9 | 215+ |
 | **Total** | **675** | **~618** | **33** | **24** | **650** |
 
-*Updated Apr 16. ~35 new Claude logs from Apr 15 data collection run not yet re-extracted.* Agent_4 (Qwen finetuned) has 14 logs, agent_5 (Qwen base) has 12 — these are eval/test runs, not training data.
+*Updated Apr 16. ~35 new Claude logs from Apr 15 data collection run not yet re-extracted.*
 
 Only Claude logs feed into training. Gemini/Codex are collected for comparison but excluded via `INCLUDED_HARNESSES = {"claude", "unknown"}` in `convert_to_qwen.py`. The 650 extracted count slightly exceeds 583 claude logs because extraction runs on all harnesses — the harness filter applies at the convert step.
 

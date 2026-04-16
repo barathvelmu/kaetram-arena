@@ -407,7 +407,7 @@
   .agent-selector button:hover { border-color: rgba(201,175,120,0.2); color: var(--text); }
   .agent-selector button.active { border-color: var(--gold); color: var(--gold); background: rgba(201,175,120,0.08); }
 
-  /* ── Qwen Live Tab ── */
+  /* ── Eval Live Split-Screen ── */
   .qwen-split { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 130px); gap: 0; }
   .qwen-panel { display: flex; flex-direction: column; overflow: hidden; }
   .qwen-panel-header {
@@ -463,7 +463,6 @@
   .log-toggle:hover { color: var(--gold); }
   .log-toggle::before { content: '\25B6'; margin-right: 6px; font-size: 8px; display: inline-block; transition: transform 0.15s; }
   .log-toggle.open::before { transform: rotate(90deg); }
-  .tab[data-tab="qwen"].active { color: var(--cyan) !important; border-bottom-color: var(--cyan) !important; }
   .tab[data-tab="eval"].active { color: var(--green) !important; border-bottom-color: var(--green) !important; }
   .tab .eval-live-dot {
     display: inline-block; width: 6px; height: 6px; border-radius: 50%;
@@ -679,7 +678,6 @@
   <div class="tab" data-tab="world">World</div>
   <div class="tab" data-tab="sessions">Sessions</div>
   <div class="tab" data-tab="prompt">Prompt</div>
-  <div class="tab" data-tab="qwen" style="color:var(--cyan);border-bottom-color:transparent" onclick="this.style.borderBottomColor=this.classList.contains('active')?'var(--cyan)':'transparent'">QWEN LIVE</div>
   <div class="tab" data-tab="eval" style="color:var(--green);border-bottom-color:transparent" onclick="this.style.borderBottomColor=this.classList.contains('active')?'var(--green)':'transparent'">EVAL</div>
 </div>
 
@@ -774,26 +772,6 @@
     <div class="card full" style="margin-top:16px">
       <h2>CLAUDE.md <span class="badge">project config</span></h2>
       <div id="prompt-claude-md" class="md-block" style="max-height:500px"><div class="empty">Loading...</div></div>
-    </div>
-  </div>
-
-  <!-- ===== QWEN LIVE TAB (split screen: finetuned vs base) ===== -->
-  <div class="tab-content" id="tab-qwen">
-    <div class="qwen-panel" id="qp-ft" style="height:calc(100vh - 130px);display:flex;flex-direction:column;overflow:hidden;">
-      <div class="qwen-panel-header finetuned">
-        <span class="qwen-status-dot stale" id="qw-dot-ft"></span>
-        <span class="qwen-badge ft">r8-SFT FINETUNED</span>
-        <span class="qval ft" id="qw-hp-ft">?/?</span>
-        <span class="qlabel">LV</span><span class="qval ft" id="qw-lv-ft">?</span>
-        <span class="qlabel">POS</span><span class="qval ft" id="qw-pos-ft">?,?</span>
-        <span class="qlabel">T</span><span class="qval ft" id="qw-turn-ft">0</span>
-      </div>
-      <div class="qwen-stream" style="flex:1;">
-        <img id="qw-img-ft" src="" alt="Finetuned stream">
-        <div class="no-signal" id="qw-nosig-ft">FINETUNED — WAITING</div>
-      </div>
-      <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
-      <div class="qwen-actions collapsed" id="qw-log-ft"></div>
     </div>
   </div>
 
@@ -1855,95 +1833,12 @@ function updateEvalTabIndicator(running) {
   }
 }
 
-// ── Qwen Live Tab (finetuned agent_4 only) ──
-(function() {
-  let qwenActive = false;
-  const p = {
-    id: 4,
-    img: document.getElementById('qw-img-ft'),
-    noSig: document.getElementById('qw-nosig-ft'),
-    dot: document.getElementById('qw-dot-ft'),
-    hp: document.getElementById('qw-hp-ft'),
-    lv: document.getElementById('qw-lv-ft'),
-    pos: document.getElementById('qw-pos-ft'),
-    turn: document.getElementById('qw-turn-ft'),
-    log: document.getElementById('qw-log-ft'),
-    count: 0
-  };
-
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      if (tab.dataset.tab === 'qwen') startStream();
-      else stopStream();
-    });
-  });
-
-  function startStream() {
-    if (qwenActive) return;
-    qwenActive = true;
-    p.img.src = '/stream/agent_' + p.id + '?t=' + Date.now();
-    p.img.style.display = '';
-    p.noSig.style.display = 'none';
-    p.img.onerror = function() {
-      p.noSig.style.display = '';
-      p.img.style.display = 'none';
-      setTimeout(() => {
-        if (qwenActive) { p.img.src = '/stream/agent_' + p.id + '?t=' + Date.now(); p.img.style.display = ''; }
-      }, 3000);
-    };
-  }
-
-  function stopStream() {
-    qwenActive = false;
-    p.img.src = '';
-  }
-
-  async function poll() {
-    if (!qwenActive) return;
-    try {
-      const res = await fetch('/api/qwen-log?agent=' + p.id);
-      if (!res.ok) return;
-      const data = await res.json();
-      const gs = data.game_state || {};
-      const ps = gs.player_stats || {};
-      const pp = gs.player_position || {};
-      const hp = ps.hp || 0, maxHp = ps.max_hp || 1;
-      p.hp.textContent = hp + '/' + maxHp;
-      p.lv.textContent = ps.level || '?';
-      p.pos.textContent = (pp.x||'?') + ',' + (pp.y||'?');
-      p.dot.className = 'qwen-status-dot ' + (data.screenshot_age < 30 ? 'live' : 'stale');
-
-      const entries = data.entries || [];
-      if (entries.length > p.count) {
-        for (let i = p.count; i < entries.length; i++) {
-          const e = entries[i];
-          const div = document.createElement('div');
-          div.className = 'qwen-action';
-          const text = e.content || '';
-          const role = e.role || '';
-          let cls = 'qa-text';
-          if (role === 'tool') cls += ' warp';
-          const label = role === 'tool' ? 'TOOL' : 'AI';
-          div.innerHTML = '<span class="qa-turn">[' + (e.turn || i) + '] ' + label + '</span> <span class="' + cls + '">' + esc(text.slice(0, 150)) + '</span>';
-          p.log.appendChild(div);
-        }
-        p.log.scrollTop = p.log.scrollHeight;
-        while (p.log.children.length > 150) p.log.removeChild(p.log.firstChild);
-        p.count = entries.length;
-        p.turn.textContent = entries.length;
-      }
-    } catch(e) {}
-  }
-
-  setInterval(poll, 500);
-})();
-
 // === Eval Tab (live + results) ===
 let evalLoaded = false;
 let evalLiveTimer = null;
 let evalResultsTimer = null;
 const evalPanels = {
-  'r8-sft': { dot: 'ev-dot-sft', hp: 'ev-hp-sft', ep: 'ev-ep-sft', turn: 'ev-turn-sft',
+  'r9-sft': { dot: 'ev-dot-sft', hp: 'ev-hp-sft', ep: 'ev-ep-sft', turn: 'ev-turn-sft',
                img: 'ev-img-sft', nosig: 'ev-nosig-sft', log: 'ev-log-sft', count: 0 },
   'base':   { dot: 'ev-dot-base', hp: 'ev-hp-base', ep: 'ev-ep-base', turn: 'ev-turn-base',
                img: 'ev-img-base', nosig: 'ev-nosig-base', log: 'ev-log-base', count: 0 }
@@ -2026,7 +1921,7 @@ async function pollEvalLive() {
       const topTools = Object.entries(toolCounts).sort((a,b) => b[1]-a[1]).slice(0,3).map(([t,c]) => t+'='+c).join(', ');
 
       // Show live stats bar
-      const statsId = 'ev-stats-' + (name === 'r8-sft' ? 'sft' : 'base');
+      const statsId = 'ev-stats-' + (name === 'r9-sft' ? 'sft' : 'base');
       const statsEl = document.getElementById(statsId);
       if (!statsEl) continue;
       const isDead = ui.is_dead || false;
@@ -2078,7 +1973,7 @@ async function loadEvalResults() {
     const res = await fetch('/api/eval/latest');
     const data = await res.json();
     if (data.status !== 'ok' || !data.models || data.models.length === 0) {
-      container.innerHTML = '<div class="eval-empty">No eval results yet.<br><br><span style="font-size:12px;color:#555">Run: <code>python3 eval_harness.py --episodes 30</code><br>Then: <code>python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r8-sft/results.json</code></span></div>';
+      container.innerHTML = '<div class="eval-empty">No eval results yet.<br><br><span style="font-size:12px;color:#555">Run: <code>python3 eval_harness.py --episodes 30</code><br>Then: <code>python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json</code></span></div>';
       return;
     }
     evalLoaded = true;

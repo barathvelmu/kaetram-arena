@@ -66,9 +66,6 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.send_sft_stats()
             elif path == "/api/agents":
                 self.send_agents()
-            elif path == "/api/qwen-log":
-                agent_id = qs.get("agent", ["4"])[0] if qs else "4"
-                self.send_qwen_log(agent_id=int(agent_id))
             elif path == "/api/eval/latest":
                 self.send_eval_latest()
             elif path == "/api/eval/live":

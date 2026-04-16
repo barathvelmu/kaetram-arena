@@ -191,11 +191,9 @@ Replaces r8-KTO. Same pipeline, but base SFT will be r9 merged weights.
 
 Immediate: **r9 TRAINING on Modal** (launched 23:22 UTC Apr 15, est. completion ~Apr 17). 367 steps at ~5.5 min/step on H100 80GB. Next step: eval after training completes — compare base vs r8 vs r9. If r9 beats base: proceed to r9-KTO. Paper comparison table: base → r8 (broken SFT) → r9 (fixed SFT) → r9-KTO. The r8→r9 delta tells the data quality story. KAE-37 (GRPO) created for post-KTO RL.
 
-**Qwen agent infrastructure (Apr 10):**
-- Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`
-- Base model: agent_5 slot, `QwenBase` username, `start-qwen.sh --base`
-- Dashboard: Qwen Live tab with split-screen MJPEG streaming (4 FPS), log polling
-- Management: `start-qwen.sh`, `stop-qwen.sh`, `restart-qwen.sh`, `status-qwen.sh`
+**Eval infrastructure (Apr 16):**
+- `eval_harness.py` + `scripts/run-eval.sh` — automated episodic eval with dedicated ports (9061 r9-sft, 9071 base)
+- Dashboard Eval tab — live split-screen streams + results comparison (Glass's delta, action distributions)
 
 Backlog (by priority from Linear):
 - **High:** Dr. GRPO + DAPO patches for GRPO (KAE-12), guided decoding via GBNF grammar (KAE-14), context-dependent tool filtering (KAE-15)

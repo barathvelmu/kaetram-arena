@@ -206,18 +206,8 @@ def _parse_codex_events(log_path: Path) -> list[dict]:
 
 
 def is_observe(event: dict) -> bool:
-    """Check if a tool_use event is an observe step (reads game state)."""
-    if event["type"] != "tool_use":
-        return False
-    name = event.get("name", "")
-    # MCP server observe tool
-    if name == "mcp__kaetram__observe":
-        return True
-    # Legacy browser_run_code with game state read
-    if "browser_run_code" in name:
-        code = event.get("input", {}).get("code", "")
-        return "__latestGameState" in code or "__extractGameState" in code
-    return False
+    """Check if a tool_use event is an MCP observe call."""
+    return event.get("type") == "tool_use" and event.get("name", "") == "mcp__kaetram__observe"
 
 
 # MCP action tool names → action types
@@ -252,17 +242,7 @@ MCP_ACTION_TOOLS = {
 
 def is_browser_action(event: dict) -> bool:
     """Check if a tool_use event is a game action (not an observe)."""
-    if event["type"] != "tool_use":
-        return False
-    name = event.get("name", "")
-    # MCP server action tools
-    if name in MCP_ACTION_TOOLS:
-        return True
-    # Legacy browser_run_code action
-    if "browser_run_code" in name:
-        code = event.get("input", {}).get("code", "")
-        return "__latestGameState" not in code and "__extractGameState" not in code
-    return False
+    return event.get("type") == "tool_use" and event.get("name", "") in MCP_ACTION_TOOLS
 
 
 def parse_game_state(text: str) -> dict | None:
@@ -359,100 +339,12 @@ def extract_ascii_map(text: str) -> str:
 
 
 def classify_action(code: str, tool_name: str = "") -> str:
-    """Classify action into a named action type.
-
-    Supports both MCP tool names and legacy browser_run_code JS patterns.
-    Helper functions are checked FIRST because they internally contain
-    .click() calls that would otherwise match the generic 'click' pattern.
-    """
-    # MCP tool name → action type (fast path)
-    if tool_name in MCP_ACTION_TOOLS:
-        return MCP_ACTION_TOOLS[tool_name]
-
-    code_lower = code.lower()
-
-    # --- Helper function patterns (highest priority) ---
-    if "__attackmob" in code_lower:
-        return "attack"
-    if "__interactnpc" in code_lower:
-        return "interact_npc"
-    if "__navigateto" in code_lower:
-        return "navigate"
-    if "__moveto" in code_lower:
-        return "move"
-    if "__clickentity" in code_lower:
-        return "click_entity"
-    if "__clicktile" in code_lower:
-        return "click_tile"
-    if "__talktonpc" in code_lower:
-        return "talk_npc"
-    if "__safewarp" in code_lower:
-        return "warp"
-    if "__stuckreset" in code_lower:
-        return "stuck_reset"
-    if "__clearcombatstate" in code_lower:
-        return "clear_combat"
-    if "__navcancel" in code_lower:
-        return "nav_cancel"
-
-    # --- Infrastructure actions ---
-    if "page.goto" in code:
-        return "reconnect"
-    if "#respawn" in code or "'respawn'" in code or '"respawn"' in code:
-        return "respawn"
-    if ("#login" in code or "#play" in code) and ("fill(" in code_lower or ".click()" in code_lower):
-        return "login"
-
-    # --- Original action patterns ---
-    if "quest-button" in code or "quest_button" in code:
-        return "quest_accept"
-    if "selectEdible" in code or "selectedible" in code_lower:
-        return "heal"
-    if "action-equip" in code:
-        return "equip"
-    if "warp" in code_lower and ("show()" in code or "warp0" in code or "warp1" in code or "warp2" in code):
-        return "warp"
-    if "setattackstyle" in code_lower:
-        return "set_style"
-    if "mouseevent" in code_lower or "dispatchevent" in code_lower:
-        return "click"
-    if "waitfortimeout" in code_lower and "mouseevent" not in code_lower:
-        return "wait"
-
-    return "other"
-
-
-def extract_action_target(code: str) -> dict | None:
-    """Extract click coordinates and description from action JS code."""
-    target = {}
-
-    # clientX/clientY from MouseEvent
-    mx = re.search(r"clientX:\s*(\d+)", code)
-    my = re.search(r"clientY:\s*(\d+)", code)
-    if mx and my:
-        target["x"] = int(mx.group(1))
-        target["y"] = int(my.group(1))
-
-    # Fallback: { x: N, y: N } variable pattern
-    if "x" not in target:
-        m = re.search(r"\{\s*x:\s*(\d+),\s*y:\s*(\d+)\s*\}", code)
-        if m:
-            target["x"] = int(m.group(1))
-            target["y"] = int(m.group(2))
-
-    # Description from return string
-    m = re.search(r"return\s+['\"]([^'\"]+)['\"]", code)
-    if m:
-        target["description"] = m.group(1)
-
-    return target if target else None
+    """Classify an action tool_use into a named action type via its MCP tool name."""
+    return MCP_ACTION_TOOLS.get(tool_name, "other")
 
 
 def structured_action(action_type: str, action_code: str, tool_input: dict | None = None) -> str:
-    """Convert action into a structured action string for SFT.
-
-    Supports both MCP tool inputs (structured JSON) and legacy JS code (regex).
-    """
+    """Convert an MCP tool input into a structured action string for SFT."""
     # --- MCP tool input path (structured JSON) ---
     if tool_input is not None:
         if action_type == "attack":
@@ -510,124 +402,9 @@ def structured_action(action_type: str, action_code: str, tool_input: dict | Non
             return f"query_quest({tool_input.get('quest_name', '?')})"
         return f"{action_type}({json.dumps(tool_input)})"
 
-    # --- Legacy JS code path (regex parsing) ---
-    if action_type == "attack":
-        m = re.search(r"__attackMob\(['\"]([^'\"]+)['\"]", action_code)
-        name = m.group(1) if m else "?"
-        return f"attack({name})"
-
-    if action_type == "interact_npc":
-        m = re.search(r"__interactNPC\(['\"]([^'\"]+)['\"]", action_code)
-        name = m.group(1) if m else "?"
-        return f"interact_npc({name})"
-
-    if action_type == "navigate":
-        # Try {x: N, y: N} object pattern
-        m = re.search(r"\{\s*x:\s*(\d+),\s*y:\s*(\d+)\s*\}", action_code)
-        if m:
-            return f"navigate({m.group(1)}, {m.group(2)})"
-        # Try __navigateTo(x, y) direct args
-        m = re.search(r"__navigateTo\((\d+),\s*(\d+)\)", action_code)
-        if m:
-            return f"navigate({m.group(1)}, {m.group(2)})"
-        return "navigate(?, ?)"
-
-    if action_type == "move":
-        m = re.search(r"\{\s*x:\s*(\d+),\s*y:\s*(\d+)\s*\}", action_code)
-        if m:
-            return f"move({m.group(1)}, {m.group(2)})"
-        m = re.search(r"__moveTo\((\d+),\s*(\d+)\)", action_code)
-        if m:
-            return f"move({m.group(1)}, {m.group(2)})"
-        return "move(?, ?)"
-
-    if action_type == "click_entity":
-        m = re.search(r"__clickEntity\(['\"]([^'\"]+)['\"]", action_code)
-        label = m.group(1) if m else "?"
-        return f"click_entity({label})"
-
-    if action_type == "click_tile":
-        m = re.search(r"__clickTile\((\d+),\s*(\d+)\)", action_code)
-        if m:
-            return f"click_tile({m.group(1)}, {m.group(2)})"
-        return "click_tile(?, ?)"
-
-    if action_type == "talk_npc":
-        m = re.search(r"__talkToNPC\(['\"]?([^'\")\s]+)", action_code)
-        npc_id = m.group(1) if m else "?"
-        return f"talk_npc({npc_id})"
-
-    if action_type == "respawn":
-        return "respawn()"
-
-    if action_type == "reconnect":
-        return "reconnect()"
-
-    if action_type == "login":
-        return "login()"
-
-    if action_type == "stuck_reset":
-        return "stuck_reset()"
-
-    if action_type == "clear_combat":
-        return "clear_combat()"
-
-    if action_type == "nav_cancel":
-        return "nav_cancel()"
-
-    # --- Original action types ---
-    if action_type == "click":
-        mx = re.search(r"clientX:\s*(\d+)", action_code)
-        my = re.search(r"clientY:\s*(\d+)", action_code)
-        if mx and my:
-            return f"click({mx.group(1)}, {my.group(1)})"
-        # Chain clicks from helper function
-        pairs = re.findall(r"click\((\d+),\s*(\d+)\)", action_code)
-        if pairs:
-            return "; ".join(f"click({x}, {y})" for x, y in pairs)
-        # Variable pattern: { x: N, y: N }
-        m = re.search(r"\{\s*x:\s*(\d+),\s*y:\s*(\d+)\s*\}", action_code)
-        if m:
-            return f"click({m.group(1)}, {m.group(2)})"
-        return "click(?, ?)"
-
-    if action_type == "equip":
-        m = re.search(r"slots\[(\d+)\]", action_code)
-        slot = m.group(1) if m else "?"
-        return f"equip(slot={slot})"
-
-    if action_type == "heal":
-        m = re.search(r"selectEdible\((\d+)\)", action_code)
-        slot = m.group(1) if m else "?"
-        return f"heal(slot={slot})"
-
-    if action_type == "warp":
-        # __safeWarp(id) pattern
-        m = re.search(r"__safeWarp\((\d+)\)", action_code)
-        if not m:
-            m = re.search(r"warp(\d+)", action_code)
-        idx = m.group(1) if m else "0"
-        locations = {
-            "0": "Mudwich", "1": "Aynor", "2": "Lakesworld",
-            "3": "Crullfield", "4": "Patsow", "5": "Undersea",
-        }
-        return f"warp({locations.get(idx, idx)})"
-
-    if action_type == "quest_accept":
-        return "quest_accept()"
-
-    if action_type == "set_style":
-        m = re.search(r"setAttackStyle\((\d+)\)", action_code)
-        styles = {"1": "Stab", "2": "Slash", "3": "Defensive", "6": "Hack", "7": "Chop"}
-        idx = m.group(1) if m else "?"
-        return f"set_style({styles.get(idx, idx)})"
-
-    if action_type == "wait":
-        m = re.search(r"waitForTimeout\((\d+)\)", action_code)
-        ms = int(m.group(1)) if m else 0
-        return f"wait({ms / 1000:.1f}s)"
-
-    return f"other({action_type})"
+    # No tool_input — we only get here for MCP tool calls that had missing input.
+    # Emit a generic arg-less form so downstream can still classify the action.
+    return f"{action_type}()"
 
 
 def _safe_int(val, default=0):
@@ -772,45 +549,6 @@ def normalize_game_state(gs: dict) -> dict | None:
     return normalized
 
 
-def has_action_code(code: str, tool_name: str = "") -> bool:
-    """Check if event contains actual game actions (not just state reading)."""
-    # MCP tool actions are always actions (never combined with observe)
-    if tool_name in MCP_ACTION_TOOLS:
-        return True
-    code_lower = code.lower()
-    return any(
-        k in code_lower
-        for k in [
-            # Helper functions
-            "__attackmob",
-            "__interactnpc",
-            "__navigateto",
-            "__moveto",
-            "__clickentity",
-            "__clicktile",
-            "__safewarp",
-            "__stuckreset",
-            "__talktonpc",
-            "__clearcombatstate",
-            "__navcancel",
-            # Original patterns
-            "mouseevent",
-            "dispatchevent",
-            "warp",
-            "selectEdible",
-            "selectedible",
-            "action-equip",
-            "quest-button",
-            "setattackstyle",
-            # Infrastructure
-            "page.goto",
-            "'respawn'",
-            '"respawn"',
-            "#respawn",
-        ]
-    )
-
-
 def is_valid_turn(turn: dict) -> bool:
     """Filter out garbage turns that would pollute training data."""
     pp = turn.get("player_position", {})
@@ -831,10 +569,9 @@ def is_valid_turn(turn: dict) -> bool:
 def extract_turns(log_path: Path) -> list[dict]:
     """Extract OODA turns from a single session log file.
 
-    The agent typically combines observe + action in a single browser_run_code call.
-    We detect these combined calls, extract game state from the result, and classify
-    the action from the code. Reasoning is collected from thinking/text blocks that
-    precede each call.
+    Each observe tool_use becomes its own turn, carrying the reasoning that
+    preceded it. Any standalone action tool_use that follows becomes a second
+    turn, carrying the reasoning between the observe tool_result and the action.
     """
     events = parse_events(log_path)
     turns = []
@@ -854,26 +591,25 @@ def extract_turns(log_path: Path) -> list[dict]:
             if tid:
                 tool_result_by_id[tid] = e.get("text", "")
 
-    # Index all browser_run_code calls that read game state
     observe_indices = [i for i, e in enumerate(events) if is_observe(e)]
     if not observe_indices:
         return []
 
-    # Also track standalone actions (browser_run_code without __latestGameState)
-    action_indices = [i for i, e in enumerate(events) if is_browser_action(e)]
-
     for oi_pos, obs_idx in enumerate(observe_indices):
         obs_event = events[obs_idx]
-        obs_code = obs_event.get("input", {}).get("code", "")
         obs_tool_id = obs_event.get("id", "")
 
-        # Find the tool_result for this call
+        # Find the tool_result for this observe call.
         game_state = None
         ascii_map = ""
+        observe_result_raw = None
+        obs_result_idx = None
         for j in range(obs_idx + 1, min(obs_idx + 15, len(events))):
             e = events[j]
             if e["type"] == "tool_result" and e.get("tool_use_id") == obs_tool_id:
                 result_text = e.get("text", "")
+                observe_result_raw = result_text
+                obs_result_idx = j
                 raw_gs = parse_game_state(result_text)
                 game_state = normalize_game_state(raw_gs) if raw_gs else None
                 ascii_map = extract_ascii_map(result_text)
@@ -886,60 +622,6 @@ def extract_turns(log_path: Path) -> list[dict]:
         if not pp or not isinstance(pp, dict):
             continue
 
-        # Collect reasoning from thinking/text blocks BEFORE this observe call
-        # (look back to the previous observe or start)
-        prev_obs = observe_indices[oi_pos - 1] if oi_pos > 0 else -1
-        reasoning_parts = []
-        for j in range(prev_obs + 1, obs_idx):
-            ev = events[j]
-            if ev["type"] in ("thinking", "text") and ev["role"] == "assistant":
-                t = ev.get("text", "").strip()
-                if t:
-                    reasoning_parts.append(t)
-
-        # Also collect reasoning from blocks AFTER the tool_result but before the
-        # next observe (for pure-observe → separate-action pattern)
-        next_obs = observe_indices[oi_pos + 1] if oi_pos + 1 < len(observe_indices) else len(events)
-
-        # Determine the action: either embedded in the observe code or a separate call
-        action_tool_name = ""
-        action_tool_input = None
-        action_tool_id = ""
-        if has_action_code(obs_code):
-            # Combined observe+action call (legacy browser_run_code) — the
-            # "action" and the "observe" share the same tool_use id, so the
-            # result is whatever the browser_run_code call returned.
-            action_code = obs_code
-            action_tool_id = obs_tool_id
-        else:
-            # Pure observe — look for a standalone action before the next observe
-            action_code = None
-            for j in range(obs_idx + 1, next_obs):
-                ev = events[j]
-                if ev["type"] in ("thinking", "text") and ev["role"] == "assistant":
-                    t = ev.get("text", "").strip()
-                    if t:
-                        reasoning_parts.append(t)
-                elif is_browser_action(ev):
-                    action_tool_name = ev.get("name", "")
-                    action_tool_input = ev.get("input", {})
-                    action_code = ev.get("input", {}).get("code", "")
-                    action_tool_id = ev.get("id", "")
-                    break
-
-            if not action_code and not action_tool_name:
-                continue  # observe-only turn, skip
-
-        # Look up the raw tool_result text for this action. May be None/empty
-        # if the session ended mid-action or the result was not captured in
-        # the stream. Downstream (convert_to_qwen.py) treats empty/None as
-        # "fall back to synthesized tool_result".
-        action_result_raw = tool_result_by_id.get(action_tool_id) if action_tool_id else None
-
-        action_type = classify_action(action_code or "", action_tool_name)
-        action_target = extract_action_target(action_code or "")
-        reasoning = "\n".join(reasoning_parts)
-
         ps = game_state.get("player_stats", {})
         if isinstance(ps, str):
             try:
@@ -949,33 +631,92 @@ def extract_turns(log_path: Path) -> list[dict]:
         if not isinstance(ps, dict):
             ps = {}
 
-        turn = {
+        player_stats = {
+            "hp": ps.get("hp", 0),
+            "max_hp": ps.get("max_hp", 0),
+            "level": ps.get("level", 1),
+        }
+        player_position = {"x": pp.get("x", 0), "y": pp.get("y", 0)}
+
+        # Reasoning BEFORE this observe (since previous observe / start of log).
+        prev_obs = observe_indices[oi_pos - 1] if oi_pos > 0 else -1
+        reasoning_before_parts = []
+        for j in range(prev_obs + 1, obs_idx):
+            ev = events[j]
+            if ev["type"] in ("thinking", "text") and ev["role"] == "assistant":
+                t = ev.get("text", "").strip()
+                if t:
+                    reasoning_before_parts.append(t)
+
+        # Search for a standalone action between this observe's result and the next
+        # observe, collecting post-observe reasoning as we go.
+        next_obs = observe_indices[oi_pos + 1] if oi_pos + 1 < len(observe_indices) else len(events)
+        action_tool_name = ""
+        action_tool_input: dict | None = None
+        action_tool_id = ""
+        action_code: str = ""
+        reasoning_after_parts: list[str] = []
+        search_from = (obs_result_idx + 1) if obs_result_idx is not None else (obs_idx + 1)
+        for j in range(search_from, next_obs):
+            ev = events[j]
+            if ev["type"] in ("thinking", "text") and ev["role"] == "assistant":
+                t = ev.get("text", "").strip()
+                if t:
+                    reasoning_after_parts.append(t)
+            elif is_browser_action(ev):
+                action_tool_name = ev.get("name", "")
+                action_tool_input = ev.get("input", {})
+                action_tool_id = ev.get("id", "")
+                break
+
+        # Emit observe as its own first-class turn. Teaches the model to call
+        # observe before acting, closing the r9 bug where training data had 0
+        # observe tool_calls because extraction silently consumed them to populate
+        # game_state.
+        obs_turn = {
             "turn_id": f"{log_path.stem}_t{len(turns):03d}",
             "timestamp": game_state.get("timestamp", 0),
             "game_state": game_state,
             "ascii_map": ascii_map,
-            "reasoning": reasoning,
-            "action_code": action_code or json.dumps(action_tool_input or {}),
+            "reasoning": "\n".join(reasoning_before_parts),
+            "action_code": "",
+            "action_type": "observe",
+            "action_structured": "observe()",
+            "action_target": "",
+            # For observe turns, the tool_result text is the raw observe result
+            # (game_state JSON + ASCII map, exactly as the MCP server returned it).
+            "action_result_raw": observe_result_raw,
+            "player_stats": player_stats,
+            "player_position": player_position,
+        }
+        if is_valid_turn(obs_turn):
+            turns.append(obs_turn)
+
+        # Observe-only tail (no following action) — nothing further to do.
+        if not action_tool_name:
+            continue
+
+        # Emit the action turn.
+        action_result_raw = tool_result_by_id.get(action_tool_id) if action_tool_id else None
+        action_type = classify_action(action_code, action_tool_name)
+
+        action_turn = {
+            "turn_id": f"{log_path.stem}_t{len(turns):03d}",
+            "timestamp": game_state.get("timestamp", 0),
+            "game_state": game_state,
+            "ascii_map": "",
+            "reasoning": "\n".join(reasoning_after_parts),
+            "action_code": json.dumps(action_tool_input or {}),
             "action_type": action_type,
-            "action_structured": structured_action(action_type, action_code or "", action_tool_input),
-            "action_target": action_target,
-            # Raw tool_result text for the action tool_use, as captured in the
-            # stream-json log. Contract with convert_to_qwen.py: downstream uses
-            # this as the authoritative tool message content and only falls
-            # back to a synthesized result when this field is absent or empty.
-            # Format is the raw text the Claude stream emitted — typically a
-            # JSON-stringified dict like {"result": "..."} or a plain string.
+            "action_structured": structured_action(action_type, action_code, action_tool_input),
+            "action_target": None,
             "action_result_raw": action_result_raw,
-            "player_stats": {
-                "hp": ps.get("hp", 0),
-                "max_hp": ps.get("max_hp", 0),
-                "level": ps.get("level", 1),
-            },
-            "player_position": {"x": pp.get("x", 0), "y": pp.get("y", 0)},
+            "player_stats": player_stats,
+            "player_position": player_position,
         }
 
-        if is_valid_turn(turn):
-            turns.append(turn)
+        if is_valid_turn(action_turn):
+            turns.append(action_turn)
 
 
     # Deduplicate: skip consecutive turns with same position + same action,

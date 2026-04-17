@@ -70,6 +70,11 @@ def _pos_of(turn: dict) -> tuple[int, int] | None:
 
 
 def score_session(session: str, turns: list[dict]) -> dict:
+    # r10: filter out observe turns from session scoring. Observe is a preparatory
+    # action (refresh state) that doesn't reflect gameplay quality, and its
+    # interleaving would halve rate metrics (attack_rate, click_tile_rate, etc.)
+    # vs pre-r10 scoring. Action turns are what KTO preference learning judges.
+    turns = [t for t in turns if t.get("action_type") != "observe"]
     actions = [t.get("action_type", "") for t in turns]
     n_turns = len(turns)
     turn_scores = [score_turn(t) for t in turns]

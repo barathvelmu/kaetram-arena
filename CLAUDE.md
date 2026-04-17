@@ -321,7 +321,9 @@ Inventory / economy:
 
 Note: `extract_turns.py` historically normalized some of these to legacy names (`click_entity`, `heal`, `quest_accept`, `set_style`, `wait`). Those are extract-time aliases — the underlying agent only ever calls the 22 MCP tools above. `accept_quest` appears rarely in the current dataset because `interact_npc` auto-accepts most quests.
 
-**Verified on current data (r7, 2026-04-09):** 575 sessions from 3 agents → 1,395 raw session logs → 650 turns.jsonl files (per-session) → **6,423 train / 646 val** Qwen3.5 SFT records (~23.7M tokens). Action distribution: navigate 27.7%, attack 14.9%, cancel_nav 10.7%, interact_npc 10.7%, warp 9.4%, stuck_reset 7.5%, move 7.1%, click_tile 3.9%.
+**Verified on current data (r10, 2026-04-17):** 729 raw session logs across agents 0-2 → 732 turns.jsonl files → **12,900 train / 1,470 val** Qwen3.5 SFT records. Tool-call distribution: observe 57.1%, navigate 12.4%, attack 9.4%, interact_npc 4.5%, warp 3.6%, cancel_nav 3.5%. Observe is now first-class (r9 had 0; see CURRENT STATUS).
+
+**Prior data point (r7, 2026-04-09):** 6,423 train / 646 val, 21,976 tool calls, no observe supervision. r10 has 47,267 tool calls on the same raw logs — the observe-as-turn fix more than doubles effective supervision density.
 
 **r7 fixes applied to this dataset** (see `research/experiments/training-runs.md` for full detail):
 1. **Chat template fix** (QwenLM/Qwen3 #1831) — stock Qwen3.5 template silently drops `<think>` reasoning from all assistant messages before `last_query_index` in multi-turn conversations. ~70% of our records are multi-turn windows, so intermediate-turn CoT was being stripped during training ("action-only" learning on follow-up turns). Patched `convert_to_qwen.py` / tokenizer formatting to always emit `<think>` when `reasoning_content` is present.
@@ -332,11 +334,15 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 
 ## CURRENT STATUS
 
-**r9 SFT training LAUNCHED on Modal (Apr 15, 23:22 UTC).** Experiment `kaetram-qwen3.5-9b-r9`. Key fixes over r8: system prompt aligned with inference (`prompts/system.md` + `game_knowledge.md`), reasoning on 100% of turns, MAX_SEQ_LEN 16384, removed double tool definitions from system prompt, removed `<memory>` block, degenerate turn filtering. Dataset: 5,871 train / 575 val. Config: LoRA r=64, alpha=64, 1 epoch, LR=1e-4, bf16, H100 80GB.
+**r10 dataset READY (Apr 17).** Two P0 fixes on top of r9's alignment work:
+1. **Observe supervision.** r9 `dataset/qwen_sft/train.json` had 21,976 assistant tool calls and 0 `observe` calls — `extract_turns.py` was consuming Sonnet's observe tool_use blocks to populate `game_state` and discarding them. r10 emits observe as a first-class turn; `convert_to_qwen.py:build_user_message` no longer injects `<game_state>` (state arrives via observe's tool_result). Result: 26,995 observe calls (57.1% of 47,267 total tool calls).
+2. **Personality prompt parity.** r9 training used a 2-sentence `PERSONALITY_SUFFIXES` dict; eval loaded the full ~1.5 KB `prompts/personalities/<name>.md` file. r10 routes both paths through the same `.md` files and substitutes at the `__PERSONALITY_BLOCK__` placeholder — byte-exact match verified by tests. `PERSONALITY_INSTRUCTION_VARIANTS` dict deleted from `finetune/train_modal.py` + `finetune/train_kto_modal.py` (it was overriding metadata).
 
-**New Sonnet data collection running.** 3 Claude agents, 4h session. Collecting fresh data with updated prompts.
+Dataset: **12,900 train / 1,470 val** (vs 5,871/575 in r9 — +120%). 23 new regression tests (`tests/test_prompt_parity.py`, `tests/test_observe_supervision.py`, plus assertions in `tests/test_dataset_filters.py`). Experiment name `kaetram-qwen3.5-9b-r10` set. Launch pending window-size review.
 
-**r8 SFT DONE but underperformed base due to train/inference mismatch.** r8 fixed loss masking (`train_on_responses_only`) but trained on a system prompt that differed from the inference-time prompt — the model learned a different task framing than it saw at serve time. r9 addresses this.
+**r9 SFT COMPLETE but lost to base in early curious eval** (2 episodes: base 2.5 quests / 26.5 kills / L20 vs r9-sft 1.5 quests / 28.5 kills / L24, higher combat churn). Root-cause diagnosis surfaced the two P0s r10 fixes. r9 was trained Apr 15-16 with aligned system prompt + 100% reasoning + MAX_SEQ_LEN 16384 but still had the observe and personality gaps. LoRA config unchanged for r10 (r=64/alpha=64, use_rslora=False).
+
+**r8 SFT DONE but underperformed base due to train/inference mismatch.** r8 fixed loss masking (`train_on_responses_only`) but trained on a system prompt that differed from the inference-time prompt — the model learned a different task framing than it saw at serve time. r9 addressed the prompt alignment; r10 addresses the observe + personality alignment.
 
 **Loss masking history:** r4 used explicit `DataCollatorForCompletionOnlyLM` (worked). r5-r7 switched to `completion_only_loss=True` flag (silently broken — trained on all tokens). r8 uses Unsloth's `train_on_responses_only()` which scans tokenized input_ids for `<|im_start|>assistant\n` markers — handles multi-turn correctly. Tool results (role:tool) are correctly masked because Qwen3.5 renders them as `<|im_start|>user`, so the scanner treats them as user turns.
 

@@ -61,8 +61,18 @@ STYLE_IDS = {"Hack": 6, "Chop": 7, "Defensive": 3, "Stab": 1, "Slash": 2}
 # so that training and inference see the same instructions.
 # r8 and earlier used a condensed, divergent prompt here — that mismatch was the
 # primary cause of r8-SFT underperforming the base model.
+#
+# r10: __PERSONALITY_BLOCK__ placeholder is LEFT INTACT so the per-record personality
+# block (loaded from prompts/personalities/<name>.md) can be substituted at training
+# time at the same textual location eval_harness.resolve_system_prompt puts it.
+# This gives byte-exact parity train↔eval, closing the r9 gap where training got a
+# 2-sentence paraphrase appended at the end while eval injected the full ~1.5KB file.
 def _load_system_prompt() -> str:
-    """Load the real inference system prompt with game knowledge inlined."""
+    """Load the inference system prompt with game knowledge inlined.
+
+    Leaves __PERSONALITY_BLOCK__ intact — substituted per-record at training time to
+    match eval_harness.resolve_system_prompt byte-for-byte.
+    """
     script_dir = Path(__file__).resolve().parent
     system_md = script_dir / "prompts" / "system.md"
     game_knowledge_md = script_dir / "prompts" / "game_knowledge.md"
@@ -79,21 +89,39 @@ def _load_system_prompt() -> str:
     else:
         prompt = prompt.replace("__GAME_KNOWLEDGE_BLOCK__", "")
 
-    # Replace remaining placeholders with generic training values
+    # Fixed substitutions — match eval_harness defaults:
+    # eval_harness does .replace("__SERVER_PORT__", "") and .replace("__PROJECT_DIR__", project_dir)
+    # Neither placeholder appears in system.md today; these replaces are no-ops that we keep
+    # anyway for defense-in-depth.
     prompt = prompt.replace("__USERNAME__", "KaetramAgent")
-    prompt = prompt.replace("__SERVER_PORT__", "9001")
-    prompt = prompt.replace("__PERSONALITY_BLOCK__", "")  # personality appended separately
+    prompt = prompt.replace("__SERVER_PORT__", "")
 
     return prompt
 
 
 SYSTEM_PROMPT = _load_system_prompt()
 
-# Condensed personality suffixes (2-3 sentences each)
+
+def _load_personality_block(name: str) -> str:
+    """Load the full personality .md file content as used at eval/data-collection time.
+
+    eval_harness.resolve_system_prompt reads these files verbatim and substitutes the
+    full contents into __PERSONALITY_BLOCK__. For byte parity, training must use the
+    same source. This replaces the pre-r10 2-sentence hand-paraphrase.
+    """
+    script_dir = Path(__file__).resolve().parent
+    path = script_dir / "prompts" / "personalities" / f"{name}.md"
+    if not path.exists():
+        return ""
+    return path.read_text()
+
+
+# Full personality .md contents, keyed by name. Substituted into __PERSONALITY_BLOCK__
+# at training time. Byte-identical to what eval_harness loads.
 PERSONALITY_SUFFIXES = {
-    "aggressive": "\n\n## Playstyle: AGGRESSIVE\nPrioritize combat above all. Push into harder zones and fight mobs at the edge of your capability. Accept death as part of progression — re-engage immediately after respawn.",
-    "methodical": "\n\n## Playstyle: METHODICAL\nPrepare thoroughly before advancing. Complete quests in order, gather resources, build skills. Keep HP above 60% and always carry food before entering dangerous areas.",
-    "curious": "\n\n## Playstyle: CURIOUS\nExplore the world broadly. Talk to every NPC, enter every building, warp to new locations. Discovery matters more than efficiency — find quests and areas others miss.",
+    "aggressive": _load_personality_block("aggressive"),
+    "methodical": _load_personality_block("methodical"),
+    "curious":    _load_personality_block("curious"),
 }
 
 LOGIN_LOOP_RESULT_MARKERS = (
@@ -380,8 +408,10 @@ def score_turn(turn: dict) -> float:
 
     # Action quality (0.0 - 0.3)
     action_type = turn.get("action_type", "")
-    high_value = ("attack", "interact_npc", "navigate", "quest_accept", "talk_npc",
-                  "gather", "loot", "buy_item", "query_quest")
+    # r10: observe is high-value — it's the tool the model had 0 training on in r9
+    # and now the primary thing we need to teach.
+    high_value = ("observe", "attack", "interact_npc", "navigate", "quest_accept",
+                  "talk_npc", "gather", "loot", "buy_item", "query_quest")
     medium_value = ("heal", "equip", "warp", "move", "click_entity", "set_style",
                     "wait", "stuck_reset", "nav_cancel", "update_memory",
                     "clear_combat", "drop_item")
@@ -735,20 +765,24 @@ def synthesize_tool_result(action: str, turn: dict | None = None) -> str:
 
 
 def build_user_message(turn: dict, prev_turn: dict | None = None, memory: dict | None = None) -> str:
-    """Build the user message with optional memory and state delta."""
-    pruned = prune_game_state(turn.get("game_state", {}))
-    state_json = json.dumps(pruned, separators=(",", ":"))
-    ascii_map = turn.get("ascii_map", "").strip()
+    """Build the user message posed to the model between assistant turns.
 
+    r10: does NOT inject <game_state> anymore. State is delivered to the model via
+    the tool_result of a preceding observe tool_call (see build_tool_result_message
+    for observe turns). Pre-r10 this function handed game_state to the model for
+    free in every user message — the model never learned to call observe, and at
+    inference (where state is NOT injected) it was undertrained on observe.
+    Verified: r9 train.json had 0 observe tool_calls in 21,976 assistant turns.
+
+    A <state_delta> momentum signal is still included when a prior turn exists —
+    that's a cheap aggregate of "what changed since last turn" and does not
+    substitute for current state, which only observe provides.
+
+    r9 fix retained: no <memory> block (play_qwen.py never injects one at inference).
+    """
     parts = []
 
-    # r9 fix: removed <memory> block. Training had it on every window's
-    # first turn but play_qwen.py never injects one at inference (F8).
-    # Keeping memory causes the model to expect context that never comes.
-
-    parts.append(f"<game_state>\n{state_json}\n</game_state>")
-
-    # State delta (turns 2+ in a window)
+    # State delta (momentum signal — keeps the window compact).
     if prev_turn is not None:
         delta = compute_state_delta(
             prev_turn.get("game_state", {}),
@@ -757,9 +791,6 @@ def build_user_message(turn: dict, prev_turn: dict | None = None, memory: dict |
         if delta:
             delta_json = json.dumps(delta, separators=(",", ":"))
             parts.append(f"<state_delta>\n{delta_json}\n</state_delta>")
-
-    if ascii_map:
-        parts.append(f"<ascii_map>\n{ascii_map}\n</ascii_map>")
 
     parts.append("What should you do?")
     return "\n\n".join(parts)
@@ -785,6 +816,12 @@ def _structured_action_to_tool_call(action: str, action_type: str) -> tuple[str,
     args_str = m.group(2).strip()
     args = [a.strip().strip("'\"") for a in re.split(r",\s*", args_str)] if args_str else []
 
+    # r10: observe is a first-class tool call. Emitted by extract_turns for every
+    # observe the Sonnet teacher made (~28% of tool calls). Teaches the model to
+    # request state before acting — pre-r10 training had 0 observe calls because
+    # extraction silently consumed them to populate game_state.
+    if name == "observe":
+        return "observe", {}
     if name == "attack" and args and args[0] != "?":
         return "attack", {"mob_name": args[0]}
     if name == "interact_npc" and args and args[0] != "?":
@@ -968,9 +1005,9 @@ def build_multi_turn_records(
     if starts and starts[-1] + window_size < n:
         starts.append(max(0, n - window_size))
 
-    sys_prompt = SYSTEM_PROMPT
-    if personality and personality in PERSONALITY_SUFFIXES:
-        sys_prompt += PERSONALITY_SUFFIXES[personality]
+    # Note: SFT records do not embed the system message — train_modal._build_system_prompt
+    # builds it per-record from metadata["system_prompt"] + personality_suffixes at
+    # training time. We only tag each record with its personality label here.
 
     for start in starts:
         end = min(start + window_size, n)
@@ -1046,9 +1083,10 @@ def build_grpo_prompts(
     Each record contains the prompt (system + user) that the model will complete,
     plus reward_context with current/next state for scoring completions.
     """
-    sys_prompt = SYSTEM_PROMPT
-    if personality and personality in PERSONALITY_SUFFIXES:
-        sys_prompt += PERSONALITY_SUFFIXES[personality]
+    # GRPO embeds the system prompt per-record. Substitute personality into the
+    # __PERSONALITY_BLOCK__ placeholder so byte-parity matches eval_harness.
+    personality_block = PERSONALITY_SUFFIXES.get(personality or "", "")
+    sys_prompt = SYSTEM_PROMPT.replace("__PERSONALITY_BLOCK__", personality_block)
 
     records = []
     for i, turn in enumerate(session_turns):
@@ -1153,7 +1191,15 @@ def _is_excluded_agent(path: Path) -> bool:
 
 
 def _is_reasoningless_tool_turn(turn: dict) -> bool:
-    """Drop turns where a tool action was emitted without any coalesced reasoning."""
+    """Drop turns where a non-observe tool action was emitted without any reasoning.
+
+    r10: observe turns are exempt — session-start observes and some repeated
+    observes legitimately carry no preceding reasoning (the agent's motion is
+    "first look at the world"), and the model must still learn that pattern.
+    Observe turns are still filtered elsewhere (degenerate-session checks).
+    """
+    if turn.get("action_type") == "observe":
+        return False
     return bool(turn.get("action_structured")) and not str(turn.get("reasoning", "")).strip()
 
 

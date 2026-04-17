@@ -1,0 +1,239 @@
+{
+  "meta": {
+    "model": "base",
+    "endpoint": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
+    "scenario": "D",
+    "scenario_name": "Open Play",
+    "max_turns": 300,
+    "total_episodes": 2,
+    "ok_episodes": 2,
+    "timestamp": "2026-04-17T03:35:45.779870",
+    "git_sha": "a28d8f5"
+  },
+  "episodes": [
+    {
+      "episode": 1,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 5537.8,
+      "returncode": 0,
+      "sub_sessions": 14,
+      "log_file": "/home/patnir41/projects/kaetram-agent/dataset/eval/runs/20260417_003705_curious/base/episode_001.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 14,
+      "kills_by_mob": {
+        "Rat": 12,
+        "Goblin": 2
+      },
+      "xp_estimated": 360,
+      "xp_per_turn": 1.2,
+      "level_reached": 22,
+      "level_delta": 21,
+      "deaths": 2,
+      "survived": false,
+      "quests_completed": 1,
+      "quests_accepted": 5,
+      "unique_positions": 73,
+      "action_counts": {
+        "observe": 60,
+        "equip_item": 4,
+        "navigate": 18,
+        "cancel_nav": 2,
+        "interact_npc": 14,
+        "move": 6,
+        "warp": 2,
+        "attack": 117,
+        "loot": 10,
+        "gather": 56,
+        "eat_food": 1,
+        "respawn": 2,
+        "query_quest": 5,
+        "talk_npc": 1,
+        "set_attack_style": 1,
+        "click_tile": 1
+      },
+      "action_entropy": 2.6083,
+      "stuck_resets": 0,
+      "click_tiles": 1,
+      "kills_db": 32,
+      "kills_db_delta": 32,
+      "xp_db": 10165,
+      "xp_db_delta": 10165,
+      "level_reached_db": 22,
+      "level_delta_db": 21,
+      "quests_completed_db": 2,
+      "quests_accepted_db": 3,
+      "quests_completed_delta": 2,
+      "quests_accepted_delta": 3,
+      "quest_stages_advanced": 6,
+      "achievements_completed_db": 2,
+      "achievements_started_db": 2,
+      "achievements_completed_delta": 2,
+      "achievements_started_delta": 2,
+      "achievement_stages_advanced": 22
+    },
+    {
+      "episode": 2,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 5166.2,
+      "returncode": 0,
+      "sub_sessions": 16,
+      "log_file": "/home/patnir41/projects/kaetram-agent/dataset/eval/runs/20260417_003705_curious/base/episode_002.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 11,
+      "kills_by_mob": {
+        "Rat": 6,
+        "Batterfly": 5
+      },
+      "xp_estimated": 358,
+      "xp_per_turn": 1.1933,
+      "level_reached": 18,
+      "level_delta": 17,
+      "deaths": 0,
+      "survived": true,
+      "quests_completed": 2,
+      "quests_accepted": 7,
+      "unique_positions": 67,
+      "action_counts": {
+        "observe": 71,
+        "set_attack_style": 2,
+        "warp": 3,
+        "interact_npc": 23,
+        "navigate": 20,
+        "move": 3,
+        "gather": 63,
+        "buy_item": 1,
+        "attack": 74,
+        "loot": 9,
+        "eat_food": 2,
+        "equip_item": 12,
+        "query_quest": 3,
+        "click_tile": 4,
+        "accept_quest": 2,
+        "talk_npc": 6,
+        "stuck_reset": 1,
+        "drop_item": 1
+      },
+      "action_entropy": 2.9671,
+      "stuck_resets": 1,
+      "click_tiles": 4,
+      "kills_db": 21,
+      "kills_db_delta": 21,
+      "xp_db": 9742,
+      "xp_db_delta": 9742,
+      "level_reached_db": 18,
+      "level_delta_db": 17,
+      "quests_completed_db": 3,
+      "quests_accepted_db": 3,
+      "quests_completed_delta": 3,
+      "quests_accepted_delta": 3,
+      "quest_stages_advanced": 7,
+      "achievements_completed_db": 2,
+      "achievements_started_db": 2,
+      "achievements_completed_delta": 2,
+      "achievements_started_delta": 2,
+      "achievement_stages_advanced": 22
+    }
+  ],
+  "metrics": {
+    "quest_completion_rate": [
+      1,
+      1
+    ],
+    "xp_per_turn": [
+      1.2,
+      1.1933
+    ],
+    "survival_rate": [
+      0,
+      1
+    ],
+    "tool_parse_rate": [
+      1.0,
+      1.0
+    ],
+    "deaths_per_session": [
+      2,
+      0
+    ],
+    "kills": [
+      14,
+      11
+    ],
+    "kills_db_delta": [
+      32,
+      21
+    ],
+    "xp_estimated": [
+      360,
+      358
+    ],
+    "xp_db_delta": [
+      10165,
+      9742
+    ],
+    "level_reached": [
+      22,
+      18
+    ],
+    "level_delta": [
+      21,
+      17
+    ],
+    "level_reached_db": [
+      22,
+      18
+    ],
+    "level_delta_db": [
+      21,
+      17
+    ],
+    "quests_completed_delta": [
+      2,
+      3
+    ],
+    "quests_accepted_delta": [
+      3,
+      3
+    ],
+    "quest_stages_advanced": [
+      6,
+      7
+    ],
+    "achievements_completed_delta": [
+      2,
+      2
+    ],
+    "achievements_started_delta": [
+      2,
+      2
+    ],
+    "achievement_stages_advanced": [
+      22,
+      22
+    ],
+    "action_entropy": [
+      2.6083,
+      2.9671
+    ],
+    "stuck_resets": [
+      0,
+      1
+    ],
+    "click_tiles": [
+      1,
+      4
+    ],
+    "success_rate": [
+      1,
+      1
+    ]
+  }
+}

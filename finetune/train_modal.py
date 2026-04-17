@@ -121,34 +121,15 @@ SYSTEM_PROMPT_INTRO_VARIANTS = [
     "# Kaetram Game Agent\n\nAs KaetramAgent, you play Kaetram (a 2D pixel MMORPG) autonomously.\n\nFocus on quest completion above all else. Every action should push quest progress forward. Combat and exploration serve quest goals.\n\nContinue playing the entire session without interruption.",
 ]
 
-PERSONALITY_INSTRUCTION_VARIANTS = {
-    "aggressive": [
-        "Prioritize combat above all. Push into harder zones and fight mobs at the edge of your capability. Accept death as part of progression — re-engage immediately after respawn.",
-        "Fight first, think later. Seek out the toughest mobs you can handle and attack relentlessly. Dying is acceptable — get back up and keep fighting.",
-        "Maximize combat engagement at all times. Target mobs near or above your level. Deaths are a cost of progress — respawn and resume attacking immediately.",
-    ],
-    "methodical": [
-        "Prepare thoroughly before advancing. Complete quests in order, gather resources, build skills. Keep HP above 60% and always carry food before entering dangerous areas.",
-        "Plan carefully and advance step by step. Finish quests sequentially, stock up on supplies, and train skills. Never enter combat below 60% HP or without food.",
-        "Take a systematic approach to progression. Build up resources and complete quests in order. Maintain HP above 60% and ensure you have food before fighting.",
-    ],
-    "curious": [
-        "Explore the world broadly. Talk to every NPC, enter every building, warp to new locations. Discovery matters more than efficiency — find quests and areas others miss.",
-        "Prioritize discovery and exploration. Visit new areas, interact with all NPCs, and investigate every location. Finding new content matters more than grinding.",
-        "Wander and explore as much as possible. Seek out NPCs, new zones, and hidden areas. Exploration takes priority over combat efficiency or quest optimization.",
-    ],
-    "efficient": [
-        "Optimize quest completion. Accept multiple quests, batch objectives, minimize travel. No wasted turns — every action should progress toward a quest or level goal.",
-        "Be maximally efficient with every action. Combine quest objectives, reduce unnecessary movement, and focus on leveling through quest completion over grinding.",
-        "Streamline progression by batching quests and minimizing idle turns. Every action should move you toward a quest objective or experience gain.",
-    ],
-}
-
 # Body split marker — everything from this point onward in the system prompt is
 # kept identical (game knowledge, tool table, decision tree, rules).
 # r9: updated from "\n\n## Entity Types" (old condensed prompt) to match
 # prompts/system.md which uses <game_knowledge> as the first structural block.
 _BODY_SPLIT_MARKER = "\n\n<game_knowledge>"
+
+# r10: __PERSONALITY_BLOCK__ placeholder location in system.md. Substituted with
+# the full personality .md file content (matches eval_harness.resolve_system_prompt).
+_PERSONALITY_PLACEHOLDER = "__PERSONALITY_BLOCK__"
 
 
 def _build_system_prompt(
@@ -157,33 +138,37 @@ def _build_system_prompt(
     personality_suffixes: dict,
     rng: _random.Random | None,
 ) -> str:
-    """Build system prompt, optionally with paraphrased intro and personality.
+    """Build system prompt, optionally with paraphrased intro.
 
-    When rng is provided (training), randomly selects from intro and personality
-    variants. When rng is None (validation), uses the original prompt unchanged.
+    Personality is substituted at the __PERSONALITY_BLOCK__ placeholder location
+    (matching eval_harness.resolve_system_prompt byte-for-byte). Pre-r10 this path
+    overrode personality_suffixes with a hardcoded short paraphrase — that was the
+    personality train/eval mismatch. r10 trusts metadata.personality_suffixes (full
+    .md contents loaded by convert_to_qwen._load_personality_block).
+
+    When rng is provided (training), randomly selects from intro variants.
+    When rng is None (validation), uses the original prompt unchanged.
     """
+    # Substitute personality at placeholder location — same mechanism as eval_harness.
+    personality_block = ""
+    if personality and personality in personality_suffixes:
+        personality_block = personality_suffixes[personality]
+    sys_content = base_system_prompt.replace(_PERSONALITY_PLACEHOLDER, personality_block)
+
     if rng is None:
-        # Validation: use original prompt as-is
-        sys_content = base_system_prompt
-        if personality and personality in personality_suffixes:
-            sys_content += personality_suffixes[personality]
+        # Validation: no intro paraphrasing, return as-is.
         return sys_content
 
-    # Training: paraphrase intro, keep body identical
+    # Training: paraphrase only the intro; body (including the now-substituted
+    # personality block) stays identical.
     intro = rng.choice(SYSTEM_PROMPT_INTRO_VARIANTS)
     try:
-        body_start = base_system_prompt.index(_BODY_SPLIT_MARKER)
-        body = base_system_prompt[body_start:]
+        body_start = sys_content.index(_BODY_SPLIT_MARKER)
+        body = sys_content[body_start:]
         sys_content = intro + body
     except ValueError:
-        # Marker not found — use prompt as-is (no paraphrasing)
-        sys_content = base_system_prompt
-
-    # Paraphrase personality instructions (keep header, vary description)
-    if personality and personality in PERSONALITY_INSTRUCTION_VARIANTS:
-        header = f"\n\n## Playstyle: {personality.upper()}\n"
-        instruction = rng.choice(PERSONALITY_INSTRUCTION_VARIANTS[personality])
-        sys_content += header + instruction
+        # Marker not found — keep prompt as-is (no paraphrasing).
+        pass
 
     return sys_content
 

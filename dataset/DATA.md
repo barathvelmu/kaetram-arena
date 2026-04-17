@@ -38,7 +38,7 @@ dataset/
 └── world_model/              ← Forward dynamics model data
 ```
 
-Raw logs and generated data live on the GCP VM only (`35.224.227.251`). Not committed to git. Agent_3's legacy EFFICIENT logs and the pre-personality backlog were deleted after the personality system was finalized on April 3.
+Raw logs and generated data live on the GCP VM only (`34.28.111.6`). Not committed to git. Agent_3's legacy EFFICIENT logs and the pre-personality backlog were deleted after the personality system was finalized on April 3.
 
 ---
 

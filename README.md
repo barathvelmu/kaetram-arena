@@ -303,7 +303,7 @@ The finetuned Qwen3.5-9B model can play autonomously using a lightweight 2-tool 
 ```
 
 **Dual-VM architecture:**
-- **GCP VM** (`35.224.227.251`): Hosts Kaetram game server (:9001 WS) + client (:9000 HTTP), runs data collection and the training pipeline.
+- **GCP VM** (`34.28.111.6`): Hosts Kaetram game server (:9001 WS) + client (:9000 HTTP), runs data collection and the training pipeline.
 - **GPU VM** (`73.173.11.56:1738`, RTX 3060 12GB): Runs the finetuned model in Ollama + the `play_qwen.py` / OpenCode harness via Playwright. Connects back to the GCP VM for the game world.
 
 See `finetune/SETUP_3060.md` for local deployment instructions.

@@ -103,7 +103,7 @@ directly comparable to r7 without a confound.
 
 ## 2. Current data state (VM, 2026-04-09)
 
-Captured live from `patnir41@35.224.227.251:~/projects/kaetram-agent`.
+Captured live from `patnir41@34.28.111.6:~/projects/kaetram-agent`.
 
 | Thing | Value |
 |---|---|
@@ -267,7 +267,7 @@ needs to change its file paths.
 ## 5. Regeneration steps
 
 All commands are run from `~/projects/kaetram-agent` on the VM
-(`patnir41@35.224.227.251`) in a single tmux pane. Do NOT parallelise;
+(`patnir41@34.28.111.6`) in a single tmux pane. Do NOT parallelise;
 extract + convert are fast (minutes) and ordering matters.
 
 ### Step 1 — apply patches

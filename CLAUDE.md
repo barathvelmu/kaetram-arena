@@ -332,14 +332,14 @@ Note: `extract_turns.py` historically normalized some of these to legacy names (
 **World model (WIP concept).** Experimental 2.2M param Transformer forward dynamics model in `world/`. Not prioritized — see `world/README.md` for details.
 
 **Remote agent setup:**
-- **GCP VM** (`35.224.227.251`): Hosts Kaetram game server (:9001 WS) + client (:9000 HTTP). This is the game world.
+- **GCP VM** (`34.28.111.6`): Hosts Kaetram game server (:9001 WS) + client (:9000 HTTP). This is the game world.
 - **GPU VM** (`73.173.11.56:1738` via SSH): Runs finetuned `kaetram` model in Ollama (RTX 3060 12GB) + agent harness via Playwright. This is the agent brain.
-- Agent on GPU VM connects browser to `http://35.224.227.251:9000` and plays via Playwright.
+- Agent on GPU VM connects browser to `http://34.28.111.6:9000` and plays via Playwright.
 
 ### Remote access
 | Machine | IP | SSH | Purpose |
 |---------|------|------|---------|
-| GCP VM (this) | 35.224.227.251 | patnir41@35.224.227.251 | Game server + client, data collection, training pipeline |
+| GCP VM (this) | 34.28.111.6 | patnir41@34.28.111.6 | Game server + client, data collection, training pipeline |
 | GPU VM (3060) | 73.173.11.56 | pnir41@73.173.11.56 -p 1738 | Finetuned model inference, agent harness (OpenCode) |
 
 ---

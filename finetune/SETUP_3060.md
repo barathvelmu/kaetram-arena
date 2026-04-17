@@ -126,9 +126,9 @@ EOF
 The agent needs a Kaetram game client to connect to. Either:
 
 **Option A: Connect to GCP-hosted server** (RECOMMENDED — already running):
-- Game client: `http://35.224.227.251:9000`
-- Game server WS: `ws://35.224.227.251:9001`
-- The agent opens Chromium to `http://35.224.227.251:9000` and plays via Playwright MCP
+- Game client: `http://34.28.111.6:9000`
+- Game server WS: `ws://34.28.111.6:9001`
+- The agent opens Chromium to `http://34.28.111.6:9000` and plays via Playwright MCP
 - No local Kaetram install needed
 
 **Option B: Run Kaetram locally (not recommended — use Option A):**

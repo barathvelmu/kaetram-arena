@@ -73,6 +73,7 @@ def _patch_qwen_chat_template(tokenizer):
     gpu="A100",
     volumes={"/model_cache": model_cache_vol},
     min_containers=1,
+    max_containers=1,
     scaledown_window=600,
     timeout=300,
 )

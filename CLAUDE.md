@@ -21,6 +21,31 @@ After any big update that changes repo files, commit it promptly, push to GitHub
 
 ---
 
+## MULTI-MACHINE SYNC PROTOCOL
+
+Two-machine setup (laptop + GCP VM `34.28.111.6`) means origin/main is the only source of truth. Files on laptop and VM drift the moment someone pushes without the other pulling. If an agent edits files on a stale checkout, the resulting diff looks like a revert of the missing commits — because it silently is one.
+
+**Rules (both machines, every agent session):**
+
+1. **Pull before edit.** First thing every session / before spawning any agent: `git fetch origin && git pull --ff-only` on the machine you're about to touch. If non-ff, investigate — local has diverged and blindly forcing loses work.
+
+2. **Branch for shared code, direct for solo lanes.** Push to `feat/…` / `chore/…` branches for anything your cofounder might edit (`eval_harness.py`, `dashboard/`, `prompts/`, `finetune/`, `scripts/`). Direct-to-main only for your own lane (`research/`, `session_log.md`, `.claude/memory/`, personal docs).
+
+3. **Safe VM sync** (when VM may be stale or you're unsure what's uncommitted):
+   ```bash
+   ssh patnir41@34.28.111.6
+   cd /home/patnir41/projects/kaetram-agent
+   git stash push -u -m "safety-$(date +%Y%m%d_%H%M)"   # nothing destructive
+   git fetch origin && git checkout main && git pull --ff-only
+   git stash list                                        # decide per-stash to pop or drop
+   tmux ls                                               # running evals are unaffected by working-tree changes
+   ```
+   Stash-first means nothing is ever destroyed — if a pull brings in a cofounder's work that conflicts with local edits, the stash preserves them for manual reconciliation instead of silently overwriting.
+
+**Why this section exists (incident 2026-04-17):** An agent edited files on the VM before pulling Niral's two just-landed commits (`c7fe0b8` DB-authoritative quest tracking + `eff051f` Qwen Live tab removal). The edits wrote the older version of each file back, so the resulting diff looked like a revert of his work. His commits were still safe on `origin/main`, and nothing ever hit main from the stale tree — but the diff was confusing enough to trigger a cofounder argument. Fix was `git checkout origin/main -- <files>`. The rules above make this impossible to repeat.
+
+---
+
 ## RESEARCH KNOWLEDGE BASE (`research/`)
 
 A compiled knowledge base for this project, inspired by Karpathy's LLM Knowledge Bases pattern. Contains conclusions, decisions, experiment outcomes, and paper references — not stream-of-consciousness notes.

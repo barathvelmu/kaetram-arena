@@ -3,6 +3,18 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-17 — Eval Watchdog Landed + Cross-Machine Sync Protocol
+
+**Watchdog shipped to main.** `scripts/eval_watchdog.py` + `eval_harness.py` `--watchdog` flags + dashboard banner, all merged via `feat/eval-watchdog` (`f72c201`). It already earned its keep — caught a real failure during the curious-n10 eval and triggered `curious_n10_recover`, since archived.
+
+**Cross-machine sync protocol added to CLAUDE.md.** An agent tonight edited files on a stale VM checkout before pulling Niral's `c7fe0b8` (DB quest tracking) + `eff051f` (Qwen Live removal). The diff looked like a revert of both; it wasn't (origin/main stayed intact, nothing bad got pushed), but the confusion triggered an argument. New rules: pull-before-edit, branches for shared code, `git stash push -u` safety net for VM sync. All documented in the new CLAUDE.md "Multi-Machine Sync Protocol" section.
+
+**VM external IP changed** 35.224.227.251 → 34.28.111.6 (Niral's `8a04a3a`). All doc references updated.
+
+**Next:** r10 training on verified dataset (6353/587 SFT, 3212/313 KTO). Base vs r9-sft curious eval already archived.
+
+---
+
 ## 2026-04-17 — Research Compile Pass
 
 **Compile-research pass.** Restored research/ from git (was deleted when gitignored). Updated 7 files across the knowledge base:

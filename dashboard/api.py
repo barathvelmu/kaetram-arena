@@ -696,4 +696,29 @@ class APIMixin:
 
             models[model_name] = model
 
-        self._send_json({"models": models, "eval_running": any(m["active"] for m in models.values())})
+        eval_dir = os.path.join(DATASET_DIR, "eval", "latest")
+        if not os.path.isdir(eval_dir):
+            eval_dir = os.path.join(DATASET_DIR, "eval")
+        watchdog = None
+        watchdog_alert = ""
+        status_path = os.path.join(eval_dir, "watchdog_status.json")
+        alert_path = os.path.join(eval_dir, "watchdog_alert.txt")
+        if os.path.isfile(status_path):
+            try:
+                with open(status_path) as f:
+                    watchdog = json.load(f)
+            except Exception:
+                watchdog = None
+        if os.path.isfile(alert_path):
+            try:
+                with open(alert_path) as f:
+                    watchdog_alert = f.read().strip()
+            except Exception:
+                watchdog_alert = ""
+
+        self._send_json({
+            "models": models,
+            "eval_running": any(m["active"] for m in models.values()),
+            "watchdog": watchdog,
+            "watchdog_alert": watchdog_alert,
+        })

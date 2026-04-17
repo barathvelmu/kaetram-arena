@@ -778,19 +778,20 @@
   <!-- ===== EVAL TAB ===== -->
   <div class="tab-content" id="tab-eval">
     <!-- Live eval view (side-by-side streams while eval is running) -->
+    <div id="eval-watchdog" style="display:none;margin-bottom:10px;padding:10px 12px;border:1px solid rgba(201,175,120,0.16);background:rgba(0,0,0,0.24);font-size:11px;color:var(--text-dim)"></div>
     <div class="qwen-split" id="eval-live" style="display:none;">
       <div class="qwen-panel">
         <div class="qwen-panel-header finetuned">
           <span class="qwen-status-dot stale" id="ev-dot-sft"></span>
-          <span class="qwen-badge ft">r8-SFT EVAL</span>
+          <span class="qwen-badge ft">R9-SFT EVAL</span>
           <span class="qval ft" id="ev-hp-sft">?/?</span>
           <span class="qlabel">EP</span><span class="qval ft" id="ev-ep-sft">0</span>
           <span class="qlabel">T</span><span class="qval ft" id="ev-turn-sft">0</span>
         </div>
         <div id="ev-stats-sft" style="padding:4px 8px;font-size:10px;color:var(--text-dim);display:flex;flex-wrap:wrap;gap:10px;background:rgba(0,0,0,0.3);border-bottom:1px solid rgba(201,175,120,0.08)"></div>
         <div class="qwen-stream">
-          <img id="ev-img-sft" src="" alt="r8-SFT eval stream">
-          <div class="no-signal" id="ev-nosig-sft">r8-SFT — WAITING</div>
+          <img id="ev-img-sft" src="" alt="r9-SFT eval stream">
+          <div class="no-signal" id="ev-nosig-sft">R9-SFT — WAITING</div>
         </div>
         <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
         <div class="qwen-actions collapsed" id="ev-log-sft"></div>
@@ -1875,8 +1876,34 @@ async function pollEvalLive() {
     const res = await fetch('/api/eval/live');
     const data = await res.json();
     const liveDiv = document.getElementById('eval-live');
+    const watchdogDiv = document.getElementById('eval-watchdog');
 
     updateEvalTabIndicator(data.eval_running);
+    const wd = data.watchdog || null;
+    const wdAlert = data.watchdog_alert || '';
+    if (wd || wdAlert) {
+      watchdogDiv.style.display = '';
+      const ts = wd?.timestamp || '';
+      const rows = wd?.models ? Object.entries(wd.models).map(([name, m]) => {
+        const health = m.endpoint_healthy ? 'healthy' : 'down';
+        const progressAge = m.last_progress_age_seconds ?? '?';
+        const okEps = m.ok_episodes ?? 0;
+        const target = wd.episodes_target ?? '?';
+        return `<span><b>${esc(name)}</b>: ${health}, ${okEps}/${target} ok, progress ${progressAge}s ago</span>`;
+      }).join('<span style="opacity:.45"> | </span>') : '';
+      if (wdAlert) {
+        watchdogDiv.style.borderColor = 'rgba(248,113,113,0.45)';
+        watchdogDiv.style.color = '#fca5a5';
+        watchdogDiv.innerHTML = `<b>Watchdog alert</b>${ts ? ' · ' + esc(ts) : ''}<br>${esc(wdAlert)}`;
+      } else {
+        watchdogDiv.style.borderColor = 'rgba(74,222,128,0.28)';
+        watchdogDiv.style.color = 'var(--text-dim)';
+        watchdogDiv.innerHTML = `<b>Watchdog</b>${ts ? ' · ' + esc(ts) : ''}<br>${rows || 'healthy'}`;
+      }
+    } else {
+      watchdogDiv.style.display = 'none';
+    }
+
     if (data.eval_running) {
       liveDiv.style.display = '';
     } else {
@@ -1973,7 +2000,7 @@ async function loadEvalResults() {
     const res = await fetch('/api/eval/latest');
     const data = await res.json();
     if (data.status !== 'ok' || !data.models || data.models.length === 0) {
-      container.innerHTML = '<div class="eval-empty">No eval results yet.<br><br><span style="font-size:12px;color:#555">Run: <code>python3 eval_harness.py --episodes 30</code><br>Then: <code>python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json</code></span></div>';
+      container.innerHTML = '<div class="eval-empty">No eval results yet.<br><br><span style="font-size:12px;color:#555">Run: <code>python3 eval_harness.py --episodes 30 --watchdog --watchdog-kill-on-failure</code><br>Then: <code>python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json</code></span></div>';
       return;
     }
     evalLoaded = true;

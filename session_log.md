@@ -3,6 +3,22 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-17 — r10 P0 Fixes: Observe Supervision + Personality Prompt Parity
+
+**Two P0 bugs found and fixed** (diagnosed from cofounder memo + code audit):
+
+1. **Zero observe supervision in r9 training.** `dataset/qwen_sft/train.json` had 21,976 assistant tool calls, 0 were `observe`. Root cause: `extract_turns.py:875-879` was consuming Sonnet's observe tool_use blocks to populate `game_state` and discarding the tool_use itself; `convert_to_qwen.py:build_user_message` then injected state into every user message. Model was trained in a world where state is free; at inference the live prompt mandates observe. Base called observe 131×/ep, r9-sft only 54×/ep.
+
+2. **Personality prompt mismatch.** Training used `PERSONALITY_SUFFIXES` dict (2 sentences, ~190 bytes); eval loaded full `prompts/personalities/*.md` file (~1.5 KB with concrete rules like "kill 3+ mobs between NPC interactions"). The stale `PERSONALITY_INSTRUCTION_VARIANTS` dict in `train_modal.py:124-145` was silently overriding metadata.
+
+**Fixes landed (A+X+P path per plan):** extract_turns.py emits observe as first-class turn; convert_to_qwen.py maps observe→tool_call, drops `<game_state>` injection, loads full .md personality files; train_modal.py + train_kto_modal.py substitute at `__PERSONALITY_BLOCK__` placeholder (byte-parity with eval_harness); score_sessions.py filters observe from KTO scoring; 23 new regression tests (`tests/test_prompt_parity.py`, `tests/test_observe_supervision.py`, additions to `tests/test_dataset_filters.py`).
+
+**Dataset regenerated.** 17,002 train / 1,929 val (vs 5,871/575 in r9 — +189%). Observe: 35,680 calls (57.2% of 62,359 total). Token budget: 6.9% of records over MAX_SEQ_LEN=16384 — actually slightly better than r9's ~9% because dropped `<game_state>` per-user offsets added observe tool_results. 64/64 tests pass.
+
+**Open question:** window size 5→3 to reduce truncation further. User said hold; discuss first. Launch r10 after that call.
+
+---
+
 ## 2026-04-17 — Eval Watchdog Landed + Cross-Machine Sync Protocol
 
 **Watchdog shipped to main.** `scripts/eval_watchdog.py` + `eval_harness.py` `--watchdog` flags + dashboard banner, all merged via `feat/eval-watchdog` (`f72c201`). It already earned its keep — caught a real failure during the curious-n10 eval and triggered `curious_n10_recover`, since archived.

@@ -102,30 +102,13 @@ SYSTEM_PROMPT_INTRO_VARIANTS = [
     "You are an automated player in Kaetram (2D MMORPG). Observe the game through structured state and ASCII map data, then decide and act.",
 ]
 
-PERSONALITY_INSTRUCTION_VARIANTS = {
-    "aggressive": [
-        "Prioritize combat above all. Push into harder zones and fight mobs at the edge of your capability. Accept death as part of progression — re-engage immediately after respawn.",
-        "Fight first, think later. Seek out the toughest mobs you can handle and attack relentlessly. Dying is acceptable — get back up and keep fighting.",
-        "Maximize combat engagement at all times. Target mobs near or above your level. Deaths are a cost of progress — respawn and resume attacking immediately.",
-    ],
-    "methodical": [
-        "Prepare thoroughly before advancing. Complete quests in order, gather resources, build skills. Keep HP above 60% and always carry food before entering dangerous areas.",
-        "Plan carefully and advance step by step. Finish quests sequentially, stock up on supplies, and train skills. Never enter combat below 60% HP or without food.",
-        "Take a systematic approach to progression. Build up resources and complete quests in order. Maintain HP above 60% and ensure you have food before fighting.",
-    ],
-    "curious": [
-        "Explore the world broadly. Talk to every NPC, enter every building, warp to new locations. Discovery matters more than efficiency — find quests and areas others miss.",
-        "Prioritize discovery and exploration. Visit new areas, interact with all NPCs, and investigate every location. Finding new content matters more than grinding.",
-        "Wander and explore as much as possible. Seek out NPCs, new zones, and hidden areas. Exploration takes priority over combat efficiency or quest optimization.",
-    ],
-    "efficient": [
-        "Optimize quest completion. Accept multiple quests, batch objectives, minimize travel. No wasted turns — every action should progress toward a quest or level goal.",
-        "Be maximally efficient with every action. Combine quest objectives, reduce unnecessary movement, and focus on leveling through quest completion over grinding.",
-        "Streamline progression by batching quests and minimizing idle turns. Every action should move you toward a quest objective or experience gain.",
-    ],
-}
+# r10: personality paraphrasing removed. Pre-r10 KTO paraphrased personalities via a
+# hardcoded short-string dict (PERSONALITY_INSTRUCTION_VARIANTS), which drifted from
+# the eval-time prompt (full prompts/personalities/*.md files). Substitution now
+# happens at the __PERSONALITY_BLOCK__ placeholder in convert_to_qwen; KTO just
+# preserves whatever the baked prompt contains and only paraphrases the intro.
 
-_BODY_SPLIT_MARKER = "\n\n## Entity Types"
+_BODY_SPLIT_MARKER = "\n\n<game_knowledge>"
 
 
 def _build_system_prompt_kto(
@@ -133,31 +116,25 @@ def _build_system_prompt_kto(
     base_system_prompt: str,
     rng: _random.Random | None,
 ) -> str:
-    """Replace system prompt in KTO record with a paraphrased variant.
+    """Replace system prompt in KTO record with a paraphrased-intro variant.
 
-    KTO records have the system prompt (with personality) already baked into
-    prompt_messages[0]["content"]. This function rebuilds it with a variant intro
-    and personality instruction while keeping the body identical.
+    KTO records have the system prompt (with personality already substituted at the
+    __PERSONALITY_BLOCK__ location) baked into prompt_messages[0]["content"]. This
+    function rebuilds it with a variant intro while keeping the body identical.
     """
     if rng is None:
         return original_sys
 
-    # Paraphrase intro
+    # Paraphrase intro, keep body identical (body includes the already-substituted
+    # personality block — no further personality manipulation here).
     intro = rng.choice(SYSTEM_PROMPT_INTRO_VARIANTS)
-    body_start = base_system_prompt.index(_BODY_SPLIT_MARKER)
-    body = base_system_prompt[body_start:]
-    sys_content = intro + body
-
-    # Detect and paraphrase personality from original content
-    for p, variants in PERSONALITY_INSTRUCTION_VARIANTS.items():
-        marker = f"## Playstyle: {p.upper()}"
-        if marker in original_sys:
-            header = f"\n\n{marker}\n"
-            instruction = rng.choice(variants)
-            sys_content += header + instruction
-            break
-
-    return sys_content
+    try:
+        body_start = original_sys.index(_BODY_SPLIT_MARKER)
+        body = original_sys[body_start:]
+        return intro + body
+    except ValueError:
+        # Marker not found — return original unchanged rather than guess.
+        return original_sys
 
 
 def _split_completion(prompt_text: str, full_text: str) -> str | None:

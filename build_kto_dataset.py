@@ -87,9 +87,10 @@ def _build_window_examples(
     positive_window_floor: float,
     negative_window_ceiling: float,
 ) -> list[dict]:
-    sys_prompt = SYSTEM_PROMPT
-    if keep_personality and personality and personality in PERSONALITY_SUFFIXES:
-        sys_prompt += PERSONALITY_SUFFIXES[personality]
+    # r10: substitute personality into __PERSONALITY_BLOCK__ placeholder instead
+    # of appending (byte-parity with eval_harness / convert_to_qwen).
+    personality_block = PERSONALITY_SUFFIXES.get(personality or "", "") if keep_personality else ""
+    sys_prompt = SYSTEM_PROMPT.replace("__PERSONALITY_BLOCK__", personality_block)
 
     records = []
     n = len(session_turns)

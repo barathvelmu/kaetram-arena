@@ -1,0 +1,211 @@
+{
+  "meta": {
+    "model": "r9-sft",
+    "endpoint": "https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1",
+    "scenario": "D",
+    "scenario_name": "Open Play",
+    "max_turns": 300,
+    "total_episodes": 10,
+    "ok_episodes": 2,
+    "timestamp": "2026-04-16T22:39:34.833851",
+    "git_sha": "9e6e811"
+  },
+  "episodes": [
+    {
+      "episode": 1,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 3391.7000000000003,
+      "returncode": 0,
+      "sub_sessions": 10,
+      "log_file": "/home/patnir41/projects/kaetram-agent/dataset/eval/runs/20260416_190942_curious_n10/r9-sft/episode_001.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 6,
+      "kills_by_mob": {
+        "Goblin": 4,
+        "Rat": 2
+      },
+      "xp_estimated": 324,
+      "xp_per_turn": 1.08,
+      "level_reached": 17,
+      "level_delta": 16,
+      "deaths": 2,
+      "survived": false,
+      "quests_completed": 0,
+      "quests_accepted": 7,
+      "unique_positions": 75,
+      "action_counts": {
+        "set_attack_style": 12,
+        "interact_npc": 27,
+        "navigate": 53,
+        "cancel_nav": 10,
+        "warp": 29,
+        "observe": 19,
+        "move": 57,
+        "respawn": 2,
+        "click_tile": 21,
+        "equip_item": 2,
+        "talk_npc": 2,
+        "attack": 65,
+        "eat_food": 1
+      },
+      "action_entropy": 3.0556,
+      "stuck_resets": 0,
+      "click_tiles": 21,
+      "kills_db": 10,
+      "kills_db_delta": 10,
+      "xp_db": 2623,
+      "xp_db_delta": 2623,
+      "level_reached_db": 17,
+      "level_delta_db": 16
+    },
+    {
+      "episode": 2,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 3176.7,
+      "returncode": 0,
+      "sub_sessions": 10,
+      "log_file": "/home/patnir41/projects/kaetram-agent/dataset/eval/runs/20260416_190942_curious_n10/r9-sft/episode_002.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 16,
+      "kills_by_mob": {
+        "Rat": 13,
+        "Goblin": 3
+      },
+      "xp_estimated": 450,
+      "xp_per_turn": 1.5,
+      "level_reached": 14,
+      "level_delta": 13,
+      "deaths": 0,
+      "survived": true,
+      "quests_completed": 0,
+      "quests_accepted": 2,
+      "unique_positions": 64,
+      "action_counts": {
+        "set_attack_style": 7,
+        "interact_npc": 33,
+        "navigate": 27,
+        "clear_combat": 1,
+        "warp": 7,
+        "talk_npc": 10,
+        "move": 23,
+        "cancel_nav": 12,
+        "equip_item": 30,
+        "drop_item": 1,
+        "attack": 137,
+        "observe": 10,
+        "click_tile": 2
+      },
+      "action_entropy": 2.6645,
+      "stuck_resets": 0,
+      "click_tiles": 2,
+      "kills_db": 38,
+      "kills_db_delta": 38,
+      "xp_db": 5645,
+      "xp_db_delta": 5645,
+      "level_reached_db": 25,
+      "level_delta_db": 24
+    }
+  ],
+  "metrics": {
+    "quest_completion_rate": [
+      0,
+      0
+    ],
+    "xp_per_turn": [
+      1.08,
+      1.5
+    ],
+    "survival_rate": [
+      0,
+      1
+    ],
+    "tool_parse_rate": [
+      1.0,
+      1.0
+    ],
+    "deaths_per_session": [
+      2,
+      0
+    ],
+    "kills": [
+      6,
+      16
+    ],
+    "kills_db_delta": [
+      10,
+      38
+    ],
+    "xp_estimated": [
+      324,
+      450
+    ],
+    "xp_db_delta": [
+      2623,
+      5645
+    ],
+    "level_reached": [
+      17,
+      14
+    ],
+    "level_delta": [
+      16,
+      13
+    ],
+    "level_reached_db": [
+      17,
+      25
+    ],
+    "level_delta_db": [
+      16,
+      24
+    ],
+    "quests_completed_delta": [
+      0,
+      0
+    ],
+    "quests_accepted_delta": [
+      0,
+      0
+    ],
+    "quest_stages_advanced": [
+      0,
+      0
+    ],
+    "achievements_completed_delta": [
+      0,
+      0
+    ],
+    "achievements_started_delta": [
+      0,
+      0
+    ],
+    "achievement_stages_advanced": [
+      0,
+      0
+    ],
+    "action_entropy": [
+      3.0556,
+      2.6645
+    ],
+    "stuck_resets": [
+      0,
+      0
+    ],
+    "click_tiles": [
+      21,
+      2
+    ],
+    "success_rate": [
+      1,
+      1
+    ]
+  }
+}

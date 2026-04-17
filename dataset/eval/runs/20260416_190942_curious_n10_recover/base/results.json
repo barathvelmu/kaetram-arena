@@ -1,0 +1,121 @@
+{
+  "meta": {
+    "model": "base",
+    "endpoint": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
+    "scenario": "D",
+    "scenario_name": "Open Play",
+    "max_turns": 300,
+    "total_episodes": 1,
+    "ok_episodes": 1,
+    "timestamp": "2026-04-16T20:22:06.871518",
+    "git_sha": "daa9cb5"
+  },
+  "episodes": [
+    {
+      "episode": 1,
+      "status": "ok",
+      "success": true,
+      "duration_seconds": 4342.7,
+      "returncode": 0,
+      "sub_sessions": 14,
+      "log_file": "/home/patnir41/projects/kaetram-agent/dataset/eval/runs/20260416_190942_curious_n10/base/episode_001.jsonl",
+      "turns_played": 300,
+      "tool_calls_attempted": 300,
+      "tool_calls_valid": 300,
+      "tool_parse_rate": 1.0,
+      "kills": 29,
+      "kills_by_mob": {
+        "Rat": 29
+      },
+      "xp_estimated": 522,
+      "xp_per_turn": 1.74,
+      "level_reached": 22,
+      "level_delta": 21,
+      "deaths": 1,
+      "survived": false,
+      "quests_completed": 2,
+      "quests_accepted": 5,
+      "unique_positions": 70,
+      "action_counts": {
+        "observe": 52,
+        "equip_item": 4,
+        "interact_npc": 22,
+        "navigate": 18,
+        "cancel_nav": 1,
+        "move": 3,
+        "click_tile": 2,
+        "warp": 3,
+        "attack": 128,
+        "set_attack_style": 3,
+        "gather": 48,
+        "loot": 6,
+        "respawn": 1,
+        "query_quest": 2,
+        "talk_npc": 3,
+        "eat_food": 4
+      },
+      "action_entropy": 2.6015,
+      "stuck_resets": 0,
+      "click_tiles": 2,
+      "kills_db": 51,
+      "kills_db_delta": 51,
+      "xp_db": 8851,
+      "xp_db_delta": 8851,
+      "level_reached_db": 22,
+      "level_delta_db": 21
+    }
+  ],
+  "metrics": {
+    "quest_completion_rate": [
+      1
+    ],
+    "xp_per_turn": [
+      1.74
+    ],
+    "survival_rate": [
+      0
+    ],
+    "tool_parse_rate": [
+      1.0
+    ],
+    "deaths_per_session": [
+      1
+    ],
+    "kills": [
+      29
+    ],
+    "kills_db_delta": [
+      51
+    ],
+    "xp_estimated": [
+      522
+    ],
+    "xp_db_delta": [
+      8851
+    ],
+    "level_reached": [
+      22
+    ],
+    "level_delta": [
+      21
+    ],
+    "level_reached_db": [
+      22
+    ],
+    "level_delta_db": [
+      21
+    ],
+    "action_entropy": [
+      2.6015
+    ],
+    "stuck_resets": [
+      0
+    ],
+    "click_tiles": [
+      2
+    ],
+    "success_rate": [
+      1
+    ]
+  }
+}

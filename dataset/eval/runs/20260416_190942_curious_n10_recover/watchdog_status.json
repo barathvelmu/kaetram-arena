@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-04-16T23:28:39+0000",
+  "run_dir": "/home/patnir41/projects/kaetram-agent/dataset/eval/runs/20260416_190942_curious_n10_recover",
+  "episodes_target": 10,
+  "models": {
+    "base": {
+      "ok_episodes": 1,
+      "total_recorded_episodes": 1,
+      "endpoint_healthy": true,
+      "endpoint_detail": "{\"status\":\"ok\",\"model\":\"Qwen/Qwen3.5-9B\",\"variant\":\"base\",\"loaded_model_path\":\"Qwen/Qwen3.5-9B\"}",
+      "health_failure_streak": 0,
+      "latest_log": "session_20260416_232538.log",
+      "latest_log_age_seconds": 1.1,
+      "last_progress_age_seconds": 1.1,
+      "eval_harness_pids": [
+        156661
+      ],
+      "play_qwen_pids": [
+        167788
+      ],
+      "game_server_pids": [
+        156684
+      ],
+      "done": false
+    },
+    "r9-sft": {
+      "ok_episodes": 2,
+      "total_recorded_episodes": 2,
+      "endpoint_healthy": true,
+      "endpoint_detail": "{\"status\":\"ok\",\"model\":\"Qwen/Qwen3.5-9B\",\"variant\":\"finetuned\",\"sft_experiment\":\"kaetram-qwen3.5-9b-r9\",\"loaded_model_path\":\"/checkpoints/kaetram-qwen3.5-9b-r9/merged\"}",
+      "health_failure_streak": 0,
+      "latest_log": "session_20260416_232452.log",
+      "latest_log_age_seconds": 5.4,
+      "last_progress_age_seconds": 5.4,
+      "eval_harness_pids": [
+        156662
+      ],
+      "play_qwen_pids": [
+        167359
+      ],
+      "game_server_pids": [
+        156690
+      ],
+      "done": false
+    }
+  }
+}

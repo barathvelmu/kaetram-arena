@@ -113,6 +113,7 @@ def _patch_qwen_chat_template(tokenizer):
         "/checkpoints": checkpoint_vol,
     },
     min_containers=1,
+    max_containers=1,
     scaledown_window=600,  # 10 min idle before scale down
     timeout=300,  # 5 min per request max
 )

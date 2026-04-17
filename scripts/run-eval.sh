@@ -109,6 +109,17 @@ PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/eval_harness.py" \
 BASE_PID=$!
 echo "  Base eval started (PID $BASE_PID, log: /tmp/eval_base.log, personality: ${PERSONALITY:-none})"
 
+# ── Watchdog (background) ──
+PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/scripts/eval_watchdog.py" \
+  --run-dir "$RUN_DIR" \
+  --episodes "$EPISODES" \
+  --kill-on-failure \
+  --model "r9-sft=https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1,/tmp/kaetram_eval_r9-sft,9061" \
+  --model "base=https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1,/tmp/kaetram_eval_base,9071" \
+  > "/tmp/eval_watchdog_${RUN_TAG}.log" 2>&1 &
+WATCHDOG_PID=$!
+echo "  Watchdog started (PID $WATCHDOG_PID, log: /tmp/eval_watchdog_${RUN_TAG}.log)"
+
 # Symlink latest for dashboard
 ln -sfn "$RUN_DIR" "$PROJECT_DIR/dataset/eval/latest"
 
@@ -117,6 +128,7 @@ echo "Both evals running in parallel."
 echo "  Dashboard: http://localhost:8080 (Eval tab — live side-by-side + metrics)"
 echo "  Logs: tail -f /tmp/eval_r9sft.log"
 echo "        tail -f /tmp/eval_base.log"
+echo "        tail -f /tmp/eval_watchdog_${RUN_TAG}.log"
 echo ""
 echo "Stop: pkill -f eval_harness"
 

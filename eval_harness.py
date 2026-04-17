@@ -220,6 +220,56 @@ def find_latest_log(sandbox: str) -> Path | None:
     return logs[-1] if logs else None
 
 
+def find_newest_new_log(sandbox: str, known_logs: set[str]) -> Path | None:
+    """Find the newest session log created after a sub-session starts."""
+    log_dir = Path(sandbox) / "logs"
+    if not log_dir.is_dir():
+        return None
+    new_logs = [p for p in log_dir.glob("session_*.log") if p.name not in known_logs]
+    if not new_logs:
+        return None
+    return max(new_logs, key=lambda p: p.stat().st_mtime)
+
+
+def start_eval_watchdog(
+    project_dir: str,
+    output_dir: Path,
+    models: dict[str, dict],
+    episodes: int,
+    interval: int,
+    stale_seconds: int,
+    kill_on_failure: bool,
+) -> tuple[subprocess.Popen | None, object | None]:
+    """Launch the standalone watchdog as a sibling background process."""
+    script_path = Path(project_dir) / "scripts" / "eval_watchdog.py"
+    if not script_path.is_file():
+        print(f"  WARNING: watchdog script missing: {script_path}")
+        return None, None
+
+    log_path = Path("/tmp") / f"eval_watchdog_{output_dir.name or 'eval'}.log"
+    cmd = [
+        sys.executable,
+        str(script_path),
+        "--run-dir", str(output_dir),
+        "--episodes", str(episodes),
+        "--interval", str(interval),
+        "--stale-seconds", str(stale_seconds),
+    ]
+    if kill_on_failure:
+        cmd.append("--kill-on-failure")
+    for model_name, model_cfg in models.items():
+        sandbox = f"/tmp/kaetram_eval_{model_name}"
+        cmd.extend([
+            "--model",
+            f"{model_name}={model_cfg['endpoint']},{sandbox},{model_cfg['server_port']}",
+        ])
+
+    log_f = open(log_path, "w")
+    proc = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT)
+    print(f"  Watchdog: pid={proc.pid} log={log_path}")
+    return proc, log_f
+
+
 # ---------------------------------------------------------------------------
 # Log parsing & metrics
 # ---------------------------------------------------------------------------
@@ -659,6 +709,8 @@ def run_model_eval(
                 for _i in range(60):
                     if subprocess.run(check_cmd, shell=True).returncode == 0:
                         print(f"  Game server ready on port {server_port} ({_i+1}s)")
+                        # Listening is not enough; give the world a few seconds to finish booting.
+                        time.sleep(5)
                         break
                     time.sleep(1)
                 else:
@@ -714,6 +766,7 @@ def run_model_eval(
 
             sub_session += 1
             print(f"  Sub-session {sub_session}: {turns_so_far}/{max_turns} turns so far, {remaining} remaining...")
+            known_logs = {p.name for p in log_dir.glob("session_*.log")} if log_dir.is_dir() else set()
 
             run_info = run_episode(
                 project_dir=project_dir,
@@ -728,8 +781,9 @@ def run_model_eval(
             total_duration += run_info["duration_seconds"]
             last_returncode = run_info["returncode"]
 
-            # Find and parse the latest sub-session log
-            log_path = find_latest_log(sandbox)
+            # Only accept logs created by this sub-session. Reusing the previous
+            # session's log would fabricate progress after a failed restart.
+            log_path = find_newest_new_log(sandbox, known_logs)
             if log_path is None:
                 print(f"  Sub-session {sub_session}: no log file — stopping")
                 break
@@ -756,7 +810,9 @@ def run_model_eval(
                 "returncode": last_returncode,
             }
             episodes.append(episode)
-            continue
+            _save_results(results_path, model_name, endpoint, scenario, episodes)
+            print("  Aborting remaining episodes after zero-turn failure to avoid contaminating the run")
+            break
 
         # Save combined log to eval output directory
         dest_log = model_output_dir / f"episode_{ep_num:03d}.jsonl"
@@ -945,6 +1001,22 @@ Examples:
         choices=["", "aggressive", "methodical", "curious"],
         help="Inject a personality block into the system prompt (default: none)",
     )
+    parser.add_argument(
+        "--watchdog", action="store_true",
+        help="Launch a background watchdog for endpoint/process/progress health",
+    )
+    parser.add_argument(
+        "--watchdog-interval", type=int, default=30,
+        help="Watchdog poll interval seconds (default: 30)",
+    )
+    parser.add_argument(
+        "--watchdog-stale-seconds", type=int, default=300,
+        help="Watchdog stale-progress threshold seconds (default: 300)",
+    )
+    parser.add_argument(
+        "--watchdog-kill-on-failure", action="store_true",
+        help="Have watchdog terminate eval processes if it detects failure",
+    )
     args = parser.parse_args()
 
     # Parse model definitions
@@ -992,6 +1064,19 @@ Examples:
         print("\n  WARNING: docker not found. DB resets will fail.")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    watchdog_proc = None
+    watchdog_log = None
+
+    if args.watchdog:
+        watchdog_proc, watchdog_log = start_eval_watchdog(
+            project_dir=args.project_dir,
+            output_dir=args.output_dir.resolve(),
+            models=models,
+            episodes=args.episodes,
+            interval=args.watchdog_interval,
+            stale_seconds=args.watchdog_stale_seconds,
+            kill_on_failure=args.watchdog_kill_on_failure,
+        )
 
     if args.parallel and len(models) > 1:
         # Parallel mode: launch each model as a separate subprocess of this script
@@ -1105,6 +1190,9 @@ Examples:
 
     print(f"\nResults saved to: {args.output_dir}/")
     print("Next: python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json")
+
+    if watchdog_proc and watchdog_log:
+        watchdog_log.close()
 
 
 if __name__ == "__main__":

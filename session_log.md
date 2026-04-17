@@ -3,6 +3,20 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-17 — Research Compile Pass
+
+**Compile-research pass.** Restored research/ from git (was deleted when gitignored). Updated 7 files across the knowledge base:
+- **training-runs.md**: r9 status → COMPLETE, added r10 entry, updated serving endpoint to r9, updated What's Next with SOTA prompting, DB-authoritative quest tracking, eval infra consolidation
+- **preference-learning.md**: Pipeline sequence updated (r9 DONE, eval IN PROGRESS), eval infra updated (removed agent_4/5 refs, added watchdog)
+- **contribution.md**: Updated eval status (r9 in progress), replaced stale Qwen Live tab ref with quantitative eval harness
+- **INDEX.md**: Updated timeline ref, fixed eval gap (DONE), updated action items (agent_4/5 removed, r9 eval in progress, added r10 item), added SOTA prompting gap
+- **r7-hyperparameters.md**: Sequence length updated (8192→16384 in r9), added chat template hardening note
+- **data-quality.md**: Updated agent_4/5 note (slots removed)
+
+**Key findings:** r9 eval running but early results (2 episodes) still show base ahead of r9-sft. r10 experiment name set but not launched. No new Linear issues checked (MCP not available for this pass).
+
+---
+
 ## 2026-04-15 — r9 Training Launched + New Data Collection
 
 **r8-SFT underperformed base model.** Evals showed base gets 2x kills, higher level, more quests. Root cause: train/inference mismatch (wrong system prompt, 69% turns had no reasoning, 55% records truncated). All fixed in commit `40a2dfc`.

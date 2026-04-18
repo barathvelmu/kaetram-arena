@@ -352,7 +352,7 @@ Dataset: **12,900 train / 1,470 val** (vs 5,871/575 in r9 — +120%). 23 new reg
 **Compile-research cron loop working.** `scripts/run_research_staleness_check.sh` via VM cron. Last auto-compile: 2026-04-11. Do not rely on session-local Claude cron — that dies with the session.
 
 **Qwen eval harness:**
-- `play_qwen.py` / `play_qwen.sh` — Calls finetuned model via OpenAI-compatible Modal endpoint. Spawns `mcp_game_server.py` as MCP subprocess for all 22 game tools. Used by `eval_harness.py` for automated evaluation.
+- `play_qwen.py` / `play_qwen.sh` — Calls finetuned model via OpenAI-compatible Modal endpoint. Spawns `mcp_game_server.py` as MCP subprocess for all 17 model-visible game tools. Used by `eval_harness.py` for automated evaluation.
 - `QwenCodeAdapter` in `cli_adapter.py` — wraps the `qwen` CLI (Gemini CLI fork). Uses Playwright MCP, `stream-json` output. **This is NOT the finetuned model** — it calls the Qwen Code CLI which hits the Qwen API.
 
 **World model (WIP concept).** Experimental 2.2M param Transformer forward dynamics model in `world/`. Not prioritized — see `world/README.md` for details.
@@ -376,7 +376,7 @@ Dataset: **12,900 train / 1,470 val** (vs 5,871/575 in r9 — +120%). 23 new reg
 Custom MCP Server (all harnesses):
   Claude/Codex/Gemini CLI ──► mcp_game_server.py (FastMCP) ──► Playwright Python ──► browser
                                   │                                    │
-                             22 typed tools                     page.evaluate()
+                             17 typed tools                     page.evaluate()
                              (observe, attack,                  calls window.__helperFn()
                               navigate, warp,                   from state_extractor.js
                               gather, loot...)

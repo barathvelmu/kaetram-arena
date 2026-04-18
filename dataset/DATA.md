@@ -89,7 +89,7 @@ Personality system being built and broken mid-run. Prompt changes mid-collection
 | Supported harnesses | Claude (primary), Codex, Gemini (Kimi/Qwen WIP) |
 | Total session logs on VM | ~640 (220 / 213 / 207 for agents 0/1/2) |
 | SFT training records | 6,419 train / 646 val (`dataset/qwen_sft/`, Claude-only, 4 filtered) |
-| Architecture | Custom FastMCP server (`mcp_game_server.py`), 22 typed tools |
+| Architecture | Custom FastMCP server (`mcp_game_server.py`), 17 typed tools (curated model-visible surface) |
 | Latest SFT run | r8 (COMPLETE Apr 14) — loss masking fixed via `train_on_responses_only` |
 
 Dataset is growing. Rebuild with `scripts/collect_sft_data.sh` or manually:

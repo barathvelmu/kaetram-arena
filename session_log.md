@@ -3,6 +3,20 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-18 — r10 Launch Gate Closed (9 / 11 criteria green)
+
+**Shipped on `feat/kae-42-remaining-patches` (6 commits):** KAE-42 data-pipeline patches (window_size 5→3, observe→observe bigram filter + post-build dedup, observe tool_result entity caps, stale click_tile filter removed, pre-tokenize truncation gate); Qwen3.5-9B thinking-general decode params wired into `serve_modal*.py`; three new regression tests (`test_truncation`, `test_think_roundtrip`, `test_loop_noise`); r10 launch gate doc.
+
+**Key finding:** `test_think_roundtrip` initially "caught" the Qwen3 #1831 `last_query_index` gate stripping `<think>` from intermediate assistant turns — but training + serving both already apply `_patch_qwen_chat_template` at runtime (Niral's fix in `train_modal.py:183`). Test was running against the UNPATCHED tokenizer. Fixed test to import and apply the runtime patch; 5 assistant turns → 5 `<think>` blocks confirmed end-to-end.
+
+**Dataset rebuild:** `23,382` train / `2,590` val (vs r9's `5,871` / `575`). Observe: `33,291 / 61,412` tool calls = 54%. Truncation gate: 0/25,982 rejected. Observe-pair dedup: 10/25,982 (0.038%) dropped.
+
+**All 78 tests pass on rebuilt dataset.** 9 of 11 launch-gate criteria green. Remaining: smoke SFT (50 steps, ~$10) + eval matrix on none+aggressive. See `docs/r10_launch_gate.md`.
+
+**Next:** run smoke SFT on the rebuilt dataset. If no warp/equip/dialogue loops in smoke eval, launch full r10.
+
+---
+
 ## 2026-04-17 — r10 P0 Fixes: Observe Supervision + Personality Prompt Parity
 
 **Two P0 bugs found and fixed** (diagnosed from cofounder memo + code audit):

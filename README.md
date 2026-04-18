@@ -150,34 +150,29 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 }
 ```
 
-### MCP Tool Vocabulary (22 tools)
+### Model-Visible Tool Vocabulary (17 tools)
 
 | Tool | Description |
 |------|-------------|
-| `login` | Log into the game |
 | `observe` | Game state JSON + ASCII map + stuck check |
 | `attack(mob_name)` | Attack nearest mob by name |
 | `set_attack_style(style)` | hack, chop, or defensive |
 | `navigate(x, y)` | BFS pathfinding to grid coords |
-| `move(x, y)` | Short-distance movement (< 15 tiles) |
 | `warp(location)` | Fast travel (mudwich, aynor, lakesworld, crullfield, patsow, undersea). Auto-waits combat cooldown. |
 | `cancel_nav` | Cancel navigation |
 | `interact_npc(npc_name)` | Walk to NPC, talk through all dialogue, auto-accept quest |
-| `talk_npc(instance_id)` | Continue dialogue with adjacent NPC |
-| `accept_quest` | Manual quest accept |
 | `buy_item(npc_name, item_index, count)` | Buy an item from an NPC shop |
 | `eat_food(slot)` | Eat food to heal (fails at full HP) |
 | `drop_item(slot)` | Drop item to free inventory space |
 | `equip_item(slot)` | Equip item (returns success/failure with reason) |
-| `clear_combat` | Clear combat state |
 | `stuck_reset` | Reset stuck detection |
-| `click_tile(x, y)` | Click grid tile (fallback) |
 | `respawn` | Respawn after death |
 | `gather(resource_name)` | Gather from a tree, rock, bush, or fish spot |
 | `loot` | Pick up nearby ground items and lootbag contents |
 | `query_quest(quest_name)` | Look up walkthrough for a specific quest |
+| `craft_item(skill, recipe_key, count)` | Open the right production interface and craft/cook/smelt the requested recipe |
 
-> **Note:** The tool count grew from 18 → 22 on April 8 (`buy_item`, `gather`, `loot`, `query_quest`). RAG-MCP ([arXiv 2505.03275](https://arxiv.org/abs/2505.03275)) reports tool-selection degradation above ~19 tools; context-dependent tool filtering is tracked under KAE-15. See [`research/experiments/training-runs.md`](research/experiments/training-runs.md).
+> **Note:** The live MCP export now matches this 17-tool model-visible surface exactly. Deprecated wrappers (`login`, `move`, `talk_npc`, `accept_quest`, `clear_combat`, `click_tile`) were removed from the exported action space so the missing production primitive could be added without reintroducing tool bloat.
 
 ## Project structure
 

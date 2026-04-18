@@ -28,30 +28,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-# Typed MCP game tools — matches mcp_game_server.py tool signatures
-TOOL_DEFINITIONS = [
-    {"type": "function", "function": {"name": "observe", "description": "Observe the current game state. Returns player stats, nearby entities, quests, inventory, and ASCII map.", "parameters": {"type": "object", "properties": {}, "required": []}}},
-    {"type": "function", "function": {"name": "attack", "description": "Attack the nearest mob matching the given name. Auto-walks and auto-attacks.", "parameters": {"type": "object", "properties": {"mob_name": {"type": "string", "description": "Name of the mob to attack (e.g. 'Rat', 'Snek')"}}, "required": ["mob_name"]}}},
-    {"type": "function", "function": {"name": "navigate", "description": "Pathfind to grid coordinates using BFS. For long-distance movement.", "parameters": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}}},
-    {"type": "function", "function": {"name": "move", "description": "Short-distance movement to nearby grid coordinates (<15 tiles).", "parameters": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}}},
-    {"type": "function", "function": {"name": "interact_npc", "description": "Walk to an NPC and initiate dialogue.", "parameters": {"type": "object", "properties": {"npc_name": {"type": "string", "description": "Name of the NPC"}}, "required": ["npc_name"]}}},
-    {"type": "function", "function": {"name": "talk_npc", "description": "Advance NPC dialogue by one line.", "parameters": {"type": "object", "properties": {"instance_id": {"type": "string", "description": "NPC instance ID (e.g. '1-4266948')"}}, "required": ["instance_id"]}}},
-    {"type": "function", "function": {"name": "warp", "description": "Fast travel to a known location.", "parameters": {"type": "object", "properties": {"location": {"type": "string", "description": "Location name: mudwich, aynor, lakesworld, crullfield, patsow, undersea"}}, "required": ["location"]}}},
-    {"type": "function", "function": {"name": "accept_quest", "description": "Click the quest accept/progress button.", "parameters": {"type": "object", "properties": {}, "required": []}}},
-    {"type": "function", "function": {"name": "eat_food", "description": "Consume an edible item from inventory to restore HP.", "parameters": {"type": "object", "properties": {"slot": {"type": "integer", "description": "Inventory slot number"}}, "required": ["slot"]}}},
-    {"type": "function", "function": {"name": "equip_item", "description": "Equip an item from inventory.", "parameters": {"type": "object", "properties": {"slot": {"type": "integer", "description": "Inventory slot number"}}, "required": ["slot"]}}},
-    {"type": "function", "function": {"name": "set_attack_style", "description": "Change attack style.", "parameters": {"type": "object", "properties": {"style": {"type": "string", "description": "Style name: hack, chop, defensive, stab, slash"}}, "required": ["style"]}}},
-    {"type": "function", "function": {"name": "click_tile", "description": "Click a specific grid tile.", "parameters": {"type": "object", "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}}, "required": ["x", "y"]}}},
-    {"type": "function", "function": {"name": "cancel_nav", "description": "Cancel active navigation.", "parameters": {"type": "object", "properties": {}, "required": []}}},
-    {"type": "function", "function": {"name": "stuck_reset", "description": "Reset navigation when stuck. Warps to safety.", "parameters": {"type": "object", "properties": {}, "required": []}}},
-    {"type": "function", "function": {"name": "respawn", "description": "Respawn after death.", "parameters": {"type": "object", "properties": {}, "required": []}}},
-    {"type": "function", "function": {"name": "gather", "description": "Gather from a nearby resource (tree, rock, bush, fish spot). Finds nearest non-exhausted resource matching name and collects it.", "parameters": {"type": "object", "properties": {"resource_name": {"type": "string", "description": "Resource name (e.g. 'Oak', 'Nisoc Rock', 'Tomato', 'Blueberry Bush')"}}, "required": ["resource_name"]}}},
-    {"type": "function", "function": {"name": "loot", "description": "Pick up nearby ground items and lootbag contents after combat.", "parameters": {"type": "object", "properties": {}, "required": []}}},
-    {"type": "function", "function": {"name": "buy_item", "description": "Buy an item from an NPC's shop. Must be adjacent to the NPC. Item indices start at 0.", "parameters": {"type": "object", "properties": {"npc_name": {"type": "string", "description": "Store NPC name (e.g. 'Forester', 'Miner', 'Clerk')"}, "item_index": {"type": "integer", "description": "Index of item in the shop (0-based)"}, "count": {"type": "integer", "description": "Number to buy (default 1)"}}, "required": ["npc_name", "item_index"]}}},
-    {"type": "function", "function": {"name": "drop_item", "description": "Drop an item from inventory to free space.", "parameters": {"type": "object", "properties": {"slot": {"type": "integer", "description": "Inventory slot number (0-24)"}}, "required": ["slot"]}}},
-    {"type": "function", "function": {"name": "clear_combat", "description": "Clear combat state and cooldown timer so you can warp.", "parameters": {"type": "object", "properties": {}, "required": []}}},
-    {"type": "function", "function": {"name": "query_quest", "description": "Look up detailed walkthrough for a specific quest (step-by-step instructions, items, NPC locations, boss stats).", "parameters": {"type": "object", "properties": {"quest_name": {"type": "string", "description": "Quest name (e.g. 'Sorcery', 'Scavenger', 'Coder Glitch')"}}, "required": ["quest_name"]}}},
-]
+from tool_surface import MODEL_VISIBLE_TOOL_DEFINITIONS as TOOL_DEFINITIONS
 
 # Warp location IDs and attack style IDs
 WARP_IDS = {"Mudwich": 0, "Aynor": 1, "Lakesworld": 2, "Crullfield": 3, "Patsow": 4, "Undersea": 5}

@@ -567,6 +567,183 @@
     };
   };
 
+  window.__inventorySnapshot = function () {
+    var game = window.game;
+    if (!game || !game.menu) return {};
+    try {
+      var inv = game.menu.getInventory();
+      var items = {};
+      if (!inv || !inv.getElement) return items;
+      for (var i = 0; i < 25; i++) {
+        var el = inv.getElement(i);
+        if (!el || !el.dataset || !el.dataset.key || inv.isEmpty(el)) continue;
+        var key = el.dataset.key;
+        items[key] = (items[key] || 0) + (el.count || parseInt(el.dataset.count || '0', 10) || 1);
+      }
+      return items;
+    } catch (e) {
+      return {};
+    }
+  };
+
+  window.__findInventorySlotByKey = function (itemKey) {
+    var game = window.game;
+    if (!game || !game.menu) return -1;
+    try {
+      var inv = game.menu.getInventory();
+      if (!inv || !inv.getElement) return -1;
+      for (var i = 0; i < 25; i++) {
+        var el = inv.getElement(i);
+        if (!el || !el.dataset || !el.dataset.key || inv.isEmpty(el)) continue;
+        if ((el.dataset.key || '').toLowerCase() === (itemKey || '').toLowerCase()) return i;
+      }
+    } catch (e) {}
+    return -1;
+  };
+
+  function _findNearestCursorTile(cursorName) {
+    var game = window.game;
+    if (!game || !game.player || !game.map) return null;
+    var map = game.map;
+    var px = game.player.gridX, py = game.player.gridY;
+    var wanted = (cursorName || '').toLowerCase();
+    var best = null;
+    var cursorTiles = map.cursorTiles || {};
+
+    for (var index in cursorTiles) {
+      if (!Object.prototype.hasOwnProperty.call(cursorTiles, index)) continue;
+      var cursor = (cursorTiles[index] || '').toLowerCase();
+      if (cursor !== wanted) continue;
+      var coord = map.indexToCoord(parseInt(index, 10));
+      var dist = Math.abs(coord.x - px) + Math.abs(coord.y - py);
+      if (!best || dist < best.distance) {
+        best = { x: coord.x, y: coord.y, distance: dist, cursor: cursor };
+      }
+    }
+
+    return best;
+  }
+
+  function _currentCraftingSkillName() {
+    var game = window.game;
+    if (!game || !game.menu || !game.menu.getCrafting) return '';
+    var menu = game.menu.getCrafting();
+    var type = typeof menu.type === 'number' ? menu.type : -1;
+    var names = {
+      9: 'cooking',
+      10: 'smithing',
+      11: 'crafting',
+      12: 'chiseling',
+      13: 'fletching',
+      14: 'smelting',
+      18: 'alchemy'
+    };
+    return names[type] || '';
+  }
+
+  window.__getCraftingState = function () {
+    var game = window.game;
+    if (!game || !game.menu || !game.menu.getCrafting) {
+      return { visible: false, skill: '', selected_key: '', selected_name: '' };
+    }
+    var menu = game.menu.getCrafting();
+    var name = document.getElementById('crafting-result-name');
+    return {
+      visible: !!(menu.isVisible && menu.isVisible()),
+      skill: _currentCraftingSkillName(),
+      selected_key: menu.selectedKey || '',
+      selected_name: name ? (name.textContent || '').trim() : '',
+      active_count: menu.craftAmount || 1
+    };
+  };
+
+  window.__openProductionInterface = function (skill) {
+    var game = window.game;
+    if (!game || !game.player || !game.menu) return { error: 'Game not loaded' };
+    var normalized = (skill || '').toLowerCase();
+    var aliases = {
+      cook: 'cooking',
+      brew: 'alchemy',
+      smith: 'smithing',
+      smelt: 'smelting',
+      craft: 'crafting',
+      fletch: 'fletching',
+      chisel: 'chiseling'
+    };
+    normalized = aliases[normalized] || normalized;
+
+    var current = window.__getCraftingState();
+    if (current.visible && current.skill === normalized) {
+      return { opened: true, already_open: true, via: 'existing', skill: normalized };
+    }
+
+    if (normalized === 'fletching' || normalized === 'chiseling') {
+      var openerKey = normalized === 'fletching' ? 'knife' : 'chisel';
+      var slot = window.__findInventorySlotByKey(openerKey);
+      if (slot < 0) return { error: 'Required opener item not found', skill: normalized, opener: openerKey };
+      var inv = game.menu.getInventory();
+      if (!inv || !inv.select) return { error: 'Inventory not available', skill: normalized };
+      inv.select(slot, true);
+      try { game.socket.send(21, { opcode: 3, type: 1, fromIndex: slot, value: 1 }); } catch (e) {}
+      return { opened: false, via: 'inventory_item', skill: normalized, opener: openerKey, slot: slot };
+    }
+
+    var target = _findNearestCursorTile(normalized);
+    if (!target) return { error: 'No station found for skill on this map', skill: normalized };
+    var adjacent = _snapToWalkable(target.x, target.y, 4);
+    if (!adjacent) return { error: 'No reachable tile next to station', skill: normalized, target: target };
+    var dist = Math.abs(game.player.gridX - adjacent.x) + Math.abs(game.player.gridY - adjacent.y);
+    if (dist > 6) {
+      return {
+        opened: false,
+        needs_move: true,
+        via: 'station',
+        skill: normalized,
+        target: target,
+        adjacent: adjacent,
+        distance: dist
+      };
+    }
+
+    var clicked = window.__clickTile(target.x, target.y);
+    return {
+      opened: false,
+      via: 'station',
+      skill: normalized,
+      target: target,
+      adjacent: adjacent,
+      click: clicked
+    };
+  };
+
+  window.__selectCraftRecipe = function (recipeKey) {
+    var game = window.game;
+    if (!game || !game.menu || !game.socket) return { error: 'Game not loaded' };
+    var key = (recipeKey || '').trim();
+    if (!key) return { error: 'Recipe key is empty' };
+    try {
+      if (typeof game.menu.handleCraftingSelect === 'function') game.menu.handleCraftingSelect(key);
+      else game.socket.send(53, { opcode: 1, key: key });
+    } catch (e) {
+      return { error: 'Failed to select recipe', detail: String(e) };
+    }
+    return { selected: true, recipe_key: key };
+  };
+
+  window.__confirmCraftRecipe = function (recipeKey, count) {
+    var game = window.game;
+    if (!game || !game.menu || !game.socket) return { error: 'Game not loaded' };
+    var key = (recipeKey || '').trim();
+    var amount = Math.max(1, Math.min(25, parseInt(count || 1, 10) || 1));
+    try {
+      if (typeof game.menu.handleCraftingConfirm === 'function') game.menu.handleCraftingConfirm(key, amount);
+      else game.socket.send(53, { opcode: 2, key: key, count: amount });
+    } catch (e) {
+      return { error: 'Failed to craft recipe', detail: String(e) };
+    }
+    return { crafted: true, recipe_key: key, count: amount };
+  };
+
   // ── Combat state helpers ──
   // Clear target and disableAction so the player can move/warp freely.
   window.__clearCombatState = function () {

@@ -27,6 +27,8 @@ from pathlib import Path
 
 from openai import OpenAI
 
+from tool_surface import MODEL_VISIBLE_TOOL_NAMES
+
 # ---------------------------------------------------------------------------
 # MCP client — spawns mcp_game_server.py and calls tools over stdio
 # ---------------------------------------------------------------------------
@@ -92,8 +94,8 @@ class MCPClient:
         """Return OpenAI-format tool definitions for the chat API."""
         defs = []
         for name, info in self._tools.items():
-            if name == "login":
-                continue  # login is called internally, not by the model
+            if name not in MODEL_VISIBLE_TOOL_NAMES:
+                continue
             defs.append({
                 "type": "function",
                 "function": {
@@ -105,8 +107,8 @@ class MCPClient:
         return defs
 
     def get_tool_names(self) -> list[str]:
-        """Return list of tool names (excluding login)."""
-        return [n for n in self._tools if n != "login"]
+        """Return the curated model-visible tool list."""
+        return [n for n in self._tools if n in MODEL_VISIBLE_TOOL_NAMES]
 
 
 # ---------------------------------------------------------------------------
@@ -227,16 +229,6 @@ async def run_agent(args):
     tool_names = await mcp.connect()
     print(f"MCP connected. Tools: {tool_names}")
 
-    # Login via MCP server
-    print(f"Logging in via MCP server...")
-    login_result = await mcp.call_tool("login", {})
-    print(f"Login: {login_result[:200]}")
-
-    if "FAILED" in login_result.upper() or "ERROR" in login_result.upper():
-        print(f"Login failed, aborting.")
-        await mcp.close()
-        return
-
     # Load system prompt
     system_prompt = ""
     if args.system_prompt and os.path.isfile(args.system_prompt):
@@ -249,7 +241,10 @@ async def run_agent(args):
     if args.user_prompt:
         messages.append({"role": "user", "content": args.user_prompt})
     else:
-        messages.append({"role": "user", "content": "You are logged in. Start playing now. Call observe() first to see the game state."})
+        messages.append({
+            "role": "user",
+            "content": "The MCP server auto-connects to the game. Start playing now. Call observe() first to see the game state.",
+        })
 
     print(f"Harness started: {args.max_turns} max turns, endpoint={args.endpoint}")
     print(f"Log: {log_file}")

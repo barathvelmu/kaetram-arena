@@ -37,6 +37,9 @@ dataset/session*/
 # Claude session-local scheduler state
 .claude/scheduled_tasks.lock
 
+# MCP config (template with placeholders resolved at launch)
+.mcp.json
+
 # Ephemeral runtime state
 .turn_counter
 state/

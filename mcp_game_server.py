@@ -17,6 +17,7 @@ Environment variables (set via .mcp.json env block):
 import asyncio
 import json
 import os
+import re
 import sys
 from contextlib import asynccontextmanager
 
@@ -177,18 +178,41 @@ async def _ensure_browser(state: dict):
 mcp = FastMCP("kaetram", lifespan=game_lifespan)
 
 
-async def _page(ctx: Context):
-    """Get the Playwright page, launching browser if needed."""
-    state = ctx.request_context.lifespan_context
-    return await _ensure_browser(state)
+_PRODUCTION_SKILL_ALIASES = {
+    "cook": "cooking",
+    "cooking": "cooking",
+    "craft": "crafting",
+    "crafting": "crafting",
+    "smith": "smithing",
+    "smithing": "smithing",
+    "smelt": "smelting",
+    "smelting": "smelting",
+    "brew": "alchemy",
+    "alchemy": "alchemy",
+    "fletch": "fletching",
+    "fletching": "fletching",
+    "chisel": "chiseling",
+    "chiseling": "chiseling",
+}
 
 
-# ── Login ─────────────────────────────────────────────────────────────────────
+async def _page_in_game(page) -> bool:
+    try:
+        return bool(
+            await page.evaluate(
+                """() => (
+                    document.body &&
+                    document.body.className === 'game' &&
+                    typeof window.__extractGameState === 'function' &&
+                    !!(window.game && window.game.player)
+                )"""
+            )
+        )
+    except Exception:
+        return False
 
-@mcp.tool()
-async def login(ctx: Context) -> str:
-    """Log into Kaetram. Call this FIRST before any other tool."""
-    page = await _page(ctx)
+
+async def _login_impl(ctx: Context, page) -> str:
     username = os.environ.get("KAETRAM_USERNAME", "ClaudeBot")
     client_url = os.environ.get("KAETRAM_CLIENT_URL", "http://localhost:9000")
 
@@ -198,24 +222,20 @@ async def login(ctx: Context) -> str:
     await page.locator("#login-password-input").fill("password123")
     await page.locator("#login").click()
 
-    # Wait for game to load — body.className transitions from 'intro' to 'game'
-    # Login takes ~4-6s for server to respond and menu to fade out.
     game_ready = False
     for _attempt in range(12):
         await page.wait_for_timeout(1000)
         result = await page.evaluate("""() => {
             if (document.body.className === 'game') return 'in_game';
-            // Still on intro — check if we need to register (no account yet)
             const lc = document.getElementById('load-character');
             if (lc && window.getComputedStyle(lc).opacity !== '0') return 'needs_login';
             return 'waiting';
         }""")
         log(f"[mcp] login attempt {_attempt+1}: {result}")
-        if result == 'in_game':
+        if result == "in_game":
             game_ready = True
             break
-        if result == 'needs_login' and _attempt >= 5:
-            # After 5s, still on login screen — account doesn't exist, register
+        if result == "needs_login" and _attempt >= 5:
             log(f"[mcp] Registering new account for {username}")
             await page.evaluate("""(username) => {
                 document.getElementById('new-account').click();
@@ -233,11 +253,10 @@ async def login(ctx: Context) -> str:
                     setTimeout(() => document.getElementById('play').click(), 500);
                 }, 500);
             }""", username)
-            # Wait for registration to complete
             for _r in range(10):
                 await page.wait_for_timeout(1000)
                 r2 = await page.evaluate("() => document.body.className")
-                if r2 == 'game':
+                if r2 == "game":
                     game_ready = True
                     break
             break
@@ -245,23 +264,160 @@ async def login(ctx: Context) -> str:
     if not game_ready:
         log(f"[mcp] Login failed for {username} — game did not load")
         log_tool("login", success=False, error="game did not load")
-        return "Login FAILED — game did not load. The game client may not be connected to the server. Try login() again."
+        ctx.request_context.lifespan_context["logged_in"] = False
+        return (
+            "Login FAILED — game did not load. "
+            "The game client may not be connected to the server."
+        )
 
-    # Dismiss any post-login modals (welcome screen, notifications)
     await page.wait_for_timeout(1000)
     await page.keyboard.press("Escape")
     await page.wait_for_timeout(300)
     await page.keyboard.press("Escape")
     await page.wait_for_timeout(300)
-    warped = False
 
     ctx.request_context.lifespan_context["logged_in"] = True
     log(f"[mcp] Logged in as {username}")
     log_tool("login")
-    msg = f"Logged in as {username}"
-    if warped:
-        msg += " (auto-warped to Mudwich)"
-    return msg
+    return f"Logged in as {username}"
+
+
+def _normalize_production_skill(skill: str) -> str:
+    return _PRODUCTION_SKILL_ALIASES.get((skill or "").strip().lower(), "")
+
+
+async def _page(ctx: Context, ensure_logged_in: bool = True):
+    """Get the Playwright page, launching browser if needed."""
+    state = ctx.request_context.lifespan_context
+    page = await _ensure_browser(state)
+    if not ensure_logged_in:
+        return page
+
+    if state.get("logged_in") and await _page_in_game(page):
+        return page
+
+    login_result = await _login_impl(ctx, page)
+    if "FAILED" in login_result.upper():
+        raise RuntimeError(login_result)
+    return page
+
+
+_QUEST_WALKTHROUGHS_PATH = os.path.join(
+    os.path.dirname(__file__), "prompts", "quest_walkthroughs.json"
+)
+
+
+def _load_quest_walkthroughs() -> dict:
+    with open(_QUEST_WALKTHROUGHS_PATH) as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("Quest walkthrough data must be a JSON object")
+    return data
+
+
+def _normalize_quest_name(name: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", " ", (name or "").lower()).strip()
+    return re.sub(r"\s+", " ", cleaned)
+
+
+def _resolve_quest_name(query: str, data: dict) -> tuple[str | None, dict | None]:
+    norm_query = _normalize_quest_name(query)
+    if not norm_query:
+        return None, {"error": "Quest name is empty"}
+
+    canonical = {}
+    for key, quest in data.items():
+        if not isinstance(quest, dict):
+            continue
+        names = {key}
+        display_name = quest.get("name")
+        if isinstance(display_name, str) and display_name.strip():
+            names.add(display_name)
+        canonical[key] = {_normalize_quest_name(name) for name in names if name}
+
+    exact_matches = [
+        key for key, normalized_names in canonical.items() if norm_query in normalized_names
+    ]
+    if len(exact_matches) == 1:
+        return exact_matches[0], None
+    if len(exact_matches) > 1:
+        return None, {
+            "error": f"Ambiguous quest name '{query}'",
+            "matches": sorted(exact_matches),
+        }
+
+    substring_matches = [
+        key
+        for key, normalized_names in canonical.items()
+        if any(norm_query in normalized_name for normalized_name in normalized_names)
+    ]
+    if len(substring_matches) == 1:
+        return substring_matches[0], None
+    if len(substring_matches) > 1:
+        return None, {
+            "error": f"Ambiguous quest name '{query}'",
+            "matches": sorted(substring_matches),
+        }
+
+    query_tokens = set(norm_query.split())
+    scored: list[tuple[int, str]] = []
+    for key, normalized_names in canonical.items():
+        best_score = 0
+        for normalized_name in normalized_names:
+            name_tokens = set(normalized_name.split())
+            best_score = max(best_score, len(query_tokens & name_tokens))
+        if best_score > 0:
+            scored.append((best_score, key))
+
+    if not scored:
+        return None, {
+            "error": f"No quest matching '{query}'",
+            "available": sorted(data.keys()),
+        }
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    top_score = scored[0][0]
+    top_matches = sorted([key for score, key in scored if score == top_score])
+    if len(top_matches) > 1:
+        return None, {
+            "error": f"Ambiguous quest name '{query}'",
+            "matches": top_matches,
+        }
+
+    return top_matches[0], None
+
+
+def _build_quest_query_response(matched_name: str, quest: dict) -> dict:
+    ordered = {
+        "name": quest.get("name", matched_name),
+        "matched_name": matched_name,
+        "status": quest.get("status", "unknown"),
+        "phase": quest.get("phase"),
+        "order": quest.get("order"),
+        "blocked_reason": quest.get("blocked_reason"),
+        "requirements": quest.get("requirements", {}),
+        "unlocks": quest.get("unlocks", {}),
+        "actual_rewards": quest.get("actual_rewards", []),
+        "reward_caveats": quest.get("reward_caveats", []),
+        "known_mismatches": quest.get("known_mismatches", []),
+    }
+    for key in (
+        "npc",
+        "stages",
+        "prereqs",
+        "stage_summary",
+        "walkthrough",
+        "items_needed",
+        "item_sources",
+        "crafting_chain",
+        "boss",
+        "tips",
+    ):
+        if key in quest:
+            ordered[key] = quest[key]
+    if ordered["status"] == "blocked":
+        ordered["skip_recommended"] = True
+    return ordered
 
 
 # ── Observe ───────────────────────────────────────────────────────────────────
@@ -287,7 +443,7 @@ async def observe(ctx: Context) -> str:
 
     result = await page.evaluate("""() => {
         if (typeof window.__extractGameState !== 'function') {
-            return 'ERROR: State extractor not loaded. Call login() first.';
+            return 'ERROR: State extractor not loaded. Session is not ready yet.';
         }
         // Always extract FRESH state — never use stale cache
         const gs = window.__extractGameState();
@@ -297,7 +453,7 @@ async def observe(ctx: Context) -> str:
         // Check freshness — warn if game object seems stale
         const age_ms = gs.timestamp ? (Date.now() / 1000 - gs.timestamp) * 1000 : 0;
         if (gs.error) {
-            return 'ERROR: ' + gs.error + ' (game may not be loaded — try login() again)';
+            return 'ERROR: ' + gs.error + ' (game may not be ready yet — retry observe)';
         }
 
         const asciiText = (am && !am.error) ? (am.ascii + '\\n\\n' + am.legendText) : '';
@@ -496,7 +652,7 @@ async def set_attack_style(ctx: Context, style: str = "hack") -> str:
     """Set combat attack style.
 
     Args:
-        style: 'hack' (strength+defense), 'chop' (strength), or 'defensive' (defense)
+        style: 'hack' (strength+defense), 'chop' (accuracy+defense), or 'defensive' (defense)
     """
     style_ids = {"hack": 6, "chop": 7, "defensive": 3}
     sid = style_ids.get(style.lower(), 6)
@@ -540,7 +696,6 @@ async def navigate(ctx: Context, x: int, y: int) -> str:
     return result
 
 
-@mcp.tool()
 async def move(ctx: Context, x: int, y: int) -> str:
     """Move to a nearby tile (< 15 tiles). For longer distances use navigate().
 
@@ -565,7 +720,13 @@ async def warp(ctx: Context, location: str = "mudwich") -> str:
     """
     log_tool("warp")
     warp_ids = {"mudwich": 0, "aynor": 1, "lakesworld": 2, "patsow": 3, "crullfield": 4, "undersea": 5}
-    warp_id = warp_ids.get(location.lower(), 0)
+    normalized = (location or "").lower()
+    if normalized not in warp_ids:
+        return json.dumps({
+            "error": f"Unknown warp location '{location}'",
+            "allowed": sorted(warp_ids),
+        })
+    warp_id = warp_ids[normalized]
     page = await _page(ctx)
 
     # Clear combat state + zero the cooldown timer so incoming hits don't keep resetting it
@@ -783,7 +944,6 @@ async def interact_npc(ctx: Context, npc_name: str) -> str:
     })
 
 
-@mcp.tool()
 async def talk_npc(ctx: Context, instance_id: str) -> str:
     """Click through ALL remaining NPC dialogue lines until quest panel opens or dialogue ends.
 
@@ -912,7 +1072,6 @@ async def talk_npc(ctx: Context, instance_id: str) -> str:
     })
 
 
-@mcp.tool()
 async def accept_quest(ctx: Context) -> str:
     """Accept the quest shown in the quest panel. Usually not needed — interact_npc auto-accepts."""
     page = await _page(ctx)
@@ -1218,7 +1377,6 @@ async def equip_item(ctx: Context, slot: int) -> str:
 
 # ── Recovery ──────────────────────────────────────────────────────────────────
 
-@mcp.tool()
 async def clear_combat(ctx: Context) -> str:
     """Clear combat state and cooldown timer so you can warp."""
     page = await _page(ctx)
@@ -1238,9 +1396,6 @@ async def stuck_reset(ctx: Context) -> str:
     await page.evaluate("() => window.__stuckReset()")
     return "Stuck state reset"
 
-
-
-@mcp.tool()
 async def click_tile(ctx: Context, x: int, y: int) -> str:
     """Click a specific grid tile (must be on screen). Fallback for edge cases.
 
@@ -1483,43 +1638,181 @@ async def loot(ctx: Context) -> str:
 
 
 @mcp.tool()
+async def craft_item(ctx: Context, skill: str, recipe_key: str, count: int = 1) -> str:
+    """Open the relevant production interface and craft a recipe by key.
+
+    Supports Crafting, Cooking, Smithing, Smelting, Alchemy, Fletching, and
+    Chiseling. Station-based skills auto-walk to the nearest matching station
+    on the current map. Fletching and Chiseling auto-use `knife` / `chisel`
+    from inventory.
+    """
+    page = await _page(ctx)
+    skill_name = _normalize_production_skill(skill)
+    if not skill_name:
+        return json.dumps({
+            "error": f"Unknown production skill '{skill}'",
+            "allowed": sorted(set(_PRODUCTION_SKILL_ALIASES.values())),
+        })
+
+    key = (recipe_key or "").strip().lower()
+    if not key:
+        return json.dumps({"error": "Recipe key is empty"})
+
+    craft_count = max(1, min(int(count or 1), 25))
+    inv_before = await page.evaluate(
+        "() => window.__inventorySnapshot ? window.__inventorySnapshot() : {}"
+    )
+
+    open_result = await page.evaluate(
+        "(skillName) => window.__openProductionInterface(skillName)", skill_name
+    )
+    if isinstance(open_result, str):
+        open_result = json.loads(open_result)
+    if open_result.get("error"):
+        return json.dumps(open_result)
+
+    if open_result.get("needs_move"):
+        adjacent = open_result.get("adjacent") or {}
+        target = open_result.get("target") or {}
+        await page.evaluate(
+            "([x,y]) => window.__navigateTo(x, y)", [adjacent.get("x"), adjacent.get("y")]
+        )
+        arrived = False
+        final_pos = {}
+        for _ in range(15):
+            await page.wait_for_timeout(1000)
+            final_pos = await page.evaluate("""([x,y]) => {
+                const p = window.game && window.game.player;
+                if (!p) return { distance: 999, player_pos: null };
+                return {
+                    distance: Math.abs(p.gridX - x) + Math.abs(p.gridY - y),
+                    player_pos: { x: p.gridX, y: p.gridY }
+                };
+            }""", [adjacent.get("x"), adjacent.get("y")])
+            if final_pos.get("distance", 999) <= 1:
+                arrived = True
+                break
+
+        if not arrived:
+            return json.dumps({
+                "error": f"Could not reach {skill_name} station",
+                "skill": skill_name,
+                "target": target,
+                "adjacent": adjacent,
+                "player": final_pos.get("player_pos"),
+            })
+
+        open_result = await page.evaluate(
+            "(skillName) => window.__openProductionInterface(skillName)", skill_name
+        )
+        if isinstance(open_result, str):
+            open_result = json.loads(open_result)
+        if open_result.get("error"):
+            return json.dumps(open_result)
+
+    crafting_state = {}
+    visible = False
+    for _ in range(10):
+        await page.wait_for_timeout(500)
+        crafting_state = await page.evaluate(
+            "() => window.__getCraftingState ? window.__getCraftingState() : ({ visible: false })"
+        )
+        if (
+            crafting_state.get("visible")
+            and crafting_state.get("skill") == skill_name
+        ):
+            visible = True
+            break
+
+    if not visible:
+        return json.dumps({
+            "error": f"Could not open {skill_name} interface",
+            "skill": skill_name,
+            "open_result": open_result,
+            "state": crafting_state,
+        })
+
+    select_result = await page.evaluate(
+        "(recipe) => window.__selectCraftRecipe(recipe)", key
+    )
+    if isinstance(select_result, str):
+        select_result = json.loads(select_result)
+    if select_result.get("error"):
+        return json.dumps(select_result)
+
+    await page.wait_for_timeout(700)
+    selected_state = await page.evaluate(
+        "() => window.__getCraftingState ? window.__getCraftingState() : ({ visible: false })"
+    )
+    if selected_state.get("selected_key") != key:
+        return json.dumps({
+            "error": f"Recipe '{key}' is not available in the open {skill_name} interface",
+            "skill": skill_name,
+            "selected_state": selected_state,
+        })
+
+    craft_result = await page.evaluate(
+        "([recipe, amount]) => window.__confirmCraftRecipe(recipe, amount)",
+        [key, craft_count],
+    )
+    if isinstance(craft_result, str):
+        craft_result = json.loads(craft_result)
+    if craft_result.get("error"):
+        return json.dumps(craft_result)
+
+    await page.wait_for_timeout(2500)
+    inv_after = await page.evaluate(
+        "() => window.__inventorySnapshot ? window.__inventorySnapshot() : {}"
+    )
+    inventory_delta = {}
+    keys = set(inv_before) | set(inv_after)
+    for item_key in keys:
+        diff = inv_after.get(item_key, 0) - inv_before.get(item_key, 0)
+        if diff != 0:
+            inventory_delta[item_key] = diff
+
+    return json.dumps({
+        "crafted": True,
+        "skill": skill_name,
+        "recipe_key": key,
+        "count": craft_count,
+        "opened_via": open_result.get("via"),
+        "target": open_result.get("target"),
+        "selected_name": selected_state.get("selected_name"),
+        "inventory_delta": inventory_delta,
+    })
+
+
+@mcp.tool()
 async def query_quest(ctx: Context, quest_name: str) -> str:
     """Look up detailed walkthrough for a specific quest.
 
-    Returns step-by-step instructions, item requirements, NPC locations,
-    boss stats, and crafting recipes for the requested quest.
+    Returns quest status, requirements, unlocks, reward caveats, walkthrough,
+    and boss or recipe notes for the requested quest.
 
     Args:
-        quest_name: Quest name (e.g. 'Sorcery', 'Scavenger', 'Coder Glitch', 'Royal Drama')
+        quest_name: Exact or near-exact quest name (e.g. 'Sorcery and Stuff',
+            'Scavenger', 'Royal Drama'). Generic names like 'coder' are
+            intentionally rejected as ambiguous.
     """
-    import os
-    walkthroughs_path = os.path.join(os.path.dirname(__file__), "prompts", "quest_walkthroughs.json")
     try:
-        with open(walkthroughs_path) as f:
-            data = json.load(f)
+        data = _load_quest_walkthroughs()
     except FileNotFoundError:
         return json.dumps({"error": "Quest walkthrough data not found"})
+    except json.JSONDecodeError as exc:
+        return json.dumps({"error": f"Quest walkthrough data is invalid JSON: {exc}"})
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
 
-    # Fuzzy match quest name
-    name_lower = quest_name.lower().strip()
-    best_match = None
-    best_score = 0
-    for key, quest in data.items():
-        key_lower = key.lower()
-        # Exact match
-        if name_lower == key_lower:
-            best_match = quest
-            break
-        # Partial match
-        score = sum(1 for w in name_lower.split() if w in key_lower)
-        if score > best_score:
-            best_score = score
-            best_match = quest
-    if not best_match:
-        available = ", ".join(data.keys())
-        return json.dumps({"error": f"No quest matching '{quest_name}'. Available: {available}"})
+    matched_name, err = _resolve_quest_name(quest_name, data)
+    if err:
+        return json.dumps(err, indent=2)
 
-    return json.dumps(best_match, indent=2)
+    quest = data.get(matched_name)
+    if not isinstance(quest, dict):
+        return json.dumps({"error": f"Quest data for '{matched_name}' is malformed"})
+
+    return json.dumps(_build_quest_query_response(matched_name, quest), indent=2)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

@@ -16,13 +16,14 @@ Status: `GATED` — do not launch `r10` until every item below passes.
 ## Launch Criteria
 - [x] `tests/test_prompt_parity.py` passes.
 - [x] `tests/test_observe_supervision.py` passes.
-- [ ] `tests/test_truncation.py` exists and passes (no record > `MAX_SEQ_LEN`).
-- [ ] `tests/test_think_roundtrip.py` exists and passes (end-to-end tokenizer round-trip preserves `<think>` on every assistant turn, not just Jinja-fragment presence).
+- [x] `tests/test_truncation.py` exists and passes (no record > `MAX_SEQ_LEN`).
+- [x] `tests/test_think_roundtrip.py` exists and passes (end-to-end tokenizer round-trip preserves `<think>` on every assistant turn, not just Jinja-fragment presence).
 - [x] `tests/test_tool_vocab_drift.py` exists and passes (training tools == curated model-visible surface == live MCP export == `prompts/system.md` `<tools>` block).
-- [ ] `tests/test_loop_noise.py` exists and passes (no observe→observe adjacency, no 3+ identical consecutive tool names in any record).
-- [ ] `KAE-42` patches landed on training branch (window_size 5→3, observe→observe bigram filter, observe tool_result caps, pre-tokenize gate).
+- [x] `tests/test_loop_noise.py` exists and passes (no observe→observe adjacency, no 3+ identical consecutive tool names in any record).
+- [x] `KAE-42` patches landed (window_size 5→3, observe→observe bigram filter, observe tool_result caps, stale click_tile filter removed, pre-tokenize gate). See commit `603fc48`.
 - [x] Dead tools (`accept_quest`, `clear_combat`, `talk_npc`) removed from `prompts/system.md` `<tools>` block + `dataset/qwen_sft/metadata.json` tools[].
-- [ ] Decode mode chosen (thinking vs instruct) and applied consistently in `serve_modal.py` and `serve_modal_base.py` per Qwen3.5-9B model card.
+- [x] Decode mode chosen (thinking-general: `temp=1.0, top_p=0.95, top_k=20, presence_penalty=1.5`) and applied consistently in `serve_modal.py` and `serve_modal_base.py` per Qwen3.5-9B model card. See commit `007730a`.
+- [ ] Rebuild SFT dataset with patches applied; verify all six gate tests pass on the rebuilt artifact.
 - [ ] Smoke SFT (`~50` steps, H100, ~$10) shows no tool call repeated `>=5` times consecutively in any eval episode.
 - [ ] Eval matrix (`none`, `aggressive`) on smoke model does not show the r9-class warp/equip/dialogue loop pathology.
 

@@ -65,6 +65,15 @@ MAX_MODEL_LEN = 32768  # A100 40GB fits 9B bf16 (18GB) + 32k KV cache (~12GB)
 GPU_MEMORY_UTILIZATION = 0.92
 DTYPE = "bfloat16"
 
+# Qwen3.5-9B thinking mode general defaults (per official model card)
+# We serve in thinking mode because training data has <think> blocks on every turn.
+# Do NOT enable repetition_penalty / frequency_penalty / DRY — they hurt tool-call JSON.
+QWEN_THINK_TEMP = 1.0
+QWEN_THINK_TOP_P = 0.95
+QWEN_THINK_TOP_K = 20
+QWEN_THINK_PRESENCE_PENALTY = 1.5
+QWEN_DECODE_MODE = "thinking_general"
+
 
 # ---------------------------------------------------------------------------
 # Chat template fix (QwenLM/Qwen3#1831)
@@ -216,6 +225,13 @@ class Inference:
                 "variant": "finetuned",
                 "sft_experiment": SFT_EXPERIMENT,
                 "loaded_model_path": getattr(self, "loaded_model_path", None),
+                "decode_mode": QWEN_DECODE_MODE,
+                "decode_defaults": {
+                    "temperature": QWEN_THINK_TEMP,
+                    "top_p": QWEN_THINK_TOP_P,
+                    "top_k": QWEN_THINK_TOP_K,
+                    "presence_penalty": QWEN_THINK_PRESENCE_PENALTY,
+                },
             }
 
         @web_app.get("/v1/models")
@@ -230,9 +246,12 @@ class Inference:
             body = await request.json()
             messages = body.get("messages", [])
             tools = body.get("tools")
-            temperature = body.get("temperature", 0.7)
+            # Qwen3.5-9B thinking-general defaults per model card; caller may override.
+            temperature = body.get("temperature", QWEN_THINK_TEMP)
             max_tokens = body.get("max_tokens", 512)
-            top_p = body.get("top_p", 0.9)
+            top_p = body.get("top_p", QWEN_THINK_TOP_P)
+            top_k = body.get("top_k", QWEN_THINK_TOP_K)
+            presence_penalty = body.get("presence_penalty", QWEN_THINK_PRESENCE_PENALTY)
 
             prompt = self.tokenizer.apply_chat_template(
                 messages,
@@ -247,6 +266,8 @@ class Inference:
                 sampling_params={
                     "temperature": temperature,
                     "top_p": top_p,
+                    "top_k": top_k,
+                    "presence_penalty": presence_penalty,
                     "max_new_tokens": max_tokens,
                 },
             )

@@ -16,7 +16,7 @@ And two output formats:
 
 Usage:
     python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
-    python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode mixed --window-size 5
+    python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode mixed --window-size 3
     python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_grpo/ --format grpo
 """
 
@@ -927,6 +927,59 @@ def _prefer_real_tool_result(raw: str | None) -> str | None:
     return raw
 
 
+def _cap_observe_entities(result: str) -> str:
+    """Cap nearby_entities noise in an observe tool_result to keep it under the
+    silent-truncation threshold.
+
+    r10 / KAE-42 patch 1: observe tool_results are the dominant contributor to the
+    3.5% of records exceeding MAX_SEQ_LEN=16384. The main culprit is fishspot
+    clusters (type=13) — docks can spawn 88 in a single observe — and off-screen
+    NPC/player entities (type=0/1) that are never actionable at >15 tiles.
+
+    Inner format: `"<inner JSON>\\n\\nASCII_MAP:..."` (post _prefer_real_tool_result
+    unwrap). We parse the JSON, trim `nearby_entities` in-place, and restitch.
+    If parsing fails, return the string unchanged — safer than crashing the build.
+    """
+    if not result or not isinstance(result, str):
+        return result
+    # Split off the ASCII_MAP suffix — it must be preserved verbatim.
+    if "\n\nASCII_MAP:" in result:
+        json_part, _, ascii_part = result.partition("\n\nASCII_MAP:")
+        ascii_suffix = "\n\nASCII_MAP:" + ascii_part
+    else:
+        json_part = result
+        ascii_suffix = ""
+    try:
+        gs = json.loads(json_part)
+    except (json.JSONDecodeError, ValueError):
+        return result
+    if not isinstance(gs, dict):
+        return result
+    ents = gs.get("nearby_entities")
+    if not isinstance(ents, list):
+        return result
+
+    # Cap fishspot (type 13) at 5 and drop off-screen NPCs (type 1) / players
+    # (type 0) > distance 15. Matches spec in KAE-42 patch 1.
+    fish = 0
+    trimmed = []
+    for e in ents:
+        if not isinstance(e, dict):
+            trimmed.append(e)
+            continue
+        if e.get("type") == 13:
+            if fish >= 5:
+                continue
+            fish += 1
+        elif e.get("type") in (0, 1):
+            if not e.get("on_screen") and e.get("distance", 0) > 15:
+                continue
+        trimmed.append(e)
+    gs["nearby_entities"] = trimmed
+    # Re-serialize with the MCP server's compact shape (no indent).
+    return json.dumps(gs, separators=(",", ":")) + ascii_suffix
+
+
 def build_tool_result_message(turn: dict) -> dict:
     """Build a tool result message for the action taken in this turn.
 
@@ -957,6 +1010,11 @@ def build_tool_result_message(turn: dict) -> dict:
         result = real
     else:
         result = synthesize_tool_result(action, turn=turn)
+
+    # r10 / KAE-42 patch 1: cap entity noise on observe results only.
+    if tool_name == "observe":
+        result = _cap_observe_entities(result)
+
     return {"role": "tool", "content": result, "tool_call_id": call_id, "name": tool_name}
 
 
@@ -964,10 +1022,15 @@ def build_multi_turn_records(
     session_turns: list[dict],
     personality: str | None,
     min_score: float,
-    window_size: int = 5,
+    window_size: int = 3,
     stride: int | None = None,
 ) -> list[dict]:
-    """Build sliding-window multi-turn training records from a session's turns."""
+    """Build sliding-window multi-turn training records from a session's turns.
+
+    r10 / KAE-42 patch 3: default window_size reduced 5→3. Shorter windows cut
+    truncation risk (records >16K tokens) and tighten supervision density per
+    record (less filler context per assistant turn).
+    """
     if stride is None:
         stride = max(1, window_size // 2)
 
@@ -991,16 +1054,18 @@ def build_multi_turn_records(
         window = session_turns[start:end]
 
         # Filter out bad turns
-        valid_window = []
-        for i_w, t in enumerate(window):
+        # r10 / KAE-42 patch 5: removed the old "skip click_tile in non-last
+        # positions" filter. Its rationale — only the last turn got <think> —
+        # stopped being true at r9 when reasoning was added to every turn. The
+        # filter was also creating a training bias where click_tile only ever
+        # appeared as the final action of a window, which is not a pattern we
+        # want the model to internalize. The degenerate-record filter below
+        # (click_tile > 50% of actions) still guards against click_tile spam.
+        valid_window: list[dict] = []
+        for t in window:
             if is_desert_quest_waste(t):
                 continue
             if min_score > 0 and score_turn(t) < min_score:
-                continue
-            # Skip click_tile in non-last positions — these teach the model to
-            # click tiles blindly without reasoning (only last turn gets <think>)
-            is_last_in_window = (i_w == len(window) - 1)
-            if t.get("action_type") == "click_tile" and not is_last_in_window:
                 continue
             valid_window.append(t)
 
@@ -1014,6 +1079,14 @@ def build_multi_turn_records(
             if actions[i_a] and actions[i_a] == actions[i_a + 1] == actions[i_a + 2]:
                 is_repetitive = True
                 break
+        # r10 / KAE-42 patch 2: also reject any window with observe→observe —
+        # violates rule #1 in system.md ("don't double-observe"). Data-side
+        # enforcement so the model never sees this pattern during SFT.
+        if not is_repetitive:
+            for i_a in range(len(actions) - 1):
+                if actions[i_a] == "observe" == actions[i_a + 1]:
+                    is_repetitive = True
+                    break
         if is_repetitive:
             continue
 
@@ -1320,8 +1393,8 @@ def main():
     parser.add_argument(
         "--window-size",
         type=int,
-        default=5,
-        help="Turns per multi-turn window (default: 5)",
+        default=3,
+        help="Turns per multi-turn window (default: 3; reduced 5→3 in r10/KAE-42)",
     )
     parser.add_argument(
         "--stride",
@@ -1465,6 +1538,58 @@ def main():
     degenerate_removed = pre_filter - len(filtered_conversations)
     print(f"  Degenerate filter: removed {degenerate_removed} records ({100*degenerate_removed/pre_filter:.1f}%)")
     conversations = filtered_conversations
+
+    # r10 / KAE-42 patch 6: pre-tokenize truncation gate. Reject records that
+    # would silently truncate at MAX_SEQ_LEN=16384 in training. Pre-r10, ~3.5%
+    # of records exceeded this; the truncation was silent because TRL/Unsloth
+    # drop tokens past max_seq_length without raising. Gating at convert time
+    # guarantees zero silent truncation downstream. Leaves a 256-token safety
+    # margin for the assistant generation prefix.
+    MAX_SEQ_LEN = 16384
+    GATE = MAX_SEQ_LEN - 256
+    pre_trunc = len(conversations)
+    try:
+        from transformers import AutoTokenizer
+        # Qwen3.5-9B — match training tokenizer exactly.
+        tok = AutoTokenizer.from_pretrained("Qwen/Qwen3.5-9B")
+    except Exception as e:
+        print(f"  [trunc-gate] Skipping pre-tokenize gate — tokenizer load failed: {e}")
+        tok = None
+
+    n_truncation_rejects = 0
+    if tok is not None:
+        kept = []
+        for c in conversations:
+            # Resolve system prompt identically to how train_modal does it:
+            # SYSTEM_PROMPT with __PERSONALITY_BLOCK__ → full personality .md text.
+            personality = c.get("personality") or ""
+            personality_block = PERSONALITY_SUFFIXES.get(personality, "")
+            sys_prompt = SYSTEM_PROMPT.replace("__PERSONALITY_BLOCK__", personality_block)
+            full_messages = [{"role": "system", "content": sys_prompt}] + c["messages"]
+            try:
+                tok_ids = tok.apply_chat_template(
+                    full_messages,
+                    tools=TOOL_DEFINITIONS,
+                    tokenize=True,
+                    add_generation_prompt=False,
+                )
+            except Exception:
+                # If template rendering fails for a record, conservatively keep it
+                # rather than silently dropping (the real training pipeline will
+                # surface the error).
+                kept.append(c)
+                continue
+            if len(tok_ids) > GATE:
+                n_truncation_rejects += 1
+                continue
+            kept.append(c)
+        conversations = kept
+        pct = (100 * n_truncation_rejects / pre_trunc) if pre_trunc else 0.0
+        print(f"  Truncation gate: rejected {n_truncation_rejects}/{pre_trunc} records ({pct:.2f}%) >{GATE} tokens")
+
+    if not conversations:
+        print("No valid conversations after truncation gate.", file=sys.stderr)
+        sys.exit(1)
 
     # Stratified split by session, with fallback to record-level split
     sessions = sorted(set(c["_session"] for c in conversations))

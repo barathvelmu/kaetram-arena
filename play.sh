@@ -145,11 +145,11 @@ ${GAME_STATE}
 Use nearest_mob.click_x/click_y to click on targets. Use player_position for spatial awareness."
   fi
 
-  PROMPT="IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. Your ONLY job is to play the game via the MCP tools. Start IMMEDIATELY by calling login.
+  PROMPT="IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. Your ONLY job is to play the game via the MCP tools. The MCP server auto-connects to the game. Start IMMEDIATELY by calling observe.
 
 Session #${SESSION}. Your previous progress: ${PROGRESS}
 ${GAME_STATE_BLOCK}
-Follow your system instructions exactly. Call login, then observe, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore."
+Follow your system instructions exactly. Call observe, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore."
 
   # Codex exec is one-shot — needs explicit instruction to keep looping
   if [ "$HARNESS" = "codex" ]; then

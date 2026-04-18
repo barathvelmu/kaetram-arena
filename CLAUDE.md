@@ -285,32 +285,26 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode multi --format grpo
 ```
 
-**Action vocabulary** (used in `<action>` tags — these mirror the 22 MCP tool names in `mcp_game_server.py`, not a separate namespace):
+**Action vocabulary** (used in `<action>` tags — these mirror the curated model-visible tool surface, not every legacy fallback still present in the MCP server):
 
 Core loop:
-- `login()` — call first each session
 - `observe()` — game state JSON + ASCII map + stuck check
 
 Combat:
 - `attack(mob_name)` — target and attack nearest alive mob by name
 - `set_attack_style(style)` — "hack", "chop", "defensive", "stab", "slash"
-- `clear_combat()` — clear combat state + cooldown so `warp` works
 - `respawn()` — respawn after death, clears state + warps to Mudwich
 - `eat_food(slot)` — consume edible item
 - `loot()` — pick up ground items + lootbags after combat
 
 Movement:
 - `navigate(x, y)` — BFS pathfinding (max ~100 tiles — warp for longer)
-- `move(x, y)` — short-distance (<15 tiles)
 - `warp(location)` — fast travel ("mudwich", "aynor", "lakesworld", "crullfield", "patsow", "undersea")
 - `cancel_nav()` — cancel active navigation
 - `stuck_reset()` — reset stuck detection
-- `click_tile(x, y)` — click grid tile (on-screen fallback)
 
 Quest / NPC:
 - `interact_npc(npc_name)` — walk to NPC, talk through all dialogue, auto-accept quest
-- `talk_npc(instance_id)` — continue talking to adjacent NPC (by entity instance id)
-- `accept_quest()` — explicit quest-accept click (usually not needed — `interact_npc` auto-accepts)
 - `query_quest(quest_name)` — look up detailed walkthrough from `game_knowledge.md`
 
 Inventory / economy:
@@ -318,10 +312,11 @@ Inventory / economy:
 - `equip_item(slot)` — equip item from inventory slot
 - `drop_item(slot)` — drop item to free space
 - `gather(resource_name)` — gather from tree/rock/bush/fish spot
+- `craft_item(skill, recipe_key, count)` — open the right production interface and craft/cook/smelt/fletch/brew
 
-Note: `extract_turns.py` historically normalized some of these to legacy names (`click_entity`, `heal`, `quest_accept`, `set_style`, `wait`). Those are extract-time aliases — the underlying agent only ever calls the 22 MCP tools above. `accept_quest` appears rarely in the current dataset because `interact_npc` auto-accepts most quests.
+Note: `extract_turns.py` still normalizes historical logs containing legacy actions (`move`, `talk_npc`, `accept_quest`, `clear_combat`, `click_tile`, plus aliases like `heal` and `set_style`). Those old tools remain parseable in data, but they are no longer part of the preferred model-visible action surface.
 
-**Verified on current data (r10, 2026-04-17):** 729 raw session logs across agents 0-2 → 732 turns.jsonl files → **12,900 train / 1,470 val** Qwen3.5 SFT records. Tool-call distribution: observe 57.1%, navigate 12.4%, attack 9.4%, interact_npc 4.5%, warp 3.6%, cancel_nav 3.5%. Observe is now first-class (r9 had 0; see CURRENT STATUS).
+**Verified on current data (r10, 2026-04-18):** 636 raw Claude session logs across agents 0-2 (216 + 213 + 207) → **12,900 train / 1,470 val** Qwen3.5 SFT records. Tool-call distribution: observe 57.1%, navigate 12.4%, attack 9.4%, interact_npc 4.5%, warp 3.6%, cancel_nav 3.5%. Observe is now first-class (r9 had 0; see CURRENT STATUS).
 
 **Prior data point (r7, 2026-04-09):** 6,423 train / 646 val, 21,976 tool calls, no observe supervision. r10 has 47,267 tool calls on the same raw logs — the observe-as-turn fix more than doubles effective supervision density.
 
@@ -424,7 +419,7 @@ Rate limit / budget:
 
 | File | Purpose |
 |------|---------|
-| `mcp_game_server.py` | **Custom MCP server** — FastMCP Python, 22 typed game tools, manages Playwright browser. Agent calls these instead of writing JS. Tools: `login`, `observe`, `attack`, `set_attack_style`, `navigate`, `move`, `warp`, `cancel_nav`, `interact_npc`, `talk_npc`, `accept_quest`, `buy_item`, `eat_food`, `drop_item`, `equip_item`, `clear_combat`, `stuck_reset`, `click_tile`, `respawn`, `gather`, `loot`, `query_quest`. |
+| `mcp_game_server.py` | **Custom MCP server** — FastMCP Python, 17 exported tools, manages Playwright browser. The exported tool set now matches the curated model-visible surface so deprecated wrappers do not crowd out core actions. |
 | `.mcp.json` | MCP config **template** — placeholders resolved at launch. Claude uses `--mcp-config` + `--strict-mcp-config`. |
 | `play.sh` | Single-agent loop (resolves `.mcp.json` template via sed) |
 | `cli_adapter.py` | **Harness abstraction** — ClaudeAdapter, CodexAdapter, GeminiAdapter (+ Kimi, Qwen WIP). Each resolves MCP config per-sandbox. |
@@ -513,7 +508,7 @@ When editing `prompts/system.md`, `prompts/game_knowledge.md`, or `prompts/perso
 - **Reference data at top, instructions at end**. "Lost in the middle" effect: middle 40-60% of context is systematically ignored (Stanford NLP). Put game_knowledge above decision tree.
 - **Personality = priority modifiers only**. Don't add new rules — modify ordering/thresholds of existing decision tree. Keep under 10 lines each. (ACL 2025: personality via explicit behavioral instructions works; instruction dilution from rule proliferation doesn't.)
 - **One tool per turn is correct** for game agents. Validated by ReAct (Yao et al.), GamingAgent (ICLR 2026), Claude Code architecture.
-- **22 tools sits inside RAG-MCP's comfort zone.** Paper (arXiv 2505.03275) shows graceful degradation past ~30 tools and sharp drop past ~100 — we are well below both. Still prefer merging related tools over adding new ones (context budget, prompt drift), and context-dependent tool filtering (KAE-15) remains scoped for the student model.
+- **The curated tool surface should stay in the high teens, not the low 20s.** Paper (arXiv 2505.03275) shows graceful degradation past ~30 tools and sharp drop past ~100, but local Kaetram results also show unnecessary wrappers wasting prompt budget. Merge overlapping actions before adding new ones, and keep the model-visible subset tighter than the raw MCP export list.
 
 ## MCP server internals
 

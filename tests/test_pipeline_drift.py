@@ -47,6 +47,7 @@ from convert_to_qwen import (  # noqa: E402
 
 
 NEW_TOOLS = ("gather", "loot", "buy_item", "drop_item", "clear_combat", "query_quest")
+CURATED_VISIBLE_TOOLS = ("gather", "loot", "buy_item", "drop_item", "query_quest", "craft_item")
 
 
 # ---------------------------------------------------------------------------
@@ -512,13 +513,13 @@ def test_no_phantom_quest_action_reference():
 
 
 # ---------------------------------------------------------------------------
-# Bonus: TOOL_DEFINITIONS in convert_to_qwen.py covers the 6 new tools
+# Bonus: TOOL_DEFINITIONS in convert_to_qwen.py covers the curated visible tools
 # ---------------------------------------------------------------------------
 
 
 def test_tool_definitions_include_new_tools():
     names = {td["function"]["name"] for td in TOOL_DEFINITIONS}
-    for tool in NEW_TOOLS:
+    for tool in CURATED_VISIBLE_TOOLS:
         assert tool in names, (
             f"convert_to_qwen.TOOL_DEFINITIONS should include {tool!r}, got {sorted(names)}"
         )

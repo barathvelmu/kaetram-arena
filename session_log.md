@@ -13,7 +13,7 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 **Fixes landed (A+X+P path per plan):** extract_turns.py emits observe as first-class turn; convert_to_qwen.py maps observe→tool_call, drops `<game_state>` injection, loads full .md personality files; train_modal.py + train_kto_modal.py substitute at `__PERSONALITY_BLOCK__` placeholder (byte-parity with eval_harness); score_sessions.py filters observe from KTO scoring; 23 new regression tests (`tests/test_prompt_parity.py`, `tests/test_observe_supervision.py`, additions to `tests/test_dataset_filters.py`).
 
-**Dataset regenerated.** 17,002 train / 1,929 val (vs 5,871/575 in r9 — +189%). Observe: 35,680 calls (57.2% of 62,359 total). Token budget: 6.9% of records over MAX_SEQ_LEN=16384 — actually slightly better than r9's ~9% because dropped `<game_state>` per-user offsets added observe tool_results. 64/64 tests pass.
+**Dataset regenerated.** 12,900 train / 1,470 val (vs 5,871/575 in r9 — +120%). Observe: 26,995 calls (57.1% of 47,267 total). Token budget: 6.9% of records over MAX_SEQ_LEN=16384 — actually slightly better than r9's ~9% because dropped `<game_state>` per-user offsets added observe tool_results. 64/64 tests pass.
 
 **Open question:** window size 5→3 to reduce truncation further. User said hold; discuss first. Launch r10 after that call.
 

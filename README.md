@@ -27,7 +27,7 @@ An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-O
 ```
 play.sh ──────────► Claude/Codex/Gemini CLI ──► mcp_game_server.py (FastMCP) ──► Playwright ──► browser
                           │                        │                              │
-                    reads system.md +         22 typed tools                 page.evaluate()
+                    reads system.md +         17 typed tools                 page.evaluate()
                     game_knowledge.md         (observe, attack,              calls state_extractor.js
                           │                   navigate, warp...)              helpers internally
                           │                        │
@@ -36,7 +36,7 @@ play.sh ──────────► Claude/Codex/Gemini CLI ──► mcp_
                      dashboard (port 8080) ◄─── MongoDB (kaetram_devlopment, port 27017)
 ```
 
-**`mcp_game_server.py`** — custom FastMCP server exposing 22 typed game tools. Manages Playwright browser internally. Agents call structured tools — never write JavaScript.
+**`mcp_game_server.py`** — custom FastMCP server exposing 17 typed game tools (curated model-visible surface). Manages Playwright browser internally. Agents call structured tools — never write JavaScript.
 
 **`state_extractor.js`** — injected into browser via `context.add_init_script()`. Exposes `window.__extractGameState()`, `window.__attackMob()`, `window.__navigateTo()`, etc. Called by MCP server internally, never by the agent.
 
@@ -178,7 +178,7 @@ python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 
 ```
 kaetram-agent/
-├── mcp_game_server.py       # Custom FastMCP server — 22 typed game tools via Playwright
+├── mcp_game_server.py       # Custom FastMCP server — 17 typed game tools via Playwright
 ├── cli_adapter.py           # Harness abstraction (Claude, Codex, Gemini = production; Kimi, Qwen = WIP)
 ├── play.sh                  # Claude Code agent loop (resolves .mcp.json template)
 ├── play_qwen.py             # Qwen agent loop — lightweight 2-tool harness
@@ -315,7 +315,7 @@ Unlike prior work where LLMs serve as decision advisors for human players ([Thin
 
 ### What's novel
 
-**1. Shared typed MCP tool vocabulary** — Teacher (Claude) and student (Qwen3.5-9B) call the same 22 typed tools (`attack("goblin")`, `navigate(188, 157)`, `interact_npc("Blacksmith")`). This eliminates action space mismatch between teacher and student at training time — a structural problem in prior game-agent distillation where teachers write raw code or click pixels the student can't reliably reproduce.
+**1. Shared typed MCP tool vocabulary** — Teacher (Claude) and student (Qwen3.5-9B) call the same 17 typed tools (`attack("goblin")`, `navigate(188, 157)`, `interact_npc("Blacksmith")`). This eliminates action space mismatch between teacher and student at training time — a structural problem in prior game-agent distillation where teachers write raw code or click pixels the student can't reliably reproduce.
 
 **2. Personality-diverse teacher data** — 3 Claude agents with orthogonal playstyles (AGGRESSIVE, METHODICAL, CURIOUS) produce structurally different decision distributions at overlapping game states. The student learns a richer action distribution than any single teacher policy provides.
 

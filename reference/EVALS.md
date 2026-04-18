@@ -3,7 +3,7 @@
 **Compiled:** April 13, 2026
 **Sources:** ICLR 2025-2026, NeurIPS 2024-2025, ACL 2025, arXiv, Berkeley BFCL, Anthropic, OpenAI, DeepEval, Reddit (r/LocalLLaMA, r/MachineLearning), practitioner guides
 **Scope:** Evaluating finetuned vs base LLM game agents, MCP tool-use evaluation, MMORPG agent benchmarks, statistical methodology for agent comparison
-**Application:** Qwen 3.5 9B base vs r8-SFT on Kaetram (2D MMORPG, 22 MCP tools)
+**Application:** Qwen 3.5 9B base vs r8-SFT on Kaetram (2D MMORPG, 17 MCP tools as of 2026-04-18; historically 22 during r7-r8 data collection)
 
 ---
 
@@ -115,7 +115,7 @@ Purpose-built for evaluating MCP tool-calling agents. Four metrics:
 4. **Computational Resource Efficiency** — Tokens consumed relative to task complexity.
 5. **Response Time Efficiency** — Latency per tool call.
 
-**Why this matters for us:** Dynamic Tool Selection Rate is critical for 22-tool evaluation. With 22 tools (above the RAG-MCP 19-tool degradation threshold), tool selection confusion is a real risk. We should measure whether SFT improves tool selection accuracy.
+**Why this matters for us:** Dynamic Tool Selection Rate is worth tracking even with the tightened 17-tool surface (down from 22 as of 2026-04-18). We sit below the RAG-MCP ~19-tool degradation threshold now, which should reduce raw tool-selection confusion, but whether SFT still improves tool-selection accuracy over the base model remains the core question.
 
 ### BFCL V4 (Berkeley Function Calling Leaderboard)
 
@@ -224,7 +224,7 @@ These explain WHY Tier 1 metrics differ between models.
 
 | Metric | Formula | What It Reveals |
 |--------|---------|-----------------|
-| **Action Distribution Entropy** | `-sum(p_i * log(p_i))` over 22 tools | Higher = more diverse tool use. Base model may spam one tool. |
+| **Action Distribution Entropy** | `-sum(p_i * log(p_i))` over 17 tools | Higher = more diverse tool use. Base model may spam one tool. |
 | **Navigation Efficiency** | `1 - (stuck_reset + cancel_nav) / total_nav_actions` | Does the model navigate effectively? |
 | **Combat Win Rate** | `kills / attack_attempts` | Does the model fight effectively? |
 | **HP Management** | `eat_food_calls_below_50pct_hp / eat_food_calls_total` | Does the model eat food at appropriate times? |
@@ -255,7 +255,7 @@ These explain WHY Tier 1 metrics differ between models.
 3. (Future: **r8-SFT + KTO** — after KTO training completes)
 
 **Controlled variables:**
-- Same MCP server (`mcp_game_server.py`) with identical 22 tools
+- Same MCP server (`mcp_game_server.py`) with identical 17 tools
 - Same system prompt (resolved from `prompts/system.md`)
 - Same game server (Kaetram-Open, same version)
 - Same harness (`play_qwen.py`) with identical parameters
@@ -297,7 +297,7 @@ Run after offline eval confirms the finetuned model is functional.
 | r8-SFT vs r8-SFT+KTO | SFT only vs SFT+preference learning | KTO value-add |
 | 1 personality vs 3 personalities | Train on AGGRESSIVE-only, eval same protocol | Diversity value |
 | Loss-masked (r8) vs unmasked (r7) | Same data, different loss masking | Masking value |
-| 22 tools vs filtered tools | Full toolset vs scenario-specific subset | Tool count impact |
+| 17 tools vs filtered tools | Full toolset vs scenario-specific subset | Tool count impact |
 
 ---
 
@@ -557,7 +557,7 @@ The first few turns of every episode are login + initial observation. These are 
 
 ### Practical Guides
 
-18. **RAG-MCP: Tool Count Degradation** — arXiv 2505.03275. Performance degrades beyond ~19 tools. Relevant: we have 22 tools.
+18. **RAG-MCP: Tool Count Degradation** — arXiv 2505.03275. Performance degrades beyond ~19 tools. Relevant: we have 17 tools as of 2026-04-18 (down from 22), now just below the threshold.
 
 19. **r/LocalLLaMA discussions on finetuned model evaluation** — Consensus: always compare to base model, use held-out test sets, report confidence intervals, test for catastrophic forgetting.
 

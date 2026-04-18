@@ -861,6 +861,14 @@ def build_assistant_message(turn: dict, include_thinking: bool = True) -> dict:
     """Build assistant message dict with native MCP tool_calls.
 
     Returns a full message dict with typed tool calls matching MCP server tools.
+
+    r10 note: reasoning stays inline in `content` as `<think>...</think>`. The
+    runtime chat-template patch in `finetune/train_modal.py:_patch_qwen_chat_template`
+    extracts it from content into `reasoning_content` and emits `<think>` on
+    every assistant turn (bypassing the stock Qwen3 `last_query_index` gate
+    that would otherwise strip intermediate turns — QwenLM/Qwen3 #1831).
+    `tests/test_think_roundtrip.py` applies the same patch and asserts the
+    end-to-end round-trip works.
     """
     reasoning = turn.get("reasoning", "").strip()
     action = turn.get("action_structured", "")

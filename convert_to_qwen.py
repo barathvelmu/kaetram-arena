@@ -1599,6 +1599,37 @@ def main():
         print("No valid conversations after truncation gate.", file=sys.stderr)
         sys.exit(1)
 
+    # Post-build observe->observe safety net. The window-level filter in
+    # build_multi_turn_records catches observe->observe within the action
+    # sequence, but sub-session boundaries occasionally produce records where
+    # two adjacent assistant turns each emit observe tool_calls despite not
+    # being consecutive in the original action list. Drop those records.
+    pre_obs_dedup = len(conversations)
+    cleaned = []
+    for c in conversations:
+        tool_seq = []
+        for m in c.get("messages", []):
+            if m.get("role") != "assistant":
+                continue
+            for tc in m.get("tool_calls", []) or []:
+                fn = tc.get("function", {}) or {}
+                name = fn.get("name") or tc.get("name")
+                tool_seq.append(name)
+        has_observe_pair = any(
+            a == "observe" == b for a, b in zip(tool_seq, tool_seq[1:])
+        )
+        if not has_observe_pair:
+            cleaned.append(c)
+    n_obs_drops = pre_obs_dedup - len(cleaned)
+    if n_obs_drops:
+        pct = 100 * n_obs_drops / pre_obs_dedup
+        print(f"  Observe-pair dedup: dropped {n_obs_drops}/{pre_obs_dedup} records ({pct:.3f}%)")
+    conversations = cleaned
+
+    if not conversations:
+        print("No valid conversations after observe-pair dedup.", file=sys.stderr)
+        sys.exit(1)
+
     # Stratified split by session, with fallback to record-level split
     sessions = sorted(set(c["_session"] for c in conversations))
     random.seed(args.seed)

@@ -29,11 +29,9 @@
     ],
     "reward_caveats": [
       "Current tree force-finishes unfinished tutorial state on quest load.",
-      "Skipping tutorial no longer misses the starter kit."
+      "Skipping tutorial no longer misses the starter kit (bronzeaxe, knife, fishingpole, coppersword, woodenbow)."
     ],
-    "known_mismatches": [
-      "Guard dialogue says both 3 rats and 5 rats; the real requirement is 3."
-    ],
+    "known_mismatches": [],
     "blocked_reason": null,
     "stage_summary": [
       "Treat the tutorial as already finished on this tree.",
@@ -139,12 +137,9 @@
       "bronzeboots"
     ],
     "reward_caveats": [
-      "Live talk-stage reward path grants bronzeboots only.",
-      "Does not unlock Smithing on this tree."
+      "Live reward is `smithingboots` (L10 boots) plus 420 Smithing XP. Popup text and reward now aligned."
     ],
-    "known_mismatches": [
-      "Popup and top-level reward text still mention Smithing XP and gloves."
-    ],
+    "known_mismatches": [],
     "blocked_reason": null,
     "stage_summary": [
       "Talk to Blacksmith.",
@@ -194,7 +189,7 @@
   },
   "Royal Pet": {
     "name": "Royal Pet",
-    "status": "working_reward_broken",
+    "status": "working",
     "phase": 1,
     "order": 6,
     "npc": "King (`king`), Shepherd Boy, Flaris (`redbikinigirlnpc`), Fisherman",
@@ -215,8 +210,7 @@
     },
     "actual_rewards": [],
     "reward_caveats": [
-      "Quest progression works, but the final reward key `catpet` does not exist.",
-      "Completion credit still counts."
+      "Reward item `catpet` now exists and materializes."
     ],
     "known_mismatches": [],
     "blocked_reason": null,
@@ -231,7 +225,7 @@
   },
   "Sorcery and Stuff": {
     "name": "Sorcery and Stuff",
-    "status": "working_reward_broken",
+    "status": "working",
     "phase": 1,
     "order": 7,
     "npc": "Sorcerer via door at (194,218)",
@@ -252,11 +246,9 @@
     },
     "actual_rewards": [],
     "reward_caveats": [
-      "Quest finishes, but reward item key `staff` does not exist."
+      "Reward item `staff` now exists and materializes in inventory."
     ],
-    "known_mismatches": [
-      "Do not rely on stale Hermit Crab Warrior routing; farm live mobs on the `unusual` drop table for beads."
-    ],
+    "known_mismatches": [],
     "blocked_reason": null,
     "stage_summary": [
       "Talk to Sorcerer.",
@@ -266,7 +258,7 @@
     "walkthrough": "Talk to the Sorcerer, collect 3 beads, then return. The safest current-tree route is farming live `unusual`-table mobs rather than relying on stale crab-cave waypoint lore.",
     "items_needed": "3 bead",
     "item_sources": {
-      "Bead": "Farm live mobs on the `unusual` drop table (goblins, ogres, skeleton2, spectres, eyes, dark wizards, death knights)."
+      "Bead": "Farm the Hermit Crab Warrior miniboss at (320, 455) \u2014 guaranteed `bead` drop via warriorcrab drop table. Respawn 35s. Fall back to unusual-table mobs only if the crab is unavailable."
     },
     "tips": "Treat this as a normal completable quest with a broken final item reward."
   },
@@ -572,7 +564,8 @@
       "1500 Foraging XP"
     ],
     "reward_caveats": [
-      "Header text says Mystical Potion, but the actual reward is hotsauce plus XP."
+      "Header text says \"Mystical Potion\", but the actual reward is hotsauce plus 1500 Foraging XP.",
+      "Popup spacing typo (\"Foragingexperience\") now fixed to \"Foraging experience\"."
     ],
     "known_mismatches": [],
     "blocked_reason": null,
@@ -626,8 +619,8 @@
     "items_needed": "2 tomato, 2 strawberry, 1 string",
     "item_sources": {
       "Tomato": "Forage at Foraging 15, buy from ingredients store, or get vegetable-table drops.",
-      "Strawberry": "Fruit-table drop from goblins, ogres, ants, and bosses.",
-      "String": "Craft from bluelily at Crafting 1 or get ordinary-table drops."
+      "Strawberry": "Fruit-table drop from goblins, ogres, ants, hobgoblins \u2014 now ~10% per kill after drop-rate patch (was 0.8%). Plan ~20 goblin kills for 2 strawberries.",
+      "String": "Craft from bluelily at Crafting 1 (requires Arts and Crafts started) or get ordinary-table drops."
     },
     "tips": "The ingredient turn-in is simple, but sourcing the items can take time if you have low Foraging."
   },
@@ -658,8 +651,8 @@
       "7500 gold"
     ],
     "reward_caveats": [
-      "Opening dialogue implies clam combat, but the real item is fished `clamobject`.",
-      "The quest file's top-level reward field is malformed; trust the final payout, not the header."
+      "Stage 0 dialogue now correctly says \"fish some clams\" (was \"defeat clams\"). Live mechanic is fishing clamspot nodes.",
+      "Quest file top-level reward field is still malformed; trust final stage reward."
     ],
     "known_mismatches": [],
     "blocked_reason": null,
@@ -728,7 +721,7 @@
   },
   "Evil Santa": {
     "name": "Evil Santa",
-    "status": "blocked",
+    "status": "working",
     "phase": null,
     "order": 18,
     "npc": "Snow Shepherd Boy (`snowshepherdboy`)",
@@ -748,20 +741,29 @@
       ]
     },
     "actual_rewards": [],
-    "reward_caveats": [],
-    "known_mismatches": [],
-    "blocked_reason": "Stage 1 is a door task, but current processed map data has no stage-1 `evilsanta` quest door. A later `candykey` gate is also unsupported on this tree.",
-    "stage_summary": [
-      "Intended flow: talk to Snow Shepherd Boy, clear a door stage, talk again, kill Santa, return.",
-      "Current tree blocks the route before the quest can reach the Santa fight."
+    "reward_caveats": [
+      "Stage 1 door placed at (525, 340-345) based on existing evilsanta dynamic area; playtest-verify that the door fires before relying on it.",
+      "`candykey` now drops from `santaelf` at 1.5% \u2014 farm those mobs to get past the stage 3 door."
     ],
-    "walkthrough": "Skip this quest on the current tree. The first required quest door is missing, so the route cannot advance cleanly.",
+    "known_mismatches": [],
+    "blocked_reason": null,
+    "stage_summary": [
+      "Talk to `snowshepherdboy` near (520, 336).",
+      "Walk through the stage 1 quest door at (525, 340) \u2014 verify it fires.",
+      "Talk to `santaelfnpc` at (749, 597).",
+      "Farm `santaelf` mobs for `candykey` (~1.5% drop, thematic mob).",
+      "Enter stage 3 door at (748, 607) using candykey.",
+      "Continue through door at (966, 746).",
+      "Kill `santa` (L240, 7500 HP boss at 976, 757).",
+      "Return to `snowshepherdboy` for completion."
+    ],
+    "walkthrough": "Full chain now playable after recent patches. Go to snowshepherdboy, use the stage 1 door near (525, 340), reach santaelfnpc in the sweatshop, farm santaelf for candykey, then push through to Santa. Note the stage 1 door placement is reasoned-but-unverified.",
     "items_needed": "Unavailable on this tree",
     "tips": "Do not spend time pathing this; it is source-blocked."
   },
   "The Coder's Glitch": {
     "name": "The Coder's Glitch",
-    "status": "blocked",
+    "status": "working",
     "phase": null,
     "order": 19,
     "npc": "Coder (`coder`)",
@@ -787,12 +789,16 @@
       "on_finish": []
     },
     "actual_rewards": [],
-    "reward_caveats": [],
+    "reward_caveats": [
+      "Stage 0 `noc` typo fixed; talking to the Coder now binds stage 0 correctly.",
+      "`skeletonkingtalisman` item now exists as a quest token."
+    ],
     "known_mismatches": [],
-    "blocked_reason": "Stage 0 uses `noc` instead of `npc`, and the required `skeletonkingtalisman` item is missing as a live item definition.",
+    "blocked_reason": null,
     "stage_summary": [
-      "Intended flow: talk to Coder, kill Skeleton King, return with talisman.",
-      "Current tree blocks both the talk progression and the talisman turn-in."
+      "Talk to the Coder (Programmer NPC).",
+      "Kill the Skeleton King (L32, 1850 HP boss) \u2014 drops `skeletonkingtalisman`.",
+      "Return to the Coder with the talisman."
     ],
     "walkthrough": "Skip this quest. Even though later stages describe a Skeleton King kill, the current tree cannot cleanly start or complete the quest.",
     "items_needed": "1 skeletonkingtalisman (missing on this tree)",
@@ -805,7 +811,7 @@
   },
   "The Coder's Glitch II": {
     "name": "The Coder's Glitch II",
-    "status": "blocked",
+    "status": "working",
     "phase": null,
     "order": 20,
     "npc": "Coder (`coder`)",
@@ -831,12 +837,18 @@
       "on_finish": []
     },
     "actual_rewards": [],
-    "reward_caveats": [],
+    "reward_caveats": [
+      "Three talisman items now exist as quest tokens.",
+      "Prerequisite (The Coder's Glitch) is now unblocked."
+    ],
     "known_mismatches": [],
-    "blocked_reason": "Required items `ogrelordtalisman`, `queenanttalisman`, and `forestdragontalisman` do not exist as live items or boss drops, and the prerequisite quest line is already blocked.",
+    "blocked_reason": null,
     "stage_summary": [
-      "Intended flow: kill Ogre Lord, Queen Ant, and Forest Dragon in order, then return talismans.",
-      "Current tree has no valid talisman turn-in path."
+      "Talk to the Coder after completing The Coder's Glitch.",
+      "Kill the Ogre Lord (L44, 2850 HP) \u2014 drops `ogrelordtalisman`.",
+      "Kill the Queen Ant (L94, 4200 HP) \u2014 drops `queenanttalisman`.",
+      "Kill the Forest Dragon (L258, 6942 HP) \u2014 drops `forestdragontalisman`.",
+      "Return all three talismans to the Coder."
     ],
     "walkthrough": "Skip this quest. The boss gauntlet is described in quest data, but the required talismans are not live items on this tree.",
     "items_needed": "ogrelordtalisman, queenanttalisman, forestdragontalisman (all missing)",
@@ -844,7 +856,7 @@
   },
   "Coder's Fallacy": {
     "name": "Coder's Fallacy",
-    "status": "blocked",
+    "status": "working",
     "phase": null,
     "order": 21,
     "npc": "Villager 4",
@@ -870,10 +882,12 @@
     },
     "actual_rewards": [],
     "reward_caveats": [
-      "Header text promises a key, but the quest body grants nothing."
+      "Prerequisite chain (Coder's Glitch II + Anvil's Echoes + Scientist's Potion) is now reachable.",
+      "Requires Alchemy 35 + Smithing 45.",
+      "Single-talk stage; reward is flavor-only (\"Key to a secret room\") with no itemReward."
     ],
     "known_mismatches": [],
-    "blocked_reason": "This is unreachable because it requires The Coder's Glitch II, which is already blocked on the current tree.",
+    "blocked_reason": null,
     "stage_summary": [
       "Intended flow is only a single talk stage.",
       "The blocked prerequisite chain makes the quest unreachable."

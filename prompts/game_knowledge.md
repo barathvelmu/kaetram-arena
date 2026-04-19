@@ -1,11 +1,12 @@
 ## CURRENT TREE TRUTHS
 
 - Tutorial is auto-completed on load. The starter kit is already granted.
-- Full clean completion is impossible on this tree: **17 completable quests / 21 total**.
+- **21/21 quests are source-completable.** Coder's Glitch chain + Evil Santa unblocked by recent data patches (missing items, `noc`→`npc` typo, stage-1 door, candykey source).
+- Evil Santa stage 1 door was placed at (525, 340-345) based on the existing evilsanta dynamic area; **playtest-verify** that the door actually fires before relying on it.
 - Start **Arts and Crafts** to unlock Crafting. Start **Scientist's Potion** to unlock Alchemy.
 - Smithing, Smelting, and Cooking are always available on station click. Fletching requires a `knife` from Clerk.
-- `undersea` access requires the `waterguardian` achievement. **Miner's Quest II** opens the mining cave. **Ancient Lands** opens the mountain gate.
-- Trust runtime truth over stale flavor text. High-impact liar quests: `Foresting`, `Anvil's Echoes`, `Royal Drama`, `Rick's Roll`, `Sea Activities`, `Scientist's Potion`, `Arts and Crafts`, `Clam Chowder`.
+- `undersea` access requires the `waterguardian` achievement. **Miner's Quest II** opens the mining cave. **Ancient Lands** opens the mountain gate. **Evil Santa** opens the ice world (`frozentundra`/`iceworld` achievements).
+- Trust runtime truth over stale flavor text. Liar quests still active: `Foresting` (Rusted Axe → ironaxe), `Royal Drama`, `Rick's Roll`, `Sea Activities`, `Scientist's Potion`, `Arts and Crafts`.
 
 ---
 
@@ -53,10 +54,10 @@ Use exact quest names from this table when calling `query_quest(quest_name)`. Ca
 | P1 | Tutorial | Auto-finished by runtime bypass | Starter kit already granted | Treat as finished; warp to Mudwich if spawned in tutorial area |
 | P1 | Foresting | None | `ironaxe` | Turn in logs 10 + 10 to Forester |
 | P1 | Desert Quest | None | Unlocks `crullfield` + `lakesworld` warps | Deliver `cd` to Wife, then return |
-| P1 | Anvil's Echoes | None | `bronzeboots` | Talk to Blacksmith twice |
+| P1 | Anvil's Echoes | None | `smithingboots` + 420 Smithing XP | Talk to Blacksmith twice |
 | P1 | Royal Drama | None | **10000 gold** | `royalguard2 -> ratnpc -> king2` |
-| P1 | Royal Pet | **Royal Drama** complete; `catpet` reward is broken but completion counts | Quest completion | Deliver 3 books, then return to King |
-| P1 | Sorcery and Stuff | `staff` reward is broken but completion counts | Quest completion + Sorcerer shop | Turn in `bead x3` |
+| P1 | Royal Pet | **Royal Drama** complete | `catpet` (pet) | Deliver 3 books, then return to King |
+| P1 | Sorcery and Stuff | None | `staff` + Sorcerer shop | Farm Hermit Crab Warrior at **(320, 455)** for guaranteed `bead`, turn in x3 |
 | P1 | Rick's Roll | None | **1987 gold** | Fish/cook 5 shrimp, then deliver Rick's `seaweedroll` |
 | P1 | Sea Activities | **`waterguardian` required for undersea access** | **10000 gold net** + sea quest gates | Sponge/Pickle talk chain, then kill `picklemob` |
 | P2 | Scientist's Potion | None | **Alchemy unlock on start** | Talk once and accept |
@@ -67,15 +68,10 @@ Use exact quest names from this table when calling `query_quest(quest_name)`. Ca
 | P3 | Scavenger | Real turn-in is tiny; ignore fake shopping-list dialogue | **7500 gold** | Turn in `tomato x2 + strawberry x2 + string x1` |
 | P3 | Clam Chowder | Practical: Fishing 10 + Cooking 15 + Fletching 3 | **7500 gold** | Turn in 5 clams, then 2 chowders, then 2 more chowders |
 | P4 | Ancient Lands | Need `icesword` from Ice Knight at **(808,813)** | `snowpotion` + mountain gate | Bring `icesword` to Ancient Monument |
-
-### Skip / Blocked
-
-| Quest | Why To Skip |
-|-------|-------------|
-| Evil Santa | Missing stage-1 door; ice world stays blocked |
-| The Coder's Glitch | `noc` typo + missing `skeletonkingtalisman` item |
-| The Coder's Glitch II | Required talismans do not exist |
-| Coder's Fallacy | Blocked by `The Coder's Glitch II` prerequisite |
+| P4 | Evil Santa | Stage 1 door at **(525, 340-345)** — **verify door fires** before relying on it; need `candykey` (1.5% from `santaelf`) for stage 3 | Kill `santa` (L240) | Talk `snowshepherdboy` → walk door → `santaelfnpc` → farm candykey → kill Santa |
+| P4 | The Coder's Glitch | None (typo fixed) | Quest completion | Talk `coder`, kill `skeletonking`, return `skeletonkingtalisman` |
+| P4 | The Coder's Glitch II | **Coder's Glitch** complete | Quest completion | Kill `ogrelord` + `queenant` + `forestdragon`, return 3 talismans |
+| P4 | Coder's Fallacy | **Coder's Glitch II** + Alchemy 35 + Smithing 45 | "Key to secret room" (flavor only, no item) | Single talk stage |
 
 ---
 
@@ -99,10 +95,19 @@ Use `buy_item(npc_name, item_index, count)`:
 
 ---
 
+## KEY QUEST LOCATIONS
+
+- **Hermit Crab Warrior** at **(320, 455)** — miniboss, 2550 HP, L35. Guaranteed `bead` drop via `warriorcrab` drop table. Sorcery quest's canonical bead farm; do NOT grind random unusual-table mobs for bead.
+- **Ice Knight** at **(808, 813)** — drops `icesword` for Ancient Lands quest.
+- **Strawberry drop rate** — ~10% per fruit-table kill (goblins, ogres, ants, hobgoblins) after recent patch. Plan ~20 kills for 2 strawberries.
+- **candykey** — 1.5% drop from `santaelf` (needed for Evil Santa stage 3 door).
+
+---
+
 ## GAME MECHANICS
 
 - Attack styles: Hack = Str+Def, Chop = Acc+Def, Defensive = Def. All styles also give Health XP.
 - `gather` handles trees, rocks, bushes, and fish spots. "No items gained" usually means low skill, wrong tool, or exhausted node.
 - `string` = `bluelily` at Crafting Lv1.
-- `clamchowder` = `clamobject + potato + bowlsmall` at Cooking Lv15.
+- `clamchowder` = `clamobject + potato + bowlsmall` at Cooking Lv15. Fish clams at coastal `clamspot` nodes, not mob drops.
 - Item drops despawn after 64s. Inventory has 25 slots.

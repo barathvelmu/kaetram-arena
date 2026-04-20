@@ -3,6 +3,22 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-20 — Research Compile Pass
+
+**Compile-research pass.** Updated 6 research files:
+- **data-quality.md**: Session log counts updated 636→827 (agent_0: 280, agent_1: 277, agent_2: 270). Noted 191 new sessions pending re-extraction.
+- **training-runs.md**: Added Kaetram-Open quest patches (21/21 quests completable, commit `70c79c0`), noted 827 available logs.
+- **contribution.md**: Updated method section with 21/21 quest count.
+- **INDEX.md**: Added two new gaps (quest coverage mismatch, dataset rebuild opportunity), updated r10 action item with new data availability.
+- **preference-learning.md**: Updated pipeline sequence note with new log count and quest status.
+- **agent-sft-landscape.md**: Noted 827 available sessions vs 636 used in r10 build.
+
+**Key findings:** (1) 191 new Claude sessions collected since r10 build — re-extraction would yield ~33,700 records (+30%). (2) Kaetram-Open patches made 21/21 quests completable (was 17/21) — r10 training data has stale quest knowledge for 4 newly-unblocked quests. (3) r10 smoke SFT + eval still pending — no status change. (4) Tool count (17), personality files (3) verified correct. Linear access denied for this pass.
+
+**Decision needed:** Rebuild dataset with 827 logs + updated quest prompts before smoke SFT, or proceed with current 23,382-record r10 build and rebuild after?
+
+---
+
 ## 2026-04-18 — r10 Launch Gate Closed (9 / 11 criteria green)
 
 **Shipped on `feat/kae-42-remaining-patches` (6 commits):** KAE-42 data-pipeline patches (window_size 5→3, observe→observe bigram filter + post-build dedup, observe tool_result entity caps, stale click_tile filter removed, pre-tokenize truncation gate); Qwen3.5-9B thinking-general decode params wired into `serve_modal*.py`; three new regression tests (`test_truncation`, `test_think_roundtrip`, `test_loop_noise`); r10 launch gate doc.

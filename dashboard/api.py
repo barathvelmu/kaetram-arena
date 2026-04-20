@@ -83,6 +83,25 @@ class APIMixin:
         data["freshness_seconds"] = freshness
         self._send_json(data)
 
+    _walkthroughs_cache = {"mtime": 0, "data": None}
+
+    def send_quest_walkthroughs(self):
+        """Return the quest walkthroughs JSON used for dashboard hover tooltips."""
+        path = os.path.join(PROJECT_DIR, "prompts", "quest_walkthroughs.json")
+        if not os.path.isfile(path):
+            return self._send_json({})
+        try:
+            mtime = os.path.getmtime(path)
+            cache = APIMixin._walkthroughs_cache
+            if cache["data"] is not None and cache["mtime"] == mtime:
+                return self._send_json(cache["data"])
+            with open(path) as fh:
+                data = json.load(fh)
+            APIMixin._walkthroughs_cache = {"mtime": mtime, "data": data}
+            self._send_json(data)
+        except Exception as e:
+            self._send_json({"error": str(e)})
+
     def send_prompt(self):
         prompt_file = os.path.join(PROJECT_DIR, "prompts", "system.md")
         text = ""
@@ -282,6 +301,32 @@ class APIMixin:
         multi_sessions = len(glob.glob(os.path.join(DATASET_DIR, "raw", "agent_*", "logs", "session_*.log")))
         total_sessions = single_sessions + multi_sessions
 
+        # Parse orchestrate.log for latest elapsed/remaining so the dashboard
+        # can show a run timer and countdown.
+        run_elapsed = None
+        run_remaining = None
+        try:
+            import re
+            with open("/tmp/orchestrate.log") as oflog:
+                tail = oflog.readlines()[-400:]
+            elapsed_re = re.compile(r"Status \((\d{2}):(\d{2}):(\d{2}) elapsed\)")
+            remaining_re = re.compile(r"Time remaining: (\d{2}):(\d{2}):(\d{2})")
+            for line in reversed(tail):
+                if run_elapsed is None:
+                    m = elapsed_re.search(line)
+                    if m:
+                        h, mi, s = map(int, m.groups())
+                        run_elapsed = h * 3600 + mi * 60 + s
+                if run_remaining is None:
+                    m = remaining_re.search(line)
+                    if m:
+                        h, mi, s = map(int, m.groups())
+                        run_remaining = h * 3600 + mi * 60 + s
+                if run_elapsed is not None and run_remaining is not None:
+                    break
+        except Exception:
+            pass
+
         self._send_json({
             "mode": mode,
             "agent_running": agent_running,
@@ -295,6 +340,8 @@ class APIMixin:
             "total_sessions": total_sessions,
             "single_sessions": single_sessions,
             "multi_sessions": multi_sessions,
+            "run_elapsed_seconds": run_elapsed,
+            "run_remaining_seconds": run_remaining,
         })
 
     # ── Multi-agent endpoint ──

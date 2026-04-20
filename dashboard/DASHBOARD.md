@@ -55,7 +55,7 @@ dashboard/
 
 ## Caching Strategy
 
-Everything is cached to avoid redundant work on the 4-vCPU VM:
+Everything is cached to avoid redundant work on the 8-vCPU VM:
 
 | Cache | TTL | Why |
 |-------|-----|-----|

@@ -409,6 +409,9 @@
         failed: !!window.__kaetramState.warpPending.failed,
         reason: window.__kaetramState.warpPending.reason || null,
       } : null,
+      lootbag_popup: (typeof window.__lootbagPopupState === 'function')
+        ? window.__lootbagPopupState()
+        : { open: false, item_count: 0 },
     };
 
     // Inject rules reminder every ~180 ticks (~90 seconds at 500ms interval)
@@ -551,9 +554,8 @@
     try {
       var p = game.player;
       if (p && p.equipments) {
-        for (var i = 0; i < p.equipments.length; i++) {
-          var eq = p.equipments[i];
-          beforeEquip[i] = eq ? (eq.name || eq.key || 'none') : 'none';
+        for (const [slotId, eq] of Object.entries(p.equipments)) {
+          beforeEquip[slotId] = eq ? (eq.name || eq.key || 'none') : 'none';
         }
       }
     } catch(e) {}
@@ -1396,6 +1398,74 @@
   window.__stuckReset = function () {
     window.__stuckState.positions = [];
     return { reset: true };
+  };
+
+  // ── Lootbag popup (Menu-extending modal) helpers ──
+  // The #lootbag popup appears when the server has set player.activeLootBag
+  // after a Movement.Stop packet with target=lootbag.instance. Only when this
+  // popup is visible will direct LootBag.Take packets succeed server-side.
+  window.__lootbagPopupState = function () {
+    try {
+      var el = document.querySelector('#lootbag');
+      if (!el) return { open: false, item_count: 0 };
+      var display = (el.style && el.style.display) || '';
+      if (display !== 'flex' && display.indexOf('flex') === -1) {
+        return { open: false, item_count: 0 };
+      }
+      var slots = document.querySelectorAll('#lootbag-items > ul > li');
+      var indices = [];
+      for (var i = 0; i < slots.length; i++) {
+        var li = slots[i];
+        var idx = (typeof li.index === 'number')
+          ? li.index
+          : parseInt(li.getAttribute('data-index') || String(i), 10);
+        if (!isNaN(idx)) indices.push(idx);
+      }
+      var free = 0;
+      try {
+        var inv = window.game && window.game.menu && window.game.menu.getInventory();
+        if (inv && inv.getElement) {
+          for (var j = 0; j < 25; j++) {
+            var invEl = inv.getElement(j);
+            if (!invEl || !invEl.dataset || !invEl.dataset.key
+                || (inv.isEmpty && inv.isEmpty(invEl))) free++;
+          }
+        }
+      } catch (_) {}
+      return {
+        open: true,
+        item_count: indices.length,
+        slot_indices: indices,
+        inventory_free_slots: free,
+      };
+    } catch (e) {
+      return { open: false, error: String(e) };
+    }
+  };
+
+  window.__takeAllFromLootbag = function () {
+    // Send one LootBag.Take packet per slot index. Server validates that
+    // player.activeLootBag matches the bag instance (it will, because the
+    // popup is only shown after open() sets that flag). Silent no-op if
+    // popup is not open.
+    try {
+      var state = window.__lootbagPopupState();
+      if (!state.open) return { sent: 0, reason: 'popup_not_open' };
+      var game = window.game;
+      if (!game || !game.socket) return { sent: 0, reason: 'game_not_loaded' };
+      var sent = 0;
+      var indices = state.slot_indices || [];
+      for (var i = 0; i < indices.length; i++) {
+        try {
+          // Packets.LootBag = 56, Opcodes.LootBag.Take = 1
+          game.socket.send(56, { opcode: 1, index: indices[i] });
+          sent++;
+        } catch (e) {}
+      }
+      return { sent: sent, indices: indices };
+    } catch (e) {
+      return { sent: 0, error: String(e) };
+    }
   };
 
   // ── Auto-cache: update game state + ASCII map every 500ms ──

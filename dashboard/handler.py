@@ -30,6 +30,71 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.do_GET()
 
+    def do_POST(self):
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            path = parsed.path
+            if path == "/api/restart-run":
+                self.handle_restart_run()
+            else:
+                self.send_error(404)
+        except Exception as e:
+            try:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": str(e)}).encode())
+            except Exception:
+                pass
+
+    def handle_restart_run(self):
+        """POST /api/restart-run — kick off restart-agent.sh with optional payload."""
+        content_length = int(self.headers.get("Content-Length", 0) or 0)
+        raw = self.rfile.read(content_length) if content_length else b""
+        try:
+            payload = json.loads(raw) if raw else {}
+        except Exception:
+            payload = {}
+        # Defaults match what the user has been running
+        hours = int(payload.get("hours", 6))
+        aggressive = int(payload.get("aggressive", 1))
+        methodical = int(payload.get("methodical", 1))
+        curious = int(payload.get("curious", 1))
+
+        import subprocess
+        script = os.path.join(PROJECT_DIR, "scripts", "restart-agent.sh")
+        cmd = [
+            script,
+            "--claude", str(aggressive + methodical + curious),
+            "--aggressive", str(aggressive),
+            "--methodical", str(methodical),
+            "--curious", str(curious),
+            "--hours", str(hours),
+        ]
+        # Fire-and-forget — the script manages its own orchestrator. We don't wait.
+        try:
+            subprocess.Popen(
+                cmd,
+                cwd=PROJECT_DIR,
+                stdout=open("/tmp/restart-run.log", "a"),
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            ok = True
+            error = None
+        except Exception as e:
+            ok = False
+            error = str(e)
+        self.send_response(200 if ok else 500)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({
+            "ok": ok,
+            "error": error,
+            "cmd": " ".join(cmd),
+            "hours": hours,
+        }).encode())
+
     def do_GET(self):
         try:
             parsed = urllib.parse.urlparse(self.path)
@@ -54,6 +119,8 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.send_game_state(qs)
             elif path == "/api/prompt":
                 self.send_prompt()
+            elif path == "/api/quest-walkthroughs":
+                self.send_quest_walkthroughs()
             elif path == "/api/session-log":
                 self.send_session_log()
             elif path == "/api/session-detail":

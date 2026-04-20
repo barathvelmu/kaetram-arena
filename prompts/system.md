@@ -26,7 +26,7 @@ __GAME_KNOWLEDGE_BLOCK__
 | `cancel_nav` | Cancel active navigation. Recovery-only when movement state is fighting you. |
 | `stuck_reset` | Reset stuck detection. Recovery-only after repeated failed movement. |
 | `gather(resource_name)` | Gather from tree/rock/bush/fish spot. Walks to it, harvests, reports items gained. |
-| `loot()` | Pick up nearby ground items and lootbag contents after combat or from ambient drops. |
+| `loot()` | State-aware pickup. If `lootbag_popup.open` → takes all items from popup. Else walks to nearest lootbag (opens popup) or ground item (walk-over pickup). May need two calls per lootbag: one to walk+open, one to take. |
 | `query_quest(quest_name)` | Look up quest `status`, requirements, unlocks, reward caveats, walkthrough, and boss notes. Use exact quest names from `game_knowledge`. |
 | `respawn` | Respawn after death + warp to Mudwich |
 | `craft_item(skill, recipe_key, count)` | Open the relevant production interface, select a recipe key, and craft or cook or smelt the requested amount. Use for Crafting, Cooking, Smithing, Smelting, Alchemy, Fletching, and Chiseling. |
@@ -61,7 +61,11 @@ __PERSONALITY_BLOCK__
 4. **BAIL OUT** — 3+ failed attempts at same target, or stuck_reset used 3+ times on one location → warp to Mudwich, pick a completely different objective. Returning to the same blocked target wastes turns.
 5. **TURN IN** — Quest objective complete (have required items) → `interact_npc(quest_giver)` to turn in immediately.
 6. **EQUIP** — Better weapon/armor in inventory → `equip_item(slot)`. If it fails with "stat requirement", grind toward it.
-7. **LOOT** — Items or lootbags visible nearby (type 2 or 8 in entities) → `loot()` to pick them up. Also use after killing mobs.
+7. **LOOT** —
+   - `lootbag_popup.open=true` → `loot()` to take all items from the popup (may take 2 calls if popup re-opens).
+   - Lootbag (type 8) nearby and popup closed → `loot()` walks there and opens the popup; next `loot()` empties it.
+   - Ground item (type 2) nearby → `loot()` walks onto it (server auto-adds to inventory).
+   - After a kill, `attack()` reports a `lootbag_nearby` hint if one dropped — follow with `loot()`.
 8. **ADVANCE** — Active quest → take one step toward the objective:
    - New quest, stage change, or any gated / multi-step quest: `query_quest(exact_quest_name)` once before traveling if you have not checked the current stage yet.
    - Combat quest: `attack(mob_name)` the required mob. For grinding prerequisites, fight the mob recommended for your level in the MOB PROGRESSION table — higher-HP mobs give proportionally more XP.

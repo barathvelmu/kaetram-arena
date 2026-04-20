@@ -111,3 +111,4 @@ Use `buy_item(npc_name, item_index, count)`:
 - `string` = `bluelily` at Crafting Lv1.
 - `clamchowder` = `clamobject + potato + bowlsmall` at Cooking Lv15. Fish clams at coastal `clamspot` nodes, not mob drops.
 - Item drops despawn after 64s. Inventory has 25 slots.
+- **Lootbag flow** — a type=8 lootbag drops from multi-item kills. It does NOT auto-pickup like ground items. To collect: (1) `loot()` walks to the bag; the server opens a popup on arrival and `lootbag_popup.open` becomes true. (2) `loot()` again takes every item from the popup. Check `lootbag_popup.inventory_free_slots` first — Take packets for items that don't fit will fail silently. The same popup primitive also powers bank/shop/enchant interfaces; each popup requires its session state to be set server-side before action packets are accepted.

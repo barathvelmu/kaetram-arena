@@ -123,12 +123,6 @@ async def _ensure_browser(state: dict):
         )
         context = await browser.new_context(viewport={"width": 1280, "height": 720})
 
-        # Inject state_extractor.js (survives page reloads/navigation)
-        extractor_path = os.environ.get("KAETRAM_EXTRACTOR", "state_extractor.js")
-        if os.path.exists(extractor_path):
-            await context.add_init_script(path=extractor_path)
-            log(f"[mcp] Injected {extractor_path}")
-
         # WebSocket port override for multi-agent isolation
         port = os.environ.get("KAETRAM_PORT", "")
         if port:
@@ -136,8 +130,13 @@ async def _ensure_browser(state: dict):
                 const PORT = '{port}';
                 const _WS = window.WebSocket;
                 window.WebSocket = function(url, protocols) {{
-                    url = url.replace(/\\/\\/[^:/]+/, '//localhost');
-                    url = url.replace(/:9001(?=\\/|$)/, ':' + PORT);
+                    try {{
+                        const parsed = new URL(url, window.location.href);
+                        if (parsed.port === '9001') parsed.port = PORT;
+                        url = parsed.toString();
+                    }} catch (_e) {{
+                        url = url.replace(/:9001(?=\\/|$)/, ':' + PORT);
+                    }}
                     return protocols ? new _WS(url, protocols) : new _WS(url);
                 }};
                 window.WebSocket.prototype = _WS.prototype;
@@ -203,7 +202,6 @@ async def _page_in_game(page) -> bool:
                 """() => (
                     document.body &&
                     document.body.className === 'game' &&
-                    typeof window.__extractGameState === 'function' &&
                     !!(window.game && window.game.player)
                 )"""
             )
@@ -212,54 +210,105 @@ async def _page_in_game(page) -> bool:
         return False
 
 
+async def _ensure_state_extractor(page) -> None:
+    ready = await page.evaluate(
+        "() => typeof window.__extractGameState === 'function'"
+    )
+    if ready:
+        return
+
+    extractor_path = os.environ.get("KAETRAM_EXTRACTOR", "state_extractor.js")
+    if not os.path.exists(extractor_path):
+        raise RuntimeError(f"state extractor not found at {extractor_path}")
+    await page.add_script_tag(path=extractor_path)
+    log(f"[mcp] Injected {extractor_path}")
+
+
+async def _current_intro_state(page) -> dict:
+    try:
+        return await page.evaluate(
+            """() => ({
+                bodyClass: document.body ? document.body.className : null,
+                loadCharVisible: (() => {
+                    const el = document.getElementById('load-character');
+                    return !!el && window.getComputedStyle(el).opacity !== '0';
+                })(),
+                loginVisible: !!document.querySelector('#login-name-input'),
+                registerVisible: (() => {
+                    const el = document.getElementById('create-character');
+                    return !!el && window.getComputedStyle(el).opacity !== '0';
+                })(),
+                errors: Array.from(document.querySelectorAll('.validation-error, .error-message, [class*="error"]'))
+                    .map(e => e.textContent && e.textContent.trim())
+                    .filter(Boolean)
+                    .slice(0, 10),
+                hasGame: !!(window.game && window.game.player),
+                socketConnected: !!(window.game && window.game.socket && window.game.socket.connected),
+                playerName: window.game && window.game.player && window.game.player.name,
+                gridX: window.game && window.game.player && window.game.player.gridX,
+            })"""
+        )
+    except Exception as exc:
+        return {"error": f"failed to collect intro state: {exc}"}
+
+
+async def _wait_for_game_loaded(page, *, timeout_ms: int) -> None:
+    await page.wait_for_function(
+        "() => document.body && document.body.className === 'game'",
+        timeout=timeout_ms,
+    )
+    await page.wait_for_function(
+        "() => !!(window.game && window.game.player && window.game.player.name "
+        "&& typeof window.game.player.gridX === 'number' && window.game.player.gridX > 0)",
+        timeout=timeout_ms,
+    )
+
+
 async def _login_impl(ctx: Context, page) -> str:
     username = os.environ.get("KAETRAM_USERNAME", "ClaudeBot")
+    password = os.environ.get("KAETRAM_PASSWORD", "password123")
     client_url = os.environ.get("KAETRAM_CLIENT_URL", "http://localhost:9000")
 
-    await page.goto(client_url)
-    await page.wait_for_timeout(3000)
+    await page.goto(client_url, wait_until="domcontentloaded")
+    await page.wait_for_function(
+        "() => { const b = document.querySelector('#login'); return !!b && !b.disabled; }",
+        timeout=60_000,
+    )
     await page.locator("#login-name-input").fill(username)
-    await page.locator("#login-password-input").fill("password123")
+    await page.locator("#login-password-input").fill(password)
     await page.locator("#login").click()
 
     game_ready = False
-    for _attempt in range(12):
-        await page.wait_for_timeout(1000)
-        result = await page.evaluate("""() => {
-            if (document.body.className === 'game') return 'in_game';
-            const lc = document.getElementById('load-character');
-            if (lc && window.getComputedStyle(lc).opacity !== '0') return 'needs_login';
-            return 'waiting';
-        }""")
-        log(f"[mcp] login attempt {_attempt+1}: {result}")
-        if result == "in_game":
-            game_ready = True
-            break
-        if result == "needs_login" and _attempt >= 5:
+    try:
+        await _wait_for_game_loaded(page, timeout_ms=30_000)
+        game_ready = True
+    except Exception:
+        state = await _current_intro_state(page)
+        log(f"[mcp] login primary path stalled for {username}: {state}")
+
+        # Keep the register fallback for local ad-hoc use, but only after the
+        # normal login path has demonstrably failed.
+        if state.get("bodyClass") != "game":
             log(f"[mcp] Registering new account for {username}")
-            await page.evaluate("""(username) => {
-                document.getElementById('new-account').click();
-                setTimeout(() => {
-                    const set = (el, val) => {
-                        if (!el) return;
-                        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
-                            .set.call(el, val);
-                        el.dispatchEvent(new Event('input', {bubbles: true}));
-                    };
-                    set(document.getElementById('register-name-input'), username);
-                    set(document.getElementById('register-password-input'), 'password123');
-                    set(document.getElementById('register-password-confirmation-input'), 'password123');
-                    set(document.getElementById('register-email-input'), username + '@test.com');
-                    setTimeout(() => document.getElementById('play').click(), 500);
-                }, 500);
-            }""", username)
-            for _r in range(10):
-                await page.wait_for_timeout(1000)
-                r2 = await page.evaluate("() => document.body.className")
-                if r2 == "game":
-                    game_ready = True
-                    break
-            break
+            try:
+                await page.locator("#new-account").click()
+                await page.wait_for_function(
+                    """() => {
+                        const el = document.getElementById('create-character');
+                        return !!el && window.getComputedStyle(el).opacity !== '0';
+                    }""",
+                    timeout=10_000,
+                )
+                await page.locator("#register-name-input").fill(username)
+                await page.locator("#register-password-input").fill(password)
+                await page.locator("#register-password-confirmation-input").fill(password)
+                await page.locator("#register-email-input").fill(f"{username}@test.com")
+                await page.locator("#play").click()
+                await _wait_for_game_loaded(page, timeout_ms=30_000)
+                game_ready = True
+            except Exception:
+                state = await _current_intro_state(page)
+                log(f"[mcp] register fallback stalled for {username}: {state}")
 
     if not game_ready:
         log(f"[mcp] Login failed for {username} — game did not load")
@@ -276,6 +325,7 @@ async def _login_impl(ctx: Context, page) -> str:
     await page.keyboard.press("Escape")
     await page.wait_for_timeout(300)
 
+    await _ensure_state_extractor(page)
     ctx.request_context.lifespan_context["logged_in"] = True
     log(f"[mcp] Logged in as {username}")
     log_tool("login")
@@ -294,6 +344,7 @@ async def _page(ctx: Context, ensure_logged_in: bool = True):
         return page
 
     if state.get("logged_in") and await _page_in_game(page):
+        await _ensure_state_extractor(page)
         return page
 
     login_result = await _login_impl(ctx, page)
@@ -594,45 +645,44 @@ async def attack(ctx: Context, mob_name: str) -> str:
         }""")
 
         if isinstance(auto_looted, dict) and auto_looted.get("targeting"):
-            # Wait for walk + auto-pickup (scale with distance)
-            dist = auto_looted["targeting"].get("distance", 3)
-            wait_ms = min(max(1500, dist * 300), 5000)
-            await page.wait_for_timeout(wait_ms)
-
-            # Handle lootbag
+            # Auto-loot is intentionally limited to ground items (type=2) which
+            # auto-pickup on walk-over. Lootbags (type=8) require the two-step
+            # popup flow — leave those for an explicit loot() call so the
+            # agent can reason about popup open/take as distinct steps.
             if auto_looted["targeting"].get("type") == 8:
-                await page.evaluate("""() => {
-                    const game = window.game;
-                    if (!game || !game.socket) return;
-                    for (let i = 0; i < 10; i++) {
-                        try { game.socket.send(58, { opcode: 1, index: i }); } catch(e) {}
-                    }
-                }""")
-                await page.wait_for_timeout(500)
+                auto_looted = {
+                    "lootbag_nearby": auto_looted["targeting"],
+                    "note": "Lootbag dropped — call loot() to walk to it and open the popup, then loot() again to take items.",
+                }
+            else:
+                # Wait for walk + auto-pickup (scale with distance)
+                dist = auto_looted["targeting"].get("distance", 3)
+                wait_ms = min(max(1500, dist * 300), 5000)
+                await page.wait_for_timeout(wait_ms)
 
-            # Diff inventory
-            inv_after = await page.evaluate("""() => {
-                try {
-                    const inv = window.game.menu.getInventory();
-                    const items = {};
-                    if (inv && inv.getElement) {
-                        for (let i = 0; i < 25; i++) {
-                            const el = inv.getElement(i);
-                            if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
-                            const k = el.dataset.key;
-                            items[k] = (items[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
+                # Diff inventory to surface what was picked up
+                inv_after = await page.evaluate("""() => {
+                    try {
+                        const inv = window.game.menu.getInventory();
+                        const items = {};
+                        if (inv && inv.getElement) {
+                            for (let i = 0; i < 25; i++) {
+                                const el = inv.getElement(i);
+                                if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+                                const k = el.dataset.key;
+                                items[k] = (items[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
+                            }
                         }
-                    }
-                    return items;
-                } catch(e) { return {}; }
-            }""")
-            inv_before = auto_looted.get("inv_before", {})
-            gained = {}
-            for k, v in inv_after.items():
-                diff = v - inv_before.get(k, 0)
-                if diff > 0:
-                    gained[k] = diff
-            auto_looted = {"looted": gained if gained else "none", "target": auto_looted["targeting"].get("name", "?")}
+                        return items;
+                    } catch(e) { return {}; }
+                }""")
+                inv_before = auto_looted.get("inv_before", {})
+                gained = {}
+                for k, v in inv_after.items():
+                    diff = v - inv_before.get(k, 0)
+                    if diff > 0:
+                        gained[k] = diff
+                auto_looted = {"looted": gained if gained else "none", "target": auto_looted["targeting"].get("name", "?")}
 
     # Merge post-attack state into result
     try:
@@ -1143,11 +1193,61 @@ async def buy_item(ctx: Context, npc_name: str, item_index: int, count: int = 1)
             "npc": npc_name,
         })
 
-    # Step 1: Walk to NPC
-    walk_result = await page.evaluate(
-        "(name) => JSON.stringify(window.__interactNPC(name))", npc_name
-    )
-    walk = json.loads(walk_result) if isinstance(walk_result, str) else walk_result
+    # Step 1: Find the store NPC and, if needed, walk to an orthogonal
+    # neighbor tile. Avoid the generic interact helper here because it auto-
+    # talks when already adjacent, which can race store open/close behavior.
+    walk = await page.evaluate("""(name) => {
+        const game = window.game;
+        if (!game || !game.player || !game.entities) return { error: 'Game not loaded' };
+        const p = game.player;
+        const px = p.gridX, py = p.gridY;
+        const needle = (name || '').toLowerCase();
+        let best = null;
+        let bestDist = Infinity;
+
+        for (const [inst, ent] of Object.entries(game.entities.entities || {})) {
+            if (!ent || ent.type !== 1 || inst === p.instance) continue;
+            const entName = (ent.name || ent.key || '').toLowerCase();
+            if (!entName.includes(needle)) continue;
+            const dist = Math.abs(ent.gridX - px) + Math.abs(ent.gridY - py);
+            if (dist < bestDist) {
+                best = { instance: inst, x: ent.gridX, y: ent.gridY, name: ent.name || ent.key || name };
+                bestDist = dist;
+            }
+        }
+
+        if (!best) return { error: 'No NPC matching \"' + name + '\" found nearby' };
+
+        const manhattan = Math.abs(best.x - px) + Math.abs(best.y - py);
+        let walkTarget = null;
+        if (manhattan >= 2) {
+            const neighbors = [
+                { x: best.x, y: best.y - 1 },
+                { x: best.x, y: best.y + 1 },
+                { x: best.x - 1, y: best.y },
+                { x: best.x + 1, y: best.y },
+            ];
+            walkTarget = neighbors[0];
+            let bestNeighborDist = Infinity;
+            for (const neighbor of neighbors) {
+                const dist = Math.abs(neighbor.x - px) + Math.abs(neighbor.y - py);
+                if (dist < bestNeighborDist) {
+                    bestNeighborDist = dist;
+                    walkTarget = neighbor;
+                }
+            }
+            p.disableAction = false;
+            p.go(walkTarget.x, walkTarget.y);
+        }
+
+        return {
+            instance: best.instance,
+            npc_pos: { x: best.x, y: best.y },
+            player_pos: { x: px, y: py },
+            manhattan: manhattan,
+            walk_target: walkTarget,
+        };
+    }""", npc_name)
 
     if isinstance(walk, dict) and walk.get("error"):
         return json.dumps({"error": f"Cannot find NPC '{npc_name}': {walk.get('error')}"})
@@ -1174,14 +1274,43 @@ async def buy_item(ctx: Context, npc_name: str, item_index: int, count: int = 1)
             if (p && p.stop) p.stop(true);
         }""")
         await page.wait_for_timeout(200)
-        # Single talk — do NOT double-talk (triggers store show/hide toggle race)
         await page.evaluate("(id) => window.__talkToNPC(id)", instance_id)
         await page.wait_for_timeout(1000)
 
-    # Step 3: Send buy packet — Packets.Store=42, Opcodes.Store.Buy=2
+        # Store opening is not instantaneous on the isolated lane. Poll for the
+        # menu to become active before sending the buy packet so we do not turn
+        # a valid purchase into a silent no-op.
+        store_open = False
+        for _ in range(10):
+            store_state = await page.evaluate("""() => {
+                try {
+                    const store = window.game && window.game.menu && window.game.menu.getStore
+                        ? window.game.menu.getStore()
+                        : null;
+                    return {
+                        visible: !!(store && store.isVisible && store.isVisible()),
+                        key: store && store.key ? store.key : null,
+                    };
+                } catch(e) {
+                    return { visible: false, key: null };
+                }
+            }""")
+            if store_state.get("visible"):
+                store_open = True
+                break
+            await page.wait_for_timeout(300)
+        if not store_open:
+            return json.dumps({
+                "bought": False,
+                "store": store_key,
+                "item_index": item_index,
+                "error": f"Store UI for '{npc_name}' never opened",
+            })
+
+    # Step 3: Send buy packet — Packets.Store=40, Opcodes.Store.Buy=2
     buy_result = await page.evaluate("""([key, index, count]) => {
         try {
-            window.game.socket.send(42, {
+            window.game.socket.send(40, {
                 opcode: 2,
                 key: key,
                 index: index,
@@ -1196,24 +1325,40 @@ async def buy_item(ctx: Context, npc_name: str, item_index: int, count: int = 1)
     if isinstance(buy_result, dict) and buy_result.get("error"):
         return json.dumps(buy_result)
 
-    await page.wait_for_timeout(1500)
+    # Step 4: Diff inventory to confirm purchase. The isolated lane can take a
+    # few round-trips to update both inventory and currency, so poll instead of
+    # snapshotting once.
+    after = {}
+    for _ in range(10):
+        await page.wait_for_timeout(500)
+        after = await page.evaluate("""() => {
+            const inv = window.game && window.game.menu && window.game.menu.getInventory();
+            if (!inv) return { items: {}, gold: 0 };
+            const items = {};
+            let gold = 0;
+            for (let i = 0; i < 25; i++) {
+                const el = inv.getElement(i);
+                if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
+                const k = el.dataset.key;
+                const c = el.count || parseInt(el.dataset?.count || '0') || 1;
+                items[k] = (items[k] || 0) + c;
+                if (k === 'gold') gold += c;
+            }
+            return { items, gold };
+        }""")
 
-    # Step 4: Diff inventory to confirm purchase
-    after = await page.evaluate("""() => {
-        const inv = window.game && window.game.menu && window.game.menu.getInventory();
-        if (!inv) return { items: {}, gold: 0 };
-        const items = {};
-        let gold = 0;
-        for (let i = 0; i < 25; i++) {
-            const el = inv.getElement(i);
-            if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
-            const k = el.dataset.key;
-            const c = el.count || parseInt(el.dataset?.count || '0') || 1;
-            items[k] = (items[k] || 0) + c;
-            if (k === 'gold') gold += c;
-        }
-        return { items, gold };
-    }""")
+        before_items = before.get("items", {}) if isinstance(before, dict) else {}
+        after_items = after.get("items", {}) if isinstance(after, dict) else {}
+        gold_before = before.get("gold", 0) if isinstance(before, dict) else 0
+        gold_after = after.get("gold", 0) if isinstance(after, dict) else 0
+
+        gained = {}
+        for k, v in after_items.items():
+            diff = v - before_items.get(k, 0)
+            if diff > 0 and k != "gold":
+                gained[k] = diff
+        if gained or gold_after < gold_before:
+            break
 
     before_items = before.get("items", {}) if isinstance(before, dict) else {}
     after_items = after.get("items", {}) if isinstance(after, dict) else {}
@@ -1272,55 +1417,93 @@ async def drop_item(ctx: Context, slot: int) -> str:
         const inv = window.game && window.game.menu && window.game.menu.getInventory();
         if (!inv) return { error: 'Inventory not loaded' };
         const el = inv.getElement(idx);
-        if (!el) return { error: 'No item in slot ' + idx };
+        const empty = !el || !el.dataset?.key || (inv.isEmpty && inv.isEmpty(el));
+        if (empty) return { error: 'No item in slot ' + idx };
         const key = (el.dataset && el.dataset.key) || 'unknown';
-        let count = 0;
+        const slotCount = el.count || parseInt(el.dataset?.count || '0') || 1;
+        let occupied = 0;
         for (let i = 0; i < 25; i++) {
             const e = inv.getElement(i);
-            if (e && e.dataset?.key && !inv.isEmpty(e)) count++;
+            if (e && e.dataset?.key && !inv.isEmpty(e)) occupied++;
         }
-        return { key: key, count: count };
+        return { key: key, slot_count: slotCount, occupied_count: occupied };
     }""", slot)
 
     if isinstance(before, dict) and before.get("error"):
         return json.dumps(before)
 
-    # Send container remove packet: Packets.Container=16, Opcodes.Container.Remove=2
-    # The slot index tells the server which item to drop
+    # Send container remove packet: Packets.Container=21, Opcodes.Container.Remove=2
     result = await page.evaluate("""(idx) => {
         try {
-            // Method 1: Direct packet (most reliable)
-            window.game.socket.send(16, [2, idx, 1]);
+            window.game.socket.send(21, {
+                opcode: 2,
+                type: 1,
+                fromIndex: idx,
+                value: 1
+            });
             return { sent: true };
         } catch(e) {
             return { error: 'Failed to send drop packet: ' + e.message };
         }
     }""", slot)
 
+    if isinstance(result, dict) and result.get("error"):
+        return json.dumps(result)
+
     await page.wait_for_timeout(1000)
 
-    # Verify item was dropped
-    after = await page.evaluate("""() => {
+    # Verify item was dropped.
+    after = await page.evaluate("""(idx) => {
         const inv = window.game && window.game.menu && window.game.menu.getInventory();
-        if (!inv) return -1;
-        let count = 0;
+        if (!inv) return { occupied_count: -1, slot_key: null, slot_count: 0 };
+        const el = inv.getElement(idx);
+        const empty = !el || !el.dataset?.key || (inv.isEmpty && inv.isEmpty(el));
+        let occupied = 0;
         for (let i = 0; i < 25; i++) {
             const e = inv.getElement(i);
-            if (e && e.dataset?.key && !inv.isEmpty(e)) count++;
+            if (e && e.dataset?.key && !inv.isEmpty(e)) occupied++;
         }
-        return count;
-    }""")
+        return {
+            occupied_count: occupied,
+            slot_key: empty ? null : el.dataset.key,
+            slot_count: empty ? 0 : (el.count || parseInt(el.dataset?.count || '0') || 1)
+        };
+    }""", slot)
 
     item_key = before.get("key", "unknown") if isinstance(before, dict) else "unknown"
-    count_before = before.get("count", -1) if isinstance(before, dict) else -1
+    occupied_before = before.get("occupied_count", -1) if isinstance(before, dict) else -1
+    slot_count_before = before.get("slot_count", 0) if isinstance(before, dict) else 0
+    occupied_after = after.get("occupied_count", -1) if isinstance(after, dict) else -1
+    slot_count_after = after.get("slot_count", 0) if isinstance(after, dict) else 0
+    slot_key_after = after.get("slot_key") if isinstance(after, dict) else None
 
-    if isinstance(after, int) and after < count_before:
-        return json.dumps({"dropped": True, "item": item_key, "slot": slot,
-                           "inventory_before": count_before, "inventory_after": after})
-    else:
-        return json.dumps({"dropped": False, "item": item_key, "slot": slot,
-                           "error": "Drop may have failed — inventory count unchanged",
-                           "inventory_before": count_before, "inventory_after": after})
+    dropped = (
+        occupied_after < occupied_before
+        or slot_count_after < slot_count_before
+        or slot_key_after != item_key
+    )
+
+    if dropped:
+        return json.dumps({
+            "dropped": True,
+            "item": item_key,
+            "slot": slot,
+            "inventory_before": occupied_before,
+            "inventory_after": occupied_after,
+            "slot_count_before": slot_count_before,
+            "slot_count_after": slot_count_after,
+        })
+
+    return json.dumps({
+        "dropped": False,
+        "item": item_key,
+        "slot": slot,
+        "error": "Drop may have failed — inventory count unchanged",
+        "inventory_before": occupied_before,
+        "inventory_after": occupied_after,
+        "slot_count_before": slot_count_before,
+        "slot_count_after": slot_count_after,
+    })
 
 
 @mcp.tool()
@@ -1345,9 +1528,8 @@ async def equip_item(ctx: Context, slot: int) -> str:
         const p = window.game && window.game.player;
         if (!p || !p.equipments) return {};
         const slots = {};
-        for (let i = 0; i < p.equipments.length; i++) {
-            const eq = p.equipments[i];
-            slots[i] = eq ? (eq.name || eq.key || 'none') : 'none';
+        for (const [slotId, eq] of Object.entries(p.equipments)) {
+            slots[slotId] = eq ? (eq.name || eq.key || 'none') : 'none';
         }
         return slots;
     }""")
@@ -1530,15 +1712,22 @@ async def gather(ctx: Context, resource_name: str) -> str:
 
 @mcp.tool()
 async def loot(ctx: Context) -> str:
-    """Pick up nearby ground items and lootbag contents after combat.
+    """Pick up ground items or take contents from an open lootbag popup.
 
-    Walks to the nearest dropped item or lootbag. Single items (type 2) are
-    auto-collected on walk-over. Lootbags (type 8) are opened and all items taken.
+    State-aware. One call per state transition:
+      - If lootbag_popup.open=true (see observe): takes all items in the popup.
+      - Else if a lootbag (type=8) is nearby: walks to it. Popup should open
+        server-side on arrival; call loot() again to empty it.
+      - Else if a ground item (type=2) is nearby: walks to it. Server auto-adds
+        to inventory on walk-over.
+      - Else: reports nothing nearby.
+
+    Check observe()'s lootbag_popup field to see which state you're in.
     """
+    log_tool("loot")
     page = await _page(ctx)
 
-    # Snapshot inventory before
-    inv_before = await page.evaluate("""() => {
+    _INV_SNAPSHOT = """() => {
         try {
             const inv = window.game.menu.getInventory();
             const items = {};
@@ -1552,88 +1741,98 @@ async def loot(ctx: Context) -> str:
             }
             return items;
         } catch(e) { return {}; }
-    }""")
+    }"""
 
-    # Find nearest lootable (type 2 = item, type 8 = lootbag)
-    result_raw = await page.evaluate("""() => {
+    inv_before = await page.evaluate(_INV_SNAPSHOT)
+
+    # ── State B: popup already open → take all items via direct Take packets ──
+    popup = await page.evaluate("() => window.__lootbagPopupState()")
+    if isinstance(popup, dict) and popup.get("open"):
+        take_result = await page.evaluate("() => window.__takeAllFromLootbag()")
+        # Each Take packet round-trips; give the server time to process + push
+        # inventory updates + close the bag if empty.
+        await page.wait_for_timeout(1500)
+        inv_after = await page.evaluate(_INV_SNAPSHOT)
+        gained = {k: v - inv_before.get(k, 0) for k, v in inv_after.items() if v - inv_before.get(k, 0) > 0}
+        popup_after = await page.evaluate("() => window.__lootbagPopupState()")
+        return json.dumps({
+            "state": "taken" if gained else "take_attempted_no_gain",
+            "items_collected": gained or "none",
+            "packets_sent": take_result.get("sent", 0) if isinstance(take_result, dict) else 0,
+            "popup_still_open": bool(popup_after.get("open", False)) if isinstance(popup_after, dict) else False,
+            "remaining_item_count": popup_after.get("item_count", 0) if isinstance(popup_after, dict) else 0,
+            "note": "Inventory may be full if items_collected < packets_sent" if gained and take_result.get("sent", 0) > len(gained) else None,
+        })
+
+    # ── Find nearest lootable (type=2 ground item or type=8 lootbag) ──
+    nearest = await page.evaluate("""() => {
         const game = window.game;
-        if (!game || !game.player) return JSON.stringify({ error: 'Game not loaded' });
+        if (!game || !game.player) return null;
         const player = game.player;
         const allEnts = game.entities.entities || {};
-        const lootable = [];
+        let best = null;
         for (const [inst, ent] of Object.entries(allEnts)) {
             if (ent.type !== 2 && ent.type !== 8) continue;
             const dist = Math.abs(ent.gridX - player.gridX) + Math.abs(ent.gridY - player.gridY);
-            if (dist <= 15) {
-                lootable.push({
+            if (dist > 15) continue;
+            if (!best || dist < best.distance) {
+                best = {
                     instance: inst, type: ent.type,
                     name: ent.name || 'Unknown',
-                    x: ent.gridX, y: ent.gridY, distance: dist
-                });
+                    x: ent.gridX, y: ent.gridY, distance: dist,
+                };
             }
         }
-        if (lootable.length === 0) return JSON.stringify({ found: 0 });
-        lootable.sort((a, b) => a.distance - b.distance);
-        const target = lootable[0];
-        // Click on it to walk there
-        const coords = window.__tileToScreenCoords(target.x, target.y);
-        if (coords && !coords.error) {
-            game.player.disableAction = false;
-            document.getElementById('canvas').dispatchEvent(new MouseEvent('click', {
-                clientX: coords.click_x, clientY: coords.click_y, bubbles: true
-            }));
-        }
-        return JSON.stringify({ found: lootable.length, targeting: target });
-    }""")
-    result = json.loads(result_raw) if isinstance(result_raw, str) else result_raw
-
-    if result.get("found", 0) == 0:
-        return json.dumps({"message": "No items or lootbags nearby to pick up"})
-
-    # Wait for walk + auto-pickup
-    await page.wait_for_timeout(3000)
-
-    # If lootbag, try taking all items
-    targeting = result.get("targeting", {})
-    if targeting.get("type") == 8:
-        await page.evaluate("""() => {
-            const game = window.game;
-            if (!game || !game.socket) return;
-            // Packets.LootBag = 58, Opcodes.LootBag.Take = 1
-            for (let i = 0; i < 10; i++) {
-                try { game.socket.send(58, { opcode: 1, index: i }); } catch(e) {}
-            }
-        }""")
-        await page.wait_for_timeout(1000)
-
-    # Diff inventory
-    inv_after = await page.evaluate("""() => {
-        try {
-            const inv = window.game.menu.getInventory();
-            const items = {};
-            if (inv && inv.getElement) {
-                for (let i = 0; i < 25; i++) {
-                    const el = inv.getElement(i);
-                    if (!el || !el.dataset?.key || inv.isEmpty(el)) continue;
-                    const k = el.dataset.key;
-                    items[k] = (items[k] || 0) + (el.count || parseInt(el.dataset?.count || '0') || 1);
-                }
-            }
-            return items;
-        } catch(e) { return {}; }
+        return best;
     }""")
 
-    gained = {}
-    for k, v in inv_after.items():
-        diff = v - inv_before.get(k, 0)
-        if diff > 0:
-            gained[k] = diff
+    if not nearest:
+        return json.dumps({
+            "state": "nothing_nearby",
+            "message": "No ground items (type=2) or lootbags (type=8) within 15 tiles.",
+        })
 
+    # Walk to the target tile. For lootbags, Movement.Stop's getEntityAt fallback
+    # sets targetInstance = lootbag.instance, which triggers server.handleMovementStop
+    # → entity.open(this) → popup shows. For ground items, walk-over auto-adds.
+    await page.evaluate(
+        "([x,y]) => window.__navigateTo(x, y)",
+        [nearest["x"], nearest["y"]],
+    )
+    wait_ms = min(max(1500, int(nearest["distance"]) * 300), 5000)
+    await page.wait_for_timeout(wait_ms)
+
+    if nearest["type"] == 8:
+        # Poll for popup to appear (server round-trip on open)
+        popup_after = {"open": False}
+        for _ in range(10):
+            popup_after = await page.evaluate("() => window.__lootbagPopupState()")
+            if isinstance(popup_after, dict) and popup_after.get("open"):
+                break
+            await page.wait_for_timeout(300)
+
+        if isinstance(popup_after, dict) and popup_after.get("open"):
+            return json.dumps({
+                "state": "popup_opened",
+                "target": nearest,
+                "popup_item_count": popup_after.get("item_count", 0),
+                "inventory_free_slots": popup_after.get("inventory_free_slots", 0),
+                "next_step": "Call loot() again to take all items from the popup.",
+            })
+        return json.dumps({
+            "state": "walking_to_bag",
+            "target": nearest,
+            "note": "Popup did not open within ~3s. Agent may not have stopped on the bag tile (pathing off). Call loot() again if still near.",
+        })
+
+    # Ground item: walk-over auto-pickup completed (or didn't)
+    inv_after = await page.evaluate(_INV_SNAPSHOT)
+    gained = {k: v - inv_before.get(k, 0) for k, v in inv_after.items() if v - inv_before.get(k, 0) > 0}
     return json.dumps({
-        "target": targeting.get("name", "unknown"),
-        "target_type": "lootbag" if targeting.get("type") == 8 else "ground_item",
-        "items_collected": gained if gained else "none (item may have despawned or inventory full)",
-        "other_nearby": result.get("found", 0) - 1,
+        "state": "picked_up" if gained else "walked_but_nothing",
+        "target": nearest,
+        "items_collected": gained or "none",
+        "note": None if gained else "Item may have despawned, been taken by another player, or inventory was full.",
     })
 
 
@@ -1711,20 +1910,19 @@ async def craft_item(ctx: Context, skill: str, recipe_key: str, count: int = 1) 
             return json.dumps(open_result)
 
     crafting_state = {}
-    visible = False
+    interface_ready = False
     for _ in range(10):
         await page.wait_for_timeout(500)
         crafting_state = await page.evaluate(
             "() => window.__getCraftingState ? window.__getCraftingState() : ({ visible: false })"
         )
-        if (
-            crafting_state.get("visible")
-            and crafting_state.get("skill") == skill_name
-        ):
-            visible = True
+        if crafting_state.get("skill") != skill_name:
+            continue
+        if crafting_state.get("visible") or open_result.get("via") == "inventory_item":
+            interface_ready = True
             break
 
-    if not visible:
+    if not interface_ready:
         return json.dumps({
             "error": f"Could not open {skill_name} interface",
             "skill": skill_name,

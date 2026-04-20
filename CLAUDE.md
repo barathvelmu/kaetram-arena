@@ -245,7 +245,7 @@ Claude agents use sandboxes at `/tmp/kaetram_agent_0/` through `/tmp/kaetram_age
 
 **Note:** EFFICIENT personality deprecated (April 3). Active: agent_0=AGGRESSIVE, agent_1=METHODICAL, agent_2=CURIOUS.
 
-**Resource budget (3 agents on this VM):** ~2.5 GB RAM, ~27% CPU, ~4.5 GB disk/24h — comfortable on 16 GB / 4 vCPU.
+**Resource budget (3 agents on this VM):** ~2.5 GB RAM, ~27% CPU, ~4.5 GB disk/24h — comfortable on 32 GB / 8 vCPU (`e2-standard-8`).
 
 **Database**: MongoDB (`kaetram-mongo` Docker container, port 27017, db `kaetram_devlopment`) persists player state across 9 collections (`player_info`, `player_skills`, `player_equipment`, `player_inventory`, `player_bank`, `player_quests`, `player_achievements`, `player_statistics`, `player_abilities`). Note: MongoDB only saves on autosave/logout — positions and HP go stale during gameplay.
 

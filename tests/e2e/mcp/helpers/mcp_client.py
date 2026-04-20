@@ -35,7 +35,7 @@ def _server_params(
     username: str,
     port: int | None = None,
     client_url: str = "http://127.0.0.1:19100",
-    screenshot_dir: str = "/tmp/mcp_e2e",
+    screenshot_dir: str = "/tmp/mcp",
     password: str = "test",
     extra_env: dict[str, str] | None = None,
 ) -> StdioServerParameters:
@@ -90,7 +90,7 @@ async def mcp_session(
     username: str,
     port: int | None = None,
     client_url: str = "http://127.0.0.1:19100",
-    screenshot_dir: str = "/tmp/mcp_e2e",
+    screenshot_dir: str = "/tmp/mcp",
     password: str = "test",
     extra_env: dict[str, str] | None = None,
 ) -> AsyncIterator["McpSession"]:

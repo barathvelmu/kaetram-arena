@@ -12,6 +12,7 @@ from tool_surface import LEGACY_HIDDEN_TOOL_NAMES, MODEL_VISIBLE_TOOL_NAMES
 from tests.e2e.helpers.mcp_client import mcp_session
 
 
+@pytest.mark.skip(reason="REST helper lane deprecated — ambient Kaetram model uses pymongo-direct seeding")
 @pytest.mark.mcp_smoke
 async def test_lane_health_endpoints_up(isolated_lane):
     """Fixture-level health is already validated during boot (HTTP for helper
@@ -27,6 +28,7 @@ async def test_lane_health_endpoints_up(isolated_lane):
         assert client_page.status_code < 500
 
 
+@pytest.mark.skip(reason="REST helper lane deprecated — ambient Kaetram model uses pymongo-direct seeding")
 @pytest.mark.mcp_smoke
 async def test_rest_helper_round_trip(isolated_lane, unique_username):
     """Write to and read back a junk player_info doc."""

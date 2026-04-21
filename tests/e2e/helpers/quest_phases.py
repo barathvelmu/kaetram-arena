@@ -86,19 +86,44 @@ def all_of(*fns: SuccessFn) -> SuccessFn:
 
 def _seed_at(npc_key: str, *, stage: int, quest_key: str,
              inventory=None, equipment=None, skills=None,
-             hit_points: int = 69) -> dict[str, Any]:
-    """Seed adjacent to the quest's NPC, at the given quest stage."""
-    base_inv: list[dict[str, Any]] = [{"key": "bronzeaxe", "count": 1}]
+             hit_points: int = 69, dy: int = 1,
+             extra_quests: list[dict[str, Any]] | None = None,
+             equip_weapon: bool = True) -> dict[str, Any]:
+    """Seed adjacent to the quest's NPC, at the given quest stage.
+
+    Defaults to a "ready to progress" shape:
+      - full HP (69 for L1)
+      - Bronze Axe (gather-friendly) + Copper Sword (combat-ready) in inv
+      - Copper Sword equipped (handles any hostile mob encountered en route)
+      - tutorial auto-seeded as finished (handled in seed._with_default_tutorial)
+
+    Override via kwargs when a phase needs something specific (e.g. Iron Axe
+    equipped for foresting, bead x3 inventory for sorcery turn-in).
+    """
+    base_inv: list[dict[str, Any]] = [
+        {"key": "bronzeaxe", "count": 1},
+        {"key": "coppersword", "count": 1},
+    ]
     if inventory:
-        base_inv.extend(inventory)
+        # Caller-supplied items come after defaults — dedupe by key.
+        by_key = {item["key"]: item for item in base_inv}
+        for item in inventory:
+            by_key[item["key"]] = item
+        base_inv = list(by_key.values())
+    if equipment is None and equip_weapon:
+        equipment = [{"type": 0, "key": "coppersword", "count": 1,
+                      "ability": -1, "abilityLevel": 0}]
+    quests = [{"key": quest_key, "stage": stage, "subStage": 0,
+               "completedSubStages": []}]
+    if extra_quests:
+        quests.extend(extra_quests)
     return {
-        "position": adjacent_to(npc_key),
+        "position": adjacent_to(npc_key, dy=dy),
         "hit_points": hit_points,
         "inventory": base_inv,
         "equipment": equipment,
         "skills": skills,
-        "quests": [{"key": quest_key, "stage": stage, "subStage": 0,
-                    "completedSubStages": []}],
+        "quests": quests,
     }
 
 
@@ -195,11 +220,35 @@ QUEST_PHASES: dict[str, list[Phase]] = {
             phase_id="accept",
             seed=_seed_at("lavanpc", stage=0, quest_key="desertquest"),
             user_prompt=(
-                "You are next to the Dying Soldier in the desert/lava area. "
-                "Start the Desert Quest by talking to him."
+                "You are next to the Dying Soldier. Start the Desert "
+                "Quest by talking to him."
             ),
             max_turns=6,
             success=stage_advanced("desertquest"),
+        ),
+        Phase(
+            phase_id="advance_to_villagegirl",
+            seed=_seed_at(
+                "villagegirl", stage=1, quest_key="desertquest",
+                inventory=[{"key": "cd", "count": 1}],
+            ),
+            user_prompt=(
+                "Desert Quest: you have the CD the Dying Soldier wanted "
+                "delivered. The Wife (display name 'Village Girl') is "
+                "adjacent. Talk to her to hand it over."
+            ),
+            max_turns=6,
+            success=stage_reached("desertquest", 2),
+        ),
+        Phase(
+            phase_id="complete",
+            seed=_seed_at("lavanpc", stage=2, quest_key="desertquest"),
+            user_prompt=(
+                "Return to the Dying Soldier and talk to him to finish the "
+                "Desert Quest."
+            ),
+            max_turns=6,
+            success=quest_finished("desertquest"),
         ),
     ],
 
@@ -240,6 +289,32 @@ QUEST_PHASES: dict[str, list[Phase]] = {
             max_turns=6,
             success=stage_advanced("scavenger"),
         ),
+        Phase(
+            phase_id="advance_to_oldlady",
+            seed=_seed_at("oldlady", stage=1, quest_key="scavenger"),
+            user_prompt=(
+                "The Scavenger quest sent you to the Old Lady. Talk to her "
+                "to advance the quest."
+            ),
+            max_turns=6,
+            success=stage_reached("scavenger", 2),
+        ),
+        Phase(
+            phase_id="complete",
+            seed=_seed_at(
+                "oldlady", stage=2, quest_key="scavenger",
+                inventory=[{"key": "tomato", "count": 2},
+                           {"key": "strawberry", "count": 2},
+                           {"key": "string", "count": 1}],
+            ),
+            user_prompt=(
+                "You have the groceries the Old Lady asked for (2 tomato, "
+                "2 strawberry, 1 string). Hand them over by talking to her "
+                "to finish Scavenger."
+            ),
+            max_turns=6,
+            success=quest_finished("scavenger"),
+        ),
     ],
 
     "herbalistdesperation": [
@@ -253,6 +328,33 @@ QUEST_PHASES: dict[str, list[Phase]] = {
             max_turns=6,
             success=stage_advanced("herbalistdesperation"),
         ),
+        Phase(
+            phase_id="advance_stage1",
+            seed=_seed_at(
+                "herbalist", stage=1, quest_key="herbalistdesperation",
+                inventory=[{"key": "bluelily", "count": 3}],
+            ),
+            user_prompt=(
+                "You have 3 Blue Lilies Herby asked for. Deliver them by "
+                "talking to him."
+            ),
+            max_turns=6,
+            success=stage_reached("herbalistdesperation", 2),
+        ),
+        Phase(
+            phase_id="complete",
+            seed=_seed_at(
+                "herbalist", stage=2, quest_key="herbalistdesperation",
+                inventory=[{"key": "tomato", "count": 2},
+                           {"key": "paprika", "count": 2}],
+            ),
+            user_prompt=(
+                "You have the tomatoes and paprika Herby needs (2 each). "
+                "Talk to him to finish Herbalist's Desperation."
+            ),
+            max_turns=6,
+            success=quest_finished("herbalistdesperation"),
+        ),
     ],
 
     "artsandcrafts": [
@@ -265,6 +367,32 @@ QUEST_PHASES: dict[str, list[Phase]] = {
             ),
             max_turns=6,
             success=stage_advanced("artsandcrafts"),
+        ),
+        Phase(
+            phase_id="advance_stage1",
+            seed=_seed_at(
+                "iamverycoldnpc", stage=1, quest_key="artsandcrafts",
+                inventory=[{"key": "berylpendant", "count": 1}],
+            ),
+            user_prompt=(
+                "You have the Beryl Pendant Babushka asked for. Talk to "
+                "her to hand it over."
+            ),
+            max_turns=6,
+            success=stage_reached("artsandcrafts", 2),
+        ),
+        Phase(
+            phase_id="complete",
+            seed=_seed_at(
+                "iamverycoldnpc", stage=3, quest_key="artsandcrafts",
+                inventory=[{"key": "stew", "count": 1}],
+            ),
+            user_prompt=(
+                "You have the Stew Babushka asked for. Talk to her to "
+                "finish Arts and Crafts."
+            ),
+            max_turns=6,
+            success=quest_finished("artsandcrafts"),
         ),
     ],
 
@@ -292,6 +420,16 @@ QUEST_PHASES: dict[str, list[Phase]] = {
             max_turns=6,
             success=stage_advanced("seaactivities"),
         ),
+        Phase(
+            phase_id="advance_to_picklenpc",
+            seed=_seed_at("picklenpc", stage=1, quest_key="seaactivities"),
+            user_prompt=(
+                "Sea Activities sent you to Sea Cucumber. Talk to him to "
+                "advance to the next stage."
+            ),
+            max_turns=6,
+            success=stage_reached("seaactivities", 2),
+        ),
     ],
 
     "royaldrama": [
@@ -305,21 +443,75 @@ QUEST_PHASES: dict[str, list[Phase]] = {
             max_turns=6,
             success=stage_advanced("royaldrama"),
         ),
+        Phase(
+            phase_id="advance_to_ratnpc",
+            seed=_seed_at("ratnpc", stage=1, quest_key="royaldrama"),
+            user_prompt=(
+                "Royal Drama says there's a talking Rat in the sewer. You "
+                "are standing next to it. Talk to the Rat (display name "
+                "'Rat') to advance the quest."
+            ),
+            max_turns=8,
+            success=stage_reached("royaldrama", 2),
+        ),
+        Phase(
+            phase_id="complete",
+            seed=_seed_at("king2", stage=2, quest_key="royaldrama"),
+            user_prompt=(
+                "You are next to the King in the castle. Talk to him to "
+                "finish the Royal Drama quest."
+            ),
+            max_turns=6,
+            success=quest_finished("royaldrama"),
+        ),
     ],
 
     "royalpet": [
         Phase(
             phase_id="accept",
-            seed=_seed_at("king", stage=0, quest_key="royalpet"),
+            seed=_seed_at(
+                "king", stage=0, quest_key="royalpet",
+                # King NPC is hidden until royaldrama is FINISHED
+                # (hideNPCs: {"king": "before"} in royaldrama.json).
+                extra_quests=[{"key": "royaldrama", "stage": 3, "subStage": 0,
+                               "completedSubStages": []}],
+            ),
             user_prompt=(
                 "You are next to the King. Start the Royal Pet quest by "
                 "talking to him."
             ),
             max_turns=6,
             success=stage_advanced("royalpet"),
-            xfail_reason="Per QUEST_CITATIONS.md: progression works but "
-                         "catpet reward item is undefined; early stages "
-                         "still advance.",
+        ),
+        Phase(
+            phase_id="deliver_book_to_shepherd",
+            seed=_seed_at(
+                "shepherdboy", stage=1, quest_key="royalpet",
+                inventory=[{"key": "book", "count": 3}],
+                extra_quests=[{"key": "royaldrama", "stage": 3, "subStage": 0,
+                               "completedSubStages": []}],
+            ),
+            user_prompt=(
+                "You have 3 Books from the King. Deliver one to the "
+                "Shepherd Boy by talking to him."
+            ),
+            max_turns=6,
+            # Delivery consumes one book; use book-count drop as success.
+            success=lambda s: s.inventory_keys.get("book", 3) < 3,
+        ),
+        Phase(
+            phase_id="complete",
+            seed=_seed_at(
+                "king", stage=2, quest_key="royalpet",
+                extra_quests=[{"key": "royaldrama", "stage": 3, "subStage": 0,
+                               "completedSubStages": []}],
+            ),
+            user_prompt=(
+                "All books delivered. Return to the King and talk to him "
+                "to finish the Royal Pet quest."
+            ),
+            max_turns=6,
+            success=quest_finished("royalpet"),
         ),
     ],
 
@@ -334,36 +526,72 @@ QUEST_PHASES: dict[str, list[Phase]] = {
             max_turns=6,
             success=stage_advanced("clamchowder"),
         ),
+        Phase(
+            phase_id="advance_to_doctor",
+            seed=_seed_at("doctor", stage=2, quest_key="clamchowder"),
+            user_prompt=(
+                "Clam Chowder sent you to the Doctor. Talk to him to "
+                "advance the quest."
+            ),
+            max_turns=6,
+            success=stage_reached("clamchowder", 3),
+        ),
+        Phase(
+            phase_id="complete",
+            seed=_seed_at("bluebikinigirlnpc", stage=6, quest_key="clamchowder"),
+            user_prompt=(
+                "You're back with Pretzel for the final step of Clam "
+                "Chowder. Talk to her to finish the quest."
+            ),
+            max_turns=6,
+            success=quest_finished("clamchowder"),
+        ),
     ],
 
-    "sorceryandstuff": [
+    "sorcery": [
         Phase(
             phase_id="accept",
-            seed=_seed_at("sorcerer", stage=0, quest_key="sorceryandstuff"),
+            seed=_seed_at("sorcerer", stage=0, quest_key="sorcery"),
             user_prompt=(
                 "You are next to the Sorcerer. Start the Sorcery and Stuff "
                 "quest by talking to him."
             ),
             max_turns=6,
-            success=stage_advanced("sorceryandstuff"),
+            success=stage_advanced("sorcery"),
+        ),
+        Phase(
+            phase_id="turn_in_beads",
+            seed=_seed_at(
+                "sorcerer", stage=1, quest_key="sorcery",
+                inventory=[{"key": "bead", "count": 3}],
+            ),
+            user_prompt=(
+                "You have 3 beads. The Sorcerer wants them. Turn them in "
+                "to finish the Sorcery and Stuff quest."
+            ),
+            max_turns=6,
+            success=quest_finished("sorcery"),
         ),
     ],
 
     "ancientlands": [
         Phase(
             phase_id="accept",
-            seed=_seed_at("ancientmanumentnpc", stage=0, quest_key="ancientlands"),
+            seed=_seed_at("ancientmanumentnpc", stage=0, quest_key="ancientlands", dy=-1),
             user_prompt=(
-                "You are next to the Ancient Monument. Start the Ancient "
-                "Lands quest."
+                "You are already standing next to the Ancient Monument NPC "
+                "(display name: 'Ancient Monument'). Call "
+                "interact_npc(npc_name='Ancient Monument') on your very "
+                "next turn to start the Ancient Lands quest. Do NOT warp, "
+                "navigate, or query — you are in position."
             ),
-            max_turns=6,
+            max_turns=10,
             success=stage_advanced("ancientlands"),
         ),
         Phase(
             phase_id="turn_in_icesword",
             seed=_seed_at(
-                "ancientmanumentnpc", stage=1, quest_key="ancientlands",
+                "ancientmanumentnpc", stage=1, quest_key="ancientlands", dy=-1,
                 inventory=[{"key": "coppersword", "count": 1},
                            {"key": "icesword", "count": 1}],
                 equipment=[{"type": 0, "key": "coppersword", "count": 1,

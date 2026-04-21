@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -26,8 +27,19 @@ from typing import Any, AsyncIterator
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
-MCP_SERVER_PATH = Path.home() / "projects" / "kaetram-agent" / "mcp_game_server.py"
-PYTHON_INTERPRETER = Path.home() / "projects" / "kaetram-agent" / ".venv" / "bin" / "python"
+# Resolve relative to this file so the tests work from any box (GCP VM,
+# local GPU runner, laptop, etc). `KAETRAM_ARENA_VENV_PYTHON` env overrides
+# the interpreter path for cases where the venv lives elsewhere (e.g. the
+# QwenPlays runner reusing its own venv).
+import os as _os
+_ARENA_ROOT = Path(__file__).resolve().parents[3]
+MCP_SERVER_PATH = _ARENA_ROOT / "mcp_game_server.py"
+PYTHON_INTERPRETER = Path(
+    _os.environ.get(
+        "KAETRAM_ARENA_VENV_PYTHON",
+        str(_ARENA_ROOT / ".venv" / "bin" / "python"),
+    )
+)
 
 
 def _server_params(
@@ -71,7 +83,15 @@ class McpToolResult:
         return f"McpToolResult(is_error={self.is_error}, text={self.text!r})"
 
     def json(self) -> dict[str, Any] | list[Any]:
-        return json.loads(self.text)
+        # Many tools prefix output with "tool_name: " and/or append trailing
+        # sections like "\n\nASCII_MAP:...", "\n\nDIGEST:...", "\n\nSTUCK_CHECK:...".
+        # Strip them so json.loads gets just the JSON payload.
+        text = re.sub(r"^[a-zA-Z_][a-zA-Z0-9_]*:\s+", "", self.text, count=1)
+        for marker in ("\n\nASCII_MAP:", "\n\nDIGEST:", "\n\nSTUCK_CHECK:"):
+            idx = text.find(marker)
+            if idx != -1:
+                text = text[:idx]
+        return json.loads(text)
 
     def observe_state(self) -> dict[str, Any]:
         state_text = self.text.split("\n\nASCII_MAP:", 1)[0]

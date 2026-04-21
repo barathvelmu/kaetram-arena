@@ -1,0 +1,98 @@
+"""Shared e2e test fixtures — runs against an ambient Kaetram server.
+
+Prerequisites (all assumed running before pytest invocation):
+  - Kaetram server on :9001 (client on :9000)
+  - MongoDB on :27017 with database `kaetram_devlopment`
+  - (optional) Ollama on :11434 for LLM-driven tests
+
+The previous REST-helper-lane fixture has been replaced with this ambient
+model. Per-test isolation via unique usernames — no two tests touch the
+same player row. The QwenPlays autonomous `pm2 agent` is paused for the
+test session so it doesn't fight with test MCP subprocesses over browser
+state.
+"""
+
+from __future__ import annotations
+
+import json
+import socket
+import subprocess
+import time
+import uuid
+from dataclasses import dataclass
+
+import pytest
+
+
+KAETRAM_HOST = "127.0.0.1"
+KAETRAM_WS_PORT = 9001
+KAETRAM_CLIENT_PORT = 9000
+MONGO_HOST = "127.0.0.1"
+MONGO_PORT = 27017
+
+
+def _tcp_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+@dataclass
+class AmbientKaetram:
+    """Back-compat shim — existing arena tests read `.client_url` and
+    `.db_helper_url` off this. `db_helper_url` is now empty (pymongo-direct
+    seed ignores it)."""
+    client_url: str = f"http://{KAETRAM_HOST}:{KAETRAM_CLIENT_PORT}"
+    server_ws_url: str = f"ws://{KAETRAM_HOST}:{KAETRAM_WS_PORT}"
+    db_helper_url: str = ""
+
+
+@pytest.fixture(scope="session")
+def isolated_lane():
+    """Return the ambient Kaetram connection. Skips the session if Kaetram
+    or Mongo aren't running — don't fail mysteriously inside tests."""
+    if not _tcp_open(KAETRAM_HOST, KAETRAM_CLIENT_PORT):
+        pytest.skip(f"Kaetram client not reachable at :{KAETRAM_CLIENT_PORT}")
+    if not _tcp_open(KAETRAM_HOST, KAETRAM_WS_PORT):
+        pytest.skip(f"Kaetram server not reachable at :{KAETRAM_WS_PORT}")
+    if not _tcp_open(MONGO_HOST, MONGO_PORT):
+        pytest.skip(f"MongoDB not reachable at :{MONGO_PORT}")
+    return AmbientKaetram()
+
+
+def _pm2_jlist() -> list[dict]:
+    try:
+        r = subprocess.run(
+            ["pm2", "jlist"], capture_output=True, text=True, timeout=10,
+        )
+        return json.loads(r.stdout or "[]")
+    except (FileNotFoundError, subprocess.SubprocessError, json.JSONDecodeError):
+        return []
+
+
+@pytest.fixture(scope="session", autouse=True)
+def pause_autonomous_agent():
+    """If QwenPlays' pm2 `agent` is running, pause it for the test session
+    so it doesn't compete over browser/MCP state with individual tests."""
+    procs = _pm2_jlist()
+    agent = next((p for p in procs if p.get("name") == "agent"), None)
+    was_online = bool(
+        agent and (agent.get("pm2_env") or {}).get("status") == "online"
+    )
+    if was_online:
+        subprocess.run(["pm2", "stop", "agent"], capture_output=True, timeout=15)
+        time.sleep(3)
+    yield
+    if was_online:
+        subprocess.run(["pm2", "start", "agent", "--update-env"],
+                       capture_output=True, timeout=15)
+
+
+@pytest.fixture
+def unique_username(request) -> str:
+    """Unique username per test. Kaetram allows 16 chars max and A-Za-z0-9_.
+    UUID4 hex[:6] keeps well under that."""
+    slug = uuid.uuid4().hex[:6]
+    return f"E2EBot_{slug}"

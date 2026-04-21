@@ -716,10 +716,18 @@ async def set_attack_style(ctx: Context, style: str = "hack") -> str:
         style: 'hack' (strength+defense), 'chop' (accuracy+defense), or 'defensive' (defense)
     """
     style_ids = {"hack": 6, "chop": 7, "defensive": 3}
-    sid = style_ids.get(style.lower(), 6)
+    requested = (style or "").lower()
+    if requested not in style_ids:
+        return json.dumps({
+            "error": f"unknown style '{style}'",
+            "valid_styles": sorted(style_ids),
+            "style_fallback": "hack",
+            "note": "Pick a valid style next call — no in-game change made.",
+        })
+    sid = style_ids[requested]
     page = await _page(ctx)
     await page.evaluate(f"() => window.game.player.setAttackStyle({sid})")
-    return f"Set attack style to {style} (id={sid})"
+    return f"Set attack style to {requested} (id={sid})"
 
 
 # ── Navigation ────────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import pytest
 
 from tool_surface import LEGACY_HIDDEN_TOOL_NAMES, MODEL_VISIBLE_TOOL_NAMES
 
-from .helpers.mcp_client import mcp_session
+from tests.e2e.helpers.mcp_client import mcp_session
 
 
 @pytest.mark.mcp_smoke

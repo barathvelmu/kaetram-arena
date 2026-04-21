@@ -26,8 +26,19 @@ from typing import Any, AsyncIterator
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
-MCP_SERVER_PATH = Path.home() / "projects" / "kaetram-agent" / "mcp_game_server.py"
-PYTHON_INTERPRETER = Path.home() / "projects" / "kaetram-agent" / ".venv" / "bin" / "python"
+# Resolve relative to this file so the tests work from any box (GCP VM,
+# local GPU runner, laptop, etc). `KAETRAM_ARENA_VENV_PYTHON` env overrides
+# the interpreter path for cases where the venv lives elsewhere (e.g. the
+# QwenPlays runner reusing its own venv).
+import os as _os
+_ARENA_ROOT = Path(__file__).resolve().parents[3]
+MCP_SERVER_PATH = _ARENA_ROOT / "mcp_game_server.py"
+PYTHON_INTERPRETER = Path(
+    _os.environ.get(
+        "KAETRAM_ARENA_VENV_PYTHON",
+        str(_ARENA_ROOT / ".venv" / "bin" / "python"),
+    )
+)
 
 
 def _server_params(

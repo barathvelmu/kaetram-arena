@@ -21,8 +21,8 @@ import json
 
 import pytest
 
-from .helpers.mcp_client import mcp_session
-from .helpers.seed import cleanup_player, seed_player
+from tests.e2e.helpers.mcp_client import mcp_session
+from tests.e2e.helpers.seed import cleanup_player, seed_player
 
 
 @pytest.mark.mcp_smoke

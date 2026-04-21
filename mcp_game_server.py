@@ -591,13 +591,24 @@ async def attack(ctx: Context, mob_name: str) -> str:
             player_max_hp: p.maxHitPoints || 0,
         };
     }""")
-    # Add damage tracking
-    if isinstance(post, dict) and hp_before is not None:
-        post["hp_before"] = hp_before
-        hp_after = post.get("mob_hp", 0)
-        post["damage_dealt"] = max(0, hp_before - hp_after)
-        if post["damage_dealt"] == 0 and not post.get("killed"):
-            post["note"] = "Attack landed but game tick has not updated HP yet. Keep attacking — do not move."
+    # Add damage tracking — `killed` is ONLY valid when we had a real target
+    # and its HP went from >0 to 0. Without hp_before (i.e. the attack call
+    # never acquired a target at all) the JS `!t` branch used to return
+    # killed=true; that produced phantom kill records in training data.
+    if isinstance(post, dict):
+        if hp_before is not None:
+            post["hp_before"] = hp_before
+            hp_after = post.get("mob_hp", 0)
+            post["damage_dealt"] = max(0, hp_before - hp_after)
+            post["killed"] = bool(hp_before > 0 and hp_after <= 0)
+            if post["damage_dealt"] == 0 and not post["killed"]:
+                post["note"] = "Attack landed but game tick has not updated HP yet. Keep attacking — do not move."
+        else:
+            # No pre-attack HP snapshot → no target was ever acquired. Don't
+            # claim a kill.
+            post["killed"] = False
+            post["damage_dealt"] = 0
+            post["note"] = "No target acquired — attack did nothing. Move closer or pick a different mob."
 
     # Auto-loot on kill: scan for nearby items and walk to them
     auto_looted = {}

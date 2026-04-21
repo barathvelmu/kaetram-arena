@@ -55,6 +55,7 @@ NPCS: dict[str, tuple[int, int]] = {
     "herbalist":          (333, 281),   # Herbalist's Desperation
     "oldlady":            (776, 106),   # Scavenger turn-in
     "oldlady2":           (919, 590),   # Clam Chowder turn-in
+    "doctor":             (698, 550),   # Clam Chowder intermediate
     "bluebikinigirlnpc":  (676, 359),   # Pretzel — Clam Chowder
     "villagegirl":        (735, 101),   # Wife — Desert Quest turn-in
 
@@ -91,6 +92,7 @@ NPC_DISPLAY_NAMES: dict[str, str] = {
     "shepherdboy": "Shepherd Boy",
     "ratnpc": "Rat",
     "coder": "Programmer",
+    "doctor": "Doctor",
 }
 
 
@@ -120,7 +122,7 @@ QUESTS: dict[str, dict] = {
         "npc_key":  "lavanpc",
         "display":  "Dying Soldier",
         "reward":   "completion only",
-        "stage_count": 4,
+        "stage_count": 3,
     },
     "anvilsechoes": {
         "npc_key":  "blacksmith",
@@ -132,26 +134,26 @@ QUESTS: dict[str, dict] = {
         "npc_key":  "royalguard2",
         "display":  "Royal Guard",
         "reward":   "10000 gold",
-        "stage_count": 4,
+        "stage_count": 3,
     },
     "royalpet": {
         "npc_key":  "king",
         "display":  "King",
         "reward":   "completion (catpet reward materializes post-PR1)",
-        "stage_count": 5,
+        "stage_count": 3,
     },
-    "sorceryandstuff": {
+    "sorcery": {
         "npc_key":  "sorcerer",
         "display":  "Sorcerer",
         "reward":   "staff (post-PR1)",
-        "stage_count": 3,
-        "turn_in_items": {2: [("bead", 3)]},
+        "stage_count": 2,
+        "turn_in_items": {1: [("bead", 3)]},
     },
     "ricksroll": {
         "npc_key":  "rick",
         "display":  "Rick",
         "reward":   "1987 gold",
-        "stage_count": 7,
+        "stage_count": 4,
     },
     "seaactivities": {
         "npc_key":  "sponge",
@@ -182,7 +184,7 @@ QUESTS: dict[str, dict] = {
         "npc_key":  "herbalist",
         "display":  "Herby Mc. Herb",
         "reward":   "hotsauce + 1500 foraging xp",
-        "stage_count": 5,
+        "stage_count": 3,
     },
     "scavenger": {
         "npc_key":  "villagegirl2",
@@ -200,7 +202,7 @@ QUESTS: dict[str, dict] = {
         "npc_key":  "ancientmanumentnpc",
         "display":  "Ancient Monument",
         "reward":   "snowpotion",
-        "stage_count": 4,
+        "stage_count": 2,
         "turn_in_items": {1: [("icesword", 1)]},
     },
 }

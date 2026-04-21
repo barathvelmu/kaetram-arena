@@ -26,7 +26,7 @@ from tests.e2e.helpers.seed import cleanup_player, seed_player, snapshot_player
 SIMPLE_ACCEPT_QUESTS = [
     "foresting", "anvilsechoes", "scientistspotion", "minersquest",
     "herbalistdesperation", "artsandcrafts", "ricksroll", "seaactivities",
-    "royaldrama", "royalpet", "clamchowder", "scavenger", "sorceryandstuff",
+    "royaldrama", "royalpet", "clamchowder", "scavenger", "sorcery",
     "desertquest", "ancientlands",
 ]
 
@@ -48,12 +48,23 @@ async def test_interact_npc_accepts_quest(isolated_lane, unique_username, quest_
     display = info["display"]
 
     cleanup_player(unique_username)
+    # Per-quest seed tweaks driven by game rules:
+    #  - ancientlands: seed north of the Monument (dy=-1) because dy=+1
+    #    lands on a plateau-boundary tile and the server relocates to
+    #    SPAWN_POINT on login.
+    #  - royalpet: King is hidden until royaldrama is FINISHED
+    #    (royaldrama.json hideNPCs: {"king": "before"}).
+    dy = -1 if quest_key == "ancientlands" else 1
+    quests = [{"key": quest_key, "stage": 0, "subStage": 0,
+               "completedSubStages": []}]
+    if quest_key == "royalpet":
+        quests.append({"key": "royaldrama", "stage": 3, "subStage": 0,
+                       "completedSubStages": []})
     seed_player(
         unique_username,
-        position=adjacent_to(npc_key),
+        position=adjacent_to(npc_key, dy=dy),
         inventory=[{"key": "bronzeaxe", "count": 1}],
-        quests=[{"key": quest_key, "stage": 0, "subStage": 0,
-                 "completedSubStages": []}],
+        quests=quests,
     )
     try:
         assert _quest_stage(unique_username, quest_key) == 0

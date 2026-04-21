@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import pytest
 
-from .helpers.browser import browser_session
-from .helpers.seed import cleanup_player, seed_player
+from tests.e2e.helpers.browser import browser_session
+from tests.e2e.helpers.seed import cleanup_player, seed_player
 
 
 async def test_diag_click_login_and_watch(isolated_lane, unique_username):

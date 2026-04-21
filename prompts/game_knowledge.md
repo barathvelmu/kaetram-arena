@@ -54,7 +54,7 @@ Use exact quest names from this table when calling `query_quest(quest_name)`. Ca
 | P1 | Tutorial | Auto-finished by runtime bypass | Starter kit already granted | Treat as finished; warp to Mudwich if spawned in tutorial area |
 | P1 | Foresting | None | `ironaxe` | Turn in logs 10 + 10 to Forester |
 | P1 | Desert Quest | None | Unlocks `crullfield` + `lakesworld` warps | Deliver `cd` to Wife, then return |
-| P1 | Anvil's Echoes | None | `smithingboots` + 420 Smithing XP | Talk to Blacksmith twice |
+| P1 | Anvil's Echoes | None | `bronzeboots` + 420 Smithing XP | Talk to Blacksmith twice |
 | P1 | Royal Drama | None | **10000 gold** | `royalguard2 -> ratnpc -> king2` |
 | P1 | Royal Pet | **Royal Drama** complete | `catpet` (pet) | Deliver 3 books, then return to King |
 | P1 | Sorcery and Stuff | None | `staff` + Sorcerer shop | Farm Hermit Crab Warrior at **(320, 455)** for guaranteed `bead`, turn in x3 |

@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import pytest
 
-from .helpers.browser import browser_session, login_seeded_player
-from .helpers.primitives import game_move_to
-from .helpers.seed import cleanup_player, seed_player
-from .helpers.wait import wait_for_state
+from tests.e2e.helpers.browser import browser_session, login_seeded_player
+from tests.e2e.helpers.primitives import game_move_to
+from tests.e2e.helpers.seed import cleanup_player, seed_player
+from tests.e2e.helpers.wait import wait_for_state
 
 
 @pytest.mark.mcp_smoke

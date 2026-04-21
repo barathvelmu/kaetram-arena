@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from .helpers.mcp_client import McpSession, mcp_session
-from .helpers.seed import cleanup_player, seed_player
+from tests.e2e.helpers.mcp_client import McpSession, mcp_session
+from tests.e2e.helpers.seed import cleanup_player, seed_player
 
 MUDWICH_CENTER = (188, 157)
 FORESTER_ADJACENT = (216, 115)

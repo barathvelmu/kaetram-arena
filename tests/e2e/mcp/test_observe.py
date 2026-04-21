@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import pytest
 
-from .helpers.browser import browser_session, login_seeded_player
-from .helpers.mcp_client import mcp_session
-from .helpers.observe import observe_via_browser
-from .helpers.seed import cleanup_player, seed_player
+from tests.e2e.helpers.browser import browser_session, login_seeded_player
+from tests.e2e.helpers.mcp_client import mcp_session
+from tests.e2e.helpers.observe import observe_via_browser
+from tests.e2e.helpers.seed import cleanup_player, seed_player
 
 
 @pytest.mark.mcp_smoke

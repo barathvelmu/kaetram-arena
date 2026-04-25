@@ -9,8 +9,8 @@
 #   ./scripts/restart-single-agent.sh 2 --reset             # reset state (fresh level 1)
 #   ./scripts/restart-single-agent.sh 2 --codex             # switch to codex harness
 #   ./scripts/restart-single-agent.sh 2 --claude             # switch to claude harness
-#   ./scripts/restart-single-agent.sh 2 --personality aggressive
-#   ./scripts/restart-single-agent.sh 2 --reset --codex --personality curious
+#   ./scripts/restart-single-agent.sh 2 --personality grinder
+#   ./scripts/restart-single-agent.sh 2 --reset --codex --personality explorer_tinkerer
 
 set -euo pipefail
 
@@ -28,19 +28,18 @@ while [[ $# -gt 0 ]]; do
     --claude)      NEW_HARNESS="claude"; shift;;
     --codex)       NEW_HARNESS="codex"; shift;;
     --gemini)      NEW_HARNESS="gemini"; shift;;
-    --kimi)        NEW_HARNESS="kimi"; shift;;
-    --qwen-code)   NEW_HARNESS="qwen-code"; shift;;
+    --opencode)    NEW_HARNESS="opencode"; shift;;
     --personality) NEW_PERSONALITY="$2"; shift 2;;
     -h|--help)
-      echo "Usage: $0 <agent_id> [--reset] [--claude|--codex|--kimi|--qwen-code] [--personality <name>]"
+      echo "Usage: $0 <agent_id> [--reset] [--claude|--codex|--gemini|--opencode] [--personality <name>]"
       echo ""
       echo "  agent_id         Agent number (0-7)"
       echo "  --reset          Clear sandbox state + reset DB (fresh level 1)"
       echo "  --claude         Switch agent to Claude CLI"
-      echo "  --codex          Switch agent to Codex CLI"
-      echo "  --kimi           Switch agent to Kimi CLI"
-      echo "  --qwen-code      Switch agent to Qwen Code CLI"
-      echo "  --personality X  Change personality (aggressive/methodical/curious)"
+      echo "  --codex           Switch agent to Codex CLI"
+      echo "  --gemini          Switch agent to Gemini CLI"
+      echo "  --opencode        Switch agent to OpenCode CLI (NVIDIA Qwen free API)"
+      echo "  --personality X  Change personality (grinder/completionist/explorer_tinkerer)"
       exit 0;;
     *)
       if [ -z "$AGENT_ID" ] && [[ "$1" =~ ^[0-9]+$ ]]; then
@@ -53,7 +52,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$AGENT_ID" ]; then
-  echo "ERROR: agent_id required. Usage: $0 <agent_id> [--reset] [--claude|--codex|--kimi|--qwen-code] [--personality <name>]" >&2
+  echo "ERROR: agent_id required. Usage: $0 <agent_id> [--reset] [--claude|--codex|--gemini|--opencode] [--personality <name>]" >&2
   exit 1
 fi
 
@@ -69,12 +68,12 @@ fi
 if [ -f "$METADATA" ]; then
   CUR_USERNAME=$(python3 -c "import json; print(json.load(open('$METADATA')).get('username','Agent$AGENT_ID'))" 2>/dev/null || echo "Agent$AGENT_ID")
   CUR_HARNESS=$(python3 -c "import json; print(json.load(open('$METADATA')).get('harness','claude'))" 2>/dev/null || echo "claude")
-  CUR_PERSONALITY=$(python3 -c "import json; print(json.load(open('$METADATA')).get('personality','aggressive'))" 2>/dev/null || echo "aggressive")
+  CUR_PERSONALITY=$(python3 -c "import json; print(json.load(open('$METADATA')).get('personality','grinder'))" 2>/dev/null || echo "grinder")
   CUR_PORT=$(python3 -c "import json; print(json.load(open('$METADATA')).get('server_port', $((9001 + AGENT_ID * 10))))" 2>/dev/null || echo "$((9001 + AGENT_ID * 10))")
 else
   CUR_USERNAME="Agent$AGENT_ID"
   CUR_HARNESS="claude"
-  CUR_PERSONALITY="aggressive"
+  CUR_PERSONALITY="grinder"
   CUR_PORT=$((9001 + AGENT_ID * 10))
 fi
 
@@ -85,8 +84,8 @@ PERSONALITY="${NEW_PERSONALITY:-$CUR_PERSONALITY}"
 # Validate personality
 if [ -n "$NEW_PERSONALITY" ]; then
   case "$NEW_PERSONALITY" in
-    aggressive|methodical|curious) ;;
-    *) echo "ERROR: Invalid personality '$NEW_PERSONALITY'. Use: aggressive, methodical, curious" >&2; exit 1;;
+    grinder|completionist|explorer_tinkerer) ;;
+    *) echo "ERROR: Invalid personality '$NEW_PERSONALITY'. Use: grinder, completionist, explorer_tinkerer" >&2; exit 1;;
   esac
 fi
 
@@ -103,12 +102,10 @@ echo "Killing agent $AGENT_ID process..."
 # Kill CLI processes scoped to this agent's sandbox or username
 pkill -f "claude.*-p.*$SANDBOX\|claude.*-p.*$CUR_USERNAME" 2>/dev/null || true
 pkill -f "codex.*$CUR_USERNAME" 2>/dev/null || true
-pkill -f "kimi.*$CUR_USERNAME" 2>/dev/null || true
-pkill -f "qwen.*$CUR_USERNAME" 2>/dev/null || true
 # Kill MCP server + Playwright + Chromium for this agent
 # The agent CLI is the process group leader (spawned with setsid by orchestrator),
 # so find its children to identify the right MCP server
-CLI_PID=$(pgrep -f "claude.*-p.*$CUR_USERNAME\|codex.*$CUR_USERNAME\|kimi.*$CUR_USERNAME\|qwen.*$CUR_USERNAME" 2>/dev/null | head -1 || true)
+CLI_PID=$(pgrep -f "claude.*-p.*$CUR_USERNAME\|codex.*$CUR_USERNAME\|gemini.*$CUR_USERNAME\|opencode.*$CUR_USERNAME" 2>/dev/null | head -1 || true)
 if [ -n "$CLI_PID" ]; then
   # Kill the entire process group (CLI + MCP + Playwright + Chromium)
   PGID=$(ps -o pgid= -p "$CLI_PID" 2>/dev/null | tr -d ' ')
@@ -153,13 +150,9 @@ if [ "$HARNESS" != "$CUR_HARNESS" ] || [ "$PERSONALITY" != "$CUR_PERSONALITY" ];
       NEW_USERNAME="GeminiBot$AGENT_ID"
       MODEL="gemini-2.5-flash"
       ;;
-    kimi)
-      NEW_USERNAME="KimiBot$AGENT_ID"
-      MODEL="kimi-k2"
-      ;;
-    qwen-code)
-      NEW_USERNAME="QwenBot$AGENT_ID"
-      MODEL="qwen3-coder"
+    opencode)
+      NEW_USERNAME="OpenCodeBot$AGENT_ID"
+      MODEL="${OPENCODE_MODEL:-nvidia/qwen/qwen3-coder-480b-a35b-instruct}"
       ;;
     *)
       # claude or default
@@ -198,7 +191,7 @@ if [ "$RESET" = true ]; then
   COLLECTIONS=(player_info player_skills player_equipment player_inventory player_bank player_quests player_achievements player_statistics player_abilities)
 
   # Determine which usernames to clear (all possible bot types for this agent ID)
-  USERNAMES="'claudebot${AGENT_ID}','codexbot${AGENT_ID}','kimibot${AGENT_ID}','qwencodebot${AGENT_ID}'"
+  USERNAMES="'claudebot${AGENT_ID}','codexbot${AGENT_ID}','geminibot${AGENT_ID}','opencodebot${AGENT_ID}'"
 
   if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
     echo "Resetting MongoDB for agent $AGENT_ID..."

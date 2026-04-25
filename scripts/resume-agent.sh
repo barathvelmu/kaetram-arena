@@ -9,28 +9,30 @@
 #
 # Usage:
 #   ./scripts/resume-agent.sh                                    # resume all agents (default mode)
-#   ./scripts/resume-agent.sh --aggressive 1 --methodical 1 --curious 1
+#   ./scripts/resume-agent.sh --grinder 1 --completionist 1 --explorer 1
 #   ./scripts/resume-agent.sh --hours 8                          # resume with time limit
 
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/_kill_helpers.sh
+source "$SCRIPT_DIR/_kill_helpers.sh"
 
 # Parse args (same flags as restart-agent.sh)
-N_AGGRESSIVE=""
-N_METHODICAL=""
-N_CURIOUS=""
+N_GRINDER=""
+N_COMPLETIONIST=""
+N_EXPLORER_TINKERER=""
 HOURS=""
 N_CLAUDE=""
 N_CODEX=""
 N_GEMINI=""
-N_KIMI=""
-N_QWEN_CODE=""
+N_OPENCODE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --aggressive)  N_AGGRESSIVE="$2"; shift 2;;
-    --methodical)  N_METHODICAL="$2"; shift 2;;
-    --curious)     N_CURIOUS="$2"; shift 2;;
+    --grinder)            N_GRINDER="$2"; shift 2;;
+    --completionist)      N_COMPLETIONIST="$2"; shift 2;;
+    --explorer-tinkerer|--explorer)  N_EXPLORER_TINKERER="$2"; shift 2;;
     --hours)       HOURS="$2"; shift 2;;
     --claude)
       if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
@@ -53,18 +55,11 @@ while [[ $# -gt 0 ]]; do
         N_GEMINI="-1"; shift
       fi
       ;;
-    --kimi)
+    --opencode)
       if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
-        N_KIMI="$2"; shift 2
+        N_OPENCODE="$2"; shift 2
       else
-        N_KIMI="-1"; shift
-      fi
-      ;;
-    --qwen-code)
-      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
-        N_QWEN_CODE="$2"; shift 2
-      else
-        N_QWEN_CODE="-1"; shift
+        N_OPENCODE="-1"; shift
       fi
       ;;
     *) shift;;
@@ -79,39 +74,33 @@ if pgrep -f "python3 orchestrate.py" > /dev/null 2>&1; then
 fi
 
 # ── Step 1b: Clean up orphaned processes from previous runs ──
-# Kill agent CLI processes (SIGTERM then SIGKILL) — all harnesses
-pkill -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
-pkill -f "codex.*exec" 2>/dev/null || true
-pkill -f "gemini.*-p" 2>/dev/null || true
-pkill -f "kimi -p" 2>/dev/null || true
-pkill -f "qwen -p" 2>/dev/null || true
-pkill -f "play.sh" 2>/dev/null || true
-pkill -f "play_qwen.py" 2>/dev/null || true
+# All scoped to data-collection sandboxes — eval/test lanes are spared.
+kill_scoped "claude -p"            TERM
+kill_scoped "codex.*exec"          TERM
+kill_scoped "gemini.*-p"           TERM
+kill_scoped "opencode run"         TERM
+kill_scoped "timeout .* opencode"  TERM
+kill_scoped "play.sh"              TERM
+kill_scoped "play_qwen.py"         TERM
 sleep 2
-pkill -9 -f "claude -p.*You play\|claude -p.*ClaudeBot\|claude -p.*play the game\|claude -p.*IMPORTANT" 2>/dev/null || true
-pkill -9 -f "codex.*exec" 2>/dev/null || true
-pkill -9 -f "gemini.*-p" 2>/dev/null || true
-# Kill MCP servers
-pkill -f "mcp_game_server.py" 2>/dev/null || true
-# Kill Playwright (all forms)
-pkill -f "playwright/driver/node" 2>/dev/null || true
-pkill -f "npm exec @playwright" 2>/dev/null || true
-pkill -f "playwright-mcp" 2>/dev/null || true
-pkill -f "game_driver.py" 2>/dev/null || true
-# Kill Chrome process groups
-for cpid in $(pgrep -f "chrome-headless-shell" 2>/dev/null); do
-  pgid=$(ps -o pgid= -p "$cpid" 2>/dev/null | tr -d ' ')
-  [ -n "$pgid" ] && [ "$pgid" != "0" ] && kill -- -"$pgid" 2>/dev/null
-done
+kill_scoped "claude -p"            KILL
+kill_scoped "codex.*exec"          KILL
+kill_scoped "gemini.*-p"           KILL
+# MCP + Playwright + game_driver — scoped.
+kill_scoped "mcp_game_server.py"     TERM
+kill_scoped "playwright/driver/node" TERM
+kill_scoped "npm exec @playwright"   TERM
+kill_scoped "playwright-mcp"         TERM
+kill_scoped "game_driver.py"         TERM
+kill_scoped_chrome_pgroup TERM
 sleep 1
-# Force-kill survivors
-pkill -9 -f "mcp_game_server.py" 2>/dev/null || true
-pkill -9 -f "playwright/driver/node" 2>/dev/null || true
-pkill -9 -f "npm exec @playwright" 2>/dev/null || true
-pkill -9 -f "playwright-mcp" 2>/dev/null || true
-pkill -9 -f "chrome-headless-shell" 2>/dev/null || true
-# Kill stale game servers on agent ports
-for port in $(seq 9001 10 9071); do
+kill_scoped "mcp_game_server.py"     KILL
+kill_scoped "playwright/driver/node" KILL
+kill_scoped "npm exec @playwright"   KILL
+kill_scoped "playwright-mcp"         KILL
+kill_scoped_chrome_pgroup KILL
+# Stale game servers on data-collection ports only (never 9061/9071/9191).
+for port in "${KAETRAM_DATA_PORTS[@]}"; do
   pid=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
   if [ -n "$pid" ]; then
     kill "$pid" 2>/dev/null || true
@@ -136,8 +125,14 @@ fi
 HAS_PERSONALITY=false
 PERSONALITY_ARGS=""
 PERSONALITY_TOTAL=0
-for p in aggressive methodical curious; do
-  eval "count=\$N_$(echo $p | tr '[:lower:]' '[:upper:]')"
+declare -A _PERSONALITY_FLAGS=(
+  [grinder]=N_GRINDER
+  [completionist]=N_COMPLETIONIST
+  [explorer-tinkerer]=N_EXPLORER_TINKERER
+)
+for p in grinder completionist explorer-tinkerer; do
+  var="${_PERSONALITY_FLAGS[$p]}"
+  count="${!var}"
   if [ -n "$count" ] && [ "$count" -gt 0 ]; then
     HAS_PERSONALITY=true
     PERSONALITY_ARGS="$PERSONALITY_ARGS --$p $count"
@@ -153,9 +148,9 @@ fi
 
 echo "=== Resuming Kaetram training run ==="
 if $HAS_PERSONALITY; then
-  [ -n "$N_AGGRESSIVE" ] && [ "$N_AGGRESSIVE" -gt 0 ] && echo "  Aggressive:  $N_AGGRESSIVE"
-  [ -n "$N_METHODICAL" ] && [ "$N_METHODICAL" -gt 0 ] && echo "  Methodical:  $N_METHODICAL"
-  [ -n "$N_CURIOUS" ] && [ "$N_CURIOUS" -gt 0 ] && echo "  Curious:     $N_CURIOUS"
+  [ -n "$N_GRINDER" ] && [ "$N_GRINDER" -gt 0 ] && echo "  Grinder:            $N_GRINDER"
+  [ -n "$N_COMPLETIONIST" ] && [ "$N_COMPLETIONIST" -gt 0 ] && echo "  Completionist:      $N_COMPLETIONIST"
+  [ -n "$N_EXPLORER_TINKERER" ] && [ "$N_EXPLORER_TINKERER" -gt 0 ] && echo "  Explorer/Tinkerer:  $N_EXPLORER_TINKERER"
   echo "  Total:       $N_AGENTS"
 else
   echo "  Agents to resume: $N_AGENTS (detected $DETECTED with state)"
@@ -209,8 +204,7 @@ fi
 [ -n "$N_CLAUDE" ] && ORCH_ARGS="$ORCH_ARGS --claude $N_CLAUDE"
 [ -n "$N_CODEX" ] && ORCH_ARGS="$ORCH_ARGS --codex $N_CODEX"
 [ -n "$N_GEMINI" ] && ORCH_ARGS="$ORCH_ARGS --gemini $N_GEMINI"
-[ -n "$N_KIMI" ] && ORCH_ARGS="$ORCH_ARGS --kimi $N_KIMI"
-[ -n "$N_QWEN_CODE" ] && ORCH_ARGS="$ORCH_ARGS --qwen-code $N_QWEN_CODE"
+[ -n "$N_OPENCODE" ] && ORCH_ARGS="$ORCH_ARGS --opencode $N_OPENCODE"
 
 ORCH_CMD="cd $PROJECT_DIR && python3 orchestrate.py $ORCH_ARGS 2>&1 | tee /tmp/orchestrate.log"
 

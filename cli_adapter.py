@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).parent
-MCP_JSON = PROJECT_DIR / ".mcp.json"
+MCP_JSON = PROJECT_DIR / ".mcp.template.json"
 
 # Disallowed tools for the game agent (prevent filesystem exploration;
 # agent should only use mcp__kaetram__* tools).
@@ -466,100 +466,57 @@ class GeminiAdapter(CLIAdapter):
         return None
 
 
-class QwenCodeAdapter(CLIAdapter):
-    """Adapter for Qwen Code CLI (qwen -p).
+class OpenCodeAdapter(CLIAdapter):
+    """Adapter for OpenCode CLI (opencode run).
 
-    Qwen Code outputs stream-json format (Gemini CLI fork) with thinking blocks
-    embedded in the message.content array, same as Claude. Reasoning tokens are
-    automatically captured in session logs and extracted by extract_turns.py.
+    OpenCode ships its own config schema (opencode.json) and reads system
+    prompts from AGENTS.md in the run directory — same convention as Codex.
+    Output format is --format json (not stream-json); each line is a JSON
+    event with `type` and nested `part` / `message.content` shapes.
+
+    We do not specify a model — opencode picks the default from the user's
+    `opencode auth` configuration and the providers defined in
+    opencode.template.json. The model field below is metadata-only.
     """
 
-    def __init__(self, model: str = "qwen3-coder"):
-        super().__init__(model)
+    def __init__(self, model: str | None = None):
+        super().__init__(model or "opencode-default")
 
     @property
     def name(self) -> str:
-        return "qwen-code"
+        return "opencode"
 
     def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
                       port: str = "", username: str = "ClaudeBot") -> None:
-        # Qwen Code uses its own MCP registry (qwen mcp add), not .mcp.json.
-        # Register custom kaetram MCP server globally.
-        result = subprocess.run(
-            ["qwen", "mcp", "list"], capture_output=True, text=True, timeout=10
-        )
-        if "kaetram" not in result.stdout:
-            screenshot_dir = str(sandbox_dir / "state")
-            subprocess.run(
-                ["qwen", "mcp", "add", "kaetram", VENV_PYTHON,
-                 str(PROJECT_DIR / "mcp_game_server.py")],
-                capture_output=True, text=True, timeout=10
+        # Resolve opencode.template.json into the sandbox — opencode reads
+        # opencode.json from CWD (or $XDG_CONFIG_HOME/opencode/). The sandbox
+        # CWD wins, so writing here keeps the kaetram MCP server scoped.
+        template_path = PROJECT_DIR / "opencode.template.json"
+        if not template_path.exists():
+            raise RuntimeError(
+                "opencode.template.json missing — add it at the project root "
+                "with provider.ollama + mcp.kaetram entries"
             )
-
-    def build_command(
-        self,
-        user_prompt: str,
-        system_prompt: str,
-        max_turns: int,
-        max_budget_usd: float | None = None,
-        auth_mode: str = "subscription",
-    ) -> list[str]:
-        # Qwen Code is a Gemini CLI fork — similar to Claude Code interface
-        return [
-            "qwen",
-            "-p",
-            user_prompt,
-            "--model",
-            self.model,
-            "--yolo",
-            "--output-format",
-            "stream-json",
-            "--max-session-turns",
-            str(max_turns),
-            "--append-system-prompt",
-            system_prompt,
+        # Build the per-agent config by injecting the MCP env block opencode
+        # does not have placeholder substitution in its schema, so we load the
+        # template as JSON and patch `mcp.kaetram.environment` directly.
+        cfg = json.loads(template_path.read_text())
+        mcp = cfg.setdefault("mcp", {}).setdefault("kaetram", {})
+        cmd = mcp.get("command", [])
+        mcp["command"] = [
+            VENV_PYTHON if c == "__VENV_PYTHON__" else c.replace("__PROJECT_DIR__", str(PROJECT_DIR))
+            for c in cmd
         ]
-
-    def get_env(self) -> dict[str, str]:
-        # Qwen Code reads auth from env vars or ~/.qwen/settings.json
-        # Caller must set OPENAI_API_KEY and OPENAI_BASE_URL for headless mode
-        return {}
-
-    def _extract_state_text_from_line(self, line: str) -> str | None:
-        """Qwen Code stream-json: same format as Claude (Gemini CLI fork).
-        State is in message.content[].text."""
-        try:
-            obj = json.loads(line)
-            for block in obj.get("message", {}).get("content", []):
-                text = block.get("text", "") if isinstance(block, dict) else ""
-                if "player_position" in text and "nearby_entities" in text:
-                    return text
-        except (json.JSONDecodeError, AttributeError):
-            pass
-        return None
-
-
-class KimiAdapter(CLIAdapter):
-    """Adapter for Kimi CLI (kimi -p).
-
-    Kimi K2 supports extended thinking mode via --thinking flag, which outputs
-    detailed reasoning tokens. These are captured in raw log output and extracted
-    by extract_turns.py for SFT training. Timeout is increased to ~60s/turn to
-    allow for thinking latency.
-    """
-
-    def __init__(self, model: str = "kimi-k2"):
-        super().__init__(model)
-
-    @property
-    def name(self) -> str:
-        return "kimi"
-
-    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
-                      port: str = "", username: str = "ClaudeBot") -> None:
-        # Resolve MCP config template to sandbox
-        mcp_text = _resolve_mcp_template(sandbox_dir, port=port, username=username)
-        (sandbox_dir / ".mcp.json").write_text(mcp_text)
+        mcp["environment"] = {
+            "KAETRAM_PORT":           port,
+            "KAETRAM_USERNAME":       username,
+            "KAETRAM_EXTRACTOR":      str(PROJECT_DIR / "state_extractor.js"),
+            "KAETRAM_SCREENSHOT_DIR": str(sandbox_dir / "state"),
+        }
+        (sandbox_dir / "opencode.json").write_text(json.dumps(cfg, indent=2))
+        # System prompt → AGENTS.md (opencode convention)
+        if system_prompt:
+            (sandbox_dir / "AGENTS.md").write_text(system_prompt)
 
     def build_command(
         self,
@@ -569,36 +526,40 @@ class KimiAdapter(CLIAdapter):
         max_budget_usd: float | None = None,
         auth_mode: str = "subscription",
     ) -> list[str]:
-        # Kimi K2 supports extended thinking (--thinking) and structured JSON output (--output-format stream-json)
-        # This gives us thinking blocks in the same format as Claude for easy parsing
-        # Use timeout wrapper like Codex (estimate ~60s per turn to account for thinking time)
-        timeout_seconds = max(max_turns * 60, 900)
+        # opencode run is one-shot per invocation — the outer play.sh loop
+        # drives session cadence. We do NOT pass --model; opencode uses the
+        # default provider/model from the user's opencode config + auth.
+        timeout_seconds = max(max_turns * 45, 900)
         return [
             "timeout",
             str(timeout_seconds),
-            "kimi",
-            "-p",
+            "opencode",
+            "run",
+            "--format",
+            "json",
+            "--dangerously-skip-permissions",
             user_prompt,
-            "--model",
-            self.model,
-            "--yolo",
-            "--thinking",  # Enable extended thinking for better reasoning capture
-            "--output-format",
-            "stream-json",  # Structured JSON output with thinking blocks
         ]
 
     def get_env(self) -> dict[str, str]:
-        # Kimi reads auth from MOONSHOT_API_KEY env var or ~/.kimi/config.toml
+        # opencode reads auth per-provider from the opencode.json (Ollama
+        # needs no auth; Modal/OpenAI pick up their keys from env automatically).
         return {}
 
     def _extract_state_text_from_line(self, line: str) -> str | None:
-        """Kimi stream-json output: extract game state from message.content[].text.
-
-        Since Kimi now outputs --output-format stream-json (same as Claude),
-        game state is in the same JSON structure as Claude output.
-        """
+        """opencode --format json: each line is a JSON event. Tool results
+        land in `part.state.output` as a JSON string containing the raw
+        MCP tool response. We look for observe output with the game state
+        signature."""
         try:
             obj = json.loads(line)
+            part = obj.get("part", {})
+            if obj.get("type") == "tool_use":
+                state = part.get("state", {})
+                output = state.get("output")
+                if isinstance(output, str) and "player_position" in output and "nearby_entities" in output:
+                    return output
+            # Some opencode builds emit assistant-authored state echoes in text events
             for block in obj.get("message", {}).get("content", []):
                 text = block.get("text", "") if isinstance(block, dict) else ""
                 if "player_position" in text and "nearby_entities" in text:
@@ -612,17 +573,15 @@ def get_adapter(harness: str = "claude", model: str | None = None) -> CLIAdapter
     """Factory function to create the appropriate CLI adapter.
 
     Args:
-        harness: one of 'claude', 'codex', 'gemini', 'qwen-code', 'kimi'
+        harness: one of 'claude', 'codex', 'gemini', 'opencode'
         model: optional model override
     """
     if harness == "codex":
         return CodexAdapter(model=model or "gpt-5.4")
     elif harness == "gemini":
         return GeminiAdapter(model=model or "gemini-3-flash-preview")
-    elif harness == "qwen-code":
-        return QwenCodeAdapter(model=model or "qwen3-coder")
-    elif harness == "kimi":
-        return KimiAdapter(model=model or "kimi-k2")
+    elif harness == "opencode":
+        return OpenCodeAdapter(model=model)
     else:
         return ClaudeAdapter(model=model or "sonnet")
 
@@ -630,12 +589,14 @@ def get_adapter(harness: str = "claude", model: str | None = None) -> CLIAdapter
 def detect_log_format(log_path: Path) -> str:
     """Detect CLI harness from session log format.
 
-    Reads the first 10 JSON lines looking for format markers:
-    - Claude/Qwen-Code: stream-json with claude_code_version or Gemini CLI markers
+    Reads the first 25 JSON lines looking for format markers:
+    - Claude: stream-json with claude_code_version
     - Codex: JSON with thread.started, item.completed events
-    - Kimi: raw text or mixed format (no reliable markers — returns 'unknown')
+    - Gemini: gemini_version or model contains "gemini"
+    - OpenCode: tool_use events carry part.tool (no message.content), or
+      step_finish events with part.tokens
 
-    Returns 'claude', 'qwen-code', 'codex', 'kimi', or 'unknown'.
+    Returns 'claude', 'codex', 'gemini', 'opencode', or 'unknown'.
     """
     try:
         checked = 0
@@ -678,7 +639,17 @@ def detect_log_format(log_path: Path) -> str:
                 if obj.get("event") in ("message", "function_call", "function_call_output"):
                     return "codex"
 
-                if checked >= 10:
+                # OpenCode markers — flat tool_use with part.tool (no nested
+                # message.content), or step_finish events that carry
+                # part.tokens token accounting.
+                t = obj.get("type")
+                part = obj.get("part") if isinstance(obj.get("part"), dict) else None
+                if t == "tool_use" and part and part.get("tool") and "message" not in obj:
+                    return "opencode"
+                if t == "step_finish" and part and isinstance(part.get("tokens"), dict):
+                    return "opencode"
+
+                if checked >= 25:
                     break
     except OSError:
         pass

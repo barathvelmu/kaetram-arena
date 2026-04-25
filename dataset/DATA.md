@@ -12,15 +12,17 @@ Each session log captures everything: the game state the agent saw, its internal
 
 Each agent has a fixed personality that shapes how it reasons and plays. This is the scientific knob for data diversity — same game, 3 orthogonal decision-making axes.
 
-| Agent | Personality | Playstyle |
-|-------|-------------|-----------|
-| agent_0 | **AGGRESSIVE** | Rushes combat, targets hard mobs, low HP threshold (30%), pushes new zones early |
-| agent_1 | **METHODICAL** | HP-gated decisions (60% threshold), needs 2+ food before quest mobs, infrastructure quest order |
-| agent_2 | **CURIOUS** | NPC-first, enters every building, zone rotation every 30 turns, minimum combat between exploration |
+**Current archetypes (commit `2ce4792`, used for all new collection):**
 
-**Why 3 not 4:** EFFICIENT (agent_3) was dropped after audit — produced 45% click_tile fallback rate and lowest level progression of any agent. The 3 remaining personalities cover orthogonal decision axes: *what to fight* (AGGRESSIVE), *when to act* (METHODICAL), *where to go* (CURIOUS).
+| Agent | Archetype | Focus |
+|-------|-----------|-------|
+| agent_0 | **GRINDER** | Combat-driven leveling: target dense mob zones, sustained kill loops, low HP threshold |
+| agent_1 | **COMPLETIONIST** | Quest progression: NPC-first, infrastructure quest order, conservative HP gating |
+| agent_2 | **EXPLORER_TINKERER** | World + systems coverage: zone rotation, building entry, varied tool surface |
 
-Personalities are injected via `prompts/personalities/{personality}.md` into the system prompt at session start by `orchestrate.py`.
+**Legacy vibe personalities (r4–r10 datasets):** AGGRESSIVE / METHODICAL / CURIOUS. The r10 SFT dataset on disk still references these names in `metadata.json` (`personality` field) because those records were collected pre-`2ce4792`. New runs write `grinder` / `completionist` / `explorer_tinkerer` instead. EFFICIENT (agent_3) was dropped earlier (45% click_tile fallback, lowest progression).
+
+Personalities are injected via `prompts/personalities/{archetype}.md` into the system prompt at session start by `orchestrate.py` (substituted at the `__PERSONALITY_BLOCK__` placeholder).
 
 ---
 
@@ -29,9 +31,9 @@ Personalities are injected via `prompts/personalities/{personality}.md` into the
 ```
 dataset/
 ├── raw/
-│   ├── agent_0/logs/         ← AGGRESSIVE session logs (active)
-│   ├── agent_1/logs/         ← METHODICAL session logs (active)
-│   └── agent_2/logs/         ← CURIOUS session logs (active)
+│   ├── agent_0/logs/         ← GRINDER session logs (legacy: AGGRESSIVE pre-r10)
+│   ├── agent_1/logs/         ← COMPLETIONIST session logs (legacy: METHODICAL pre-r10)
+│   └── agent_2/logs/         ← EXPLORER_TINKERER session logs (legacy: CURIOUS pre-r10)
 ├── extracted/                ← OODA turns extracted from raw logs (generated, not committed)
 ├── qwen_sft/                 ← Final SFT training records (generated, not committed)
 ├── qwen_kto/                 ← KTO preference records (generated, gitignored)
@@ -85,7 +87,7 @@ Personality system being built and broken mid-run. Prompt changes mid-collection
 
 | | Value |
 |---|---|
-| Active agents (r10 dataset) | 3 (AGGRESSIVE, METHODICAL, CURIOUS — vibe personalities). New collection runs use GRINDER / COMPLETIONIST / EXPLORER capability archetypes — see `prompts/personalities/*.md`. |
+| Active agents | 3 — GRINDER / COMPLETIONIST / EXPLORER_TINKERER capability archetypes (`prompts/personalities/*.md`). r10 dataset still contains pre-archetype AGGRESSIVE / METHODICAL / CURIOUS records. |
 | Supported harnesses | Claude (primary, training-data source); Codex, Gemini, OpenCode (experimental smoke tests, excluded from training) |
 | Total session logs on VM | ~640 (220 / 213 / 207 for agents 0/1/2) |
 | SFT training records | 6,419 train / 646 val (`dataset/qwen_sft/`, Claude-only, 4 filtered) |

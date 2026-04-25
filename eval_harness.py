@@ -48,12 +48,12 @@ DEFAULT_MODELS = {
     "base": {
         "endpoint": "https://patnir411--kaetram-qwen-base-inference-serve.modal.run/v1",
         "username": "evalbotBase",
-        "server_port": "9041",
+        "server_port": "9071",
     },
     "r9-sft": {
         "endpoint": "https://patnir411--kaetram-qwen-serve-inference-serve.modal.run/v1",
         "username": "evalbotR9",
-        "server_port": "9001",
+        "server_port": "9061",
     },
 }
 
@@ -998,7 +998,7 @@ Examples:
     )
     parser.add_argument(
         "--personality", default="",
-        choices=["", "aggressive", "methodical", "curious"],
+        choices=["", "grinder", "completionist", "explorer_tinkerer"],
         help="Inject a personality block into the system prompt (default: none)",
     )
     parser.add_argument(

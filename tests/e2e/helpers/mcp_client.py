@@ -7,7 +7,7 @@ trigger browser + login.
 
 Environment variables honored by `mcp_game_server.py`:
   KAETRAM_PORT          — game server websocket port (19101 in the isolated lane)
-  KAETRAM_CLIENT_URL    — client URL (http://127.0.0.1:19100)
+  KAETRAM_CLIENT_URL    — client URL (http://127.0.0.1:9000)
   KAETRAM_USERNAME      — seeded username this MCP instance should log in as
   KAETRAM_SCREENSHOT_DIR — optional; default /tmp
 
@@ -46,7 +46,7 @@ def _server_params(
     *,
     username: str,
     port: int | None = None,
-    client_url: str = "http://127.0.0.1:19100",
+    client_url: str = "http://127.0.0.1:9000",
     screenshot_dir: str = "/tmp/mcp",
     password: str = "test",
     extra_env: dict[str, str] | None = None,
@@ -57,8 +57,13 @@ def _server_params(
         "KAETRAM_PASSWORD": password,
         "KAETRAM_SCREENSHOT_DIR": screenshot_dir,
     }
-    if port is not None:
-        env["KAETRAM_PORT"] = str(port)
+    # Resolve port: explicit arg > KAETRAM_PORT env (set by conftest from
+    # KAETRAM_WS_PORT). Without this fallback the MCP subprocess starts
+    # with no port hint and the browser's WS URL stays at the default
+    # :9001 — which is agent_0's port, not the test lane.
+    resolved_port = port if port is not None else _os.environ.get("KAETRAM_PORT")
+    if resolved_port is not None:
+        env["KAETRAM_PORT"] = str(resolved_port)
     if extra_env:
         env.update(extra_env)
     return StdioServerParameters(
@@ -109,7 +114,7 @@ async def mcp_session(
     *,
     username: str,
     port: int | None = None,
-    client_url: str = "http://127.0.0.1:19100",
+    client_url: str = "http://127.0.0.1:9000",
     screenshot_dir: str = "/tmp/mcp",
     password: str = "test",
     extra_env: dict[str, str] | None = None,

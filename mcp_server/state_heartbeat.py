@@ -82,9 +82,26 @@ async def state_heartbeat_loop(state: dict, interval: float = 0.3) -> None:
             consecutive_misses = 0
 
             try:
+                # Slim projection: the dashboard's WS consumer only paints
+                # HP/level/position from this push (see onStateNotification in
+                # templates/index.html). Heavier fields — inventory, quests,
+                # achievements, nearby_entities, ASCII map — flow through the
+                # 3 s GET /api/game-state, so shipping them here at 3.3 Hz to
+                # every connected tab is pure waste. Drops payload from
+                # ~38 KB to ~1-2 KB before deflate.
                 payload = await page.evaluate(
-                    "window.__latestGameState ? "
-                    "JSON.parse(JSON.stringify(window.__latestGameState)) : null"
+                    "(() => {"
+                    "  const s = window.__latestGameState;"
+                    "  if (!s) return null;"
+                    "  return {"
+                    "    timestamp: s.timestamp,"
+                    "    player_stats: s.player_stats || null,"
+                    "    player_position: s.player_position || null,"
+                    "    current_target: s.current_target || null,"
+                    "    nearby_count: Array.isArray(s.nearby_entities) ? s.nearby_entities.length : 0,"
+                    "    last_xp_event: s.last_xp_event || null,"
+                    "  };"
+                    "})()"
                 )
             except Exception as e:
                 log.debug("state_heartbeat evaluate failed: %s", e)

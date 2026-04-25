@@ -224,18 +224,6 @@
     display: flex; justify-content: space-between;
   }
 
-  /* ── Gallery ── */
-  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
-  .thumb {
-    background: var(--paper-2); border: 1px solid var(--rule);
-    overflow: hidden; transition: border-color 0.2s; cursor: pointer;
-  }
-  .thumb:hover { border-color: var(--accent); }
-  .thumb img { width: 100%; display: block; }
-  .thumb .meta {
-    padding: 8px 10px; font-family: var(--font-mono); font-size: 10px;
-    color: var(--ink-3); letter-spacing: 0.1em;
-  }
 
   /* ── Activity feed ── */
   .activity-event {
@@ -328,29 +316,6 @@
   @keyframes eventSlideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
   @keyframes eventFlash { 0% { background: rgba(200,83,43,0.06); } 100% { background: transparent; } }
   .activity-event.ev-new { animation: eventSlideIn 0.3s ease-out, eventFlash 1.5s ease-out; }
-
-  /* ── Entity table ── */
-  .entity-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 11px; }
-  .entity-table th {
-    text-align: left; font-family: var(--font-mono); font-size: 9px; font-weight: 500;
-    color: var(--ink-3); letter-spacing: 0.14em; text-transform: uppercase;
-    padding: 6px 10px 6px 0; border-bottom: 1px solid var(--ink); cursor: pointer;
-  }
-  .entity-table th:hover { color: var(--accent); }
-  .entity-table td {
-    padding: 5px 10px 5px 0; border-bottom: 1px solid var(--rule-2);
-    color: var(--ink); font-variant-numeric: tabular-nums;
-  }
-  .entity-table tr:hover { background: rgba(226,113,73,0.04); }
-  .entity-type {
-    font-family: var(--font-mono); font-size: 10px; padding: 0;
-    letter-spacing: 0.14em; text-transform: uppercase; font-weight: 500;
-    background: transparent; border: none; border-radius: 0;
-  }
-  .entity-type.mob { color: var(--accent); }
-  .entity-type.player { color: var(--slate); }
-  .entity-type.npc { color: var(--olive); }
-  .entity-type.item { color: var(--good); }
 
   /* ── HP bars ── */
   .hp-bar-bg {
@@ -899,9 +864,6 @@
     .activity-event .tool-name { font-size: 10px; }
     .activity-event .ev-time { display: none; }
     .event-detail { padding: 7px 8px; font-size: 9px; margin-left: 14px; }
-    .entity-table { font-size: 10px; }
-    #entity-list { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .entity-table th, .entity-table td { padding: 4px 8px 4px 0; font-size: 9px; }
     .hp-bar-bg { width: 36px; }
     .session-entry { padding: 5px 0; font-size: 11px; gap: 6px; flex-wrap: wrap; }
     .session-entry .name { min-width: 100%; order: -1; font-size: 11px; }
@@ -977,7 +939,6 @@
 <div class="tabs">
   <div class="tab active" data-tab="overview">Overview</div>
   <div class="tab" data-tab="activity">Activity</div>
-  <div class="tab" data-tab="world">World</div>
   <div class="tab" data-tab="sessions">Sessions</div>
   <div class="tab" data-tab="prompt">Prompt</div>
   <div class="tab" data-tab="eval">EVAL</div>
@@ -1048,19 +1009,6 @@
   </div>
 
   <!-- ===== WORLD TAB ===== -->
-  <div class="tab-content" id="tab-world">
-    <div class="grid">
-      <div class="card">
-        <h2>Nearby Entities <span class="badge" id="entity-count">0</span></h2>
-        <div id="entity-list" style="max-height:500px;overflow-y:auto"><div class="empty">Waiting for game state...</div></div>
-      </div>
-      <div class="card">
-        <h2>Screenshots <span class="badge" id="shot-count">0</span></h2>
-        <div class="gallery" id="gallery"><div class="empty">No screenshots</div></div>
-      </div>
-    </div>
-  </div>
-
   <!-- ===== SESSIONS TAB ===== -->
   <div class="tab-content" id="tab-sessions">
     <div class="grid">
@@ -1222,7 +1170,9 @@ function connectWebSocket() {
       switch (msg.type) {
         case 'screenshot': onScreenshotNotification(msg.agent, msg.ts); break;
         case 'state':      onStateNotification(msg.agent, msg.payload, msg.ts); break;
+        case 'activity':   onActivityNotification(msg.agent, msg.events, msg.ts); break;
         case 'heartbeat':  onHeartbeatNotification(msg.agents, msg.ts); break;
+        case 'restart':    onRestartNotification(msg.ts); break;
         case 'connected':  break; // handshake
       }
     } catch(e) {}
@@ -1282,6 +1232,37 @@ function onHeartbeatNotification(agents, ts) {
   // Just enough to keep the stream-health pill green when there's no
   // screenshot traffic — confirms the WS pipe is alive end-to-end.
   if (wsConnected) _setStreamHealth('connected');
+}
+
+function onRestartNotification(ts) {
+  // Server fired the restart-agent.sh chain. Drop every piece of local state
+  // that could mask the new run, clear the activity feeds, and force an
+  // immediate poll of /api/agents and /api/live so the UI catches up within
+  // one RTT instead of waiting for the next 8 s tick.
+  agentList = [];
+  for (const k of Object.keys(liveState)) delete liveState[k];
+  selectedAgent = null;
+  feedEventCounts = { ov: 0, full: 0 };
+  const ovFeed = document.getElementById('activity-feed-overview');
+  const fullFeed = document.getElementById('activity-feed-full');
+  if (ovFeed)  ovFeed.innerHTML  = '<div class="empty">Restarting…</div>';
+  if (fullFeed) fullFeed.innerHTML = '<div class="empty">Restarting…</div>';
+  // Tear down hero HLS so it doesn't keep retrying the old playlist.
+  try { bindHeroVideo(null); } catch (e) {}
+  // Force the two refresh loops to fire now (don't wait for setInterval).
+  try { refreshFast(); } catch (e) {}
+  try { refreshSlow(); } catch (e) {}
+}
+
+function onActivityNotification(agentId, events, ts) {
+  // Filter to whatever the user is looking at. In multi-agent mode that's
+  // selectedAgent; in single-agent the server tags agentId=null.
+  if (!Array.isArray(events) || events.length === 0) return;
+  if (currentMode === 'multi') {
+    if (selectedAgent === null || selectedAgent === undefined) return;
+    if (agentId !== selectedAgent) return;
+  }
+  try { appendActivityEvents(events); } catch (e) {}
 }
 
 function onScreenshotNotification(agentId, ts) {
@@ -1424,6 +1405,15 @@ function _scheduleHlsRetry(agentId, attempts) {
 const _cardHls = {};   // agent_id -> Hls instance
 
 async function _bindCardVideo(agentId) {
+  // Skip the currently-selected agent: its stream is already playing in the
+  // hero <video>, and binding the card thumbnail would double the decode cost
+  // on the user's laptop (browsers don't share decode work between <video>
+  // elements pointing at the same URL).
+  if (agentId === selectedAgent) {
+    const cv = document.querySelector('.agent-card-video[data-agent-id="' + agentId + '"]');
+    if (cv) cv.style.display = 'none';
+    return;
+  }
   const v = document.querySelector('.agent-card-video[data-agent-id="' + agentId + '"]');
   if (!v) return;
   // Already bound and playing → leave alone.
@@ -1574,7 +1564,12 @@ async function confirmRestartRun(ev) {
     });
     const data = await resp.json();
     if (data.ok) {
-      alert(`Restart kicked off for ${hours}h. Timer will update in ~30s.`);
+      // No alert — the WS 'restart' broadcast will sweep every connected tab
+      // (including this one) within ~1 RTT. Just flash the button.
+      if (btn) {
+        btn.textContent = 'Restarting…';
+        setTimeout(() => { if (btn && origText) btn.textContent = origText; }, 6000);
+      }
     } else {
       alert('Restart failed: ' + (data.error || 'unknown'));
     }
@@ -1682,7 +1677,6 @@ function simpleMarkdown(text) {
   return html;
 }
 
-const typeMap = {0:'player',1:'npc',2:'item',3:'mob',4:'item',8:'item',12:'npc',player:'player',mob:'mob',npc:'npc',item:'item'};
 
 // === Semantic action classifier ===
 function classifyAction(ev) {
@@ -2050,7 +2044,6 @@ function hpBar(hp, maxHp, width) {
 
 // === Lazy-loaded tabs ===
 let promptLoaded = false;
-let lastGalleryKey = '';
 
 async function loadPrompt() {
   try {
@@ -2227,11 +2220,31 @@ async function openSession(name, logDir) {
 
 // === Multi-agent: select agent ===
 function selectAgent(id) {
+  // Track previous selection so we can re-bind its card video on switch-away.
+  // While agent N is the hero, decoding its card thumbnail too is wasted CPU
+  // on the user's laptop (browsers don't share decode work between <video>s
+  // pointing at the same URL).
+  const prevId = selectedAgent;
   selectedAgent = id;
   feedEventCounts = { ov: 0, full: 0 };
   document.querySelectorAll('.agent-card').forEach(c => c.classList.remove('selected'));
   const el = document.getElementById('agent-card-' + id);
   if (el) el.classList.add('selected');
+
+  // Rebind the previously-selected agent's card video (was paused while it
+  // was the hero); pause the now-selected agent's card video.
+  if (prevId !== null && prevId !== undefined && prevId !== id) {
+    try { _bindCardVideo(prevId); } catch (e) {}
+  }
+  try {
+    if (_cardHls[id]) { _cardHls[id].destroy(); delete _cardHls[id]; }
+    const cv = document.querySelector('.agent-card-video[data-agent-id="' + id + '"]');
+    if (cv) {
+      try { cv.pause(); } catch (e) {}
+      cv.removeAttribute('src');
+      cv.style.display = 'none';
+    }
+  } catch (e) {}
   // Preload before swapping to avoid black flash
   const img = document.getElementById('hero-img');
   const newSrc = '/screenshots/agent_' + id + '/live_screen.png?t=' + Date.now();
@@ -2241,7 +2254,88 @@ function selectAgent(id) {
   pre.src = newSrc;
   // Wire up the HLS video overlay for this agent (no-op if ffmpeg isn't running).
   bindHeroVideo(id);
+  // Backfill activity for the newly-selected agent immediately; refreshSlow
+  // would otherwise wait up to 8 s and the WS push only delivers *new* events.
+  refreshActivity();
   refreshSlow();
+}
+
+// === Activity feed: WS-driven with debounced re-fetch ===
+// The WS push delivers raw JSONL lines; the dashboard's parser normalizes them
+// into the {type, turn, summary, ...} shape the feed expects. So on push we
+// debounce a single /api/activity fetch instead of trying to normalize on the
+// client. One RTT (~80 ms WAN, <5 ms localhost) per burst is well below the
+// old 8 s steady-poll latency, and we drop the steady poll entirely.
+let _activityFetchTimer = null;
+let _activityInFlight = false;
+
+async function refreshActivity() {
+  if (_activityInFlight) return;
+  _activityInFlight = true;
+  try {
+    const agentParam = (currentMode === 'multi' && selectedAgent !== null) ? '?agent=' + selectedAgent : '';
+    const activity = await (await fetch('/api/activity' + agentParam)).json();
+    const turn = activity.turn || 0;
+
+    if (currentMode === 'multi' && agentList.length > 0 && selectedAgent === null) {
+      let totalTurns = 0, totalCtx = 0;
+      for (const a of agentList) {
+        totalTurns += a.turns || 0;
+        totalCtx += a.context_tokens || 0;
+      }
+      document.getElementById('status-turn').textContent = totalTurns + ' (' + agentList.length + ' agents)';
+      const ctxLabel = totalCtx >= 1e6 ? (totalCtx / 1e6).toFixed(1) + 'M' : totalCtx >= 1e3 ? Math.round(totalCtx / 1e3) + 'K' : totalCtx;
+      document.getElementById('status-tokens').textContent = ctxLabel;
+    } else {
+      document.getElementById('status-turn').textContent = turn;
+      const tok = activity.tokens;
+      if (tok && tok.context > 0) {
+        const t = tok.context;
+        const label = t >= 1e6 ? (t / 1e6).toFixed(1) + 'M' : Math.round(t / 1e3) + 'K';
+        document.getElementById('status-tokens').textContent = label;
+      }
+    }
+    const logName = activity.log_file || '-';
+    const lnEl = document.getElementById('activity-log-name');
+    const lnElFull = document.getElementById('activity-log-name-full');
+    if (lnEl) lnEl.textContent = logName;
+    if (lnElFull) lnElFull.textContent = logName;
+
+    if (activity.events && activity.events.length > 0) {
+      updateFeedIncremental('activity-feed-overview', activity.events, true, 'ov');
+      updateFeedIncremental('activity-feed-full', activity.events, true, 'full');
+      renderActivityMeta(activity.events, 'activity-meta-overview');
+      renderActivityMeta(activity.events, 'activity-meta-full');
+    }
+
+    const selectorEl = document.getElementById('activity-agent-selector');
+    if (selectorEl) {
+      if (currentMode === 'multi' && agentList.length > 0) {
+        selectorEl.style.display = '';
+        let shtml = '<button class="' + (selectedAgent === null ? 'active' : '') + '" onclick="selectedAgent=null;refreshSlow()">Default</button>';
+        for (const a of agentList) {
+          shtml += '<button class="' + (selectedAgent === a.id ? 'active' : '') + '" onclick="selectAgent(' + a.id + ')">' + esc(a.username) + '</button>';
+        }
+        selectorEl.innerHTML = shtml;
+      } else {
+        selectorEl.style.display = 'none';
+      }
+    }
+  } catch (e) {
+    // Silent — next push or next refreshSlow tick will retry.
+  } finally {
+    _activityInFlight = false;
+  }
+}
+
+// Called from the WS 'activity' handler. Debounces bursts so a flurry of log
+// lines collapses into one fetch rather than N parallel ones.
+function appendActivityEvents(_events) {
+  if (_activityFetchTimer) return;
+  _activityFetchTimer = setTimeout(() => {
+    _activityFetchTimer = null;
+    refreshActivity();
+  }, 200);
 }
 
 // === Refresh loops ===
@@ -2335,9 +2429,6 @@ async function refreshFast() {
   try {
     const gsUrl = selectedAgent !== null ? '/api/game-state?agent=' + selectedAgent : '/api/game-state';
     const gs = await (await fetch(gsUrl)).json();
-    const entities = gs.nearby_entities || [];
-    document.getElementById('entity-count').textContent = entities.length;
-
     const fresh = gs.freshness_seconds;
 
     // Inventory
@@ -2428,33 +2519,6 @@ async function refreshFast() {
       document.getElementById('mission-stats').innerHTML = '<div class="empty">No active quests</div>';
     }
 
-    // Entity table (Phase 1C: fix HP field priority)
-    if (entities.length > 0) {
-      entities.sort((a,b) => (a.distance??9999) - (b.distance??9999));
-      let ehtml = '<table class="entity-table"><tr><th>Name</th><th>Type</th><th>HP</th><th>Dist</th><th>Click</th><th>Pos</th></tr>';
-      for (const e of entities) {
-        const name = esc(e.name || e.id || '?');
-        const tc = typeMap[e.type] || '';
-        const tn = typeMap[e.type] || String(e.type);
-        const hp = e.hp ?? e.hitPoints ?? '';
-        const hpMax = e.max_hp ?? e.maxHitPoints ?? '';
-        let hpBarHtml = '';
-        if (hp !== '' && hpMax !== '' && hpMax > 0) {
-          hpBarHtml = hpBar(hp, hpMax, 50);
-        }
-        const dist = e.distance !== undefined ? e.distance : '';
-        let clickInfo = '';
-        if (e.on_screen === true) clickInfo = '<span style="color:var(--green)">' + e.click_x + ',' + e.click_y + '</span>';
-        else if (e.on_screen === false) clickInfo = '<span style="color:var(--text)">off</span>';
-        const pos = (e.x !== undefined && e.y !== undefined) ? e.x + ',' + e.y : '';
-        ehtml += '<tr><td>' + name + '</td><td><span class="entity-type ' + tc + '">' + tn + '</span></td><td>' + hpBarHtml + '</td><td style="color:var(--amber)">' + dist + '</td><td>' + clickInfo + '</td><td style="color:var(--text);font-size:9px">' + pos + '</td></tr>';
-      }
-      ehtml += '</table>';
-      document.getElementById('entity-list').innerHTML = ehtml;
-    } else if (gs.freshness_seconds >= 0) {
-      document.getElementById('entity-list').innerHTML = '<div class="empty">No entities nearby</div>';
-    }
-
   } catch(e) {}
 
   // Multi-agent grid — uses cached agentList (updated by refreshSlow every 5s)
@@ -2508,6 +2572,15 @@ async function refreshFast() {
             // HLS-backed thumbnail (always-live, observe-independent).
             html += '<video class="agent-card-video" data-agent-id="' + a.id + '" autoplay muted playsinline style="display:none"></video>';
             html += '</div>';
+          }
+          // Tear down ALL existing HLS instances before innerHTML wipes the
+          // <video> elements they reference. Even surviving agents lose their
+          // <video> in a full innerHTML rebuild, so every cached instance is
+          // about to point at detached DOM. The MutationObserver-driven
+          // _bindCardVideo path rebinds fresh instances ~200 ms later.
+          for (const id of Object.keys(_cardHls)) {
+            try { _cardHls[id].destroy(); } catch (e) {}
+            delete _cardHls[id];
           }
           container.innerHTML = html;
         }
@@ -2591,77 +2664,9 @@ async function refreshSlow() {
     } catch(e) {}
   }
 
-  // Activity feed
-  try {
-    const agentParam = (currentMode === 'multi' && selectedAgent !== null) ? '?agent=' + selectedAgent : '';
-    const activity = await (await fetch('/api/activity' + agentParam)).json();
-    const turn = activity.turn || 0;
-    const cost = activity.cost_usd || 0;
-
-    // In multi-agent mode, show aggregate turns/tokens across all agents
-    if (currentMode === 'multi' && agentList.length > 0 && selectedAgent === null) {
-      let totalTurns = 0, totalCtx = 0;
-      for (const a of agentList) {
-        totalTurns += a.turns || 0;
-        totalCtx += a.context_tokens || 0;
-      }
-      document.getElementById('status-turn').textContent = totalTurns + ' (' + agentList.length + ' agents)';
-      const ctxLabel = totalCtx >= 1e6 ? (totalCtx / 1e6).toFixed(1) + 'M' : totalCtx >= 1e3 ? Math.round(totalCtx / 1e3) + 'K' : totalCtx;
-      document.getElementById('status-tokens').textContent = ctxLabel;
-    } else {
-      document.getElementById('status-turn').textContent = turn;
-      const tok = activity.tokens;
-      if (tok && tok.context > 0) {
-        const t = tok.context;
-        const label = t >= 1e6 ? (t / 1e6).toFixed(1) + 'M' : Math.round(t / 1e3) + 'K';
-        document.getElementById('status-tokens').textContent = label;
-      }
-    }
-    const logName = activity.log_file || '-';
-    document.getElementById('activity-log-name').textContent = logName;
-    document.getElementById('activity-log-name-full').textContent = logName;
-
-    if (activity.events && activity.events.length > 0) {
-      updateFeedIncremental('activity-feed-overview', activity.events, true, 'ov');
-      updateFeedIncremental('activity-feed-full', activity.events, true, 'full');
-      renderActivityMeta(activity.events, 'activity-meta-overview');
-      renderActivityMeta(activity.events, 'activity-meta-full');
-    }
-
-    // Multi-agent: agent selector on Activity tab (Phase 4C)
-    const selectorEl = document.getElementById('activity-agent-selector');
-    if (currentMode === 'multi' && agentList.length > 0) {
-      selectorEl.style.display = '';
-      let shtml = '<button class="' + (selectedAgent === null ? 'active' : '') + '" onclick="selectedAgent=null;refreshSlow()">Default</button>';
-      for (const a of agentList) {
-        shtml += '<button class="' + (selectedAgent === a.id ? 'active' : '') + '" onclick="selectAgent(' + a.id + ')">' + esc(a.username) + '</button>';
-      }
-      selectorEl.innerHTML = shtml;
-    } else {
-      selectorEl.style.display = 'none';
-    }
-  } catch(e) {}
-
-  // Screenshots (world tab) — only rebuild when list changes
-  try {
-    const shots = await (await fetch('/api/screenshots')).json();
-    document.getElementById('shot-count').textContent = shots.length;
-    if (shots.length > 0) {
-      const newKey = shots.slice(0, 20).map(s => s.name + s.time).join('|');
-      if (newKey !== lastGalleryKey) {
-        lastGalleryKey = newKey;
-        let html = '';
-        for (const s of shots.slice(0, 20)) {
-          const urlBase = s.agent !== undefined ? '/screenshots/agent_' + s.agent + '/' : '/screenshots/';
-          const label = (s.agent !== undefined ? 'agent_' + s.agent + '/' : '') + esc(s.name);
-          html += '<div class="thumb" onclick="openLightbox(\'' + urlBase + s.name + '?t=' + Date.now() + '\')">'
-            + '<img src="' + urlBase + s.name + '" alt="' + esc(s.name) + '" loading="lazy">'
-            + '<div class="meta">' + label + '<br>' + s.time + '</div></div>';
-        }
-        document.getElementById('gallery').innerHTML = html;
-      }
-    }
-  } catch(e) {}
+  // Activity feed — driven by WS push (refreshActivity); refreshSlow only
+  // re-renders the agent selector + does a safety re-fetch every cycle.
+  await refreshActivity();
 
   // Sessions list (Phase 5A: with cost/turns/model)
   try {
@@ -2705,10 +2710,21 @@ async function refreshSlow() {
 }
 
 // Boot both loops
+// Boot + visibility-gated interval polls.
+// When the tab is hidden we skip polls — the WS state/restart/activity push
+// keeps state coherent without burning CPU on a tab no one is watching. On
+// visibilitychange to visible we run both immediately so the user doesn't
+// see a stale snapshot while waiting for the next setInterval tick.
 refreshFast();
 refreshSlow();
-setInterval(refreshFast, 3000);
-setInterval(refreshSlow, 8000);
+setInterval(() => { if (!document.hidden) refreshFast(); }, 3000);
+setInterval(() => { if (!document.hidden) refreshSlow(); }, 8000);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    try { refreshFast(); } catch (e) {}
+    try { refreshSlow(); } catch (e) {}
+  }
+});
 
 // Auto-open eval tab if eval is running
 (async function checkEvalOnBoot() {

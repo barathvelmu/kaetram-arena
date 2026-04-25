@@ -174,6 +174,15 @@ class WebSocketRelay:
             {"agents": agents, "ts": ts if ts is not None else time.time()},
         )
 
+    def notify_restart(self, ts=None):
+        """Tell every connected tab to drop local state and re-fetch.
+        Fired by handle_restart_run after wiping caches so the UI catches up
+        within a single RTT instead of waiting for the next refreshSlow tick."""
+        self._broadcast_typed(
+            "restart",
+            {"ts": ts if ts is not None else time.time()},
+        )
+
     async def _broadcast(self, message):
         if self.connections:
             websockets.broadcast(self.connections, message)
@@ -198,7 +207,11 @@ class WebSocketRelay:
     async def _run(self):
         async with websockets.serve(
             self.handler, self.host, self.port,
-            ping_interval=30, ping_timeout=10, compression=None,
+            ping_interval=30, ping_timeout=10,
+            # permessage-deflate: state/activity payloads are dense JSON with
+            # high cross-tick redundancy. Compression cuts WAN bandwidth ~3-4×
+            # over the slim payload at near-zero CPU cost on localhost.
+            compression="deflate",
         ):
             # Heartbeat task lives for the lifetime of the server.
             asyncio.create_task(self._heartbeat_loop())

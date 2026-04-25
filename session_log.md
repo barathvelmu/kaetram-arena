@@ -3,6 +3,19 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-25 — Doc Freshness Audit
+
+**Audit pass against all major .md files.** Six fixes landed:
+- `CLAUDE.md`: corrected `mcp_server/` file count claim (was "15+ files", actual is 10 .py + `tools/` subdir, 17 tools).
+- `dataset/DATA.md`: replaced AGGRESSIVE/METHODICAL/CURIOUS table with current GRINDER/COMPLETIONIST/EXPLORER_TINKERER archetypes; noted r10 dataset still carries legacy names.
+- `research/INDEX.md`: removed completed "Tool count scaling" gap; resolved r9 eval status (discontinued after 2-ep curious eval surfaced the two root causes that r10 fixes); flagged r10 launch gate as still open.
+- `README.md`: added footnote on `MAX_AGENTS` 8→3 default change (commit `3909f97`).
+- Auto-memory: deleted stale `project_harness_integration.md` claiming Kimi K2 + Qwen Code adapters exist (they don't — `cli_adapter.py` only has Claude/Codex/Gemini/OpenCode).
+
+**Status carry-over from Apr 20:** r10 launch gate still open. Smoke SFT (50 steps, ~$10) + eval matrix unrun. Dataset rebuild decision (827 logs vs 23,382-record r10 build) still unresolved.
+
+---
+
 ## 2026-04-20 — Research Compile Pass
 
 **Compile-research pass.** Updated 6 research files:

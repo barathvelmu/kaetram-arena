@@ -95,6 +95,8 @@ Run N agents in parallel, each with its own Kaetram server instance. The preferr
 
 Each agent gets its own server port (9001, 9011, 9021, 9031), username (`ClaudeBot0`–`ClaudeBot3`), log directory, and personality. All agents get `prompts/game_knowledge.md` (quest guides, NPC coords, mob stats). Resource budget for 3 agents (active collection config): ~2.5 GB RAM, ~27% CPU, ~4.5 GB disk/24h.
 
+> **Default agent count is 3** (was 8 prior to commit `3909f97`, dropped after the 2026-04-19 CPU-starvation reboot that prompted the e2-standard-4→8 VM upgrade). Pass an explicit count to `restart-agent.sh` if you want more or fewer.
+
 > **Harness flags:** `--claude` (primary, training data source) is fully integrated. `--codex` (GPT-5.4, Stop hook), `--gemini` (Gemini 2.5 Flash, `maxSessionTurns`), and `--opencode` (NVIDIA Qwen free API via OpenCode CLI; uses `opencode.template.json` + `AGENTS.md`; reasoning capture requires the NIM proxy at `scripts/start-nim-proxy.sh`) are experimental — their logs are collected but excluded from Qwen SFT training until validated. See [`CLAUDE.md`](CLAUDE.md) for details.
 
 ### End-to-end data pipeline

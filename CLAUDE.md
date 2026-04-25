@@ -88,7 +88,7 @@ Full reference: `dashboard/DASHBOARD.md`.
 
 | Path | Purpose |
 |------|---------|
-| `mcp_server/` | Modular MCP package (15+ files, 17 model-visible tools). See `mcp_server/README.md`. |
+| `mcp_server/` | Modular MCP package (10 Python files + `tools/` subdir, 17 model-visible tools). See `mcp_server/README.md`. |
 | `mcp_game_server.py` | 19-line stub — entry point that imports `mcp_server.tools` and runs the FastMCP loop. |
 | `.mcp.template.json` | Template with placeholders (`__VENV_PYTHON__`, `__PROJECT_DIR__`, …). Resolved per-sandbox to `.mcp.json` by `cli_adapter.py` / `play.sh`. |
 | `cli_adapter.py` | Harness abstraction: `ClaudeAdapter`, `CodexAdapter`, `GeminiAdapter`, `OpenCodeAdapter`. |
@@ -178,6 +178,7 @@ counts, and lessons from r4-r10: `dataset/DATA.md` and
 - **`.mcp.template.json` vs `.mcp.json`.** The template is checked in; `.mcp.json` is the per-sandbox resolved copy. Claude reads the resolved copy via `--mcp-config --strict-mcp-config`.
 - **OpenCode reasoning needs the NIM proxy.** NVIDIA NIM streams Qwen reasoning via `delta.reasoning_content`; OpenCode only reads `delta.content`. `scripts/nim_proxy.py` rewrites SSE so reasoning is captured. Start it before `--opencode`.
 - **rsLoRA + `alpha=r` is an 8x LR trap.** rsLoRA scales `1/sqrt(r)` not `1/r`. With `r=alpha=64`, effective LR is 8x. r7 diverged. Keep `use_rslora=False` (the comment on `train_modal.py:359` is load-bearing).
+- **Counting running agents.** `pgrep -fa "claude -p"` self-matches the shell that ran it (the pattern appears in its own cmdline). Count unique `ClaudeBot[0-9]+` IDs from the output, or cross-check against listening game-server ports (`9001 + N×10`) — those are authoritative.
 - **Qwen3 chat template drops `<think>` on intermediate turns** (QwenLM/Qwen3 #1831). Pre-r10 multi-turn records trained action-only on follow-ups. If you touch the tokenizer, re-run `tests/unit/test_think_roundtrip.py` to verify CoT survives `apply_chat_template`.
 
 ---

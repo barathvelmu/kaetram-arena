@@ -113,7 +113,11 @@ class APIMixin:
             try:
                 mtime = os.path.getmtime(gs_file)
                 age = time.time() - mtime
-                if age < 120:  # fresh within 2 minutes
+                # 30 s window: still tolerant of slow tool calls but no longer
+                # masks a restart for two minutes when game_state.json from
+                # the prior run lingers. After 30 s of no observe(), fall
+                # through to DB-only and let freshness_seconds reflect that.
+                if age < 30:
                     with open(gs_file) as fh:
                         live = _normalize_observe_schema(json.load(fh))
                     freshness = round(age, 1)
@@ -754,9 +758,18 @@ class APIMixin:
         """Return live status from running eval sandboxes (/tmp/kaetram_eval_*)."""
         import glob as _glob
 
-        # Short-circuit: if nothing on disk has changed since last computation
-        # AND we're inside the TTL window, return the cached snapshot.
-        # Fingerprint = sorted tuple of (path, mtime) for every eval log file.
+        # TTL fast-path: while the cache is fresh, skip the fingerprint glob
+        # entirely. The eval tab polls every 2 s; the fingerprint involved a
+        # glob + per-file getmtime that ran on every request. After TTL we
+        # still build the fingerprint to detect on-disk changes faster than
+        # waiting for the next TTL window.
+        now = time.time()
+        if (
+            APIMixin._eval_live_cache["data"] is not None
+            and now - APIMixin._eval_live_cache["computed_at"] < EVAL_LIVE_CACHE_TTL
+        ):
+            return self._send_json(APIMixin._eval_live_cache["data"])
+
         fingerprint_files = []
         for sb in sorted(_glob.glob("/tmp/kaetram_eval_*")):
             for lp in _glob.glob(os.path.join(sb, "logs", "*.log")):
@@ -765,12 +778,12 @@ class APIMixin:
                 except OSError:
                     continue
         fingerprint = tuple(sorted(fingerprint_files))
-        now = time.time()
         if (
             APIMixin._eval_live_cache["data"] is not None
             and APIMixin._eval_live_cache["fingerprint"] == fingerprint
-            and now - APIMixin._eval_live_cache["computed_at"] < EVAL_LIVE_CACHE_TTL
         ):
+            # Disk unchanged — extend the cache window.
+            APIMixin._eval_live_cache["computed_at"] = now
             return self._send_json(APIMixin._eval_live_cache["data"])
 
         models = {}

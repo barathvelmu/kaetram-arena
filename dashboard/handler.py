@@ -30,6 +30,12 @@ _TEMPLATE = _load_template()
 
 
 class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
+    # HTTP/1.1 keep-alive: massively reduces RTT × poll-rate cost over WAN.
+    # Every response path below sets Content-Length (or uses 204) so persistent
+    # connections work; the one streaming path (send_mjpeg_stream) sets
+    # Connection: close to opt out.
+    protocol_version = "HTTP/1.1"
+
     def do_HEAD(self):
         self.do_GET()
 
@@ -47,10 +53,12 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
         except Exception as e:
             try:
+                body = json.dumps({"ok": False, "error": str(e)}).encode()
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(json.dumps({"ok": False, "error": str(e)}).encode())
+                self.wfile.write(body)
             except Exception:
                 pass
 
@@ -98,6 +106,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         except Exception:
             pass  # Never fail the ingest because of relay state.
         self.send_response(204)
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     def handle_ingest_activity(self, parsed):
@@ -120,6 +129,7 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         except Exception:
             pass
         self.send_response(204)
+        self.send_header("Content-Length", "0")
         self.end_headers()
 
     def handle_restart_run(self):
@@ -163,15 +173,40 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         except Exception as e:
             ok = False
             error = str(e)
-        self.send_response(200 if ok else 500)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(json.dumps({
+
+        # Restart UX: invalidate every cache that can hide the old state, then
+        # broadcast 'restart' so connected tabs drop their local copies and
+        # re-fetch immediately instead of waiting for the next 8 s refresh.
+        if ok:
+            try:
+                from dashboard import api as _api
+                from dashboard import constants as _const
+                _api._agents_cache["data"] = None
+                _api._dataset_stats_cache["data"] = None
+                _api._sft_stats_cache["data"] = None
+                _api.APIMixin._eval_cache = {"data": None, "mtime": 0}
+                _api.APIMixin._eval_live_cache = {"data": None, "computed_at": 0, "fingerprint": None}
+                _const._ss_cache["time"] = 0
+            except Exception:
+                pass
+            try:
+                from dashboard.server import get_relay
+                relay = get_relay()
+                if relay is not None:
+                    relay.notify_restart()
+            except Exception:
+                pass
+        body = json.dumps({
             "ok": ok,
             "error": error,
             "cmd": " ".join(cmd),
             "hours": hours,
-        }).encode())
+        }).encode()
+        self.send_response(200 if ok else 500)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self):
         try:
@@ -232,10 +267,12 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.send_error(404)
         except Exception as e:
             try:
+                body = f"Error: {e}".encode()
                 self.send_response(500)
                 self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(f"Error: {e}".encode())
+                self.wfile.write(body)
             except Exception:
                 pass
 
@@ -266,13 +303,16 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
             fname = "kaetram_report_" + time.strftime("%Y-%m-%d") + ".json"
             self.send_header("Content-Disposition", f"attachment; filename={fname}")
             self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
         except FileNotFoundError:
+            body = b"Report generation failed."
             self.send_response(404)
             self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(b"Report generation failed.")
+            self.wfile.write(body)
 
     # ── Screenshot serving ──
 
@@ -425,6 +465,9 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
         self.send_header("Access-Control-Allow-Origin", "*")
+        # Streaming body has no length and isn't chunked — opt out of HTTP/1.1
+        # keep-alive on this path so the client doesn't wait for more bytes.
+        self.send_header("Connection", "close")
         self.end_headers()
 
         last_mtime = 0

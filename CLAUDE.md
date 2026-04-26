@@ -194,6 +194,30 @@ decisions at end (middle 40-60% is underweighted); personality = priority
 modifiers only, never new rules; one tool per turn; keep the model-visible
 tool surface in the high teens.
 
+## Log analysis (`scripts/log_analysis/`)
+
+Primary tool for "how are the agents doing" — parses session JSONL logs
+under `dataset/raw/agent_*/logs/` and reports per-agent status, quests, tool
+distribution, errors, recent activity, and reasoning. By default scopes to
+currently running agents (log touched in last 10 min); pass `--stale` for
+historical sessions.
+
+```bash
+python3 scripts/log_analysis/analyze.py            # full report (default)
+python3 scripts/log_analysis/analyze.py status     # one-line per agent
+python3 scripts/log_analysis/analyze.py quests
+python3 scripts/log_analysis/analyze.py tools
+python3 scripts/log_analysis/analyze.py recent -n 8
+python3 scripts/log_analysis/analyze.py errors
+python3 scripts/log_analysis/analyze.py thinking -n 3
+python3 scripts/log_analysis/analyze.py agent 1 -n 10
+```
+
+Prefer this over LLM subagents for live status checks — it parses fields
+directly (`active_quests` / `finished_quests`, etc.) so the answer is ground
+truth, not an inference. See `scripts/log_analysis/README.md` for the
+log-shape reference and how to import `parse.py` for custom analyses.
+
 ## Slash commands (`.claude/commands/`)
 
 `/game-session` (stack status), `/verify-pipeline` (confirm data flow),

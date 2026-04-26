@@ -45,7 +45,7 @@ cd <PROJECT_DIR> && ./play.sh
 > ⚠️  **SUBPROCESS DEADLOCK GOTCHA**: `play.sh` MUST be run in a separate terminal.
 > Never spawn it as a subprocess of Claude Code. Both processes share the same
 > Playwright MCP browser instance and will deadlock — the agent session freezes
-> with ~0 CPU, screenshot stops updating, log stays 0 bytes.
+> with ~0 CPU, game_state.json stops updating, log stays 0 bytes.
 > Kill signal: `ps aux | grep "claude -p" | grep -v grep` then `kill <PID>`.
 
 **Step 6 — save status to `$PROJECT_DIR/.claude/commands/game-session/last_run.json`:**

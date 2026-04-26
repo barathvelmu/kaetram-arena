@@ -25,7 +25,7 @@ async def observe(ctx: Context) -> str:
     log_tool("observe")
     page = await get_page(ctx)
 
-    screenshot_dir = os.environ.get("KAETRAM_SCREENSHOT_DIR", "/tmp")
+    state_dir = os.environ.get("KAETRAM_STATE_DIR", "/tmp")
 
     result = await page.evaluate(OBSERVE_SCRIPT)
 
@@ -33,7 +33,7 @@ async def observe(ctx: Context) -> str:
     try:
         gs_json = result.split("\n\nASCII_MAP:")[0] if "\n\nASCII_MAP:" in result else result
         if not gs_json.startswith("ERROR"):
-            gs_path = os.path.join(screenshot_dir, "game_state.json")
+            gs_path = os.path.join(state_dir, "game_state.json")
             with open(gs_path, "w") as f:
                 f.write(gs_json)
     except Exception:

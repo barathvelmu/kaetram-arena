@@ -74,7 +74,16 @@ async def send_chat_command_via_browser(
     from playwright.async_api import async_playwright
 
     game_ws_host = os.environ.get("GAME_WS_HOST", "localhost")
-    game_ws_port_raw = os.environ.get("GAME_WS_PORT", "9001")
+    # KAETRAM_PORT is the canonical name (set by tests/e2e/conftest.py to the
+    # isolated test lane :9191). GAME_WS_PORT is a legacy fallback. Default
+    # 9001 only applies when neither is set — that's the data-collection
+    # lane, which uses kaetram_devlopment, not kaetram_e2e — so getting the
+    # default here means seeded test players will fail to log in.
+    game_ws_port_raw = (
+        os.environ.get("KAETRAM_PORT")
+        or os.environ.get("GAME_WS_PORT")
+        or "9001"
+    )
     try:
         game_ws_port = int(game_ws_port_raw)
     except ValueError:
@@ -217,7 +226,7 @@ async def mcp_session(
     client_url: str = "http://localhost:9000",
     server_port: str = "",
     headed: bool = False,
-    screenshot_dir: str | None = None,
+    state_dir: str | None = None,
     extra_env: dict[str, str] | None = None,
 ):
     """Spawn mcp_game_server as a stdio MCP subprocess scoped to `username`.
@@ -242,7 +251,16 @@ async def mcp_session(
         phase_at = now
 
     game_ws_host = os.environ.get("GAME_WS_HOST", "localhost")
-    game_ws_port_raw = os.environ.get("GAME_WS_PORT", "9001")
+    # KAETRAM_PORT is the canonical name (set by tests/e2e/conftest.py to the
+    # isolated test lane :9191). GAME_WS_PORT is a legacy fallback. Default
+    # 9001 only applies when neither is set — that's the data-collection
+    # lane, which uses kaetram_devlopment, not kaetram_e2e — so getting the
+    # default here means seeded test players will fail to log in.
+    game_ws_port_raw = (
+        os.environ.get("KAETRAM_PORT")
+        or os.environ.get("GAME_WS_PORT")
+        or "9001"
+    )
     try:
         game_ws_port = int(game_ws_port_raw)
     except ValueError:
@@ -254,18 +272,23 @@ async def mcp_session(
     await _wait_for_client_url(client_url)
     mark("endpoints_ready")
 
-    if screenshot_dir is None:
+    if state_dir is None:
         worker = os.environ.get("PYTEST_XDIST_WORKER", "single")
-        screenshot_dir = f"/tmp/kaetram_test_screens/{worker}/{username}"
+        state_dir = f"/tmp/kaetram_test_state/{worker}/{username}"
 
+    # If the caller didn't pin server_port, preserve any KAETRAM_PORT already
+    # in the inherited environment (conftest sets it to the isolated test
+    # lane). An empty server_port would otherwise blank the inherited value
+    # and the MCP subprocess would fall back to the data-collection lane.
+    resolved_server_port = server_port or str(game_ws_port)
     env = {
         **os.environ,
         "KAETRAM_USERNAME": username,
         "KAETRAM_PASSWORD": password,
         "KAETRAM_CLIENT_URL": client_url,
-        "KAETRAM_PORT": server_port,
+        "KAETRAM_PORT": resolved_server_port,
         "KAETRAM_EXTRACTOR": str(STATE_EXTRACTOR),
-        "KAETRAM_SCREENSHOT_DIR": screenshot_dir,
+        "KAETRAM_STATE_DIR": state_dir,
         # Respect KAETRAM_HEADED from the environment (set by server.js when
         # tests are launched from the dashboard with headed=true) unless the
         # caller explicitly requested headless.

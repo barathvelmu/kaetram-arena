@@ -1,4 +1,4 @@
-"""Server infrastructure: ThreadedHTTPServer, WebSocketRelay, ScreenshotWatcher."""
+"""Server infrastructure: ThreadedHTTPServer, WebSocketRelay."""
 
 import asyncio
 import glob
@@ -11,7 +11,7 @@ import time
 
 import websockets
 
-from dashboard.constants import STATE_DIR, MAX_AGENTS, WS_PORT, SCREENSHOT_POLL_INTERVAL
+from dashboard.constants import WS_PORT
 from dashboard.handler import DashboardHandler
 
 logger = logging.getLogger(__name__)
@@ -30,87 +30,6 @@ class ThreadedHTTPServer(http.server.HTTPServer):
             pass
         finally:
             self.shutdown_request(request)
-
-
-class ScreenshotWatcher:
-    """Polls screenshot file mtimes and calls a callback on change.
-
-    Auto-restarts its inner loop on exceptions so a single bad callback
-    can't kill the watcher thread for the lifetime of the process.
-    """
-
-    def __init__(self, on_change):
-        """on_change(agent_id, filepath, mtime) — agent_id is None for single-agent, int for multi."""
-        self.on_change = on_change
-        self._mtimes = {}
-        self._running = False
-        self._active_paths = []
-        self._path_refresh_counter = 0
-
-    def _refresh_watch_paths(self):
-        """Glob all live screenshot files (agent count is dynamic, not capped at MAX_AGENTS)."""
-        paths = []
-        # Single-agent fallback path (only used when no /tmp/kaetram_agent_* dir exists).
-        for name in ("live_screen.jpg", "screenshot.png"):
-            p = os.path.join(STATE_DIR, name)
-            if os.path.isfile(p):
-                paths.append((None, p))
-        # Multi-agent: glob discovers slots dynamically — survives agent count
-        # changes and eval sandboxes added at runtime.
-        for jpg in glob.glob("/tmp/kaetram_agent_*/state/live_screen.jpg"):
-            try:
-                # /tmp/kaetram_agent_N/state/live_screen.jpg → N
-                segs = jpg.split(os.sep)
-                slot_dir = next(s for s in segs if s.startswith("kaetram_agent_"))
-                agent_id = int(slot_dir.replace("kaetram_agent_", ""))
-                paths.append((agent_id, jpg))
-            except (ValueError, StopIteration):
-                continue
-        self._active_paths = paths
-
-    def _tick(self):
-        """One polling tick. Returns nothing; raises on unrecoverable error."""
-        # Re-discover paths every ~2s (8 cycles at 0.25s) so new agents are
-        # picked up quickly and stale entries drop out without a long wait.
-        self._path_refresh_counter += 1
-        if self._path_refresh_counter >= 8:
-            self._refresh_watch_paths()
-            self._path_refresh_counter = 0
-
-        for agent_id, filepath in self._active_paths:
-            try:
-                mtime = os.path.getmtime(filepath)
-            except OSError:
-                # File disappeared (agent stopped) — drop the cached mtime so
-                # the next mtime change is treated as a real update, not a no-op.
-                self._mtimes.pop(filepath, None)
-                continue
-            prev = self._mtimes.get(filepath)
-            if prev is None:
-                self._mtimes[filepath] = mtime
-            elif mtime != prev:
-                self._mtimes[filepath] = mtime
-                try:
-                    self.on_change(agent_id, filepath, mtime)
-                except Exception as e:
-                    logger.warning("ScreenshotWatcher on_change failed: %s", e)
-
-    def run(self):
-        self._running = True
-        while self._running:
-            try:
-                self._refresh_watch_paths()
-                while self._running:
-                    self._tick()
-                    time.sleep(SCREENSHOT_POLL_INTERVAL)
-            except Exception as e:
-                # Outer auto-restart: catch anything the inner tick guard
-                # missed (e.g., the refresh itself raising) and recover.
-                logger.warning("ScreenshotWatcher inner loop crashed: %s — restarting in 1s", e)
-                time.sleep(1)
-
-    def stop(self):
-        self._running = False
 
 
 class WebSocketRelay:
@@ -152,9 +71,6 @@ class WebSocketRelay:
             logger.debug("WS broadcast scheduling failed: %s", e)
 
     # ── Public, typed convenience methods ──
-
-    def notify_screenshot(self, agent_id, mtime):
-        self._broadcast_typed("screenshot", {"agent": agent_id, "ts": mtime})
 
     def notify_state(self, agent_id, payload, ts=None):
         self._broadcast_typed(
@@ -210,7 +126,7 @@ class WebSocketRelay:
             try:
                 slots = sorted({
                     int(p.split(os.sep)[-3].replace("kaetram_agent_", ""))
-                    for p in glob.glob("/tmp/kaetram_agent_*/state/live_screen.jpg")
+                    for p in glob.glob("/tmp/kaetram_agent_*/state/game_state.json")
                 })
             except Exception:
                 slots = []
@@ -266,12 +182,6 @@ def start_dashboard():
     ws_relay = WebSocketRelay()
     _relay_singleton = ws_relay
     ws_relay.run_in_thread()
-
-    watcher = ScreenshotWatcher(
-        on_change=lambda aid, fp, mt: ws_relay.notify_screenshot(aid, mt)
-    )
-    watcher_thread = threading.Thread(target=watcher.run, daemon=True, name="screenshot-watcher")
-    watcher_thread.start()
 
     http_port = int(os.environ.get("DASHBOARD_HTTP_PORT", "8080"))
     print(f"Dashboard running at http://0.0.0.0:{http_port}")

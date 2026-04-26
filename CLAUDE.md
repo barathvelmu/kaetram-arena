@@ -119,7 +119,7 @@ Game-server port `P` reserves `P+1` for `apiPort` (currently dormant; matches
 | 9191 | E2E test-lane game server (`scripts/start-test-kaetram.sh`, db `kaetram_e2e`) |
 | 27017 | MongoDB (`kaetram-mongo`); per-lane isolation by db name |
 | 8080 | Dashboard HTTP (UI + `/hls/agent_N/*` + `/ingest/{state,activity}`) |
-| 8081 | Dashboard WebSocket relay (state, activity, screenshot, heartbeat) |
+| 8081 | Dashboard WebSocket relay (state, activity, heartbeat) |
 
 ---
 

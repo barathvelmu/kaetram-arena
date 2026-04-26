@@ -736,11 +736,11 @@ def run_model_eval(
         db_before = _read_player_db_snapshot(username)
         qa_before = _read_quest_achievement_snapshot(username)
 
-        # Clear sandbox state (keep live_screen.jpg and mcp_server.log for dashboard)
+        # Clear sandbox state (keep mcp_server.log for dashboard)
         state_dir = Path(sandbox) / "state"
         state_dir.mkdir(parents=True, exist_ok=True)
         for f in state_dir.glob("*"):
-            if f.is_file() and f.name not in ("live_screen.jpg", "mcp_server.log"):
+            if f.is_file() and f.name != "mcp_server.log":
                 f.unlink()
 
         # Clear sub-session logs from previous episode

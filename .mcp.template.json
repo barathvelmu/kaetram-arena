@@ -11,7 +11,7 @@
         "KAETRAM_PORT": "__SERVER_PORT__",
         "KAETRAM_USERNAME": "__USERNAME__",
         "KAETRAM_EXTRACTOR": "__PROJECT_DIR__/state_extractor.js",
-        "KAETRAM_SCREENSHOT_DIR": "__SCREENSHOT_DIR__"
+        "KAETRAM_STATE_DIR": "__STATE_DIR__"
       }
     }
   }

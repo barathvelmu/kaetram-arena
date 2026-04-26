@@ -221,7 +221,7 @@ async def run_agent(args):
         "KAETRAM_PORT": args.server_port or "",
         "KAETRAM_USERNAME": os.environ.get("KAETRAM_USERNAME", "QwenBot"),
         "KAETRAM_EXTRACTOR": os.path.join(project_dir, "state_extractor.js"),
-        "KAETRAM_SCREENSHOT_DIR": str(state_dir),
+        "KAETRAM_STATE_DIR": str(state_dir),
     }
 
     mcp = MCPClient(venv_python, server_script, mcp_env)

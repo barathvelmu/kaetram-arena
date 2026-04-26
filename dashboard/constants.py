@@ -26,8 +26,11 @@ BASE_SERVER_PORT = 9001
 PORT_STRIDE = 10
 MAX_AGENTS = 3
 WS_PORT = 8081
-SCREENSHOT_POLL_INTERVAL = 0.25  # seconds between mtime checks (4 FPS for live stream feel)
-SCREENSHOT_MAX_AGE = 60  # seconds — screenshots older than this are considered stale
+
+# MJPEG stream tuning (used by tests-tab live preview only — the data-collection
+# pipeline uses HLS, not MJPEG). Held here so handler.py can poll /tmp/test_run/frame.jpg.
+MJPEG_POLL_INTERVAL = 0.25  # seconds between mtime checks
+MJPEG_MAX_AGE = 60  # seconds — frames older than this are skipped
 
 # Cache TTLs (seconds) — used by api.py endpoints
 AGENTS_CACHE_TTL = 15

@@ -269,7 +269,7 @@ kaetram-agent/
 | 9001 | Kaetram game server WS (single-agent default) |
 | 9001, 9011, 9021, 9031 | Game server WS (multi-agent, one per agent) |
 | 8080 | Dashboard |
-| 8081 | Dashboard WebSocket relay (state, activity, heartbeat, screenshot) |
+| 8081 | Dashboard WebSocket relay (state, activity, heartbeat) |
 | 27017 | MongoDB (`kaetram-mongo` Docker container, db `kaetram_devlopment`) |
 | 9061, 9071 | Eval game servers (r9-sft, base) |
 | 9191 | E2E test-lane game server (db `kaetram_e2e`) |
@@ -290,8 +290,6 @@ kaetram-agent/
 **Node 20 required** — Kaetram uses uWS.js which only supports Node 16/18/20. Node 24/25 crashes on startup.
 
 **Tutorial gate** — New players spawn in the Programmer's house behind a 16-stage tutorial. The agent uses warp to skip this.
-
-**Absolute screenshot paths** — Playwright MCP requires absolute paths. Relative paths cause it to navigate the browser to the path as a URL.
 
 **Multi-agent port conflicts** — If running `orchestrate.py`, kill any existing Kaetram servers first. The orchestrator manages its own server instances.
 

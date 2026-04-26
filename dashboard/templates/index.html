@@ -955,15 +955,11 @@
 
     <div class="hero" id="hero" style="position:relative">
       <!-- HLS video — only shown when an agent is selected and a stream exists.
-           Falls back to the JPEG <img> below when ffmpeg is down or HLS errors.
-           Layered absolutely so the JPEG remains the always-on baseline. -->
+           Hidden by default; bindHeroVideo flips display when the playlist is healthy. -->
       <video id="hero-video" autoplay muted playsinline
-             style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;cursor:pointer"
-             onclick="openLightbox('/screenshots/agent_'+(selectedAgent==null?0:selectedAgent)+'/live_screen.png')"></video>
-      <img id="hero-img" src="/screenshots/live_screen.png" alt="Latest game screenshot" onclick="openLightbox(this.src)">
+             style="display:none;width:100%;height:100%;object-fit:contain;background:#000"></video>
       <div class="caption" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span id="hero-caption">Latest agent view</span>
-        <span id="hero-time">-</span>
         <span id="stream-health" data-state="connecting"
               style="margin-left:auto;font-size:9px;letter-spacing:0.5px;border:1px solid currentColor;padding:1px 6px;border-radius:3px;color:var(--dim)">CONNECTING</span>
         <span id="stream-fresh" style="font-size:9px;color:var(--dim)"></span>
@@ -1419,11 +1415,6 @@
 
 </main>
 
-<!-- Lightbox -->
-<div class="modal" id="lightbox" onclick="this.classList.remove('active')">
-  <img id="lightbox-img" src="">
-</div>
-
 <!-- Session detail drawer -->
 <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
 <div class="drawer" id="drawer">
@@ -1454,7 +1445,7 @@ function normalizePersonality(m) {
   return LEGACY_PERSONALITY_ALIAS[m] || m;
 }
 
-// === WebSocket for realtime screenshot/state/activity push ===
+// === WebSocket for realtime state/activity push ===
 let ws = null;
 let wsConnected = false;
 let wsReconnectTimer = null;
@@ -1491,13 +1482,18 @@ function connectWebSocket() {
     try {
       const msg = JSON.parse(event.data);
       switch (msg.type) {
-        case 'screenshot': onScreenshotNotification(msg.agent, msg.ts); break;
         case 'state':      onStateNotification(msg.agent, msg.payload, msg.ts); break;
         case 'activity':   onActivityNotification(msg.agent, msg.events, msg.ts); break;
         case 'heartbeat':  onHeartbeatNotification(msg.agents, msg.ts); break;
         case 'restart':    onRestartNotification(msg.ts); break;
         case 'test_event': onTestEvent(msg.run_id, msg.event, msg.payload, msg.ts); break;
-        case 'connected':  break; // handshake
+        case 'connected':
+          // After a reconnect, any test events we missed are gone — `websockets.broadcast`
+          // is fire-and-forget. Reconcile so a finished run doesn't leave the UI stuck.
+          // `Tests` is a top-level `const`, which is a script-scope lexical binding —
+          // not exposed on `window` — so guard via `typeof`, not `window.Tests`.
+          try { if (typeof Tests !== 'undefined' && Tests.reconcileCurrent) Tests.reconcileCurrent(); } catch (e) {}
+          break;
       }
     } catch(e) {}
   };
@@ -1553,8 +1549,7 @@ function onStateNotification(agentId, payload, ts) {
 }
 
 function onHeartbeatNotification(agents, ts) {
-  // Just enough to keep the stream-health pill green when there's no
-  // screenshot traffic — confirms the WS pipe is alive end-to-end.
+  // Confirms the WS pipe is alive end-to-end during quiet periods.
   if (wsConnected) _setStreamHealth('connected');
 }
 
@@ -1587,36 +1582,6 @@ function onActivityNotification(agentId, events, ts) {
     if (agentId !== selectedAgent) return;
   }
   try { appendActivityEvents(events); } catch (e) {}
-}
-
-function onScreenshotNotification(agentId, ts) {
-  const img = document.getElementById('hero-img');
-  let shouldUpdateHero = false;
-  let screenshotBase;
-
-  if (currentMode === 'multi' && selectedAgent !== null) {
-    if (agentId === selectedAgent) {
-      shouldUpdateHero = true;
-      screenshotBase = '/screenshots/agent_' + agentId + '/live_screen.png';
-    }
-  } else if (currentMode !== 'multi' && agentId === null) {
-    shouldUpdateHero = true;
-    screenshotBase = '/screenshots/live_screen.png';
-  }
-
-  // Per-card thumbnails are now HLS-driven (<video class="agent-card-video">),
-  // so we no longer need to update a JPEG thumbnail on screenshot push.
-
-  if (shouldUpdateHero && screenshotBase) {
-    const newUrl = screenshotBase + '?t=' + ts;
-    const preload = new Image();
-    preload.onload = () => { img.src = newUrl; };
-    preload.onerror = () => { img.src = ''; };
-    preload.src = newUrl;
-    const d = new Date(ts * 1000);
-    document.getElementById('hero-time').textContent = d.toLocaleTimeString('en-GB', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
-  }
-
 }
 
 connectWebSocket();
@@ -1904,12 +1869,6 @@ async function confirmRestartRun(ev) {
   }
 }
 
-// === Lightbox ===
-function openLightbox(src) {
-  document.getElementById('lightbox-img').src = src;
-  document.getElementById('lightbox').classList.add('active');
-}
-
 // === Drawer ===
 function openDrawer(title, html) {
   document.getElementById('drawer-title').textContent = title;
@@ -1922,7 +1881,7 @@ function closeDrawer() {
   document.getElementById('drawer-overlay').classList.remove('open');
 }
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeDrawer(); document.getElementById('lightbox').classList.remove('active'); }
+  if (e.key === 'Escape') { closeDrawer(); }
 });
 
 // === Helpers ===
@@ -2569,14 +2528,7 @@ function selectAgent(id) {
       cv.style.display = 'none';
     }
   } catch (e) {}
-  // Preload before swapping to avoid black flash
-  const img = document.getElementById('hero-img');
-  const newSrc = '/screenshots/agent_' + id + '/live_screen.png?t=' + Date.now();
-  const pre = new Image();
-  pre.onload = () => { img.src = newSrc; };
-  pre.onerror = () => { img.src = ''; };
-  pre.src = newSrc;
-  // Wire up the HLS video overlay for this agent (no-op if ffmpeg isn't running).
+  // Wire up the HLS video for this agent (no-op if ffmpeg isn't running).
   bindHeroVideo(id);
   // Backfill activity for the newly-selected agent immediately; refreshSlow
   // would otherwise wait up to 8 s and the WS push only delivers *new* events.
@@ -2665,33 +2617,6 @@ function appendActivityEvents(_events) {
 // === Refresh loops ===
 
 async function refreshFast() {
-  // Screenshot — skip HTTP polling when WebSocket is delivering updates
-  if (!wsConnected) {
-    const img = document.getElementById('hero-img');
-    let screenshotBase;
-    if (currentMode === 'multi' && selectedAgent !== null) {
-      screenshotBase = '/screenshots/agent_' + selectedAgent + '/live_screen.png';
-    } else {
-      screenshotBase = '/screenshots/live_screen.png';
-    }
-    try {
-      const headResp = await fetch(screenshotBase, { method: 'HEAD' });
-      if (!headResp.ok) { img.src = ''; }
-      else {
-        const lastMod = headResp.headers.get('Last-Modified') || '';
-        const cacheKey = lastMod || Date.now();
-        const newUrl = screenshotBase + '?v=' + encodeURIComponent(cacheKey);
-        if (img.src !== newUrl && img.dataset.lastMod !== lastMod) {
-          img.dataset.lastMod = lastMod;
-          const preload = new Image();
-          preload.onload = () => { img.src = newUrl; };
-          preload.onerror = () => { img.src = ''; };
-          preload.src = newUrl;
-        }
-      }
-    } catch(e) {}
-  }
-
   // Live status
   try {
     const live = await (await fetch('/api/live')).json();
@@ -2746,7 +2671,6 @@ async function refreshFast() {
       }
     }
 
-    document.getElementById('hero-time').textContent = live.screenshot_time || '-';
   } catch(e) {}
 
   // Game state (respects selected agent)
@@ -2977,7 +2901,7 @@ async function refreshFast() {
 
 }
 
-// Slow loop: activity feed, progress, sessions, agent grid, screenshots
+// Slow loop: activity feed, progress, sessions, agent grid
 async function refreshSlow() {
   // Refresh agent list (heavy endpoint — parses logs, checks ports)
   if (currentMode === 'multi') {
@@ -3848,7 +3772,10 @@ const Tests = (() => {
 
   async function cancelClick() {
     try { await fetch('/api/test/cancel', { method: 'POST' }); } catch (e) {}
-    // session_finish via WS will detach video; cancel is best-effort.
+    // session_finish via WS will detach video and reset UI. If that event
+    // is lost (best-effort broadcast), reconcile after the backend has had
+    // time to tear down (SIGTERM + 5s wait + SIGKILL ⇒ ~6s upper bound).
+    setTimeout(() => Tests.reconcileCurrent(), 7000);
   }
 
   function onTestEvent(runId, event, payload) {
@@ -3904,11 +3831,35 @@ const Tests = (() => {
 
   function startPolling() {
     stopPolling();
-    state.pollTimer = setInterval(() => { loadRuns(); }, 8000);
+    // Fire once immediately so a tab-switch-back catches a finished-while-away
+    // run without waiting up to 8s for the first interval tick.
+    reconcileCurrent();
+    state.pollTimer = setInterval(() => {
+      loadRuns();
+      reconcileCurrent();
+    }, 8000);
   }
   function stopPolling() { if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; } }
 
-  return { init, onTestEvent, startPolling, stopPolling, loadRuns, loadTree };
+  // Backstop for lost WS `session_finish` events (best-effort broadcast,
+  // socket hiccups during long runs). If the frontend still thinks a run
+  // is active but the backend has already cleared `_current_run`, reset
+  // the UI to idle so the user can launch the next run without refreshing.
+  async function reconcileCurrent() {
+    if (!state.currentRunId) return;
+    try {
+      const r = await fetch('/api/test/current').then(r => r.json());
+      if (r && r.current && r.current.run_id === state.currentRunId) return;
+      setRunningUi(false);
+      detachTestStream();
+      const el = $('tests-status');
+      if (el && !el.textContent) el.textContent = 'Done';
+      state.currentRunId = null;
+      loadRuns();
+    } catch (e) {}
+  }
+
+  return { init, onTestEvent, startPolling, stopPolling, loadRuns, loadTree, reconcileCurrent };
 })();
 
 window.onTestEvent = (run_id, event, payload, ts) => Tests.onTestEvent(run_id, event, payload);

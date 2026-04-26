@@ -413,7 +413,7 @@ class AgentInstance:
     def _build_system_prompt(self) -> str:
         """Build the system prompt with substituted placeholders.
 
-        In multi-agent mode, state file paths (screenshots, game_state, progress)
+        In multi-agent mode, state file paths (game_state, progress)
         are redirected to each agent's sandbox so agents don't overwrite each other.
         The state_extractor.js path stays in the project dir (shared, read-only).
         """
@@ -522,11 +522,6 @@ class AgentInstance:
             "auth_mode": self.auth_mode,
             "max_budget_usd": self.max_budget_usd,
         }, indent=2))
-
-        # Clear stale screenshots from previous session so dashboard doesn't show old frames
-        state_dir = self.sandbox_dir / "state"
-        for f in ("screenshot.png", "live_screen.png", "live_screen.jpg"):
-            (state_dir / f).unlink(missing_ok=True)
 
         # Bring up the per-agent livestream pipeline before the CLI starts so
         # Chromium can attach to a live X display. Failures here are

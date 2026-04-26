@@ -1,6 +1,6 @@
 """HTTP request handler for the dashboard.
 
-Routes requests to API endpoints, serves screenshots, and renders the dashboard template.
+Routes requests to API endpoints, serves HLS segments + tests-tab MJPEG, and renders the dashboard template.
 """
 
 import gzip
@@ -12,8 +12,8 @@ import time
 import urllib.parse
 
 from dashboard.constants import (
-    PROJECT_DIR, STATE_DIR, MAX_AGENTS, SCREENSHOT_POLL_INTERVAL,
-    SCREENSHOT_MAX_AGE, GZIP_MIN_BYTES,
+    PROJECT_DIR, STATE_DIR, MAX_AGENTS, MJPEG_POLL_INTERVAL,
+    MJPEG_MAX_AGE, GZIP_MIN_BYTES,
 )
 from dashboard.api import APIMixin
 
@@ -303,8 +303,6 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.send_json_state(qs)
             elif path == "/api/sessions":
                 self.send_sessions(qs)
-            elif path == "/api/screenshots":
-                self.send_screenshot_list()
             elif path == "/api/live":
                 self.send_live_status()
             elif path == "/api/activity":
@@ -347,8 +345,6 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.send_report_json()
             elif path.startswith("/stream/"):
                 self.send_mjpeg_stream()
-            elif path.startswith("/screenshots/"):
-                self.send_screenshot_file()
             elif path.startswith("/hls/"):
                 self.send_hls_file(path)
             elif path.startswith("/static/"):
@@ -403,63 +399,6 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-
-    # ── Screenshot serving ──
-
-    @staticmethod
-    def _newest_screenshot(state_dir):
-        """Return the path of the most recently modified screenshot in a state dir."""
-        candidates = []
-        for name in ("live_screen.jpg", "screenshot.png"):
-            p = os.path.join(state_dir, name)
-            if os.path.isfile(p):
-                candidates.append((os.path.getmtime(p), p))
-        if candidates:
-            candidates.sort(reverse=True)
-            return candidates[0][1]
-        return os.path.join(state_dir, "screenshot.png")  # fallback (may 404)
-
-    def send_screenshot_file(self):
-        raw = self.path.split("?")[0]
-        parts = raw.split("/")
-
-        if len(parts) >= 4 and parts[2].startswith("agent_"):
-            idx = parts[2].replace("agent_", "")
-            filename = os.path.basename(parts[3])
-            if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
-                return self.send_error(403)
-            state_dir = os.path.join("/tmp", f"kaetram_agent_{idx}", "state")
-            if filename in ("live_screen.jpg", "live_screen.png", "screenshot.png"):
-                filepath = self._newest_screenshot(state_dir)
-            else:
-                filepath = os.path.join(state_dir, filename)
-        else:
-            filename = os.path.basename(raw)
-            if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
-                return self.send_error(403)
-            if filename in ("live_screen.jpg", "live_screen.png", "screenshot.png"):
-                filepath = self._newest_screenshot(STATE_DIR)
-            else:
-                filepath = os.path.join(STATE_DIR, filename)
-
-        if not os.path.isfile(filepath):
-            return self.send_error(404)
-        mtime = os.path.getmtime(filepath)
-        # Reject stale screenshots — never show outdated game state
-        if time.time() - mtime > SCREENSHOT_MAX_AGE:
-            return self.send_error(404)
-        mime, _ = mimetypes.guess_type(filepath)
-        size = os.path.getsize(filepath)
-        last_modified = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(mtime))
-        self.send_response(200)
-        self.send_header("Content-Type", mime or "image/png")
-        self.send_header("Content-Length", str(size))
-        self.send_header("Last-Modified", last_modified)
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        if self.command != "HEAD":
-            with open(filepath, "rb") as f:
-                self.wfile.write(f.read())
 
     def send_static_file(self, path: str):
         """Serve dashboard/static/* (vendored libs like hls.min.js)."""
@@ -539,21 +478,17 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
             self.wfile.write(data)
 
     def send_mjpeg_stream(self):
-        """Serve MJPEG stream from an agent's live_screen.jpg."""
+        """Serve MJPEG stream of /tmp/test_run/frame.jpg for the tests-tab live preview.
+
+        Only `/stream/test_run` is supported — the data-collection pipeline uses
+        HLS, not MJPEG. ffmpeg in dashboard/test_runner.py writes the single
+        rolling frame under /tmp/test_run/ when MJPEG mode is active.
+        """
         raw = self.path.split("?")[0]
         parts = raw.strip("/").split("/")
-        if len(parts) >= 2 and parts[1] == "test_run":
-            # Tests-tab live video. ffmpeg writes this single frame in
-            # /tmp/test_run/ from dashboard/test_runner.py (MJPEG mode).
-            ss_path = "/tmp/test_run/frame.jpg"
-        elif len(parts) >= 2 and parts[1].startswith("agent_"):
-            idx = parts[1].replace("agent_", "")
-            ss_path = os.path.join("/tmp", f"kaetram_agent_{idx}", "state", "live_screen.jpg")
-        elif len(parts) >= 2 and parts[1].startswith("eval_"):
-            name = parts[1].replace("eval_", "")
-            ss_path = os.path.join("/tmp", f"kaetram_eval_{name}", "state", "live_screen.jpg")
-        else:
-            ss_path = os.path.join(STATE_DIR, "live_screen.jpg")
+        if not (len(parts) >= 2 and parts[1] == "test_run"):
+            return self.send_error(404)
+        frame_path = "/tmp/test_run/frame.jpg"
 
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
@@ -568,10 +503,10 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
         try:
             while True:
                 try:
-                    if os.path.isfile(ss_path):
-                        mtime = os.path.getmtime(ss_path)
-                        if mtime != last_mtime and (time.time() - mtime) <= SCREENSHOT_MAX_AGE:
-                            with open(ss_path, "rb") as f:
+                    if os.path.isfile(frame_path):
+                        mtime = os.path.getmtime(frame_path)
+                        if mtime != last_mtime and (time.time() - mtime) <= MJPEG_MAX_AGE:
+                            with open(frame_path, "rb") as f:
                                 frame = f.read()
                             self.wfile.write(b"--frame\r\n")
                             self.wfile.write(b"Content-Type: image/jpeg\r\n")
@@ -583,31 +518,9 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                             last_mtime = mtime
                 except (FileNotFoundError, PermissionError, OSError):
                     pass
-                time.sleep(SCREENSHOT_POLL_INTERVAL)
+                time.sleep(MJPEG_POLL_INTERVAL)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
-
-    def send_screenshot_list(self):
-        import glob
-        images = []
-        for p in glob.glob(os.path.join(STATE_DIR, "*.png")):
-            images.append((None, p))
-        for i in range(MAX_AGENTS):
-            agent_state = os.path.join("/tmp", f"kaetram_agent_{i}", "state")
-            if os.path.isdir(agent_state):
-                for p in glob.glob(os.path.join(agent_state, "*.png")):
-                    images.append((i, p))
-        images.sort(key=lambda x: os.path.getmtime(x[1]), reverse=True)
-        from datetime import datetime
-        result = []
-        for agent_id, img in images[:50]:
-            name = os.path.basename(img)
-            mtime = datetime.fromtimestamp(os.path.getmtime(img)).strftime("%Y-%m-%d %H:%M:%S")
-            entry = {"name": name, "time": mtime, "size": os.path.getsize(img)}
-            if agent_id is not None:
-                entry["agent"] = agent_id
-            result.append(entry)
-        self._send_json(result)
 
     # ── State dir resolution ──
 

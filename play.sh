@@ -180,7 +180,7 @@ startup_timeout_sec = 30
 KAETRAM_PORT = ""
 KAETRAM_USERNAME = "${BOT_USERNAME}"
 KAETRAM_EXTRACTOR = "${PROJECT_DIR}/state_extractor.js"
-KAETRAM_SCREENSHOT_DIR = "${SANDBOX}/state"
+KAETRAM_STATE_DIR = "${SANDBOX}/state"
 
 [projects."${SANDBOX}"]
 trust_level = "trusted"
@@ -235,7 +235,7 @@ HOOKJSON
         "KAETRAM_PORT": "",
         "KAETRAM_USERNAME": "${BOT_USERNAME}",
         "KAETRAM_EXTRACTOR": "${PROJECT_DIR}/state_extractor.js",
-        "KAETRAM_SCREENSHOT_DIR": "${SANDBOX}/state"
+        "KAETRAM_STATE_DIR": "${SANDBOX}/state"
       }
     }
   },
@@ -272,7 +272,7 @@ GEMINIJSON
       (cd "$SANDBOX" && \
         KAETRAM_USERNAME="$BOT_USERNAME" \
         KAETRAM_EXTRACTOR="$PROJECT_DIR/state_extractor.js" \
-        KAETRAM_SCREENSHOT_DIR="$SANDBOX/state" \
+        KAETRAM_STATE_DIR="$SANDBOX/state" \
         timeout "${TIMEOUT_SECS}s" opencode run \
           --format json \
           --dangerously-skip-permissions \
@@ -345,7 +345,7 @@ GEMINIJSON
       # Claude: resolve .mcp.json template and pass via --mcp-config (bypasses project .mcp.json)
       sed -e "s|__VENV_PYTHON__|${PROJECT_DIR}/.venv/bin/python3|g" \
           -e "s|__PROJECT_DIR__|${PROJECT_DIR}|g" \
-          -e "s|__SCREENSHOT_DIR__|${SANDBOX}/state|g" \
+          -e "s|__STATE_DIR__|${SANDBOX}/state|g" \
           -e "s|__SERVER_PORT__||g" \
           -e "s|__USERNAME__|${BOT_USERNAME}|g" \
           "$PROJECT_DIR/.mcp.template.json" > "$SANDBOX/.mcp.json"

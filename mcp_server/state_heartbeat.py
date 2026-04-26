@@ -23,10 +23,10 @@ log = logging.getLogger(__name__)
 DASHBOARD_INGEST_HOST = os.environ.get("KAETRAM_DASHBOARD_HOST", "127.0.0.1")
 DASHBOARD_INGEST_PORT = int(os.environ.get("KAETRAM_DASHBOARD_PORT", "8080"))
 
-# Resolve agent_id once, at heartbeat startup. KAETRAM_SCREENSHOT_DIR has the
+# Resolve agent_id once, at heartbeat startup. KAETRAM_STATE_DIR has the
 # form /tmp/kaetram_agent_N/state — a robust place to read the slot from.
 def _resolve_agent_id() -> int | None:
-    sd = os.environ.get("KAETRAM_SCREENSHOT_DIR", "")
+    sd = os.environ.get("KAETRAM_STATE_DIR", "")
     for seg in sd.split(os.sep):
         if seg.startswith("kaetram_agent_"):
             try:
@@ -127,8 +127,7 @@ async def activity_heartbeat_loop(state: dict, interval: float = 1.0) -> None:
     KAETRAM session logs are written by the CLI harness (Claude/Codex/etc)
     to dataset/raw/agent_N/logs/session_*.log. We tail the most-recent one
     and emit new tool_use events to the dashboard. This is decoupled from
-    the screenshot/state heartbeat so a busy parser doesn't slow down state
-    updates.
+    the state heartbeat so a busy parser doesn't slow down state updates.
     """
     agent_id = _resolve_agent_id()
     if agent_id is None:

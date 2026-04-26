@@ -7,9 +7,7 @@ game has fully initialized (`window.game.player.gridX` is set).
 
 from __future__ import annotations
 
-import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import AsyncIterator
 
 from playwright.async_api import (
@@ -24,20 +22,6 @@ DEFAULT_PASSWORD = "test"
 LOGIN_TIMEOUT_MS = 60_000
 
 
-async def _debug_shot(page: Page, label: str) -> None:
-    base = os.environ.get("KAETRAM_DEBUG_SCREENSHOTS")
-    if not base:
-        return
-    out = Path(base)
-    out.mkdir(parents=True, exist_ok=True)
-    path = out / f"{label}.png"
-    try:
-        await page.screenshot(path=str(path), full_page=True)
-        print(f"[debug] screenshot {label} → {path}")
-    except Exception as exc:
-        print(f"[debug] screenshot {label} failed: {exc}")
-
-
 async def login_seeded_player(
     page: Page,
     username: str,
@@ -46,7 +30,6 @@ async def login_seeded_player(
     client_url: str = DEFAULT_CLIENT_URL,
 ) -> Page:
     await page.goto(client_url, wait_until="domcontentloaded")
-    await _debug_shot(page, f"01_post_goto_{username}")
 
     # The login button is enabled once `App.ready()` runs
     # (packages/client/src/app.ts:206). It's actually enabled immediately on
@@ -55,14 +38,11 @@ async def login_seeded_player(
         "() => { const b = document.querySelector('#login'); return !!b && !b.disabled; }",
         timeout=LOGIN_TIMEOUT_MS,
     )
-    await _debug_shot(page, f"02_login_enabled_{username}")
 
     await page.locator("#login-name-input").fill(username)
     await page.locator("#login-password-input").fill(password)
-    await _debug_shot(page, f"03_fields_filled_{username}")
     await page.locator("#login").click()
     await page.wait_for_timeout(2000)
-    await _debug_shot(page, f"04_post_click_{username}")
 
     try:
         # Success signal: body class flips from 'intro' to 'game' once the
@@ -79,7 +59,6 @@ async def login_seeded_player(
             timeout=LOGIN_TIMEOUT_MS,
         )
     except Exception:
-        await _debug_shot(page, f"99_timeout_{username}")
         state = await page.evaluate(
             """() => ({
                 bodyClass: document.body ? document.body.className : null,
@@ -106,7 +85,6 @@ async def login_seeded_player(
         print(f"[debug] timeout state for {username}: {state}")
         raise
 
-    await _debug_shot(page, f"05_in_game_{username}")
     return page
 
 

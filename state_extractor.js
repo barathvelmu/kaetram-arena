@@ -58,12 +58,6 @@
     if (door) console.log('[debug_npc] _isWalkableOrDoor (' + x + ',' + y + ') IS DOOR');
     return walkable || door;
   }
-  // ── Live screenshot hook for dashboard (fires every 1s via console.debug) ──
-  if (!window.__liveScreenshotActive) {
-    window.__liveScreenshotActive = true;
-    setInterval(function () { console.debug('LIVE_SCREENSHOT_TRIGGER'); }, 250);
-  }
-
   // ── Dynamic canvas metrics (computed per extraction) ──
   // IMPORTANT: `document.getElementById('canvas')` returns a <div> wrapper, NOT an actual
   // <canvas> element. Its children are position:absolute so the div has height=0, which
@@ -330,7 +324,7 @@
       }
     } catch (e) {}
 
-    // ── UI state (replaces screenshot for dialog detection) ──
+    // ── UI state (used for dialog/shop/inventory detection) ──
     let uiState = {};
     try {
       // Quest panel detection — check multiple indicators since Kaetram uses

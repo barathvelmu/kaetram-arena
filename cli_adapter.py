@@ -37,11 +37,11 @@ def _resolve_mcp_template(sandbox_dir: Path, port: str = "", username: str = "Cl
     if not kaetram_cfg:
         raise RuntimeError("No 'kaetram' server in .mcp.json template")
     text = _json.dumps({"mcpServers": {"kaetram": kaetram_cfg}}, indent=2)
-    screenshot_dir = str(sandbox_dir / "state")
+    state_dir = str(sandbox_dir / "state")
     return (text
             .replace("__VENV_PYTHON__", VENV_PYTHON)
             .replace("__PROJECT_DIR__", str(PROJECT_DIR))
-            .replace("__SCREENSHOT_DIR__", screenshot_dir)
+            .replace("__STATE_DIR__", state_dir)
             .replace("__SERVER_PORT__", str(port))
             .replace("__USERNAME__", username)
             )
@@ -226,7 +226,7 @@ class CodexAdapter(CLIAdapter):
 
         # Configure kaetram MCP server per-sandbox via CODEX_HOME isolation.
         # Each agent gets its own .codex/config.toml so MCP servers use the
-        # correct port, username, and screenshot directory.
+        # correct port, username, and state directory.
         codex_home = sandbox_dir / ".codex"
         codex_home.mkdir(parents=True, exist_ok=True)
         self._codex_home = codex_home
@@ -255,7 +255,7 @@ startup_timeout_sec = 30
 KAETRAM_PORT = "{port}"
 KAETRAM_USERNAME = "{username}"
 KAETRAM_EXTRACTOR = "{PROJECT_DIR / 'state_extractor.js'}"
-KAETRAM_SCREENSHOT_DIR = "{sandbox_dir / 'state'}"
+KAETRAM_STATE_DIR = "{sandbox_dir / 'state'}"
 
 [projects."{sandbox_dir}"]
 trust_level = "trusted"
@@ -415,7 +415,7 @@ class GeminiAdapter(CLIAdapter):
                         "KAETRAM_PORT": port,
                         "KAETRAM_USERNAME": username,
                         "KAETRAM_EXTRACTOR": str(PROJECT_DIR / "state_extractor.js"),
-                        "KAETRAM_SCREENSHOT_DIR": str(sandbox_dir / "state"),
+                        "KAETRAM_STATE_DIR": str(sandbox_dir / "state"),
                     },
                 },
             },
@@ -511,7 +511,7 @@ class OpenCodeAdapter(CLIAdapter):
             "KAETRAM_PORT":           port,
             "KAETRAM_USERNAME":       username,
             "KAETRAM_EXTRACTOR":      str(PROJECT_DIR / "state_extractor.js"),
-            "KAETRAM_SCREENSHOT_DIR": str(sandbox_dir / "state"),
+            "KAETRAM_STATE_DIR":      str(sandbox_dir / "state"),
         }
         (sandbox_dir / "opencode.json").write_text(json.dumps(cfg, indent=2))
         # System prompt → AGENTS.md (opencode convention)

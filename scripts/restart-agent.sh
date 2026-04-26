@@ -5,7 +5,7 @@
 #   1. Kills the running orchestrator + all claude agent processes
 #   2. Kills game server processes (orchestrator restarts them)
 #   3. Preserves session logs in dataset/raw/ (training data)
-#   4. Clears transient state (screenshots, game_state, progress) per agent sandbox
+#   4. Clears transient state (game_state, progress) per agent sandbox
 #   5. Restarts orchestrator in the "datacol" tmux session
 #   6. Ensures dashboard is running on :8080
 #
@@ -235,12 +235,8 @@ echo "Clearing agent sandbox state (logs preserved)..."
 for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
   sandbox="/tmp/kaetram_agent_$i"
   if [ -d "$sandbox/state" ]; then
-    rm -f "$sandbox/state/screenshot.png" \
-          "$sandbox/state/live_screen.png" \
-          "$sandbox/state/live_screen.jpg" \
-          "$sandbox/state/game_state.json" \
+    rm -f "$sandbox/state/game_state.json" \
           "$sandbox/state/.session_counter"
-    find "$sandbox/state" \( -name "*.png" -o -name "*.jpg" \) -delete 2>/dev/null || true
   fi
   # Clean stale files from previous architectures (old scripts, workarounds)
   rm -f "$sandbox"/*.js "$sandbox"/*.py "$sandbox"/package.json "$sandbox"/package-lock.json 2>/dev/null
@@ -255,10 +251,7 @@ kill_scoped_chrome_pgroup TERM
 kill_scoped "chromium.*kaetram" TERM
 
 # Also clear single-agent state
-rm -f "$PROJECT_DIR/state/screenshot.png" \
-      "$PROJECT_DIR/state/live_screen.png" \
-      "$PROJECT_DIR/state/live_screen.jpg" \
-      "$PROJECT_DIR/state/game_state.json"
+rm -f "$PROJECT_DIR/state/game_state.json"
 
 # Count preserved logs
 LOG_COUNT=$(find "$PROJECT_DIR/dataset/raw" -name "session_*.log" 2>/dev/null | wc -l)

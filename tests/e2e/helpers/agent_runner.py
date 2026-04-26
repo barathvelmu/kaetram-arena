@@ -181,7 +181,7 @@ def run_agent_phase(
         "KAETRAM_PASSWORD": "test",
         "KAETRAM_CLIENT_URL": game_url,
         "KAETRAM_EXTRACTOR": str(STATE_EXTRACTOR),
-        "KAETRAM_SCREENSHOT_DIR": str(sandbox / "state"),
+        "KAETRAM_STATE_DIR": str(sandbox / "state"),
         "KAETRAM_HEADED": "1" if headed else "0",
     }
 

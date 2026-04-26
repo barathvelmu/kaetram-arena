@@ -134,12 +134,8 @@ echo "Clearing sandbox state..."
 for i in $(seq 0 $((N_AGENTS - 1))); do
   sandbox="/tmp/kaetram_agent_$i/state"
   if [ -d "$sandbox" ]; then
-    rm -f "$sandbox/screenshot.png" \
-          "$sandbox/live_screen.png" \
-          "$sandbox/game_state.json" \
+    rm -f "$sandbox/game_state.json" \
           "$sandbox/.session_counter"
-    # Remove any extra screenshots agents may have created
-    find "$sandbox" -name "*.png" -delete 2>/dev/null || true
     echo "  Cleared /tmp/kaetram_agent_$i/state/"
   else
     echo "  /tmp/kaetram_agent_$i/state/ does not exist (OK)"
@@ -147,9 +143,7 @@ for i in $(seq 0 $((N_AGENTS - 1))); do
 done
 
 # Also clear single-agent state
-rm -f "$PROJECT_DIR/state/screenshot.png" \
-      "$PROJECT_DIR/state/live_screen.png" \
-      "$PROJECT_DIR/state/game_state.json"
+rm -f "$PROJECT_DIR/state/game_state.json"
 echo ""
 
 # ── Verify ──

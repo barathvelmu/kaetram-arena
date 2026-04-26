@@ -13,7 +13,7 @@ this directory now.
 
 | File | What it owns |
 |------|--------------|
-| `core.py` | The `FastMCP` instance, the `state` dict (page handle, screenshot dir, agent metadata), the lifespan that launches Chromium + injects `state_extractor.js`, and spawns the state/activity heartbeats. |
+| `core.py` | The `FastMCP` instance, the `state` dict (page handle, state dir, agent metadata), the lifespan that launches Chromium + injects `state_extractor.js`, and spawns the state/activity heartbeats. |
 | `helpers.py` | Wrappers around `page.evaluate(window.__helperFn)` — the bridge between Python tools and the JS helpers exposed by `state_extractor.js`. |
 | `login.py` | One-time login flow: spawn page, fill credentials, dismiss tutorial, warp to Mudwich. Called from `core.py` lifespan, not a tool. |
 | `state_heartbeat.py` | 300 ms loop that POSTs `window.__latestGameState` to `dashboard:8080/ingest/state`, plus a 1 s tail-the-session-log → `/ingest/activity` loop. Best-effort; silent on failure. |

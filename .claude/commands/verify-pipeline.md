@@ -57,7 +57,6 @@ else:
         print(f"  session:    {last_step.get('session')}")
         print(f"  step:       {last_step.get('step')}")
         print(f"  timestamp:  {last_step.get('timestamp')}")
-        print(f"  screenshot: {last_step.get('screenshot')}")
         print(f"  reward:     {last_step.get('reward')}")
         print(f"  action:     {last_step.get('action')}")
         state = last_step.get('state', {})

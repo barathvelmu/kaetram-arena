@@ -24,10 +24,10 @@ _MCP_LOG_FILE = None
 def _init_log_file():
     """Open a persistent log file for MCP diagnostics."""
     global _MCP_LOG_FILE
-    screenshot_dir = os.environ.get("KAETRAM_SCREENSHOT_DIR", "/tmp")
-    log_path = os.path.join(screenshot_dir, "mcp_server.log")
+    state_dir = os.environ.get("KAETRAM_STATE_DIR", "/tmp")
+    log_path = os.path.join(state_dir, "mcp_server.log")
     try:
-        os.makedirs(screenshot_dir, exist_ok=True)
+        os.makedirs(state_dir, exist_ok=True)
         _MCP_LOG_FILE = open(log_path, "a")
     except OSError:
         pass

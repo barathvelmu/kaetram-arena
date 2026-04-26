@@ -339,8 +339,8 @@ done
 Note: `extract_turns.py` does NOT accept `--no-frames` on the VM (that
 flag is not in its argparse; see help output). The VM help text shows
 only `--log-dir`, `--log-file`, `--output-dir`. If the sister-agent patch
-adds `--no-frames`, use it; otherwise just run as above. Frame extraction
-is gated internally by whether screenshots exist on disk.
+adds `--no-frames`, use it; otherwise just run as above. Frame
+extraction is no longer part of the pipeline.
 
 Also: `extract_turns.py` takes `--log-dir` as a *flat* directory of
 `session_*.log` files, not a recursive tree. That is why `collect_sft_data.sh`

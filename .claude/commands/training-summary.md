@@ -40,7 +40,7 @@ for path in session_dirs:
         "total_reward": round(sum(rewards), 3),
         "best_reward": max(rewards) if rewards else 0,
         "entity_steps": entity_steps,
-        "screenshot_only_steps": len(steps) - entity_steps,
+        "no_entity_steps": len(steps) - entity_steps,
         "first_timestamp": steps[0].get("timestamp"),
         "last_timestamp": steps[-1].get("timestamp"),
     })

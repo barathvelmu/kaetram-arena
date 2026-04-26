@@ -360,28 +360,6 @@ class APIMixin:
 
         agent_running = mode != "none"
 
-        screenshot_age = -1
-        screenshot_time = ""
-        if mode == "multi":
-            for i in range(MAX_AGENTS):
-                for ss_name in ("live_screen.jpg", "screenshot.png"):
-                    ss = os.path.join("/tmp", f"kaetram_agent_{i}", "state", ss_name)
-                    if os.path.isfile(ss):
-                        mtime = os.path.getmtime(ss)
-                        age = int(time.time() - mtime)
-                        if screenshot_age < 0 or age < screenshot_age:
-                            screenshot_age = age
-                            screenshot_time = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
-                        break
-        else:
-            screenshot = os.path.join(STATE_DIR, "live_screen.jpg")
-            if not os.path.isfile(screenshot):
-                screenshot = os.path.join(STATE_DIR, "screenshot.png")
-            if os.path.isfile(screenshot):
-                mtime = os.path.getmtime(screenshot)
-                screenshot_age = int(time.time() - mtime)
-                screenshot_time = datetime.fromtimestamp(mtime).strftime("%H:%M:%S")
-
         # Use cached ss output (shared 5s TTL)
         ss_out = get_ss_output()
         active_ports = []
@@ -429,8 +407,6 @@ class APIMixin:
             "agent_count": agent_count,
             "game_server_up": game_server_up,
             "active_ports": active_ports,
-            "screenshot_age_seconds": screenshot_age,
-            "screenshot_time": screenshot_time,
             "total_sessions": total_sessions,
             "single_sessions": single_sessions,
             "multi_sessions": multi_sessions,
@@ -493,12 +469,6 @@ class APIMixin:
 
             if agent["mode"] == "qwen":
                 continue
-
-            for ss_name in ("live_screen.jpg", "screenshot.png"):
-                ss = os.path.join(state_dir, ss_name)
-                if os.path.isfile(ss):
-                    agent["screenshot_age"] = int(time.time() - os.path.getmtime(ss))
-                    break
 
             # HLS livestream freshness — independent of observe() cadence.
             # If ffmpeg is alive and emitting segments, this stays low even
@@ -815,22 +785,21 @@ class APIMixin:
             log_dir = os.path.join(sandbox_dir, "logs")
 
             model = {"name": model_name, "active": False, "entries": [],
-                     "game_state": {}, "screenshot_age": 9999, "episode": 0, "turn": 0}
+                     "game_state": {}, "state_age": 9999, "episode": 0, "turn": 0}
 
-            # Screenshot age
-            ss_path = os.path.join(state_dir, "live_screen.jpg")
-            if os.path.isfile(ss_path):
-                model["screenshot_age"] = time.time() - os.path.getmtime(ss_path)
-                model["active"] = model["screenshot_age"] < 120
-
-            # Game state (longer staleness window for eval — turns can be slow)
+            # Liveness via game_state.json mtime (the heartbeat-written file).
             gs_path = os.path.join(state_dir, "game_state.json")
-            if os.path.isfile(gs_path) and (time.time() - os.path.getmtime(gs_path)) < 600:
-                try:
-                    with open(gs_path) as f:
-                        model["game_state"] = _normalize_observe_schema(json.load(f))
-                except Exception:
-                    pass
+            if os.path.isfile(gs_path):
+                age = time.time() - os.path.getmtime(gs_path)
+                model["state_age"] = age
+                model["active"] = age < 120
+                # Read the game state itself if it's reasonably fresh (eval turns can be slow).
+                if age < 600:
+                    try:
+                        with open(gs_path) as f:
+                            model["game_state"] = _normalize_observe_schema(json.load(f))
+                    except Exception:
+                        pass
 
             # Latest session log entries (read all sub-session logs for current episode)
             if os.path.isdir(log_dir):

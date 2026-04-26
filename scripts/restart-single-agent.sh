@@ -179,11 +179,8 @@ fi
 if [ "$RESET" = true ]; then
   echo "Resetting sandbox state..."
   STATE_DIR="$SANDBOX/state"
-  rm -f "$STATE_DIR/screenshot.png" \
-        "$STATE_DIR/live_screen.png" \
-        "$STATE_DIR/game_state.json" \
+  rm -f "$STATE_DIR/game_state.json" \
         "$STATE_DIR/.session_counter"
-  find "$STATE_DIR" -name "*.png" -delete 2>/dev/null || true
 
   # Reset MongoDB player data
   MONGO_CONTAINER="kaetram-mongo"

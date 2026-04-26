@@ -7,7 +7,7 @@
 #
 # A pid is treated as data-collection if any of:
 #   1. its cmdline contains a sandbox prefix (/tmp/kaetram_agent_<N>)
-#   2. its environ has HOME or KAETRAM_SCREENSHOT_DIR pointing at a sandbox
+#   2. its environ has HOME or KAETRAM_STATE_DIR pointing at a sandbox
 #   3. an ancestor (up to 5 hops) is orchestrate.py or play.sh
 #   4. it holds a TCP listener on a data-collection game-server port
 # AND it does NOT hold a listener on a protected port (eval/test).
@@ -63,7 +63,7 @@ _ks_is_data_collection() {
   fi
   # 2) Environment variables point at a sandbox.
   if _ks_environ_has "$pid" "^HOME=$KAETRAM_SANDBOX_PREFIX"; then return 0; fi
-  if _ks_environ_has "$pid" "^KAETRAM_SCREENSHOT_DIR=$KAETRAM_SANDBOX_PREFIX"; then return 0; fi
+  if _ks_environ_has "$pid" "^KAETRAM_STATE_DIR=$KAETRAM_SANDBOX_PREFIX"; then return 0; fi
   # 3) Holds a data-collection port directly.
   if _ks_holds_data_port "$pid"; then return 0; fi
   # 4) Walk up to 5 ancestors looking for orchestrate.py / play.sh.

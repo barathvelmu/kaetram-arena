@@ -333,9 +333,6 @@ class APIMixin:
 
         agent_running = mode != "none"
 
-        gs_fresh = False
-        game_state_age = -1
-
         screenshot_age = -1
         screenshot_time = ""
         if mode == "multi":
@@ -403,10 +400,8 @@ class APIMixin:
             "mode": mode,
             "agent_running": agent_running,
             "agent_count": agent_count,
-            "game_state_fresh": gs_fresh,
             "game_server_up": game_server_up,
             "active_ports": active_ports,
-            "game_state_age_seconds": game_state_age,
             "screenshot_age_seconds": screenshot_age,
             "screenshot_time": screenshot_time,
             "total_sessions": total_sessions,

@@ -80,19 +80,26 @@ def mid_navigation(pos_check: dict) -> bool:
     return False
 
 
-async def wait_for_adjacency(page, npc_pos: dict, max_checks: int = 8) -> tuple[bool, dict]:
+async def wait_for_adjacency(page, npc_pos: dict, max_checks: int = 20) -> tuple[bool, dict]:
     """Poll player→NPC distance until adjacent (Manhattan < 2) or timeout.
 
     Returns (arrived: bool, last_pos_check: dict).
 
-    The pos_check dict also carries navigation metadata so the caller can
+    Adaptive timeout: keeps polling as long as `__navState.active` is true
+    (the agent is genuinely still walking — bailing early forces the model
+    to call observe + retry interact_npc, wasting a turn for the most common
+    failure mode). If nav goes idle WITHOUT arriving, bail immediately —
+    we're not going to get any closer.
+
+    The pos_check dict carries navigation metadata so the caller can
     distinguish "blocked by terrain" from "still walking":
         - nav_active:   bool — is window.__navState.active true?
         - nav_status:   str  — 'navigating' | 'arrived' | 'stuck' | 'idle'
         - waypoints_remaining: int — unvisited waypoints in current plan
         - player_moving: bool — is the player currently in motion this tick
     """
-    pos_check = {}
+    pos_check: dict = {}
+    consecutive_idle = 0
     for _ in range(max_checks):
         await page.wait_for_timeout(1000)
         pos_check = await page.evaluate("""(npcPos) => {
@@ -112,4 +119,15 @@ async def wait_for_adjacency(page, npc_pos: dict, max_checks: int = 8) -> tuple[
         }""", npc_pos)
         if pos_check.get("manhattan", 999) < 2:
             return True, pos_check
+        # Adaptive bail-out: if nav is genuinely idle (path complete or never
+        # started) and we haven't arrived after ~2s of idle, the player is
+        # not going to walk closer on its own — bail so the caller surfaces
+        # the real reason (NPC unreachable, blocked path, wrong coords).
+        nav_active = pos_check.get("nav_active") or pos_check.get("player_moving")
+        if not nav_active:
+            consecutive_idle += 1
+            if consecutive_idle >= 2:
+                break
+        else:
+            consecutive_idle = 0
     return False, pos_check

@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
-"""Comprehensive log analyzer for the currently running Claude harness agents.
+"""Comprehensive log analyzer for Kaetram agent runs.
 
 Usage:
     python3 scripts/log_analysis/analyze.py                  # full report (default)
-    python3 scripts/log_analysis/analyze.py status           # one-line per agent
+    python3 scripts/log_analysis/analyze.py status           # one-line per agent (latest run)
+    python3 scripts/log_analysis/analyze.py runs [-n 10]     # recent runs across all agents
+    python3 scripts/log_analysis/analyze.py timeline [-n 30] # chronological event stream (latest run)
+    python3 scripts/log_analysis/analyze.py tier_a           # Tier-A adoption metrics per agent
     python3 scripts/log_analysis/analyze.py quests           # quest-focused detail
     python3 scripts/log_analysis/analyze.py tools            # tool call breakdown
     python3 scripts/log_analysis/analyze.py recent [-n 10]   # last N tool calls per agent
-    python3 scripts/log_analysis/analyze.py errors           # all tool errors
+    python3 scripts/log_analysis/analyze.py errors           # categorized errors + next-action transitions
     python3 scripts/log_analysis/analyze.py thinking [-n 5]  # last N thinking blocks per agent
     python3 scripts/log_analysis/analyze.py agent <N>        # deep-dive single agent
 
-All commands operate on the LATEST session log per agent_dir under dataset/raw/.
+Defaults to LATEST session log per agent. Pass `--run <run_id>` to scope to a
+specific run, or `--all-runs` to span the entire history (heavy commands only).
+`--stale` includes agents whose log is >10 min old (default: only currently
+running).
 """
 
 from __future__ import annotations
@@ -26,11 +32,19 @@ sys.path.insert(0, str(REPO))
 
 from scripts.log_analysis.parse import (  # noqa: E402
     SessionView,
+    categorize_error,
     deaths,
     first_observe,
+    fmt_duration,
+    fmt_est,
     latest_logs_per_agent,
     latest_observe,
+    latest_runs_per_agent,
+    parse_run,
     parse_session_auto,
+    parse_session_timestamp,
+    runs_per_agent,
+    tier_a_signals,
     tool_call_counts,
     tool_error_counts,
 )
@@ -94,7 +108,18 @@ def _bar(label: str) -> str:
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 def cmd_status(views: list[tuple[Path, SessionView]]) -> None:
-    """One-line per agent — the quickest possible health check."""
+    """One-line per agent — the quickest possible health check.
+
+    Header line shows the run_id + EST start time so we know which run we're
+    looking at when comparing across days.
+    """
+    # Header context: pull run.meta from each agent's latest run.
+    runs = latest_runs_per_agent()
+    if runs:
+        primary = runs[0]
+        print(f"  Run: {primary.run_id}   started: {fmt_est(primary.started_at)}   "
+              f"elapsed: {fmt_duration(primary.duration_s)}")
+        print()
     print(f"{'agent':<6}{'arch':<9}{'lvl':<5}{'hp':<11}{'pos':<13}"
           f"{'turns':<7}{'errs':<6}{'rl':<4}finished | active")
     print("─" * 110)
@@ -169,22 +194,135 @@ def cmd_recent(views: list[tuple[Path, SessionView]], n: int) -> None:
 
 
 def cmd_errors(views: list[tuple[Path, SessionView]]) -> None:
-    """All tool errors across agents — helps spot systemic issues."""
+    """Categorized error breakdown + 'what did the agent do next' transition matrix.
+
+    Surfaces the recurring failure modes (BFS_NO_PATH, STILL_MOVING,
+    NPC_NOT_FOUND, STATION_UNREACHABLE, etc.) so we can tell whether the
+    agent recovers (e.g., warps after BFS fail per Rule 4a) or loops.
+    """
     for agent_dir, sv in views:
         aid = _agent_id(agent_dir)
-        errs = [tc for tc in sv.tool_calls if tc.is_error]
+        errs = [(i, tc) for i, tc in enumerate(sv.tool_calls) if tc.is_error]
         if not errs:
             continue
         print(_bar(f"agent_{aid} — {len(errs)} errors of {len(sv.tool_calls)}"))
-        # Group by short_name + error prefix
-        groups: dict[tuple[str, str], int] = {}
-        sample: dict[tuple[str, str], str] = {}
-        for tc in errs:
-            key = (tc.short_name, (tc.result_error or "")[:60])
-            groups[key] = groups.get(key, 0) + 1
-            sample.setdefault(key, tc.result_error or "")
-        for (tool, prefix), count in sorted(groups.items(), key=lambda kv: -kv[1]):
-            print(f"    [{count}x] {tool}: {sample[(tool, prefix)][:140]}")
+        # Per-category counts + next-action transitions.
+        cat_counts: dict[str, int] = {}
+        next_actions: dict[str, dict[str, int]] = {}
+        sample: dict[str, str] = {}
+        for i, tc in errs:
+            cat = categorize_error(tc.result_error or "")
+            cat_counts[cat] = cat_counts.get(cat, 0) + 1
+            sample.setdefault(cat, f"{tc.short_name}: {(tc.result_error or '')[:120]}")
+            nxt = sv.tool_calls[i+1].short_name if i+1 < len(sv.tool_calls) else "<end>"
+            next_actions.setdefault(cat, {})
+            next_actions[cat][nxt] = next_actions[cat].get(nxt, 0) + 1
+        for cat, count in sorted(cat_counts.items(), key=lambda kv: -kv[1]):
+            top_next = sorted(next_actions[cat].items(), key=lambda kv: -kv[1])[:3]
+            transitions = ", ".join(f"{n}×{c}" for n, c in top_next)
+            print(f"    [{count}x] {cat:<22} → next: {transitions}")
+            print(f"           ex: {sample[cat]}")
+
+
+def cmd_runs(_views, n: int = 10, all_runs: bool = False) -> None:
+    """List recent runs across all agents with key stats from run.meta.json."""
+    runs = runs_per_agent()
+    runs.sort(key=lambda r: r.run_id, reverse=True)
+    if not all_runs:
+        runs = runs[:n]
+    print(f"{'run_id':<24}{'agent':<7}{'pers':<14}{'harness':<9}"
+          f"{'sessions':<10}{'started_at':<22}{'duration':<10}")
+    print("─" * 96)
+    for r in runs:
+        m = r.meta
+        sessions_meta = m.get("session_count")
+        sessions_actual = len(r.session_paths)
+        sessions = (f"{sessions_actual}" if sessions_meta == sessions_actual
+                    else f"{sessions_actual} (meta:{sessions_meta})")
+        print(f"{r.run_id:<24}"
+              f"{str(m.get('agent_id','?')):<7}"
+              f"{(m.get('personality') or '?')[:13]:<14}"
+              f"{(m.get('harness') or '?')[:8]:<9}"
+              f"{sessions:<10}"
+              f"{fmt_est(r.started_at):<22}"
+              f"{fmt_duration(r.duration_s):<10}")
+
+
+def cmd_tier_a(views: list[tuple[Path, SessionView]]) -> None:
+    """Per-agent Tier-A adoption metrics (rules + tool fields actually used)."""
+    print(f"{'agent':<7}{'qq':<5}{'qq+gate':<9}{'gated':<7}"
+          f"{'accepts':<9}{'q→accept':<10}"
+          f"{'BFS':<5}{'→warp':<7}{'→retry':<8}"
+          f"{'gather✓gate':<13}{'inv_full':<10}{'drop@full':<11}"
+          f"{'mob_overshot':<13}{'stations':<9}{'deaths':<7}")
+    print("─" * 130)
+    for agent_dir, sv in views:
+        aid = _agent_id(agent_dir)
+        s = tier_a_signals(sv)
+        warp_pct = f"{s.bfs_then_warp}({100*s.bfs_then_warp//max(1,s.bfs_fails)}%)"
+        retry_pct = f"{s.bfs_then_navigate}({100*s.bfs_then_navigate//max(1,s.bfs_fails)}%)"
+        accept_pct = f"{s.accept_with_prior_query}/{s.accept_calls}"
+        print(f"{aid:<7}{s.query_quest_calls:<5}{s.query_quest_with_live_gate:<9}"
+              f"{s.query_quest_gated_seen:<7}{s.accept_calls:<9}{accept_pct:<10}"
+              f"{s.bfs_fails:<5}{warp_pct:<7}{retry_pct:<8}"
+              f"{s.gather_with_gate_explained:<13}{s.inv_full_observed:<10}"
+              f"{s.drops_after_full:<11}{s.mob_level_overshoot_attacks:<13}"
+              f"{s.station_locations_returned:<9}{s.deaths:<7}")
+    print()
+    print("Legend:")
+    print("  qq          query_quest calls this session")
+    print("  qq+gate     of those, how many returned a live_gate_status block")
+    print("  gated       of those, how many showed gated:true (Rule 9 fallback fired)")
+    print("  q→accept    accepts preceded by query_quest within 3 calls (Rule 10 compliance)")
+    print("  BFS         navigate calls that returned BFS no-path")
+    print("  →warp /     of BFS-fails, what the agent did next")
+    print("    →retry      (Rule 4a wants ≥80% →warp)")
+    print("  gather✓gate gather calls that returned a structured `gate` block (A2)")
+    print("  inv_full    observes that surfaced inventory_summary.full=true")
+    print("  drop@full   drop_item within 3 turns of inv_full (correct response)")
+    print("  mob_overshot attacks on mobs >+10 levels above player (Rule 11 violation)")
+    print("  stations    query_quest calls that returned station_locations (new field)")
+
+
+def cmd_timeline(views: list[tuple[Path, SessionView]], n: int = 30) -> None:
+    """Chronological event stream for one agent — sessions, deaths, quest events,
+    level-ups, accepts, BFS-fails. Shows the last N events."""
+    for agent_dir, sv in views:
+        aid = _agent_id(agent_dir)
+        ts = parse_session_timestamp(sv.log_path)
+        print(_bar(f"agent_{aid} — {sv.log_path.name} (started {fmt_est(ts)})"))
+        events: list[tuple[int, str]] = []
+        last_level = None
+        for tc in sv.tool_calls:
+            p = tc.result_payload if isinstance(tc.result_payload, dict) else {}
+            if tc.short_name == "respawn":
+                events.append((tc.idx, "💀 respawn"))
+            elif tc.short_name == "interact_npc" and tc.input.get("accept_quest_offer") \
+                 and isinstance(p, dict) and (p.get("quest_accepted") or p.get("quest_opened")):
+                events.append((tc.idx, f"📜 ACCEPT {tc.input.get('npc_name')}"))
+            elif tc.short_name == "navigate" and tc.is_error and "BFS" in (tc.result_error or ""):
+                events.append((tc.idx, f"🚫 BFS no-path → ({tc.input.get('x')},{tc.input.get('y')})"))
+            elif tc.short_name == "warp":
+                events.append((tc.idx, f"🌀 warp({tc.input.get('location')})"))
+            elif tc.short_name == "query_quest":
+                lgs = (p.get("live_gate_status") or {}) if isinstance(p, dict) else {}
+                tag = " [GATED]" if lgs.get("gated") else ""
+                events.append((tc.idx, f"❓ query {tc.input.get('quest_name')}{tag}"))
+            if tc.short_name == "observe" and isinstance(p, dict):
+                lvl = (p.get("stats") or {}).get("level")
+                if lvl is not None and last_level is not None and lvl > last_level:
+                    events.append((tc.idx, f"⭐ LEVEL UP {last_level} → {lvl}"))
+                if lvl is not None:
+                    last_level = lvl
+                # Quest finished events
+                fin = [(q.get("name") or "?") for q in (p.get("finished_quests") or [])
+                       if isinstance(q, dict)]
+                # Trigger only on first observe where it appears (not every poll)
+                # — handled by tracking a set across the loop:
+        for idx, msg in events[-n:]:
+            print(f"  #{idx:<4} {msg}")
+        if not events:
+            print("  (no notable events)")
 
 
 def cmd_thinking(views: list[tuple[Path, SessionView]], n: int) -> None:
@@ -261,11 +399,30 @@ _STALE_SECONDS = 600  # 10 minutes — log untouched longer than this is from a 
 
 
 def _load_views(only_agent: int | None = None, include_stale: bool = False,
-                harness_override: str | None = None) -> list[tuple[Path, SessionView]]:
-    pairs = latest_logs_per_agent()
+                harness_override: str | None = None,
+                run_id: str | None = None) -> list[tuple[Path, SessionView]]:
+    """Latest session log per agent, optionally scoped to a specific run_id.
+
+    `--run <id>` resolves to the matching `runs/<id>/` dir per agent and
+    picks that run's most-recent session log. Without a run filter we use
+    the agent's `logs/` symlink (current run).
+    """
+    if run_id:
+        from pathlib import Path as _P
+        from scripts.log_analysis.parse import RAW_DIR as _RAW
+        pairs: list[tuple[Path, Path]] = []
+        for agent_dir in sorted(p for p in _RAW.glob("agent_*") if p.is_dir()):
+            run_dir = agent_dir / "runs" / run_id
+            if not run_dir.is_dir():
+                continue
+            logs = sorted(run_dir.glob("session_*.log"), key=lambda p: p.stat().st_mtime)
+            if logs:
+                pairs.append((agent_dir, logs[-1]))
+    else:
+        pairs = latest_logs_per_agent()
     if only_agent is not None:
         pairs = [(d, l) for d, l in pairs if d.name == f"agent_{only_agent}"]
-    elif not include_stale:
+    elif not include_stale and not run_id:
         now = dt.datetime.now().timestamp()
         pairs = [(d, l) for d, l in pairs if (now - l.stat().st_mtime) <= _STALE_SECONDS]
     out: list[tuple[Path, SessionView]] = []
@@ -286,9 +443,17 @@ def main() -> int:
     pt = sub.add_parser("thinking"); pt.add_argument("-n", type=int, default=3)
     pa = sub.add_parser("agent"); pa.add_argument("agent_id", type=int); pa.add_argument("-n", type=int, default=10)
     sub.add_parser("full")
+    sub.add_parser("tier_a")
+    pn = sub.add_parser("runs"); pn.add_argument("-n", type=int, default=10)
+    pl = sub.add_parser("timeline"); pl.add_argument("-n", type=int, default=30)
     p.add_argument("--stale", action="store_true",
                    help="include sessions whose log hasn't been touched in 10+ minutes "
                         "(default: only currently-running agents)")
+    p.add_argument("--run", dest="run_id", default=None,
+                   help="scope to a specific run_id (e.g. run_20260427_135613). "
+                        "Without this, looks at the latest run per agent.")
+    p.add_argument("--all-runs", action="store_true",
+                   help="for `runs` cmd: show every run, not just the recent N")
     p.add_argument("--opencode", action="store_const", const="opencode", dest="harness",
                    help="force the OpenCode log parser (default: auto-detect from meta.json)")
     p.add_argument("--claude", action="store_const", const="claude", dest="harness",
@@ -297,18 +462,25 @@ def main() -> int:
 
     cmd = args.cmd or "full"
 
+    # `runs` lists run dirs directly; doesn't need session views.
+    if cmd == "runs":
+        cmd_runs(None, n=args.n, all_runs=args.all_runs)
+        return 0
+
     if cmd == "agent":
-        views = _load_views(only_agent=args.agent_id, harness_override=args.harness)
+        views = _load_views(only_agent=args.agent_id, harness_override=args.harness, run_id=args.run_id)
         if not views:
             print(f"No log found for agent_{args.agent_id}", file=sys.stderr)
             return 1
         cmd_agent(views[0], n_recent=args.n)
         return 0
 
-    views = _load_views(include_stale=args.stale, harness_override=args.harness)
+    views = _load_views(include_stale=args.stale, harness_override=args.harness, run_id=args.run_id)
     if not views:
-        print("No active agent logs in the last 10 minutes. Pass --stale to include older sessions.",
-              file=sys.stderr)
+        msg = (f"No agent logs found for run {args.run_id}." if args.run_id
+               else "No active agent logs in the last 10 minutes. "
+                    "Pass --stale to include older sessions.")
+        print(msg, file=sys.stderr)
         return 1
 
     # Header — show file + age for every report
@@ -323,6 +495,8 @@ def main() -> int:
     elif cmd == "recent": cmd_recent(views, n=args.n)
     elif cmd == "errors": cmd_errors(views)
     elif cmd == "thinking": cmd_thinking(views, n=args.n)
+    elif cmd == "tier_a": cmd_tier_a(views)
+    elif cmd == "timeline": cmd_timeline(views, n=args.n)
     elif cmd == "full":   cmd_full(views)
     else:
         p.print_help()

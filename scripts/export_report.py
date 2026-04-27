@@ -262,7 +262,16 @@ def build_report() -> dict:
         if not logs_dir.exists():
             continue
         agent_name = agent_dir.name
-        log_files = sorted(logs_dir.glob("session_*.log"), key=lambda p: p.stat().st_mtime)
+        # Scan all runs for session logs
+        log_files = []
+        runs_dir = agent_dir / "runs"
+        if runs_dir.exists():
+            for run_d in sorted(runs_dir.iterdir()):
+                if run_d.is_dir():
+                    log_files.extend(sorted(run_d.glob("session_*.log"), key=lambda p: p.stat().st_mtime))
+        elif logs_dir.exists():
+            # Fallback: old flat layout
+            log_files = sorted(logs_dir.glob("session_*.log"), key=lambda p: p.stat().st_mtime)
 
         sessions = []
         for lf in log_files:

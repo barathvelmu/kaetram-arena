@@ -125,7 +125,7 @@ async def activity_heartbeat_loop(state: dict, interval: float = 1.0) -> None:
     """Tail the active session log incrementally and push new events.
 
     KAETRAM session logs are written by the CLI harness (Claude/Codex/etc)
-    to dataset/raw/agent_N/logs/session_*.log. We tail the most-recent one
+    to dataset/raw/agent_N/runs/run_*/session_*.log (logs/ symlink points to the latest run). We tail the most-recent one
     and emit new tool_use events to the dashboard. This is decoupled from
     the state heartbeat so a busy parser doesn't slow down state updates.
     """

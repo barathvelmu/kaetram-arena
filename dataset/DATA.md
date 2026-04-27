@@ -31,9 +31,18 @@ Personalities are injected via `prompts/personalities/{archetype}.md` into the s
 ```
 dataset/
 ├── raw/
-│   ├── agent_0/logs/         ← GRINDER session logs (legacy: AGGRESSIVE pre-r10)
-│   ├── agent_1/logs/         ← COMPLETIONIST session logs (legacy: METHODICAL pre-r10)
-│   └── agent_2/logs/         ← EXPLORER_TINKERER session logs (legacy: CURIOUS pre-r10)
+│   ├── agent_0/
+│   │   ├── runs/
+│   │   │   ├── run_20260427_113807/  ← each restart-agent.sh creates a new run dir (EST timestamp)
+│   │   │   │   ├── run.meta.json     ← run-level metadata (personality, harness, model, etc.)
+│   │   │   │   ├── session_1_20260427_153807.log
+│   │   │   │   ├── session_1_20260427_153807.meta.json
+│   │   │   │   └── ...
+│   │   │   ├── run_20260426_031526/
+│   │   │   └── ...
+│   │   └── logs -> runs/run_20260427_113807  ← symlink to latest run (backward compat)
+│   ├── agent_1/  (same structure)
+│   └── agent_2/  (same structure)
 ├── extracted/                ← OODA turns extracted from raw logs (generated, not committed)
 ├── qwen_sft/                 ← Final SFT training records (generated, not committed)
 ├── qwen_kto/                 ← KTO preference records (generated, gitignored)
@@ -69,7 +78,7 @@ Example metadata:
 
 Written automatically by `orchestrate.py` at session start. The `harness` field identifies which CLI produced the log (`"claude"`, `"codex"`, `"gemini"`). Use these to filter sessions without reading log content.
 
-**Data isolation:** Only Claude logs are used for Qwen SFT training. `extract_turns.py` skips codex/gemini format logs. `convert_to_qwen.py` filters by `INCLUDED_HARNESSES = {"claude", "unknown"}` on each turn's `harness` tag. Codex and Gemini logs exist in the same `dataset/raw/agent_N/logs/` directories but are safely excluded from the training pipeline.
+**Data isolation:** Only Claude logs are used for Qwen SFT training. `extract_turns.py` skips codex/gemini format logs. `convert_to_qwen.py` filters by `INCLUDED_HARNESSES = {"claude", "unknown"}` on each turn's `harness` tag. Codex and Gemini logs exist in the same `dataset/raw/agent_N/runs/` directories but are safely excluded from the training pipeline.
 
 ---
 
@@ -96,7 +105,7 @@ Personality system being built and broken mid-run. Prompt changes mid-collection
 
 Dataset is growing. Rebuild with `scripts/collect_sft_data.sh` or manually:
 ```bash
-python3 extract_turns.py --log-dir dataset/raw/agent_N/logs/ --output-dir dataset/extracted/agent_N/
+python3 extract_turns.py --log-dir dataset/raw/agent_N/runs/run_YYYYMMDD_HHMMSS/ --output-dir dataset/extracted/agent_N/
 python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode mixed --format sft
 ```
 

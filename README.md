@@ -2,7 +2,7 @@
 
 An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-Open), a 2D pixel MMORPG, using a custom MCP server with typed game tools. The agent calls structured tools (observe, attack, navigate, interact_npc, etc.) — never writes JavaScript. Gameplay sessions are collected as SFT/KTO training data for finetuning Qwen3.5 9B.
 
-> **For developers:** see [`CLAUDE.md`](CLAUDE.md) for the full developer reference, [`research/INDEX.md`](research/INDEX.md) for the compiled research knowledge base, and [`session_log.md`](session_log.md) for the most recent decisions.
+> **For developers:** see [`CLAUDE.md`](CLAUDE.md) for the full developer reference and [`session_log.md`](session_log.md) for the most recent decisions.
 
 ## What it does
 
@@ -16,17 +16,14 @@ An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-O
 ## Current status
 
 For the latest run state, training results, and what's in flight, see
-[`session_log.md`](session_log.md) and
-[`research/INDEX.md`](research/INDEX.md). The status summary that used to
-live here drifted in days; those two files are the source of truth.
+[`session_log.md`](session_log.md) — that's the source of truth. The
+status summary that used to live here drifted in days.
 
 - **Harnesses.** `--claude` is the primary data-collection harness and the
   only one whose turns flow into Qwen SFT training. `--codex`, `--gemini`,
   and `--opencode` are experimental smoke-test harnesses that share the
   orchestrator/dashboard/log paths but are excluded from training.
-- **Training.** Most recent SFT run + dataset stats: see
-  [`research/experiments/training-runs.md`](research/experiments/training-runs.md)
-  and [`dataset/DATA.md`](dataset/DATA.md).
+- **Training.** Dataset stats: [`dataset/DATA.md`](dataset/DATA.md).
 - **Eval harness.** `eval_harness.py` runs side-by-side episodes on
   dedicated ports (9061 r9-sft, 9071 base). Live dashboard tab.
 - **World model.** WIP concept in [`world/`](world/). Not prioritized.
@@ -221,11 +218,6 @@ kaetram-agent/
 ├── score_sessions.py        # Score sessions 0-1 for KTO labels (XP/quest/exploration)
 ├── build_kto_dataset.py     # Build sliding-window KTO prompt/completion/label records
 ├── inspect_kto_dataset.py   # KTO dataset dry-run and sample inspection
-├── research/                # Compiled research knowledge base (see research/INDEX.md)
-│   ├── experiments/         # Training run history, data quality metrics
-│   ├── related-work/        # Paper surveys (KTO, DPO, GRPO, agent SFT landscape)
-│   ├── decisions/           # WHY docs (why KTO over PPO, r7 hyperparameters)
-│   └── paper/               # ICLR 2027 contribution framing
 ├── world/                   # Forward dynamics model (2.2M param Transformer)
 │   ├── README.md            # Architecture overview + quickstart
 │   ├── schema.py            # State/action encoding (16-dim vectors, 26 actions)
@@ -339,7 +331,7 @@ Unlike prior work where LLMs serve as decision advisors for human players ([Thin
 | Post-SFT refinement | KTO (offline, composite reward) | GRPO (online RL, Tencent scale) | None | None |
 | Open source | Full (game + data + pipeline) | No (proprietary Tencent data) | Partial (closed games) | Partial |
 
-See [`research/paper/contribution.md`](research/paper/contribution.md) for full novelty framing, ablation plan, and paper outline.
+Full novelty framing and paper outline are kept off-repo.
 
 ---
 

@@ -273,7 +273,7 @@ class APIMixin:
         if os.path.isdir(DATASET_DIR):
             raw_dir = os.path.join(DATASET_DIR, "raw")
             if os.path.isdir(raw_dir):
-                raw_logs = glob.glob(os.path.join(raw_dir, "agent_*", "logs", "session_*.log"))
+                raw_logs = glob.glob(os.path.join(raw_dir, "agent_*", "runs", "*", "session_*.log"))
                 stats["raw_sessions"] = len(raw_logs)
                 stats["raw_total_size"] = sum(os.path.getsize(f) for f in raw_logs)
         _dataset_stats_cache["data"] = stats
@@ -372,7 +372,7 @@ class APIMixin:
             game_server_up = True
 
         single_sessions = len(glob.glob(os.path.join(LOG_DIR, "session_*.log")))
-        multi_sessions = len(glob.glob(os.path.join(DATASET_DIR, "raw", "agent_*", "logs", "session_*.log")))
+        multi_sessions = len(glob.glob(os.path.join(DATASET_DIR, "raw", "agent_*", "runs", "*", "session_*.log")))
         total_sessions = single_sessions + multi_sessions
 
         # Parse orchestrate.log for latest elapsed/remaining so the dashboard
@@ -549,7 +549,7 @@ class APIMixin:
                 if agent_filter is not None:
                     dirs = [os.path.join(raw_dir, f"agent_{agent_filter}", "logs")]
                 else:
-                    dirs = sorted(glob.glob(os.path.join(raw_dir, "agent_*", "logs")))
+                    dirs = sorted(glob.glob(os.path.join(raw_dir, "agent_*", "logs")))  # symlink → latest run
                 for d in dirs:
                     if not os.path.isdir(d):
                         continue

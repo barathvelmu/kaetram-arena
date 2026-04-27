@@ -6,6 +6,7 @@ from mcp.server.fastmcp import Context
 
 from mcp_server.core import get_page, log_tool, mcp
 from mcp_server.helpers import inventory_diff, inventory_snapshot
+from mcp_server.resource_gates import gate_for_resource
 
 
 @mcp.tool()
@@ -50,12 +51,50 @@ async def gather(ctx: Context, resource_name: str) -> str:
     inv_after = await inventory_snapshot(page)
     gained = inventory_diff(inv_before, inv_after)
 
-    return json.dumps({
+    response = {
         "resource": resource.get("name", resource_name),
         "position": {"x": resource["x"], "y": resource["y"]},
         "type": resource_type,
-        "items_gained": gained if gained else "none (may need higher skill level or correct tool equipped)",
-    })
+        "items_gained": gained if gained else "none",
+    }
+
+    # When nothing was gained, surface the most likely cause: a skill-level
+    # gate. Look up the resource's required skill+level from bundled Kaetram
+    # data, fetch the player's current level for that skill, and report a
+    # structured `gate` block so the agent can decide (grind vs pivot)
+    # without having to guess from a vague error string.
+    if not gained:
+        gate = gate_for_resource(resource.get("name", resource_name))
+        if gate and gate.get("level", 1) > 1:
+            current = await page.evaluate("""(skill) => {
+                const gs = window.__extractGameState && window.__extractGameState();
+                const sk = gs && gs.skills && gs.skills[skill];
+                return sk ? (sk.level || 1) : 1;
+            }""", gate["skill"])
+            current_level = int(current) if isinstance(current, (int, float)) else 1
+            gated = current_level < gate["level"]
+            response["gate"] = {
+                "skill": gate["skill"],
+                "required_level": gate["level"],
+                "current_level": current_level,
+                "gated": gated,
+            }
+            if gated:
+                response["why_no_items"] = (
+                    f"{gate['skill']} L{gate['level']} required, you are L{current_level}. "
+                    f"Either grind {gate['skill']} XP or pick a different resource/quest."
+                )
+            else:
+                response["why_no_items"] = (
+                    "Skill level OK — likely depleted, wrong tool equipped, "
+                    "or random RNG miss. Try again or move to another node."
+                )
+        else:
+            response["why_no_items"] = (
+                "Likely depleted, wrong tool equipped, or RNG miss. No skill gate found for this resource."
+            )
+
+    return json.dumps(response)
 
 
 @mcp.tool()

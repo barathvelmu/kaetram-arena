@@ -1,52 +1,53 @@
 ## PRIMARY OBJECTIVE
 
-You are scored on **5 quests**. That is your whole job. Quest acceptance
-is opt-in: `interact_npc` only reads dialogue by default — when you've
-decided to start a quest, call `interact_npc(name, accept_quest_offer=True)`.
-Talking to an NPC does NOT commit you to anything.
+You are scored on the **CORE 5** quests. Finish them before anything else.
+After the Core 5 are done, advance to EXTRA. Bonus quests are completable
+add-ons; off-limits quests are broken — don't waste turns on them.
 
-### CORE 5 (must complete — do these first, in any sensible order)
+`interact_npc` only reads dialogue by default. To commit, call
+`interact_npc(name, accept_quest_offer=True)` — and only after `query_quest`
+returns `live_gate_status.gated: false` (see system.md Rule 10).
 
-| # | Quest | NPC | Why it's core |
-|---|-------|-----|---------------|
-| 1 | **Foresting** | Forester (216, 114) | Warmup — gather 10+10 oak logs, turn in twice |
-| 2 | **Herbalist's Desperation** | Herby Mc. Herb (333, 281) | Foraging primitive + Foraging Lv25 skill gate |
-| 3 | **Rick's Roll** | Rick (1088, 833) | Fishing + cooking + door nav + 2-step delivery |
-| 4 | **Arts and Crafts** | Babushka (702, 608) | Crafting + Fletching + Cooking at 3 different stations |
-| 5 | **Sea Activities** | Sponge (52, 310) | Real combat (picklemob) + 7-stage multi-NPC courier |
+## QUEST CATALOG
 
-### EXTRA 5 (after Core 5 — bonus, not scored)
+Single source of truth for every quest. Use the **Exact Quest Name** column
+verbatim when calling `query_quest(quest_name)`. Ordering within a tier is
+suggested play order. `query_quest` returns the full walkthrough, current
+stage, items needed, and `live_gate_status` evaluated against your state.
 
-| # | Quest | NPC | Prereq / note |
-|---|-------|-----|---------------|
-| 6 | Desert Quest | Dying Soldier (288, 134) | Unlocks Crullfield + Lakesworld warps |
-| 7 | Royal Drama | Royal Guard (282, 887) | Multi-region + sewer door → 10k gold |
-| 8 | Royal Pet | King (284, 884) | **Requires Royal Drama finished first** |
-| 9 | Scientist's Potion | Scientist (763, 666) | 1-stage Alchemy unlock |
-| 10 | Ancient Lands | Ancient Monument (415, 294) | Capstone — need `icesword` from Ice Knight at (808, 813), lvl 62 |
+| # | Tier | Exact Quest Name | NPC + coords | Gate / Prereq | Reward / Unlock | Why / one-line action |
+|---|------|------------------|--------------|---------------|-----------------|------------------------|
+| 1 | **CORE** | Foresting | Forester (216, 114) | None | `ironaxe` | Warmup — 10+10 oak logs, turn in twice |
+| 2 | **CORE** | Herbalist's Desperation | Herby Mc. Herb (333, 281) | **Foraging 25** practical gate | `hotsauce` + 1500 Foraging XP | Turn in blue lily, then paprika + tomato |
+| 3 | **CORE** | Rick's Roll | Rick (1088, 833) | None | **1987 gold** | Fish + cook 5 shrimp, deliver `seaweedroll` |
+| 4 | **CORE** | Arts and Crafts | Babushka (702, 608) | None | **Crafting unlock on start** | `berylpendant → bowlsmall → stew` (`stew` needs `bowlmedium`) |
+| 5 | **CORE** | Sea Activities | Sponge (52, 310) | **`waterguardian` achievement** for undersea | **10000 gold** + sea quest gates | Sponge/Pickle talk chain, then kill `picklemob` |
+| 6 | EXTRA | Desert Quest | Dying Soldier (288, 134) | None | Unlocks `crullfield` + `lakesworld` warps | Deliver `cd` to Wife, then return |
+| 7 | EXTRA | Royal Drama | Royal Guard (282, 887) | None | **10000 gold** | `royalguard2 → ratnpc → king2` |
+| 8 | EXTRA | Royal Pet | King (284, 884) | **Royal Drama** finished | `catpet` (pet) | Deliver 3 books, return to King |
+| 9 | EXTRA | Scientist's Potion | Scientist (763, 666) | None | **Alchemy unlock on start** | Talk once and accept |
+| 10 | EXTRA | Ancient Lands | Ancient Monument (415, 294) | `icesword` from Ice Knight (808, 813), L62 | `snowpotion` + mountain gate | Bring `icesword` to Monument |
+| — | bonus | Anvil's Echoes | Blacksmith (~199, 169) | None | `bronzeboots` | Talk to Blacksmith twice |
+| — | bonus | Scavenger | Village Girl (~136, 146) | None | **7500 gold** | Turn in `tomato x2 + strawberry x2 + string x1` |
+| — | bonus | Clam Chowder | (coastal NPC) | Practical: Fishing 10 + Cooking 15 + Fletching 3 | **7500 gold** | 5 clams, then 2 chowders, then 2 more |
+| — | bonus | Sorcery and Stuff | Sorcerer | None | `staff` (recently fixed — verify on completion) | Re-assemble lost staff; bead farm now placed |
+| — | bonus | Evil Santa | Mountain Sherpa | None | (verify) — unlocks `iceworld` warp | Stage-1 door at (525, 340-345); `candykey` from `santaelf` ~1.5% |
 
-### Off-limits — broken or zero-value, don't accept these
+### Off-limits — don't accept these (broken / impossible)
 
-You can talk to these NPCs to learn dialogue, but `accept_quest_offer=True`
-on these is wasted time — the rewards/items either don't exist or repeat
-what Core 5 already unlocks.
-
-- **Miner's Quest / Miner's Quest II** — upstream circular bug: the only 2 `nisocrock` placements in the map are behind `reqQuest=minersquest2`, and MQ2 requires MQ. Not completable.
-- **Sorcery and Stuff** — reward item `staff` doesn't exist; Hermit Crab Warrior bead farm isn't placed in the current processed world.
-- **Evil Santa** — stage-1 door not playtest-verified.
-- **The Coder's Glitch / Glitch II / Fallacy** — missing talisman items; not reliably completable.
-- **Anvil's Echoes, Scavenger, Clam Chowder** — completable but add no primitive Core 5 doesn't already cover. Only pursue these after all 10 above are done.
+- **Miner's Quest / Miner's Quest II** — circular bug: the only 2 `nisocrock` placements are behind `reqQuest=minersquest2`, and MQ2 requires MQ. Not completable.
+- **The Coder's Glitch / Glitch II / Coder's Fallacy** — missing talisman item definitions (`skeletonkingtalisman` etc.); chain blocked.
 
 ---
 
 ## CURRENT TREE TRUTHS
 
 - Tutorial is auto-finished at spawn; starter kit (bronzeaxe, knife, fishingpole, coppersword, woodenbow) is already in your inventory. Ignore all tutorial dialogue / NPCs.
-- 5 quests are the primary benchmark; 5 more extend the playthrough; 8 are Off-limits (see table above).
+- 5 CORE + 5 EXTRA + 5 bonus = 15 completable quests; 5 are Off-limits (see table above).
 - Start **Arts and Crafts** to unlock Crafting. Start **Scientist's Potion** to unlock Alchemy.
 - Smithing, Smelting, and Cooking are always available on station click. Fletching requires a `knife` from Clerk.
-- `undersea` access requires the `waterguardian` achievement (kill Water Guardian at (293, 729), lvl 36, 350 HP). **Ancient Lands** (EXTRA #10) opens the mountain gate. Evil Santa is Off-limits, so `iceworld` stays locked.
-- Trust runtime truth over stale flavor text. Liar quests still active: `Foresting` (Rusted Axe → ironaxe), `Royal Drama`, `Rick's Roll`, `Sea Activities`, `Scientist's Potion`, `Arts and Crafts`, `Herbalist's Desperation` (Mystical Potion → hotsauce + 1500 Foraging XP), `Anvil's Echoes` (Smithing Gloves → bronzeboots only), `Scavenger` (fake shopping list), `Clam Chowder` (fish clams, don't kill them).
+- `undersea` access requires the `waterguardian` achievement (kill Water Guardian at (293, 729), L36, 350 HP). **Ancient Lands** (EXTRA #10) opens the mountain gate. **Evil Santa** (bonus) unlocks `iceworld`.
+- Liar quests (in-game reward strings disagree with what you actually receive — trust `query_quest`'s `actual_rewards`): `Foresting` (Rusted Axe → ironaxe), `Royal Drama`, `Rick's Roll`, `Sea Activities`, `Scientist's Potion`, `Arts and Crafts`, `Herbalist's Desperation` (Mystical Potion → hotsauce + 1500 Foraging XP), `Anvil's Echoes` (Smithing Gloves → bronzeboots only), `Scavenger` (fake shopping list), `Clam Chowder` (fish clams, don't kill them).
 
 ---
 
@@ -125,35 +126,6 @@ Boss kills also grant achievements. Highest-value route kill: Water Guardian for
 
 ---
 
-## QUEST CATALOG
-
-Use exact quest names from this table when calling `query_quest(quest_name)`. Call it before any gated, multi-step, or expensive quest. It returns status, requirements, unlocks, reward caveats, walkthrough, and boss notes.
-
-| Tier | Exact Quest Name | Gate / Caveat | Reward / Unlock | One-line action |
-|------|------------------|---------------|-----------------|-----------------|
-| **CORE** | Foresting | None | `ironaxe` | Turn in logs 10 + 10 to Forester |
-| **CORE** | Herbalist's Desperation | **Foraging 25** practical gate | `hotsauce` + 1500 Foraging XP | Turn in blue lily, then paprika + tomato |
-| **CORE** | Rick's Roll | None | **1987 gold** | Fish/cook 5 shrimp, then deliver Rick's `seaweedroll` |
-| **CORE** | Arts and Crafts | None | **Crafting unlock on start** | `berylpendant → bowlsmall → stew` (`stew` needs `bowlmedium`) |
-| **CORE** | Sea Activities | **`waterguardian` required for undersea access** | **10000 gold net** + sea quest gates | Sponge/Pickle talk chain, then kill `picklemob` |
-| EXTRA | Desert Quest | None | Unlocks `crullfield` + `lakesworld` warps | Deliver `cd` to Wife, then return |
-| EXTRA | Royal Drama | None | **10000 gold** | `royalguard2 → ratnpc → king2` |
-| EXTRA | Royal Pet | **Royal Drama** complete | `catpet` (pet) | Deliver 3 books, then return to King |
-| EXTRA | Scientist's Potion | None | **Alchemy unlock on start** | Talk once and accept |
-| EXTRA | Ancient Lands | Need `icesword` from Ice Knight at **(808, 813)** | `snowpotion` + mountain gate | Bring `icesword` to Ancient Monument |
-| bonus | Anvil's Echoes | None | `bronzeboots` | Talk to Blacksmith twice |
-| bonus | Scavenger | None | **7500 gold** | Turn in `tomato x2 + strawberry x2 + string x1` |
-| bonus | Clam Chowder | Practical: Fishing 10 + Cooking 15 + Fletching 3 | **7500 gold** | Turn in 5 clams, then 2 chowders, then 2 more chowders |
-| Off-limits | Sorcery and Stuff | Reward `staff` doesn't exist; bead farm not placed in current world | — | — |
-| Off-limits | Miner's Quest | Circular: nisocrocks only inside `reqQuest=minersquest2` gate | — | — |
-| Off-limits | Miner's Quest II | Depends on Miner's Quest which is impossible | — | — |
-| Off-limits | Evil Santa | Stage-1 door not playtest-verified | — | — |
-| Off-limits | The Coder's Glitch | Missing `skeletonkingtalisman` item definition | — | — |
-| Off-limits | The Coder's Glitch II | 3 talisman items don't exist | — | — |
-| Off-limits | Coder's Fallacy | Prereqs blocked by Coder chain | — | — |
-
----
-
 ## STORES / WARPS
 
 Use `buy_item(npc_name, item_index, count)`:
@@ -184,7 +156,6 @@ Use `buy_item(npc_name, item_index, count)`:
 ## GAME MECHANICS
 
 - Attack styles: Hack = Str+Def, Chop = Acc+Def, Defensive = Def. All styles also give Health XP.
-- `gather` handles trees, rocks, bushes, and fish spots. "No items gained" usually means low skill, wrong tool, or exhausted node.
 - `string` = `bluelily` at Crafting Lv1.
 - `clamchowder` = `clamobject + potato + bowlsmall` at Cooking Lv15. Fish clams at coastal `clamspot` nodes, not mob drops.
 - Item drops despawn after 64s. Inventory has 25 slots.

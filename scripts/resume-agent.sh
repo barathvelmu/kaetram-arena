@@ -14,6 +14,17 @@
 
 set -euo pipefail
 
+# ── --help / -h guard (auto-injected) ────────────────────────────────────────
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+      exit 0
+      ;;
+  esac
+done
+
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/_kill_helpers.sh
@@ -106,6 +117,15 @@ for port in "${KAETRAM_DATA_PORTS[@]}"; do
     kill "$pid" 2>/dev/null || true
   fi
 done
+
+# Stale livestream pipeline from a prior ungraceful exit. Without this,
+# a leftover Xvfb on display :9N collides when the new agent N tries to
+# claim the same display number. Same scoping convention as nuke-agents.sh
+# (displays 99..108 map 1:1 to agent slots 0..9).
+pkill -9 -f "Xvfb :9[0-9]" 2>/dev/null || true
+pkill -9 -f "Xvfb :10[0-9]" 2>/dev/null || true
+pkill -9 -f "ffmpeg.*x11grab" 2>/dev/null || true
+rm -rf /tmp/hls/agent_* 2>/dev/null || true
 
 # ── Step 2: Detect agents with preserved state ──
 DETECTED=0

@@ -4,54 +4,86 @@
 # spared — see scripts/_kill_helpers.sh for the scoping rules.
 set -euo pipefail
 
+# ── --help / -h guard (auto-injected) ────────────────────────────────────────
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+      exit 0
+      ;;
+  esac
+done
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/_kill_helpers.sh
 source "$SCRIPT_DIR/_kill_helpers.sh"
 
 echo "=== NUKING data-collection agent processes (eval/test lanes spared) ==="
 
-# Orchestrator + tmux wrapper.
-pkill -9 -f "python3 orchestrate.py" 2>/dev/null || true
+# TERM-then-KILL: send SIGTERM first so Kaetram game servers flush player
+# state to Mongo (they only autosave on graceful shutdown) and in-flight model
+# SSE streams have a chance to wind down. After a short grace window,
+# SIGKILL anything still alive.
+
+# Orchestrator + tmux wrapper — kill orchestrator first so it stops respawning
+# children. TERM is enough; the supervisor exits quickly on its own.
+pkill -TERM -f "python3 orchestrate.py" 2>/dev/null || true
 tmux kill-session -t datacol 2>/dev/null || true
 
-# Agent CLI processes — scoped to data-collection sandboxes.
+# ── Phase 1: SIGTERM (graceful) ──
+kill_scoped "claude -p"           TERM
+kill_scoped "codex.*exec"         TERM
+kill_scoped "gemini -p"           TERM
+kill_scoped "opencode run"        TERM
+kill_scoped "timeout .* opencode" TERM
+kill_scoped "mcp_game_server.py"  TERM
+kill_scoped "playwright/driver"   TERM
+kill_scoped "playwright-mcp"      TERM
+kill_scoped "npm exec @playwright" TERM
+kill_scoped_chrome_pgroup         TERM
+kill_scoped "play.sh"             TERM
+kill_scoped "play_qwen.py"        TERM
+kill_scoped "game_driver.py"      TERM
+
+# Game servers on data-collection ports — TERM lets them flush autosave.
+for port in "${KAETRAM_DATA_PORTS[@]}"; do
+  pid=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
+  [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
+done
+
+# Grace window for autosave + SSE drain. 2.5s is enough for Mongo writes
+# without making "stop" feel slow.
+sleep 2.5
+
+# ── Phase 2: SIGKILL (forceful — anything that ignored TERM) ──
+pkill -9 -f "python3 orchestrate.py" 2>/dev/null || true
 kill_scoped "claude -p"           KILL
 kill_scoped "codex.*exec"         KILL
 kill_scoped "gemini -p"           KILL
 kill_scoped "opencode run"        KILL
 kill_scoped "timeout .* opencode" KILL
-
-# MCP game servers — scoped (eval MCP processes share the same binary).
 kill_scoped "mcp_game_server.py"  KILL
-
-# Playwright drivers — scoped.
 kill_scoped "playwright/driver"   KILL
 kill_scoped "playwright-mcp"      KILL
 kill_scoped "npm exec @playwright" KILL
-
-# Chrome — scoped via pgid so renderers/zygotes go too.
-kill_scoped_chrome_pgroup KILL
-
-# Livestream pipeline: per-agent Xvfb + ffmpeg are unique to data collection
-# (eval lanes don't use them), but still scope by display range to be safe.
-# Displays 99..108 map 1:1 to agent slots 0..9.
-pkill -9 -f "Xvfb :9[0-9]" 2>/dev/null || true
-pkill -9 -f "Xvfb :10[0-9]" 2>/dev/null || true
-pkill -9 -f "ffmpeg.*x11grab" 2>/dev/null || true
-rm -rf /tmp/hls/agent_* 2>/dev/null || true
-
-# Game servers on data-collection ports only (NEVER 9061/9071/9191).
+kill_scoped_chrome_pgroup         KILL
+kill_scoped "play.sh"             KILL
+kill_scoped "play_qwen.py"        KILL
+kill_scoped "game_driver.py"      KILL
 for port in "${KAETRAM_DATA_PORTS[@]}"; do
   pid=$(ss -tlnp "sport = :$port" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
   [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null || true
 done
 
-# play.sh / play_qwen.py / game_driver.py — scoped.
-kill_scoped "play.sh"        KILL
-kill_scoped "play_qwen.py"   KILL
-kill_scoped "game_driver.py" KILL
+# Livestream pipeline — Xvfb/ffmpeg don't have meaningful state to flush,
+# go straight to KILL. Scope by display range (99..108 = agent slots 0..9).
+pkill -9 -f "Xvfb :9[0-9]" 2>/dev/null || true
+pkill -9 -f "Xvfb :10[0-9]" 2>/dev/null || true
+pkill -9 -f "ffmpeg.*x11grab" 2>/dev/null || true
+rm -rf /tmp/hls/agent_* 2>/dev/null || true
 
-sleep 2
+sleep 0.5
 
 # Report
 echo ""

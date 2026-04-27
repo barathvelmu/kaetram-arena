@@ -15,6 +15,17 @@
 
 set -euo pipefail
 
+# ── --help / -h guard (auto-injected) ────────────────────────────────────────
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+      exit 0
+      ;;
+  esac
+done
+
+
 TEST_PORT="${TEST_PORT:-9191}"
 KAETRAM_DIR="$HOME/projects/Kaetram-Open"
 SERVER_DIR="$KAETRAM_DIR/packages/server"

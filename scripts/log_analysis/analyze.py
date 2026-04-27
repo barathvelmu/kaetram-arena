@@ -30,7 +30,7 @@ from scripts.log_analysis.parse import (  # noqa: E402
     first_observe,
     latest_logs_per_agent,
     latest_observe,
-    parse_session,
+    parse_session_auto,
     tool_call_counts,
     tool_error_counts,
 )
@@ -260,7 +260,8 @@ def cmd_full(views: list[tuple[Path, SessionView]]) -> None:
 _STALE_SECONDS = 600  # 10 minutes — log untouched longer than this is from a prior run
 
 
-def _load_views(only_agent: int | None = None, include_stale: bool = False) -> list[tuple[Path, SessionView]]:
+def _load_views(only_agent: int | None = None, include_stale: bool = False,
+                harness_override: str | None = None) -> list[tuple[Path, SessionView]]:
     pairs = latest_logs_per_agent()
     if only_agent is not None:
         pairs = [(d, l) for d, l in pairs if d.name == f"agent_{only_agent}"]
@@ -269,7 +270,7 @@ def _load_views(only_agent: int | None = None, include_stale: bool = False) -> l
         pairs = [(d, l) for d, l in pairs if (now - l.stat().st_mtime) <= _STALE_SECONDS]
     out: list[tuple[Path, SessionView]] = []
     for agent_dir, log in pairs:
-        out.append((agent_dir, parse_session(log)))
+        out.append((agent_dir, parse_session_auto(log, harness=harness_override)))
     return out
 
 
@@ -288,19 +289,23 @@ def main() -> int:
     p.add_argument("--stale", action="store_true",
                    help="include sessions whose log hasn't been touched in 10+ minutes "
                         "(default: only currently-running agents)")
+    p.add_argument("--opencode", action="store_const", const="opencode", dest="harness",
+                   help="force the OpenCode log parser (default: auto-detect from meta.json)")
+    p.add_argument("--claude", action="store_const", const="claude", dest="harness",
+                   help="force the Claude log parser (default: auto-detect from meta.json)")
     args = p.parse_args()
 
     cmd = args.cmd or "full"
 
     if cmd == "agent":
-        views = _load_views(only_agent=args.agent_id)
+        views = _load_views(only_agent=args.agent_id, harness_override=args.harness)
         if not views:
             print(f"No log found for agent_{args.agent_id}", file=sys.stderr)
             return 1
         cmd_agent(views[0], n_recent=args.n)
         return 0
 
-    views = _load_views(include_stale=args.stale)
+    views = _load_views(include_stale=args.stale, harness_override=args.harness)
     if not views:
         print("No active agent logs in the last 10 minutes. Pass --stale to include older sessions.",
               file=sys.stderr)

@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+
+# ── --help / -h guard (auto-injected) ────────────────────────────────────────
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+      exit 0
+      ;;
+  esac
+done
+
 # Convert 16:9 clip to 9:16 vertical with caption overlay
 # Usage: format-vertical.sh <input.mp4> [caption] [output.mp4]
 INPUT="$1"

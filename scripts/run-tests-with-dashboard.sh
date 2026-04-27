@@ -6,6 +6,17 @@
 # Xvfb/ffmpeg lifecycle. Use the dashboard "Run" button for live video.
 set -u
 
+# ── --help / -h guard (auto-injected) ────────────────────────────────────────
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+      exit 0
+      ;;
+  esac
+done
+
+
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 run_id="cli_$(date +%Y%m%d_%H%M%S)"
 run_dir="/tmp/test_runs/$run_id"

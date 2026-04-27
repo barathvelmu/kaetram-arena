@@ -1,7 +1,18 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "nvidia/qwen/qwen3-next-80b-a3b-thinking",
+  "model": "xai/grok-4-1-fast-reasoning",
   "provider": {
+    "xai": {
+      "npm": "@ai-sdk/xai",
+      "name": "xAI Grok (direct — Grok 4.1 Fast hides reasoning, no proxy needed)",
+      "options": {
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "models": {
+        "grok-4-1-fast-reasoning":     {"name": "Grok 4.1 Fast (reasoning)"},
+        "grok-4-1-fast-non-reasoning": {"name": "Grok 4.1 Fast (non-reasoning)"}
+      }
+    },
     "nvidia": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "NVIDIA NIM (Qwen free tier — via local proxy)",

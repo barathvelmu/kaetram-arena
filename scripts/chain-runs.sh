@@ -1,5 +1,16 @@
 #!/usr/bin/env bash
 set -u
+
+# ── --help / -h guard (auto-injected) ────────────────────────────────────────
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+      exit 0
+      ;;
+  esac
+done
+
 PROJECT=/home/patnir41/projects/kaetram-agent
 KAETRAM=/home/patnir41/projects/Kaetram-Open
 LOG=/tmp/chainer.log

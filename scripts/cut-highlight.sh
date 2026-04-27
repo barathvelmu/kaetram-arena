@@ -1,4 +1,15 @@
 #!/usr/bin/env bash
+
+# ── --help / -h guard (auto-injected) ────────────────────────────────────────
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+      exit 0
+      ;;
+  esac
+done
+
 # Extract last N seconds from a session recording
 # Usage: cut-highlight.sh <input.webm> [duration=30] [output.mp4]
 INPUT="$1"

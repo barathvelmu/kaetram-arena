@@ -82,6 +82,22 @@ def decode_tool_result_content(raw: str) -> tuple[dict | str, str | None]:
     return payload, (ascii_map if sep else None)
 
 
+def decode_kaetram_tool_output(raw: str) -> tuple[dict | str, str | None]:
+    """Decode an opencode-style tool output string (no `{"result": ...}` wrapper).
+
+    Kaetram tools return JSON; observe additionally suffixes `\\n\\nASCII_MAP:<grid>`.
+    Returns (payload, ascii_map). Falls back to (raw, None) if JSON decode fails.
+    """
+    if not isinstance(raw, str):
+        return raw, None
+    body, sep, ascii_map = raw.partition("\n\nASCII_MAP:")
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return raw, None
+    return payload, (ascii_map if sep else None)
+
+
 # ── Iteration ────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -234,6 +250,80 @@ def parse_session(log_path: Path) -> SessionView:
             continue
 
     return sv
+
+
+# ── OpenCode harness parser ──────────────────────────────────────────────────
+#
+# OpenCode JSONL shape (verified 2026-04-26):
+#
+#   types: text | tool_use | step_start | step_finish
+#
+#   text:     part = {type:"text", text:<reasoning + spoken text combined>}
+#             — Qwen-via-NIM streams reasoning and content into the same text
+#               part. We treat it as `thinking` since pre-tool turns are pure
+#               reasoning in practice.
+#   tool_use: part = {type:"tool", tool:<short_name>, callID, state:{
+#                 status:"completed"|"error", input, output|error, time}}
+#             — `output` is the raw kaetram tool output string (no {"result":...}
+#               wrapper). For observe, suffixed with "\n\nASCII_MAP:<grid>".
+#   step_*: ignored.
+#
+# No rate_limit_event lines, no `result` summary line. Token usage lives on
+# step_finish.tokens; we don't aggregate it here.
+
+def parse_session_opencode(log_path: Path) -> SessionView:
+    sv = SessionView(log_path=log_path, meta=session_meta(log_path))
+    idx = 0
+    pending_thinking: str | None = None
+
+    for line_no, rec in iter_lines(log_path):
+        rtype = rec.get("type")
+        if rtype == "text":
+            sv.n_assistant += 1
+            sv.n_thinking += 1
+            pending_thinking = (rec.get("part") or {}).get("text")
+            continue
+        if rtype == "tool_use":
+            sv.n_user += 1  # treat tool turn as a user-side resolution boundary
+            part = rec.get("part") or {}
+            state = part.get("state") or {}
+            full = part.get("tool", "") or ""
+            short = full.split("kaetram_", 1)[-1] if full.startswith("kaetram_") else full
+            tc = ToolCall(
+                idx=idx,
+                line_no=line_no,
+                name=full,
+                short_name=short,
+                input=state.get("input") or {},
+                tool_use_id=part.get("callID", ""),
+                thinking=pending_thinking,
+            )
+            idx += 1
+            status = state.get("status")
+            if status == "error":
+                tc.result_error = str(state.get("error", ""))[:200]
+            else:
+                raw = state.get("output")
+                if isinstance(raw, str):
+                    tc.result_raw = raw
+                    payload, ascii_map = decode_kaetram_tool_output(raw)
+                    tc.result_ascii_map = ascii_map
+                    tc.result_payload = payload
+                    if isinstance(payload, dict) and payload.get("error"):
+                        tc.result_error = str(payload["error"])[:200]
+            sv.tool_calls.append(tc)
+            pending_thinking = None
+            continue
+        # step_start / step_finish ignored
+    return sv
+
+
+def parse_session_auto(log_path: Path, harness: str | None = None) -> SessionView:
+    """Pick the right parser based on harness (from meta.json, or override)."""
+    h = harness or session_meta(log_path).get("harness", "claude")
+    if h == "opencode":
+        return parse_session_opencode(log_path)
+    return parse_session(log_path)
 
 
 # ── Convenience extractors over a parsed session ─────────────────────────────

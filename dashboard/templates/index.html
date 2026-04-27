@@ -932,8 +932,6 @@
   <div class="status-item"><span class="dot amber" id="dot-agent"></span> Agent: <span id="status-agent">...</span></div>
   <div class="status-item"><span class="dot amber" id="dot-server"></span> Server: <span id="status-server">...</span></div>
   <div class="status-item">Run: <span id="status-run-elapsed" style="color:var(--slate)">-</span> <span style="color:var(--dim)">/</span> <span id="status-run-remaining" style="color:var(--olive)">-</span></div>
-  <div class="status-item">Turn: <span id="status-turn" style="color:var(--green)">-</span></div>
-  <div class="status-item">Tokens: <span id="status-tokens" style="color:var(--purple)">-</span></div>
 </div>
 
 <div class="tabs">
@@ -2553,24 +2551,7 @@ async function refreshActivity() {
     const activity = await (await fetch('/api/activity' + agentParam)).json();
     const turn = activity.turn || 0;
 
-    if (currentMode === 'multi' && agentList.length > 0 && selectedAgent === null) {
-      let totalTurns = 0, totalCtx = 0;
-      for (const a of agentList) {
-        totalTurns += a.turns || 0;
-        totalCtx += a.context_tokens || 0;
-      }
-      document.getElementById('status-turn').textContent = totalTurns + ' (' + agentList.length + ' agents)';
-      const ctxLabel = totalCtx >= 1e6 ? (totalCtx / 1e6).toFixed(1) + 'M' : totalCtx >= 1e3 ? Math.round(totalCtx / 1e3) + 'K' : totalCtx;
-      document.getElementById('status-tokens').textContent = ctxLabel;
-    } else {
-      document.getElementById('status-turn').textContent = turn;
-      const tok = activity.tokens;
-      if (tok && tok.context > 0) {
-        const t = tok.context;
-        const label = t >= 1e6 ? (t / 1e6).toFixed(1) + 'M' : Math.round(t / 1e3) + 'K';
-        document.getElementById('status-tokens').textContent = label;
-      }
-    }
+    // Turn / Tokens header pills removed — JS writes intentionally dropped.
     const logName = activity.log_file || '-';
     const lnEl = document.getElementById('activity-log-name');
     const lnElFull = document.getElementById('activity-log-name-full');
@@ -2646,28 +2627,18 @@ async function refreshFast() {
     }
     statusServer.style.color = live.game_server_up ? 'var(--green)' : 'var(--red)';
 
-    // Run timer (elapsed / remaining from orchestrate.log)
-    const elapsedEl = document.getElementById('status-run-elapsed');
-    const remainingEl = document.getElementById('status-run-remaining');
-    if (elapsedEl && remainingEl) {
-      const fmt = (s) => {
-        if (s === null || s === undefined) return '-';
-        const h = Math.floor(s / 3600);
-        const m = Math.floor((s % 3600) / 60);
-        const sec = s % 60;
-        return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-      };
-      elapsedEl.textContent = fmt(live.run_elapsed_seconds);
-      remainingEl.textContent = fmt(live.run_remaining_seconds);
-      // Turn remaining amber if <30 min, red if <5 min
-      if (live.run_remaining_seconds !== null && live.run_remaining_seconds !== undefined) {
-        if (live.run_remaining_seconds < 300) {
-          remainingEl.style.color = 'var(--red)';
-        } else if (live.run_remaining_seconds < 1800) {
-          remainingEl.style.color = 'var(--amber)';
-        } else {
-          remainingEl.style.color = 'var(--olive)';
-        }
+    // Run timer: anchor from /api/live, but tick locally each second so the
+    // display isn't gated by the orchestrator's once-per-minute Status line.
+    // Server values are up to ~60s stale; only re-anchor when fresher data
+    // pulls the implied start earlier (truth-correction) or when it jumps
+    // far forward (orchestrator restarted with a new run).
+    if (live.run_elapsed_seconds != null && live.run_remaining_seconds != null) {
+      const startMs = Date.now() - live.run_elapsed_seconds * 1000;
+      const endMs   = Date.now() + live.run_remaining_seconds * 1000;
+      if (!window._runAnchor
+          || startMs < window._runAnchor.startMs - 500
+          || startMs > window._runAnchor.startMs + 60000) {
+        window._runAnchor = { startMs, endMs };
       }
     }
 
@@ -2967,6 +2938,22 @@ refreshFast();
 refreshSlow();
 setInterval(() => { if (!document.hidden) refreshFast(); }, 3000);
 setInterval(() => { if (!document.hidden) refreshSlow(); }, 8000);
+// Run-timer display ticker — writes from window._runAnchor every second so
+// the header timer is smooth between /api/live polls (which themselves only
+// update once per minute behind the scenes).
+setInterval(() => {
+  if (document.hidden || !window._runAnchor) return;
+  const eEl = document.getElementById('status-run-elapsed');
+  const rEl = document.getElementById('status-run-remaining');
+  if (!eEl || !rEl) return;
+  const fmt = s => `${String(Math.floor(s/3600)).padStart(2,'0')}:${String(Math.floor((s%3600)/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+  const now = Date.now();
+  const e = Math.max(0, Math.floor((now - window._runAnchor.startMs) / 1000));
+  const r = Math.max(0, Math.floor((window._runAnchor.endMs - now) / 1000));
+  eEl.textContent = fmt(e);
+  rEl.textContent = fmt(r);
+  rEl.style.color = r < 300 ? 'var(--red)' : r < 1800 ? 'var(--amber)' : 'var(--olive)';
+}, 1000);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     try { refreshFast(); } catch (e) {}
@@ -3100,7 +3087,7 @@ async function pollEvalLive() {
       const pp = gs.player_position || {};
       const nav = gs.navigation || {};
       const ui = gs.ui_state || {};
-      const quests = gs.quests || [];
+      const activeQuestList = gs.active_quests || [];
       const inv = gs.inventory || [];
       const lc = gs.last_combat || {};
       const lx = gs.last_xp_event || {};
@@ -3123,7 +3110,7 @@ async function pollEvalLive() {
       const statsEl = document.getElementById(statsId);
       if (!statsEl) continue;
       const isDead = ui.is_dead || false;
-      const activeQuests = quests.filter(q => q.stage && q.stage !== 'not_started').length;
+      const activeQuests = activeQuestList.length;
       statsEl.innerHTML =
         `<span>LV <b style="color:var(--green)">${ps.level || '?'}</b></span>` +
         `<span>XP <b style="color:var(--cyan)">${ps.experience || 0}</b></span>` +

@@ -2,6 +2,17 @@
 # Stop the dashboard on :8080. Kills by PID and by port.
 set -euo pipefail
 
+# ── --help / -h guard (auto-injected) ────────────────────────────────────────
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help)
+      awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"
+      exit 0
+      ;;
+  esac
+done
+
+
 # Kill by process name
 PID=$(pgrep -f "python3 dashboard.py" || true)
 [ -n "$PID" ] && kill -9 "$PID" 2>/dev/null || true

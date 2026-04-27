@@ -157,11 +157,46 @@
   /* ── Grids ── */
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 24px; }
   .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 24px; }
-  @media (max-width: 1200px) { .grid-4 { grid-template-columns: 1fr 1fr; } }
-  @media (max-width: 800px) {
-    .grid, .grid-2, .grid-4 { grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 1200px) {
+    .grid-3 { grid-template-columns: 1fr 1fr; }
+    .grid-4 { grid-template-columns: 1fr 1fr; }
   }
+  @media (max-width: 800px) {
+    .grid, .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; gap: 16px; margin-bottom: 16px; }
+  }
+
+  /* ── Skills panel ── */
+  #skills-panel { max-height: 420px; overflow-y: auto; padding-right: 6px; font-size: 12px; }
+  .skill-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    column-gap: 10px;
+    align-items: baseline;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--rule-2);
+  }
+  .skill-row:last-child { border-bottom: none; }
+  .skill-row.gated { background: linear-gradient(90deg, rgba(255,180,40,0.06), transparent 60%); }
+  .skill-name { color: var(--ink); font-family: var(--font-mono); font-size: 11px; }
+  .skill-name .gate-tag {
+    display: inline-block; margin-left: 6px; padding: 1px 5px;
+    font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--amber); border: 1px solid var(--amber); border-radius: 2px;
+  }
+  .skill-level {
+    color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono); font-size: 12px; min-width: 38px; text-align: right;
+  }
+  .skill-row.gated .skill-level { color: var(--amber); }
+  .skill-bar {
+    grid-column: 1 / -1; margin-top: 4px;
+    height: 3px; background: var(--rule-2); border-radius: 1px; overflow: hidden;
+  }
+  .skill-bar-fill { height: 100%; background: var(--accent); transition: width 0.3s ease; }
+  .skill-row.gated .skill-bar-fill { background: var(--amber); }
+  .skill-xp { color: var(--ink-3); font-size: 10px; font-variant-numeric: tabular-nums; }
 
   /* ── Cards → hairline sections ── */
   .card {
@@ -975,7 +1010,7 @@
       .agent-card-fresh-dot[data-fresh="slow"]  { background: var(--amber); }
       .agent-card-fresh-dot[data-fresh="stale"] { background: #d33; }
     </style>
-    <div class="grid-2">
+    <div class="grid-3">
       <div class="card">
         <h2>Quests</h2>
         <div id="mission-stats"><div class="empty">Waiting for game state...</div></div>
@@ -983,6 +1018,10 @@
       <div class="card">
         <h2>Inventory <span class="badge" id="inv-count">0</span></h2>
         <div id="inventory-panel"><div class="empty">No items</div></div>
+      </div>
+      <div class="card">
+        <h2>Skills <span class="badge" id="skills-count">0</span></h2>
+        <div id="skills-panel"><div class="empty">Waiting for game state...</div></div>
       </div>
     </div>
     <div class="card full">
@@ -2123,6 +2162,20 @@ function buildEventHTML(ev, idx, prefix, withDetails, isNew) {
 }
 
 // === Quest walkthrough tooltip ===
+// Kaetram XP table — same RuneScape-style cumulative formula the server uses
+// (Formulas.LevelExp, see Kaetram-Open: server/src/info/loader.ts:44-50). We
+// mirror it here once so the Skills panel can show "X / Y xp (NN%)" without
+// an extra API call.
+window._kaetramLevelExp = (() => {
+  const MAX = 135;
+  const arr = [0];
+  for (let i = 1; i < MAX; i++) {
+    const points = Math.floor(0.25 * Math.floor(i + 300 * Math.pow(2, i / 7)));
+    arr[i] = points + arr[i - 1];
+  }
+  return arr;
+})();
+
 let questWalkthroughs = null;
 async function loadQuestWalkthroughs() {
   if (questWalkthroughs !== null) return;
@@ -2736,6 +2789,71 @@ async function refreshFast() {
       document.getElementById('mission-stats').innerHTML = meta + qhtml;
     } else if (fresh >= 0) {
       document.getElementById('mission-stats').innerHTML = '<div class="empty">No active quests</div>';
+    }
+
+    // Skills — render with gated-first ordering + XP bar to next level.
+    // Gated set is derived from the active quests' walkthrough requirements
+    // (already loaded by loadQuestWalkthroughs above). For each active quest,
+    // parse "Foraging 25" requirement strings and mark the named skill as
+    // gated when player.level < required.
+    const rawSkills = gs.skills || [];
+    const skillsEl = document.getElementById('skills-panel');
+    const skillsCountEl = document.getElementById('skills-count');
+    if (skillsEl && rawSkills.length > 0) {
+      const skillByName = {};
+      for (const s of rawSkills) if (s && s.name) skillByName[s.name] = s;
+      const gatedNeeds = {};   // { skillName: highestRequiredLevel }
+      const wt = (typeof questWalkthroughs === 'object' && questWalkthroughs) || {};
+      for (const q of (gs.quests || [])) {
+        if (!q || !q.started || q.finished) continue;
+        const w = wt[q.name];
+        const reqs = (w && w.requirements && w.requirements.skills) || [];
+        for (const r of reqs) {
+          const m = String(r).match(/([A-Za-z]+)\s+(\d+)/);
+          if (!m) continue;
+          const skill = m[1], lvl = parseInt(m[2], 10);
+          if ((skillByName[skill]?.level || 1) < lvl) {
+            gatedNeeds[skill] = Math.max(gatedNeeds[skill] || 0, lvl);
+          }
+        }
+      }
+      // Sort: gated first (most-blocking gate first), then by level desc, then alpha.
+      const sorted = rawSkills.slice().sort((a, b) => {
+        const ag = gatedNeeds[a.name] ? 1 : 0;
+        const bg = gatedNeeds[b.name] ? 1 : 0;
+        if (ag !== bg) return bg - ag;
+        if (ag && bg) return (gatedNeeds[b.name] - (b.level || 1)) - (gatedNeeds[a.name] - (a.level || 1));
+        if ((b.level || 1) !== (a.level || 1)) return (b.level || 1) - (a.level || 1);
+        return (a.name || '').localeCompare(b.name || '');
+      });
+      let shtml = '';
+      let touchedCount = 0;
+      for (const s of sorted) {
+        const lvl = s.level || 1;
+        const xp = s.experience || 0;
+        if (lvl > 1 || xp > 0 || gatedNeeds[s.name]) touchedCount++;
+        const prev = window._kaetramLevelExp ? window._kaetramLevelExp[lvl - 1] || 0 : 0;
+        const next = window._kaetramLevelExp ? window._kaetramLevelExp[lvl] || (xp + 1) : (xp + 1);
+        const span = Math.max(1, next - prev);
+        const pct = Math.max(0, Math.min(100, Math.round(((xp - prev) / span) * 100)));
+        const gated = !!gatedNeeds[s.name];
+        const cls = 'skill-row' + (gated ? ' gated' : '');
+        const tag = gated ? '<span class="gate-tag">need L' + gatedNeeds[s.name] + '</span>' : '';
+        shtml +=
+          '<div class="' + cls + '">' +
+            '<div class="skill-name">' + esc(s.name) + tag + '</div>' +
+            '<div class="skill-level">L' + lvl + '</div>' +
+            '<div class="skill-bar"><div class="skill-bar-fill" style="width:' + pct + '%"></div></div>' +
+            '<div class="skill-xp" style="grid-column:1/-1">' +
+              xp.toLocaleString() + (next > xp ? ' / ' + next.toLocaleString() + ' xp (' + pct + '%)' : ' xp (max)') +
+            '</div>' +
+          '</div>';
+      }
+      skillsEl.innerHTML = shtml;
+      if (skillsCountEl) skillsCountEl.textContent = String(touchedCount);
+    } else if (skillsEl && fresh >= 0) {
+      skillsEl.innerHTML = '<div class="empty">No skills data</div>';
+      if (skillsCountEl) skillsCountEl.textContent = '0';
     }
 
   } catch(e) {}

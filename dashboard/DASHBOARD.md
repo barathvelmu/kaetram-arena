@@ -6,7 +6,7 @@
 
 A Python `http.server`-based dashboard (no framework) serving HTTP on `:8080` and a WebSocket relay on `:8081`. It surfaces:
 
-- Live agent state (HP, level, position, quests, inventory) merged from MongoDB + the agent's `observe()` writes.
+- Live agent state (HP, level, position, quests, inventory, skills) merged from MongoDB + the agent's `observe()` writes.
 - Per-agent HLS livestream of the game browser.
 - Activity feed (tool calls, reasoning, errors) parsed incrementally from session logs.
 - Past sessions with cost/turns/duration, SFT pipeline stats, eval comparison.
@@ -65,7 +65,7 @@ Python `http.server` with HTTP/1.1 keep-alive and threaded request handling. No 
 
 | Tab | Endpoint(s) | What it shows |
 |-----|-------------|---------------|
-| Overview | `/api/game-state`, `/api/live`, `/api/agents` | HLS hero video, quest progress, inventory, HP/level, activity summary |
+| Overview | `/api/game-state`, `/api/live`, `/api/agents` | HLS hero video; **3-column row** (Quests · Inventory · Skills) for the selected agent; activity summary; HP/level/run-timer status bar |
 | Activity | `/api/activity` (initial + on agent-switch) + WS push | Full event log — tool calls, reasoning, results (expandable). WS push triggers a debounced re-fetch on each new event burst. |
 | Sessions | `/api/sessions`, `/api/dataset-stats`, `/api/sft-stats` | Session history, cost/turns/duration, SFT pipeline stats |
 | Prompt | `/api/prompt`, `/api/session-log` | System prompt viewer, personality grid, game knowledge, CLAUDE.md |
@@ -127,7 +127,7 @@ Every dashboard worker is single-process; caches keep the UI responsive on the 8
 
 Two intervals + WS push:
 
-- **`refreshFast` every 3 s** — `/api/live`, `/api/game-state`. In-place updates of mission/inventory/status/run timer. Skipped while `document.hidden`.
+- **`refreshFast` every 3 s** — `/api/live`, `/api/game-state`. In-place updates of mission/inventory/skills/status. Run timer is anchor-and-tick (1 s local interval, re-anchors on fresher server data; see `_runAnchor` in index.html). Skipped while `document.hidden`.
 - **`refreshSlow` every 8 s** — `/api/agents` (rebuilds `agentList`), `/api/sessions`, eval-tab indicator, then `refreshActivity()`. Skipped while `document.hidden`.
 - **`refreshActivity` (WS-driven)** — On each `{type:"activity"}` push the frontend debounces a single `/api/activity` fetch (200 ms). The 8 s steady poll is a safety net.
 - **`onStateNotification`** — In-place HP/level overlay update; no DOM destruction.
@@ -135,6 +135,20 @@ Two intervals + WS push:
 - **`onTestEvent`** — Drives the Tests tab: per-test status pills, run-finish refresh of the history list, MJPEG `<img>` rebind/teardown on `session_start`/`session_finish`. Tests-tab polling (`/api/test/runs`, `/api/test/current`) only runs while that tab is the active one.
 
 On `visibilitychange` to visible, both refresh loops fire once immediately so a returning user doesn't see a stale snapshot.
+
+## Skills panel (Overview tab, 3rd column)
+
+Lives alongside Quests + Inventory in the `.grid-3` row (responsive: 3 cols desktop, 2 cols ≤1200px, 1 col ≤800px). Renders for the selected agent only — same pattern as Quests/Inventory. Data source: `gs.skills` from `/api/game-state`, no extra endpoint.
+
+Per-skill row shows: name, current level (`L##`), an XP bar to the next level, and `current / next xp (NN%)` underneath. The per-level XP table is a one-time JS-side mirror of Kaetram's server formula (`window._kaetramLevelExp`, defined in `index.html` near `loadQuestWalkthroughs`); same RuneScape-style cumulative curve as `Kaetram-Open/packages/server/src/info/loader.ts:44`. No backend XP-table endpoint needed.
+
+**Gated-skill highlighting** is the non-obvious part. For each *active, unfinished* quest in `gs.quests`, the panel looks up its walkthrough in `questWalkthroughs` (already loaded for tooltips) and parses `requirements.skills` strings like `"Foraging 25"`. If the player's level for that skill is below the requirement, the skill is marked gated:
+
+- Sorted to the top of the list (most-blocking gate first if multiple).
+- Amber `NEED L25` chip beside the name; amber XP bar fill.
+- Background tint (`.skill-row.gated`) for at-a-glance distinction.
+
+This means the moment an agent accepts Herbalist's Desperation, Foraging jumps to the top of the panel with a visible gap-to-target — surfacing the same gate the agent should be reading via `query_quest`'s new `live_gate_status` block (see `mcp_server/tools/quest.py`).
 
 ## Tests-tab subsystem (`dashboard/test_runner.py`)
 

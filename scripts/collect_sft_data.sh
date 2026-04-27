@@ -105,13 +105,21 @@ if [ ! -x "$PYTHON_BIN" ]; then
 fi
 
 if [ -d "$RAW_DIR" ]; then
-  for agent_dir in "$RAW_DIR"/agent_{0,1,2}/logs; do
-    if [ -d "$agent_dir" ]; then
-      agent_name="$(basename "$(dirname "$agent_dir")")"
-      agent_output_dir="$EXTRACTED_DIR/$agent_name"
-      echo "  Processing $agent_dir -> $agent_output_dir ..."
-      "$PYTHON_BIN" extract_turns.py --log-dir "$agent_dir" --output-dir "$agent_output_dir"
-    fi
+  # Iterate every historical run dir (runs/run_*/) per agent, not just the
+  # latest-run symlink (logs/). The symlink resolves to ONLY the most recent
+  # run; using it here would silently drop ~99% of historical sessions from
+  # SFT extraction. extract_turns.py is single-dir, so we loop per run.
+  for agent_root in "$RAW_DIR"/agent_{0,1,2}; do
+    [ -d "$agent_root/runs" ] || continue
+    agent_name="$(basename "$agent_root")"
+    agent_output_dir="$EXTRACTED_DIR/$agent_name"
+    for run_dir in "$agent_root"/runs/run_*; do
+      [ -d "$run_dir" ] || continue
+      # Skip empty run dirs (no session logs yet).
+      compgen -G "$run_dir/session_*.log" > /dev/null || continue
+      echo "  Processing $run_dir -> $agent_output_dir ..."
+      "$PYTHON_BIN" extract_turns.py --log-dir "$run_dir" --output-dir "$agent_output_dir"
+    done
   done
 fi
 

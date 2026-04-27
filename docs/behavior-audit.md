@@ -10,7 +10,7 @@
 
 ## Method
 
-**Sample (Claude-only, latest):** 30 sessions, 10 per personality, all from April 16, 2026 (the most recent collection day). Selected by `ls -t agent_N/logs/*.log` newest-first then filtered to size > 200 KB. All sessions are from the current personality definitions in `prompts/personalities/{aggressive,methodical,curious}.md`. No Gemini, no Codex. Same character per personality (agent_0=aggressive=mature L23-67 chars, agent_1=methodical=L1-L78 mix, agent_2=curious=L1-L78 mix).
+**Sample (Claude-only, latest):** 30 sessions, 10 per personality, all from April 16, 2026 (the most recent collection day). Selected by `ls -t agent_N/logs/*.log` newest-first then filtered to size > 200 KB (logs/ symlink resolves to the latest run dir under `agent_N/runs/`). All sessions are from the current personality definitions in `prompts/personalities/{aggressive,methodical,curious}.md`. No Gemini, no Codex. Same character per personality (agent_0=aggressive=mature L23-67 chars, agent_1=methodical=L1-L78 mix, agent_2=curious=L1-L78 mix).
 
 **Blinding:** Each session was flattened into `/tmp/blind_views/SXX.txt` (action timeline + periodic HP/level/position/inventory snapshots + reasoning excerpts). Sessions assigned anonymous `S01`-`S30` IDs. 30 general-purpose subagents dispatched in parallel, each given one blind view. Subagents were instructed to emit exactly three sentences (combat / resource / scope) with concrete turn-ID citations and were forbidden from using the words "aggressive", "methodical", or "curious" anywhere in output, including when the agent's own reasoning text used those self-labels.
 
@@ -214,7 +214,7 @@ All Claude, all April 16, 2026, 10 per personality (30 total):
 | S29 | curious | agent_2/logs/session_5_20260416_095144.log | 150 | /tmp/blind_summaries/S29.txt |
 | S30 | curious | agent_2/logs/session_4_20260416_090844.log | 150 | /tmp/blind_summaries/S30.txt |
 
-Sample-map JSON: `/tmp/sample_map.json`. Blind view source files: `/tmp/blind_views/SXX.txt`. Blind subagent summaries: `/tmp/blind_summaries/SXX.txt`. Raw logs in `dataset/raw/agent_N/logs/`.
+Sample-map JSON: `/tmp/sample_map.json`. Blind view source files: `/tmp/blind_views/SXX.txt`. Blind subagent summaries: `/tmp/blind_summaries/SXX.txt`. Raw logs in `dataset/raw/agent_N/runs/`.
 
 ### Key per-session evidence cited
 

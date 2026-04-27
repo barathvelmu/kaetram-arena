@@ -12,8 +12,7 @@ calls structured tools — never writes JavaScript. Gameplay sessions are
 collected as SFT/KTO training data for Qwen3.5 9B.
 
 For current run state, training results, and what's in flight: read
-`session_log.md` and `research/INDEX.md`. This file is the stable reference
-that doesn't change weekly.
+`session_log.md`. This file is the stable reference that doesn't change weekly.
 
 ---
 
@@ -95,6 +94,10 @@ Full reference: `dashboard/DASHBOARD.md`.
 | `orchestrate.py` | Multi-agent launcher: spawns game servers, Xvfb, ffmpeg, MCP, harness; supervises restarts; tracks rate limits + budget. |
 | `play.sh` | Single-agent loop. |
 | `state_extractor.js` | Browser-side helpers exposed via `window.__extractGameState()` etc. Called by `mcp_server` only — never by the agent. |
+| `mcp_server/resource_gates.py` | Loads resource→skill+level requirements from Kaetram-Open data files at MCP startup. `gather()` uses it to surface a structured `gate` block when "no items collected" is actually a skill-level gate. Override the data dir via `KAETRAM_DATA_DIR`. |
+| `mcp_server/mob_stats.py` | Same pattern for mobs.json. `observe()` enriches each `nearby.mobs[]` entry with `level` + `aggressive` so the agent doesn't have to recall the MOB PROGRESSION table by name. |
+| `state/quest_resume.json` (per-sandbox) | Written on every `observe()` by `mcp_server/tools/observe.py`. Read by `orchestrate.py` at session start and prepended to the agent prompt as a "Resume from last session" block — closes the per-session amnesia gap so multi-stage Core 5 quests can complete across sessions. |
+| `orchestrate.py:_recent_failures_from_prev_session()` | Scans the previous session's log on each new session start, buckets distinct tool errors (BFS-fail × N, NPC arrived: false × N, etc.), and injects a `recent_failures (don't repeat)` block into the resume prompt. Carries cross-session FAILURE memory — agents stop re-trying the same dead-ends across sessions. Distinct from quest_resume's STATE memory. |
 | `extract_turns.py` | JSONL log → OODA turn extraction. |
 | `convert_to_qwen.py` | Turns → Qwen3.5 9B SFT/GRPO format. |
 | `prompts/system.md` | Agent system prompt (~100 lines, XML-tagged). |
@@ -197,26 +200,60 @@ tool surface in the high teens.
 ## Log analysis (`scripts/log_analysis/`)
 
 Primary tool for "how are the agents doing" — parses session JSONL logs
-under `dataset/raw/agent_*/logs/` and reports per-agent status, quests, tool
-distribution, errors, recent activity, and reasoning. By default scopes to
-currently running agents (log touched in last 10 min); pass `--stale` for
-historical sessions.
+under `dataset/raw/agent_*/runs/run_*/` (with `logs/` symlink to the latest
+run) and reports per-agent status, quests, tool distribution, categorized
+errors, Tier-A adoption, and reasoning. **Prefer this over LLM subagents for
+live status / behavioral audit** — it parses fields directly (`active_quests`,
+`live_gate_status.gated`, `inventory_summary.full`, mob `level`, etc.), so the
+answer is ground truth not an inference, and it doesn't burn tokens.
+
+By default scopes to currently running agents (log touched in last 10 min);
+pass `--stale` for historical sessions, or `--run <run_id>` to scope to any
+specific run.
 
 ```bash
-python3 scripts/log_analysis/analyze.py            # full report (default)
-python3 scripts/log_analysis/analyze.py status     # one-line per agent
+# Live snapshot
+python3 scripts/log_analysis/analyze.py            # full report
+python3 scripts/log_analysis/analyze.py status     # one-line per agent + run header
+
+# Historical / cross-run
+python3 scripts/log_analysis/analyze.py runs -n 10            # last N runs across all agents
+python3 scripts/log_analysis/analyze.py runs --all-runs       # every run ever
+python3 scripts/log_analysis/analyze.py status --run <run_id> # status for a past run
+
+# Behavioral audits (use these when assessing whether prompt/tool changes worked)
+python3 scripts/log_analysis/analyze.py tier_a     # adoption: Rule 10 compliance, BFS→warp rate, A2 gate, mob-overshot, station_locations, drop@full
+python3 scripts/log_analysis/analyze.py errors     # CATEGORIZED errors (BFS_NO_PATH, STILL_MOVING, NPC_NOT_FOUND, STATION_UNREACHABLE, …) + top next-action transitions
+python3 scripts/log_analysis/analyze.py timeline -n 30   # chronological event stream (warps, accepts, BFS-fails, level-ups, deaths) for the live run
+
+# Drill-downs
 python3 scripts/log_analysis/analyze.py quests
 python3 scripts/log_analysis/analyze.py tools
 python3 scripts/log_analysis/analyze.py recent -n 8
-python3 scripts/log_analysis/analyze.py errors
 python3 scripts/log_analysis/analyze.py thinking -n 3
 python3 scripts/log_analysis/analyze.py agent 1 -n 10
 ```
 
-Prefer this over LLM subagents for live status checks — it parses fields
-directly (`active_quests` / `finished_quests`, etc.) so the answer is ground
-truth, not an inference. See `scripts/log_analysis/README.md` for the
-log-shape reference and how to import `parse.py` for custom analyses.
+**When to reach for which command:**
+- Just stopped/restarted agents → `status` to confirm they're up + see run_id/elapsed
+- "Did my prompt fix actually change behavior?" → `tier_a` (compares against the rules each fix targets)
+- "Why is agent N looping?" → `errors` shows what failed + what it did next (warp vs retry-navigate is the smoking gun for Rule 4a)
+- "What did agent N do today?" → `timeline` for an emoji-tagged event stream
+- "How does this run compare to last week's?" → `runs -n 20` or `--all-runs`
+
+See `scripts/log_analysis/README.md` for the log-shape reference. To write a
+custom one-off analysis, import from `parse.py`:
+
+```python
+from scripts.log_analysis.parse import (
+    latest_runs_per_agent, parse_run, parse_session_auto,
+    tier_a_signals, categorize_error, RunView, SessionView,
+)
+```
+
+`tier_a_signals(sv)` returns a `TierASignals` dataclass with the same metrics
+the `tier_a` CLI command reports — useful for batch comparison across many
+runs (e.g. "did Rule 4a uptake go up after we shipped the BFS→warp prompt?").
 
 ## Slash commands (`.claude/commands/`)
 

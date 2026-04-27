@@ -78,24 +78,38 @@
     }
 
     // ── Stack inventory by key ────────────────────────────────────────
+    // Stacking compresses multi-slot duplicates (e.g. 4 slots of "logs")
+    // into a single entry — saves tokens. But this hides slot occupancy
+    // from the agent, so we also expose:
+    //   - inventory_summary: raw slot count vs cap (so agent knows when full)
+    //   - slots[]: every underlying slot for each stacked entry (so agent
+    //     knows one drop_item only frees ONE of N slots for a stacked item)
     const rawInv = gs.inventory || [];
+    const INVENTORY_CAP = 25;  // matches state_extractor.js loop bound
     const stackMap = {};
     for (const item of rawInv) {
         if (!item.key) continue;
         if (stackMap[item.key]) {
             stackMap[item.key].count += (item.count || 1);
+            stackMap[item.key].slots.push(item.slot);
         } else {
             stackMap[item.key] = {
                 key: item.key,
                 name: item.name || item.key,
                 count: item.count || 1,
-                slot: item.slot,
+                slot: item.slot,             // first slot — drop_item target for this entry
+                slots: [item.slot],          // all underlying slots
                 edible: !!item.edible,
                 equippable: !!item.equippable,
             };
         }
     }
     const inventory = Object.values(stackMap);
+    const inventory_summary = {
+        slots_used: rawInv.length,
+        slots_max: INVENTORY_CAP,
+        full: rawInv.length >= INVENTORY_CAP,
+    };
 
     // ── Quests ────────────────────────────────────────────────────────
     const activeQuests = quests
@@ -163,8 +177,10 @@
             ground_items: groundItems,
         },
 
-        // Inventory — stacked by key
+        // Inventory — stacked by key (see also inventory_summary for raw
+        // slot occupancy, and each entry's `slots` for multi-slot items).
         inventory: inventory,
+        inventory_summary: inventory_summary,
 
         // Quests
         active_quests: activeQuests,

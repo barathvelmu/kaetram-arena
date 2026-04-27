@@ -331,7 +331,7 @@ du -sh dataset/raw/ dataset/extracted_r7/ dataset/qwen_sft_r7/ dataset/qwen_kto_
 cd ~/projects/kaetram-agent
 for a in 0 1 2; do
   python3 extract_turns.py \
-    --log-dir  dataset/raw/agent_$a/logs \
+    --log-dir  dataset/raw/agent_$a/logs \  # logs/ symlink resolves to latest run dir
     --output-dir dataset/extracted
 done
 ```
@@ -344,7 +344,7 @@ extraction is no longer part of the pipeline.
 
 Also: `extract_turns.py` takes `--log-dir` as a *flat* directory of
 `session_*.log` files, not a recursive tree. That is why `collect_sft_data.sh`
-loops over `agent_*/logs`. Do the same here.
+loops over `agent_*/runs/` (or `agent_*/logs/` via symlink). Do the same here.
 
 Expected output:
 
@@ -832,7 +832,7 @@ mkdir -p dataset/extracted dataset/qwen_sft dataset/qwen_kto
 
 # 2. re-extract
 for a in 0 1 2; do
-  python3 extract_turns.py --log-dir dataset/raw/agent_$a/logs --output-dir dataset/extracted
+  python3 extract_turns.py --log-dir dataset/raw/agent_$a/logs --output-dir dataset/extracted  # logs/ symlink → latest run
 done
 
 # 3. convert

@@ -151,8 +151,16 @@ if [ "$HARNESS" != "$CUR_HARNESS" ] || [ "$PERSONALITY" != "$CUR_PERSONALITY" ];
       MODEL="gemini-2.5-flash"
       ;;
     opencode)
-      NEW_USERNAME="OpenCodeBot$AGENT_ID"
       MODEL="${OPENCODE_MODEL:-nvidia/qwen/qwen3-coder-480b-a35b-instruct}"
+      # Pick username prefix by model family (mirrors orchestrate.py logic
+      # via cli_adapter.opencode_bot_prefix). Lowercase substring match.
+      MODEL_LC="$(echo "$MODEL" | tr '[:upper:]' '[:lower:]')"
+      case "$MODEL_LC" in
+        *qwen*)     NEW_USERNAME="BigQwenBot$AGENT_ID";;
+        *grok*)     NEW_USERNAME="GrokBot$AGENT_ID";;
+        *deepseek*) NEW_USERNAME="DeepSeekBot$AGENT_ID";;
+        *)          NEW_USERNAME="OpenCodeBot$AGENT_ID";;
+      esac
       ;;
     *)
       # claude or default

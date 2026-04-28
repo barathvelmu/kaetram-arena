@@ -47,6 +47,53 @@ def _resolve_mcp_template(sandbox_dir: Path, port: str = "", username: str = "Cl
             )
 
 
+OPENCODE_MODEL_ALIASES: dict[str, str] = {
+    "grok-4-1-fast":     "xai/grok-4-1-fast-reasoning",
+    "qwen3.5-35a3b":     "nvidia/qwen/qwen3.5-35b-a3b",
+    "qwen3.5-397a17b":   "nvidia/qwen/qwen3.5-397b-a17b",
+    "qwen3-80a3b":       "nvidia/qwen/qwen3-next-80b-a3b-thinking",
+    "deepseek-v4-flash": "deepseek/deepseek-v4-flash",
+    "deepseek-v4-pro":   "deepseek/deepseek-v4-pro",
+}
+
+
+def resolve_opencode_model(name: str | None) -> str | None:
+    """Map shorthand model name to opencode-config model ID.
+
+    Pass-through when already qualified (contains '/'), so power users can
+    specify exact provider/model strings directly. Returns None for empty
+    input — callers treat that as 'use template default'.
+    """
+    if not name:
+        return None
+    return OPENCODE_MODEL_ALIASES.get(name, name)
+
+
+def opencode_bot_prefix(model_id: str | None) -> str:
+    """Bot-username prefix for an opencode run, by model family.
+
+    The prefix is what shows up as the in-game username + Mongo player row,
+    so dashboard / DB / log analysis can distinguish runs across model
+    families. Splits opencode by family rather than lumping everything into
+    a single 'OpenCodeBot' bucket.
+
+    - any "qwen"     → BigQwenBot   (separate from the local-eval QwenBot)
+    - any "grok"     → GrokBot
+    - any "deepseek" → DeepSeekBot
+    - fallback       → OpenCodeBot
+    """
+    if not model_id:
+        return "OpenCodeBot"
+    m = model_id.lower()
+    if "qwen" in m:
+        return "BigQwenBot"
+    if "grok" in m:
+        return "GrokBot"
+    if "deepseek" in m:
+        return "DeepSeekBot"
+    return "OpenCodeBot"
+
+
 class CLIAdapter(ABC):
     """Base class for AI CLI tool adapters."""
 
@@ -480,7 +527,11 @@ class OpenCodeAdapter(CLIAdapter):
     """
 
     def __init__(self, model: str | None = None):
-        super().__init__(model or "opencode-default")
+        # Resolve shorthand (e.g. "qwen3.5-35a3b") to fully-qualified model
+        # ID before storing. None / empty stays as the sentinel default so
+        # setup_sandbox knows to leave the template's `model` field alone.
+        resolved = resolve_opencode_model(model)
+        super().__init__(resolved or "opencode-default")
 
     @property
     def name(self) -> str:
@@ -501,6 +552,10 @@ class OpenCodeAdapter(CLIAdapter):
         # does not have placeholder substitution in its schema, so we load the
         # template as JSON and patch `mcp.kaetram.environment` directly.
         cfg = json.loads(template_path.read_text())
+        # Apply --opencode-model override if one was supplied (otherwise
+        # leave the template's default `model` field intact).
+        if self.model and self.model != "opencode-default":
+            cfg["model"] = self.model
         mcp = cfg.setdefault("mcp", {}).setdefault("kaetram", {})
         cmd = mcp.get("command", [])
         mcp["command"] = [

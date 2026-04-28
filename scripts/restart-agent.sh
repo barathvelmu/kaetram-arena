@@ -10,11 +10,17 @@
 #   6. Ensures dashboard is running on :8080
 #
 # Usage:
-#   ./scripts/restart-agent.sh              # 4 agents, 24 hours (defaults)
+#   ./scripts/restart-agent.sh              # 3 agents, 24 hours (defaults — one per archetype)
 #   ./scripts/restart-agent.sh 2            # 2 agents, 24 hours
-#   ./scripts/restart-agent.sh 4 8          # 4 agents, 8 hours
-#   ./scripts/restart-agent.sh 4 0          # 4 agents, no time limit
+#   ./scripts/restart-agent.sh 3 8          # 3 agents, 8 hours
+#   ./scripts/restart-agent.sh 3 0          # 3 agents, no time limit
 #   ./scripts/restart-agent.sh --grinder 1 --completionist 1 --explorer 1
+#   ./scripts/restart-agent.sh --opencode --opencode-model qwen3.5-35a3b --hours 3
+#
+# OpenCode model aliases (resolve to opencode.template.json model IDs):
+#   grok-4-1-fast     | qwen3.5-35a3b   | qwen3.5-397a17b
+#   qwen3-80a3b       | deepseek-v4-flash | deepseek-v4-pro
+# (or pass a fully-qualified provider/model ID directly)
 
 set -euo pipefail
 
@@ -45,6 +51,7 @@ N_CLAUDE=""
 N_CODEX=""
 N_GEMINI=""
 N_OPENCODE=""
+OPENCODE_MODEL=""
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -54,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --explorer-tinkerer|--explorer)  N_EXPLORER_TINKERER="$2"; shift 2;;
     --hours)       HOURS="$2"; shift 2;;
     --max-budget-usd) MAX_BUDGET="$2"; shift 2;;
+    --opencode-model) OPENCODE_MODEL="$2"; shift 2;;
     --claude)
       if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
         N_CLAUDE="$2"; shift 2
@@ -110,7 +118,7 @@ for p in grinder completionist explorer-tinkerer; do
 done
 
 if ! $HAS_PERSONALITY; then
-  N_AGENTS="${N_AGENTS:-4}"
+  N_AGENTS="${N_AGENTS:-3}"
   TOTAL_AGENTS="$N_AGENTS"
 fi
 
@@ -134,6 +142,7 @@ HARNESS_DESC=""
 [ "$N_OPENCODE" = "-1" ] && HARNESS_DESC="all OpenCode"
 [ -z "$HARNESS_DESC" ] && HARNESS_DESC="all Claude"
 echo "  Harness: $HARNESS_DESC"
+[ -n "$OPENCODE_MODEL" ] && echo "  OpenCode model: $OPENCODE_MODEL"
 echo "  Hours:  ${HOURS}"
 echo ""
 
@@ -209,7 +218,7 @@ if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
   USER_JS_ARRAY=""
   for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
     [ -n "$USER_JS_ARRAY" ] && USER_JS_ARRAY="${USER_JS_ARRAY},"
-    USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}','codexbot${i}','geminibot${i}','opencodebot${i}'"
+    USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}','codexbot${i}','geminibot${i}','opencodebot${i}','bigqwenbot${i}','grokbot${i}','deepseekbot${i}'"
   done
 
   echo "Resetting player data in MongoDB..."
@@ -231,10 +240,12 @@ if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
   echo "Seeding bot accounts (password=test)..."
   PYTHONPATH="$PROJECT_DIR" "$PROJECT_DIR/.venv/bin/python3" - <<PYEOF
 from tests.e2e.helpers.seed import seed_player
+PREFIXES = ("claudebot", "codexbot", "geminibot", "opencodebot",
+            "bigqwenbot", "grokbot", "deepseekbot")
 for i in range($TOTAL_AGENTS):
-    for prefix in ("claudebot", "codexbot", "geminibot", "opencodebot"):
+    for prefix in PREFIXES:
         seed_player(f"{prefix}{i}")
-print(f"  Seeded {$TOTAL_AGENTS * 4} bot rows.")
+print(f"  Seeded {$TOTAL_AGENTS * len(PREFIXES)} bot rows.")
 PYEOF
 else
   echo "WARNING: MongoDB container not running — skipping DB reset"
@@ -316,6 +327,7 @@ fi
 [ -n "$N_CODEX" ] && ORCH_CMD="$ORCH_CMD --codex $N_CODEX"
 [ -n "$N_GEMINI" ] && ORCH_CMD="$ORCH_CMD --gemini $N_GEMINI"
 [ -n "$N_OPENCODE" ] && ORCH_CMD="$ORCH_CMD --opencode $N_OPENCODE"
+[ -n "$OPENCODE_MODEL" ] && ORCH_CMD="$ORCH_CMD --opencode-model $OPENCODE_MODEL"
 ORCH_CMD="$ORCH_CMD 2>&1 | tee /tmp/orchestrate.log"
 
 # Send to existing datacol session, or create one

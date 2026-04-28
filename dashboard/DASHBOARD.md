@@ -77,7 +77,7 @@ Python `http.server` with HTTP/1.1 keep-alive and threaded request handling. No 
 | Endpoint | Method | Params | Returns |
 |----------|--------|--------|---------|
 | `/api/game-state` | GET | `?agent=N` | Merged MongoDB + live game state JSON |
-| `/api/agents` | GET | — | All active agents: harness, model, personality, HLS age, session stats |
+| `/api/agents` | GET | — | All active agents: harness, model, personality, HLS age, session stats. Username comes from `metadata.json` and varies by harness + (for opencode) model family — `ClaudeBot{N}` / `CodexBot{N}` / `GeminiBot{N}` / `BigQwenBot{N}` / `GrokBot{N}` / `DeepSeekBot{N}` / `OpenCodeBot{N}`. See `cli_adapter.opencode_bot_prefix`. |
 | `/api/activity` | GET | `?agent=N` | Latest session activity feed (incremental parser; `{events, turn, cost, tokens, model}`) |
 | `/api/sessions` | GET | `?agent=N` | Past session list with cost, turns, model, duration |
 | `/api/session-detail` | GET | `?name=X&log_dir=Y` | Full parsed session log (events, thinking, tool calls) |

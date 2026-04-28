@@ -129,7 +129,7 @@ rm -rf /tmp/hls/agent_* 2>/dev/null || true
 
 # ── Step 2: Detect agents with preserved state ──
 DETECTED=0
-for i in 0 1 2 3 4 5 6 7; do
+for i in 0 1 2; do
   if [ -f "/tmp/kaetram_agent_$i/state/.session_counter" ]; then
     DETECTED=$((DETECTED + 1))
   fi

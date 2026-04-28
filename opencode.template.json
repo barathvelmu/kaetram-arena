@@ -30,9 +30,17 @@
             }
           }
         },
+        "qwen/qwen3.5-35b-a3b": {
+          "name": "Qwen3.5 35B (A3B) thinking",
+          "options": {
+            "extraBody": {
+              "chat_template_kwargs": { "enable_thinking": true }
+            }
+          }
+        },
         "qwen/qwen3.5-122b-a10b":              {"name": "Qwen3.5 122B (A10B)"},
         "qwen/qwen3.5-397b-a17b": {
-          "name": "Qwen3.5 397B (A17B) — default, thinking on",
+          "name": "Qwen3.5 397B (A17B) — flagship, thinking on",
           "options": {
             "extraBody": {
               "chat_template_kwargs": { "enable_thinking": true }
@@ -40,6 +48,17 @@
           }
         },
         "qwen/qwen2.5-coder-32b-instruct":     {"name": "Qwen2.5 Coder 32B"}
+      }
+    },
+    "deepseek": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DeepSeek V4 (OpenAI-compatible direct API)",
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1"
+      },
+      "models": {
+        "deepseek-v4-pro":   {"name": "DeepSeek V4 Pro (1.6T MoE / 49B active)"},
+        "deepseek-v4-flash": {"name": "DeepSeek V4 Flash (284B MoE / 13B active)"}
       }
     }
   },

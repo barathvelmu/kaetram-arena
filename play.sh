@@ -12,16 +12,19 @@ HARNESS="claude"
 CLAUDE_MODEL="sonnet"
 CODEX_MODEL="gpt-5.4"
 GEMINI_MODEL="gemini-3-flash-preview"
-for arg in "$@"; do
-  case "$arg" in
-    # Capability-focused archetypes (only supported set)
-    --completionist)        PERSONALITY="completionist";;
-    --grinder)              PERSONALITY="grinder";;
-    --explorer_tinkerer)    PERSONALITY="explorer_tinkerer";;
-    --explorer)             PERSONALITY="explorer_tinkerer";;  # short form
-    --codex)       HARNESS="codex";;
-    --gemini)      HARNESS="gemini";;
-    --opencode)    HARNESS="opencode";;
+OPENCODE_MODEL=""
+# Manual two-arg parse so --opencode-model <id> works alongside the bare flags.
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --completionist)        PERSONALITY="completionist"; shift;;
+    --grinder)              PERSONALITY="grinder"; shift;;
+    --explorer_tinkerer)    PERSONALITY="explorer_tinkerer"; shift;;
+    --explorer)             PERSONALITY="explorer_tinkerer"; shift;;  # short form
+    --codex)       HARNESS="codex"; shift;;
+    --gemini)      HARNESS="gemini"; shift;;
+    --opencode)    HARNESS="opencode"; shift;;
+    --opencode-model) OPENCODE_MODEL="$2"; shift 2;;
+    *) shift;;
   esac
 done
 LOG_DIR="$PROJECT_DIR/logs"
@@ -29,11 +32,21 @@ STATE_FILE="$PROJECT_DIR/state/progress.json"
 MAX_TURNS=150
 PAUSE_BETWEEN=10
 
-# Set username based on harness
+# Set username based on harness — opencode splits by model family so the
+# in-game name + Mongo row mirror the orchestrator's bot-prefix convention
+# (cli_adapter.opencode_bot_prefix).
 case "$HARNESS" in
   codex)    BOT_USERNAME="CodexBot";;
   gemini)   BOT_USERNAME="GeminiBot";;
-  opencode) BOT_USERNAME="OpenCodeBot";;
+  opencode)
+    MODEL_LC="$(echo "$OPENCODE_MODEL" | tr '[:upper:]' '[:lower:]')"
+    case "$MODEL_LC" in
+      *qwen*)     BOT_USERNAME="BigQwenBot";;
+      *grok*)     BOT_USERNAME="GrokBot";;
+      *deepseek*) BOT_USERNAME="DeepSeekBot";;
+      *)          BOT_USERNAME="OpenCodeBot";;
+    esac
+    ;;
   *)        BOT_USERNAME="ClaudeBot";;
 esac
 

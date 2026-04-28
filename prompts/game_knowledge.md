@@ -82,7 +82,7 @@ Coords are first valid placement in `world.json` — useful as a `navigate(x,y)`
 | Oak Tree | Lumberjacking | 1 | Mudwich north (~210, 110) | Foresting |
 | Blueberry Bush | Foraging | 1 | Mudwich (105–238, 103–209), e.g. (155, 103) | Foraging grind |
 | Blue Lily Bush | Foraging | 5 | (278–441, 250–363), e.g. (278, 250) | Arts and Crafts (`string`) |
-| Tomato Bush | Foraging | 5 | (113–386, 107–326), e.g. (220, 108) | Herbalist's, Scavenger |
+| Tomato Plant Thingy | Foraging | 5 | (113–386, 107–326), e.g. (220, 108) | Herbalist's, Scavenger |
 | Paprika Bush | Foraging | 5 | (286–390, 240–484), e.g. (298, 301) | Herbalist's |
 | Strawberry Bush | Foraging | 1 | various | Scavenger (bonus) |
 | Shrimp Fishing Spot | Fishing | 1 + **fishingpole** | (269–383, 328–397), e.g. (325, 360) shore at (324, 360) | Rick's Roll |
@@ -102,7 +102,7 @@ The skill XP table is steep. Estimated `gather`/`attack` count to hit each level
 | Foraging 5 | 511 | ~52 blueberry gathers @ 10 XP each, OR ~26 corn @ 20 XP (Mudwich) — unlocks blue lily, tomato, AND paprika together |
 | Fishing 5 | 511 | ~25 shrimp |
 
-For Herbalist's Desperation specifically: a single Foraging 1→5 grind on blueberry unlocks all three required nodes simultaneously. Paprika gives the highest XP/pull (50) — switch to it after Lv5 if continuing to grind. When calling `gather`, the `resource_name` is `Tomato Plant Thingy` (not `Tomato`) and `Paprika Bush` — match `foraging.json` keys exactly.
+For Herbalist's Desperation specifically: a single Foraging 1→5 grind on blueberry unlocks all three required nodes simultaneously. Paprika gives the highest XP/pull (50) — switch to it after Lv5 if continuing to grind. `gather` matches resource_name as a case-insensitive substring of the entity's display name, so `"Tomato"` works (display name is `Tomato Plant Thingy`); use the full names from the table above to be safe.
 
 ## ACHIEVEMENTS (NOT QUESTS)
 

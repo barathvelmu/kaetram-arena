@@ -224,6 +224,35 @@ def cmd_errors(views: list[tuple[Path, SessionView]]) -> None:
             print(f"           ex: {sample[cat]}")
 
 
+def _run_total_cost_usd(run) -> float:
+    """Sum total_cost_usd across every session log in a run by scanning only
+    the trailing `result` line of each file. parse.py already extracts cost
+    into result_summary but throws it away in cmd_runs — surface it here so
+    operators can see $ spend per run without spinning up the full parser."""
+    total = 0.0
+    for p in run.session_paths:
+        try:
+            with open(p, "rb") as fh:
+                fh.seek(0, 2)
+                size = fh.tell()
+                fh.seek(max(0, size - 8192))
+                tail = fh.read().decode("utf-8", errors="ignore")
+            for line in reversed(tail.splitlines()):
+                if '"type":"result"' in line or '"type": "result"' in line:
+                    import json as _json
+                    try:
+                        rec = _json.loads(line)
+                    except Exception:
+                        break
+                    cost = rec.get("total_cost_usd")
+                    if isinstance(cost, (int, float)):
+                        total += float(cost)
+                    break
+        except OSError:
+            continue
+    return total
+
+
 def cmd_runs(_views, n: int = 10, all_runs: bool = False) -> None:
     """List recent runs across all agents with key stats from run.meta.json."""
     runs = runs_per_agent()
@@ -231,21 +260,24 @@ def cmd_runs(_views, n: int = 10, all_runs: bool = False) -> None:
     if not all_runs:
         runs = runs[:n]
     print(f"{'run_id':<24}{'agent':<7}{'pers':<14}{'harness':<9}"
-          f"{'sessions':<10}{'started_at':<22}{'duration':<10}")
-    print("─" * 96)
+          f"{'sessions':<10}{'started_at':<22}{'duration':<10}{'cost_usd':<10}")
+    print("─" * 106)
     for r in runs:
         m = r.meta
         sessions_meta = m.get("session_count")
         sessions_actual = len(r.session_paths)
         sessions = (f"{sessions_actual}" if sessions_meta == sessions_actual
                     else f"{sessions_actual} (meta:{sessions_meta})")
+        cost = _run_total_cost_usd(r)
+        cost_str = f"${cost:.2f}" if cost > 0 else "—"
         print(f"{r.run_id:<24}"
               f"{str(m.get('agent_id','?')):<7}"
               f"{(m.get('personality') or '?')[:13]:<14}"
               f"{(m.get('harness') or '?')[:8]:<9}"
               f"{sessions:<10}"
               f"{fmt_est(r.started_at):<22}"
-              f"{fmt_duration(r.duration_s):<10}")
+              f"{fmt_duration(r.duration_s):<10}"
+              f"{cost_str:<10}")
 
 
 def cmd_tier_a(views: list[tuple[Path, SessionView]]) -> None:
@@ -293,6 +325,7 @@ def cmd_timeline(views: list[tuple[Path, SessionView]], n: int = 30) -> None:
         print(_bar(f"agent_{aid} — {sv.log_path.name} (started {fmt_est(ts)})"))
         events: list[tuple[int, str]] = []
         last_level = None
+        seen_finished: set[str] = set()
         for tc in sv.tool_calls:
             p = tc.result_payload if isinstance(tc.result_payload, dict) else {}
             if tc.short_name == "respawn":
@@ -314,11 +347,16 @@ def cmd_timeline(views: list[tuple[Path, SessionView]], n: int = 30) -> None:
                     events.append((tc.idx, f"⭐ LEVEL UP {last_level} → {lvl}"))
                 if lvl is not None:
                     last_level = lvl
-                # Quest finished events
-                fin = [(q.get("name") or "?") for q in (p.get("finished_quests") or [])
-                       if isinstance(q, dict)]
-                # Trigger only on first observe where it appears (not every poll)
-                # — handled by tracking a set across the loop:
+                # Quest finished events — emit on the FIRST observe where each
+                # name appears in finished_quests (subsequent polls would
+                # otherwise spam an identical event line).
+                for q in (p.get("finished_quests") or []):
+                    if not isinstance(q, dict):
+                        continue
+                    name = q.get("name") or "?"
+                    if name not in seen_finished:
+                        seen_finished.add(name)
+                        events.append((tc.idx, f"✅ {name}"))
         for idx, msg in events[-n:]:
             print(f"  #{idx:<4} {msg}")
         if not events:

@@ -316,6 +316,114 @@ def cmd_tier_a(views: list[tuple[Path, SessionView]]) -> None:
     print("  stations    query_quest calls that returned station_locations (new field)")
 
 
+# Argument-style error markers — distinguish schema/validation failures from
+# game-state errors (NPC_NOT_FOUND, BFS_NO_PATH, etc., which are gameplay
+# outcomes, not bad arguments).
+_ARG_ERROR_KEYWORDS = (
+    "validation", "invalid type", "missing field", "schema",
+    "required parameter", "must be one of", "expected ", "unexpected keyword",
+    "could not parse", "invalid argument",
+)
+
+# Core 5 quest names — used to score stage completion against the paper's
+# "stages out of 11" headline framing.
+_CORE_5_QUEST_NAMES = {
+    "Foresting", "Herbalist's Desperation", "Rick's Roll",
+    "Arts and Crafts", "Sea Activities",
+}
+
+
+def cmd_metrics(views: list[tuple[Path, SessionView]]) -> None:
+    """v1 paper metrics — Niral's 5 metrics from 2026-04-28 iMessage.
+
+    Format / Argument / Stage / Turn-efficiency scored directly from logs.
+    Tool-selection accuracy deferred to a Claude-as-judge or hand-labeled pass.
+
+    Per-agent on the latest session per agent (current run scope). Run-level
+    aggregation across sessions is a follow-up — for now, multiply stages
+    by sessions-in-run for a rough estimate.
+    """
+    print(_bar("METRICS (v1) — paper-claim scorer"))
+    print(f"{'agent':<7}{'persona':<14}{'calls':<7}"
+          f"{'format':<10}{'argument':<11}{'tool-sel':<10}"
+          f"{'core5':<8}{'turn-eff':<14}")
+    print("─" * 90)
+
+    for agent_dir, sv in views:
+        aid = _agent_id(agent_dir)
+        persona = _personality(sv, short=True) or "?"
+        calls = sv.tool_calls
+        n_calls = len(calls)
+        if n_calls == 0:
+            print(f"{aid:<7}{persona:<14}{'0':<7}(no tool calls)")
+            continue
+
+        # 1. Format accuracy: tool result decoded to a structured payload.
+        n_format_ok = sum(1 for tc in calls if tc.result_payload is not None)
+        format_pct = 100 * n_format_ok / n_calls
+
+        # 2. Argument accuracy: format-ok AND no schema/validation-style error.
+        # Game-state errors (NPC_NOT_FOUND etc.) don't count — they're gameplay
+        # outcomes, not bad arguments.
+        def _is_arg_error(tc) -> bool:
+            err = (tc.result_error or "").lower()
+            if not err:
+                return False
+            return any(k in err for k in _ARG_ERROR_KEYWORDS)
+
+        n_arg_ok = sum(
+            1 for tc in calls
+            if tc.result_payload is not None and not _is_arg_error(tc)
+        )
+        arg_pct = 100 * n_arg_ok / n_calls
+
+        # 3. Tool selection: requires LLM-judge or hand-labeled sample.
+        tool_sel = "DEFERRED"
+
+        # 4. Stage completion (Core 5): how many Core 5 quests are finished.
+        # v1 = quest count out of 5. Niral's "/11" framing wants stages summed
+        # across Core 5 quest JSONs (Foresting=2, Herbalist=2, Rick's=3,
+        # Arts=2, Sea=2 = 11). Refine once we wire stage_count from the
+        # game source.
+        last = latest_observe(sv) or {}
+        finished = last.get("finished_quests") or []
+        finished_names = [
+            (q if isinstance(q, str) else q.get("name", ""))
+            for q in finished
+        ]
+        finished_core_5 = sum(1 for name in finished_names
+                              if name in _CORE_5_QUEST_NAMES)
+        core5_str = f"{finished_core_5}/5"
+
+        # 5. Turn efficiency: Core 5 quests-finished / num_turns.
+        # Higher = better planning (fewer turns per stage).
+        n_turns = 0
+        if sv.result_summary:
+            n_turns = sv.result_summary.get("num_turns") or 0
+        if n_turns and finished_core_5:
+            eff = f"{finished_core_5}/{n_turns}={finished_core_5/n_turns:.4f}"
+        elif n_turns:
+            eff = f"0/{n_turns}"
+        else:
+            eff = "—"
+
+        print(f"{aid:<7}{persona:<14}{n_calls:<7}"
+              f"{format_pct:>5.1f}%    {arg_pct:>5.1f}%     {tool_sel:<10}"
+              f"{core5_str:<8}{eff:<14}")
+    print()
+    print("v1 caveats (Niral, refine as needed):")
+    print("  format     = % tool results where the JSON payload parsed (decoder ok)")
+    print("  argument   = format-ok AND no schema/validation error in result.")
+    print("               Game-state errors (NPC_NOT_FOUND, BFS_NO_PATH, …) do NOT count.")
+    print("  tool-sel   = DEFERRED — needs Claude-as-judge or hand-labeled sample.")
+    print("  core5      = Core 5 quests finished, out of 5. Refine to '/11 stages'")
+    print("               once stage_count per quest is wired from the quest JSONs.")
+    print("  turn-eff   = Core 5 finished / num_turns. Higher = better planning.")
+    print()
+    print("Source: Niral's iMessage 2026-04-28 — format / argument / tool-selection /")
+    print("stage-completion / turn-efficiency. Tool-selection requires sampled judge.")
+
+
 def cmd_timeline(views: list[tuple[Path, SessionView]], n: int = 30) -> None:
     """Chronological event stream for one agent — sessions, deaths, quest events,
     level-ups, accepts, BFS-fails. Shows the last N events."""
@@ -482,6 +590,7 @@ def main() -> int:
     pa = sub.add_parser("agent"); pa.add_argument("agent_id", type=int); pa.add_argument("-n", type=int, default=10)
     sub.add_parser("full")
     sub.add_parser("tier_a")
+    sub.add_parser("metrics")
     pn = sub.add_parser("runs"); pn.add_argument("-n", type=int, default=10)
     pl = sub.add_parser("timeline"); pl.add_argument("-n", type=int, default=30)
     p.add_argument("--stale", action="store_true",
@@ -534,6 +643,7 @@ def main() -> int:
     elif cmd == "errors": cmd_errors(views)
     elif cmd == "thinking": cmd_thinking(views, n=args.n)
     elif cmd == "tier_a": cmd_tier_a(views)
+    elif cmd == "metrics": cmd_metrics(views)
     elif cmd == "timeline": cmd_timeline(views, n=args.n)
     elif cmd == "full":   cmd_full(views)
     else:

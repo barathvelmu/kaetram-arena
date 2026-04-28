@@ -38,7 +38,7 @@ so nav-only tests don't fail on stray aggro).
 | A1 | Mudwich → Babushka door via **warp Aynor + door 463** (subsumes the prior A1+A2 split) | `slow` |
 | A2 | Crafting unlocks on quest **start** (per `player.ts:2110 canUseCrafting() := isStarted()`) | |
 | A3 | Accept quest | |
-| A4 | Confirm bronzeaxe **fails** + bronzepickaxe **succeeds** mining beryl (tool-gating control + positive case) | |
+| A4 | ~~Confirm bronzeaxe fails + bronzepickaxe succeeds mining beryl~~ **(DEPRECATED 2026-04-28: beryl is now bought from Miner shop for 20g; mining is no longer part of agent playthrough)** | |
 | A5 | Craft string from bluelily | |
 | A6 | Fletch 4 sticks → 1 bowlmedium | |
 | A7 | Farm mushroom1 from goblins (asserts only damage>0 — drop-rate math is upstream) | `slow` |
@@ -51,9 +51,12 @@ so nav-only tests don't fail on stray aggro).
 > unmarked door at (406,292) → (433,270) inside the Babushka exterior.
 > A1 verifies that route works end-to-end.
 
-> **A4a is inverted.** Bronze axes do not mine beryl in Kaetram — A4a
-> asserts the player gets **zero** beryl after 5 attempts. Together with
-> A4b (bronzepickaxe → beryl) this documents the tool gating.
+> **A4 is deprecated.** As of 2026-04-28, beryl is sold by the Miner shop
+> at 20g — mining is no longer part of the agent playthrough. The historical
+> A4a (bronzeaxe → 0 beryl) and A4b (bronzepickaxe → beryl) tests
+> documented tool-gating that no longer affects agents. They remain in the
+> source for non-agent reference but should not be relied on for benchmark
+> coverage.
 
 > **A7 is xfail.** Goblin loot math from Kaetram-Open data: mushrooms
 > droptable rolls at 6%, then 1-of-8 mushrooms = ~0.75% chance of

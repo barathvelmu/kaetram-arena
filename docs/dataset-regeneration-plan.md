@@ -1,5 +1,14 @@
 # Dataset Regeneration Plan (r7 → r8)
 
+> **Status: HISTORICAL (2026-04-28).** This is the r7→r8 regeneration runbook from
+> 2026-04-09. r8 shipped, r9 followed, r10 was prepared (see `docs/r10_launch_gate.md` —
+> also superseded). The current focus is Sonnet → 100% Core 5 completion (`KAE-50`), not
+> dataset regeneration. All actionable steps below are completed and the open questions
+> (§10) are all resolved. Preserved for reference on how dataset rebuilds are sequenced
+> when needed again.
+
+---
+
 Author: Claude (agent run 2026-04-09)
 Status: Draft — awaiting sister agents' patches to land in `extract_turns.py`
 and `convert_to_qwen.py`, and human go/no-go on Open Questions (section 10).

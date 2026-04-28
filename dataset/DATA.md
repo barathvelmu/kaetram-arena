@@ -92,16 +92,17 @@ Personality system being built and broken mid-run. Prompt changes mid-collection
 
 ---
 
-## Current Dataset Stats (as of April 14, 2026)
+## Current Dataset Stats (as of April 28, 2026)
 
 | | Value |
 |---|---|
-| Active agents | 3 — GRINDER / COMPLETIONIST / EXPLORER_TINKERER capability archetypes (`prompts/personalities/*.md`). r10 dataset still contains pre-archetype AGGRESSIVE / METHODICAL / CURIOUS records. |
-| Supported harnesses | Claude (primary, training-data source); Codex, Gemini, OpenCode (experimental smoke tests, excluded from training) |
-| Total session logs on VM | ~640 (220 / 213 / 207 for agents 0/1/2) |
-| SFT training records | 6,419 train / 646 val (`dataset/qwen_sft/`, Claude-only, 4 filtered) |
-| Architecture | Custom FastMCP package (`mcp_server/`, entry point `mcp_game_server.py`), 17 typed tools |
-| Latest SFT run | r8 (COMPLETE Apr 14) — loss masking fixed via `train_on_responses_only` |
+| Active agents | 3 — GRINDER / COMPLETIONIST / EXPLORER_TINKERER capability archetypes (`prompts/personalities/*.md`, shipped 2026-04-25 via PR #29 / KAE-46). The frozen r10 dataset still references legacy AGGRESSIVE / METHODICAL / CURIOUS in its `metadata.json` `personality` field. |
+| Supported harnesses | Claude (primary, training-data source); Codex, Gemini, OpenCode (experimental smoke tests, excluded from training); xAI/Grok wired through OpenCode (PR ef3bac4) |
+| Total session logs on VM | ~1,422 (490 / 479 / 453 for agents 0/1/2) — re-extraction estimate ~58k records (+124% over r10's 23,382 train build) |
+| SFT training records | r10 frozen at 23,382 train / 2,590 val (`dataset/qwen_sft/`, Claude-only, observe-supervision fix applied) |
+| Architecture | Modular MCP package (`mcp_server/{core,tools/...}`, entry point `mcp_game_server.py` is now a 19-line stub since PR #29), 17 model-visible typed tools |
+| Active SFT focus | r10 launch superseded; current focus is Sonnet → 100% Core 5 completion (`KAE-50`) before any new SFT run. Tier-A unblock pass (`live_gate_status`, `quest_resume.json`, `recent_failures` injection, `mob_stats`, `station_locations`) shipped 2026-04-27. |
+| Latest completed SFT | r9 (Apr 16-17) — observe-supervision audit motivated r10 patch set. r10 dataset prepared but training not launched (pivot to Core 5 first). |
 
 Dataset is growing. Rebuild with `scripts/collect_sft_data.sh` or manually:
 ```bash

@@ -3,48 +3,49 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
-## 2026-04-28 — Research Compile Pass
+## 2026-04-28 — Code Red Doc Catch-up + KAE-50 Q2/Q3 Strike Team
 
-**Compile-research pass.** Updated 8 research files:
-- **data-quality.md**: Session log counts updated 1,033→1,422 (agent_0: 490, agent_1: 479, agent_2: 453). Re-extraction estimate: ~58,000 records.
-- **training-runs.md**: Added Tier-A unblock pass (resource gates, live_gate_status, cross-session memory, mob stats enrichment, station_locations, adaptive waits) and xAI/Grok harness entries. Updated log counts.
-- **contribution.md**: Fixed personality names AGGRESSIVE/METHODICAL/CURIOUS → grinder/completionist/explorer_tinkerer. Updated log count and harness list.
-- **agent-sft-landscape.md**: Fixed personality names, updated log count.
-- **INDEX.md**: Updated dataset rebuild gap (1,422 logs, +124% over r10 build), multi-harness gap (5 harnesses now), r10 gate age (10 days).
-- **preference-learning.md**: Updated log count.
-- **r7-hyperparameters.md**: Updated available log count.
-- **acquihire-trajectory.md**: Marked Anthropic Fellows deadline (Apr 26) as missed.
+**10-day commit gap closed with documentation pass.** 7-agent strike team audited every tracked .md file against the cofounder's ~30 commits since Apr 18. Updates landed: `CLAUDE.md` (4-agent default, test-lane port 9191 / `TEST_AGENT_ID=99` callout), `dataset/DATA.md` (1,422 logs / r10 superseded / Tier-A signals listed / 3 archetypes named), `docs/r10_launch_gate.md` marked SUPERSEDED with pointer to `KAE-50`, `docs/dataset-regeneration-plan.md` marked HISTORICAL, `docs/behavior-audit.md` archival banner added (n=30 audit motivated KAE-46 reframe), `tests/e2e/quests/reachability/README.md` corrected (27 tests not 30, suite score replaced with live 2026-04-28 VM run: 20 PASSED / 2 FAILED on the fast subset).
 
-**Key findings:** (1) 786 new Claude sessions since r10 build — re-extraction would yield ~58k records (+124%). (2) Two major Apr 27 commits not yet in research: Tier-A unblock pass (cross-session memory, resource gates, mob stats, station_locations) and xAI/Grok harness. (3) r10 smoke SFT + eval still pending — gate now 10 days old. (4) Linear access denied for this pass. (5) Tool count (17), personality files (3), dataset counts (23,382/2,590) all verified correct.
+**KAE-50 Q2 + Q3 strike-team audit landed earlier today** on branch `barathvelmu/kae-50-q2-q3-strike-team` (8 parallel agents, file:line evidence). Findings: **Q2 Herbalist** = decision gap — `game_knowledge.md` claims ~440 blueberry gathers to Lv25 (real number ~873); agents bail after 3-5 gathers; Blue Lily requires Foraging Lv10 but quest stage 0 needs 3 of them, structural wall at L1. **Q3 Rick's Roll** = data hallucination + capability gap — agents invent an "L25 zone gate" that doesn't exist (game_knowledge has shrimp spots at Fishing 1, no level requirement) and pivot to Desert Quest, where they die to L16 Sneks at L8. Live VM run snapshot: 0/3 agents accepted Q2 or Q3 across 38min of the active 4hr Sonnet run. Patch list staged on branch, deferred — Niral confirmed harness/game patches are his lane via KAE-44.
+
+**Linear:** KAE-44 closed (Niral, Core 5 narrowed to 5 quests). KAE-45 closed (e2e harness on GPU server). KAE-46 closed (capability archetypes shipped). KAE-47 closed (PR #29 reviewed). KAE-48 closed (Tests tab onboarded). KAE-49 created (Barath assigned — design-variables paper catalog, VARIABLES.md attachment fetched). KAE-50 created Apr 28 (Sonnet → 100% Core 5; Barath owns Q2 Herbalist + Q3 Rick's Roll, Niral owns Q4 Arts and Crafts + Q5 Sea Activities). KAE-43 cancelled as duplicate of KAE-41.
+
+**Next:** ship Q2/Q3 prompt-data fixes from `barathvelmu/kae-50-q2-q3-strike-team` (game_knowledge grind tables, Rick's Roll L1-safe-route note, Rule 9 tightening) once Niral validates. Capstone parallel.
 
 ---
 
-## 2026-04-25 — Doc Freshness Audit
+## 2026-04-27 — Tier-A Unblock Pass + xAI/Grok Harness + Log Analyzer Upgrade
 
-**Audit pass against all major .md files.** Six fixes landed:
-- `CLAUDE.md`: corrected `mcp_server/` file count claim (was "15+ files", actual is 10 .py + `tools/` subdir, 17 tools).
-- `dataset/DATA.md`: replaced AGGRESSIVE/METHODICAL/CURIOUS table with current GRINDER/COMPLETIONIST/EXPLORER_TINKERER archetypes; noted r10 dataset still carries legacy names.
-- `research/INDEX.md`: removed completed "Tool count scaling" gap; resolved r9 eval status (discontinued after 2-ep curious eval surfaced the two root causes that r10 fixes); flagged r10 launch gate as still open.
-- `README.md`: added footnote on `MAX_AGENTS` 8→3 default change (commit `3909f97`).
-- Auto-memory: deleted stale `project_harness_integration.md` claiming Kimi K2 + Qwen Code adapters exist (they don't — `cli_adapter.py` only has Claude/Codex/Gemini/OpenCode).
+**Niral landed two large agent-side commits.** `61cf94f` "Tier-A unblock pass" — `live_gate_status` (per-quest blockers vs current player state), `quest_resume.json` cross-session memory, `recent_failures` injection, `mob_stats` enrichment (level + aggressive flag in every observe), `station_locations` (nearest crafting tile per skill), BFS→warp fallback when navigate fails, `migrate_logs_to_runs.py` (1,384 sessions → 237 runs in new `dataset/raw/agent_*/runs/run_<TS>/` hierarchy). `ef3bac4` wired xAI/Grok-4.1-Fast-Reasoning as 5th harness path (via `opencode.template.json`), kept NIM/Qwen alongside, hardened `nuke-agents.sh` (TERM-then-KILL with 2.5s grace so Mongo flushes), added auto `--help` guards to 18 scripts.
 
-**Status carry-over from Apr 20:** r10 launch gate still open. Smoke SFT (50 steps, ~$10) + eval matrix unrun. Dataset rebuild decision (827 logs vs 23,382-record r10 build) still unresolved.
+**Log analyzer CLI extended.** `scripts/log_analysis/analyze.py` now supports `status / runs / quests / tools / errors / recent / thinking / agent / timeline / tier_a` subcommands. Status: ~80% complete — timeline command has a stub bug (quest finish events never emitted, lines 317-321), no cost tracking despite `total_cost_usd` being parsed.
+
+**Linear:** KAE-49 (paper-variables catalog) created, assigned to Barath. KAE-50 setup notes drafted for next-day publication.
 
 ---
 
-## 2026-04-20 — Research Compile Pass
+## 2026-04-26 — Tests Tab MJPEG + Dashboard Realtime Perf + Screenshot Pipeline Cleanup
 
-**Compile-research pass.** Updated 6 research files:
-- **data-quality.md**: Session log counts updated 636→827 (agent_0: 280, agent_1: 277, agent_2: 270). Noted 191 new sessions pending re-extraction.
-- **training-runs.md**: Added Kaetram-Open quest patches (21/21 quests completable, commit `70c79c0`), noted 827 available logs.
-- **contribution.md**: Updated method section with 21/21 quest count.
-- **INDEX.md**: Added two new gaps (quest coverage mismatch, dataset rebuild opportunity), updated r10 action item with new data availability.
-- **preference-learning.md**: Updated pipeline sequence note with new log count and quest status.
-- **agent-sft-landscape.md**: Noted 827 available sessions vs 636 used in r10 build.
+**PR #31 (Niral) merged.** Dashboard "Tests" tab now streams live MJPEG video for headed pytest runs against the test lane (port 9191, db `kaetram_e2e`, `TEST_AGENT_ID=99`, Xvfb display `:198`) — won't impact running data-collection agents. `dashboard/test_runner.py` (+597 lines) persists each run as `/tmp/test_runs/<id>/{progress.json,junit.xml,log.txt,meta.json}`, LRU-prunes to 20. Companion commit `2c9b4e0` ripped out the legacy screenshot writer pipeline (`live_screen.{jpg,png}`, `ScreenshotWatcher`, `/api/screenshots`) and renamed `KAETRAM_SCREENSHOT_DIR` → `KAETRAM_STATE_DIR`. `47271b9` added `log_analysis` CLI scaffolding and cleaned `/api/live`.
 
-**Key findings:** (1) 191 new Claude sessions collected since r10 build — re-extraction would yield ~33,700 records (+30%). (2) Kaetram-Open patches made 21/21 quests completable (was 17/21) — r10 training data has stale quest knowledge for 4 newly-unblocked quests. (3) r10 smoke SFT + eval still pending — no status change. (4) Tool count (17), personality files (3) verified correct. Linear access denied for this pass.
+**Linear:** KAE-48 created and closed (Tests tab onboarding for Barath).
 
-**Decision needed:** Rebuild dataset with 827 logs + updated quest prompts before smoke SFT, or proceed with current 23,382-record r10 build and rebuild after?
+---
+
+## 2026-04-25 — PR #29: Modular MCP + Core 5 + OpenCode + Capability Archetypes
+
+**THE BIG ONE.** PR #29 merged — `mcp_game_server.py` collapsed from 2039 lines to a 19-line stub; tools split into modular `mcp_server/` package (`{core, helpers, login, mob_stats, resource_gates, state_heartbeat, utils}.py` + `tools/` subdir) preserving the 17-tool surface. Core 5 prompts/tests scaffolded as the canonical quest baseline (`core/test_0{1..5}_*.py` + `extra/`, `bonus/`, `skip/`, `reachability/` tiers — 136 quest tests total). `--opencode` harness added as fourth peer alongside Claude/Codex/Gemini, routes Qwen via NVIDIA NIM free tier through `scripts/nim_proxy.py` (SSE rewriter that surfaces reasoning tokens around opencode bug #5674). Capability archetypes — GRINDER / COMPLETIONIST / EXPLORER_TINKERER — replace AGGRESSIVE/METHODICAL/CURIOUS as the active personality system (KAE-46 closed). Same day: PR #30 synced KaetramGPU forked changes; `fe99dd7` made dashboard ~900× faster on log tail under multi-tab load (permessage-deflate WS, slim heartbeat); `68d63ef` documented archetype rename in `dataset/DATA.md` + `CLAUDE.md` freshness pass.
+
+**Decision:** the frozen r10 dataset retains AGGRESSIVE/METHODICAL/CURIOUS labels in `metadata.json` — rename only goes forward. r10 launch becomes increasingly unlikely on this artifact; framing pivots toward Core 5 completion as the actual benchmark.
+
+**Linear:** KAE-46 closed (archetypes). KAE-47 closed (PR #29 reviewed).
+
+---
+
+## 2026-04-19/20 — Quest Patches + E2E Test Reorg + MCP Smoke Baseline
+
+**Five PRs across two days.** PR #24 (`eb1d67d`, 30 files, +4436/-731) — MCP smoke baseline e2e harness (`tests/mcp_e2e/`, pytest-asyncio, 27/28 pass), `dataset_stats.py` analyzer, MCP login/extractor race fix, lootbag popup, `equip_item`/`craft_item`/`buy_item` hardening, `interact_npc` proximity check. PR #25 reorganized tests into `unit/` + `e2e/` subdirs and nested `mcp` under `e2e/`. PR #26 deprecated REST-helper bootstrap tests, fixed `ToolResult.json()` (strip tool prefix + observe suffixes), made `attack()` only report `killed=true` on real HP transitions. PR #27 expanded e2e quest-phase coverage to 15 completable quests + `set_attack_style` + Anvil's Echoes reward fix. PR #28 dropped dashboard `MAX_AGENTS` 8 → 3. Apr 19 `70c79c0`: prompts updated to reflect Kaetram-Open quest patches (21/21 quests source-completable).
 
 ---
 
@@ -52,56 +53,16 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 **Shipped on `feat/kae-42-remaining-patches` (6 commits):** KAE-42 data-pipeline patches (window_size 5→3, observe→observe bigram filter + post-build dedup, observe tool_result entity caps, stale click_tile filter removed, pre-tokenize truncation gate); Qwen3.5-9B thinking-general decode params wired into `serve_modal*.py`; three new regression tests (`test_truncation`, `test_think_roundtrip`, `test_loop_noise`); r10 launch gate doc.
 
-**Key finding:** `test_think_roundtrip` initially "caught" the Qwen3 #1831 `last_query_index` gate stripping `<think>` from intermediate assistant turns — but training + serving both already apply `_patch_qwen_chat_template` at runtime (Niral's fix in `train_modal.py:183`). Test was running against the UNPATCHED tokenizer. Fixed test to import and apply the runtime patch; 5 assistant turns → 5 `<think>` blocks confirmed end-to-end.
-
-**Dataset rebuild:** `23,382` train / `2,590` val (vs r9's `5,871` / `575`). Observe: `33,291 / 61,412` tool calls = 54%. Truncation gate: 0/25,982 rejected. Observe-pair dedup: 10/25,982 (0.038%) dropped.
-
-**All 78 tests pass on rebuilt dataset.** 9 of 11 launch-gate criteria green. Remaining: smoke SFT (50 steps, ~$10) + eval matrix on none+aggressive. See `docs/r10_launch_gate.md`.
-
-**Next:** run smoke SFT on the rebuilt dataset. If no warp/equip/dialogue loops in smoke eval, launch full r10.
+**Dataset rebuild:** `23,382` train / `2,590` val (vs r9's `5,871` / `575`). Observe: `33,291 / 61,412` tool calls = 54%. **All 78 tests pass on rebuilt dataset.** 9 of 11 launch-gate criteria green; smoke SFT + eval matrix never executed — overtaken by Core 5 pivot. Gate marked SUPERSEDED 2026-04-28.
 
 ---
 
-## 2026-04-17 — r10 P0 Fixes: Observe Supervision + Personality Prompt Parity
+## 2026-04-17 — r10 P0 Fixes + Eval Watchdog + Cross-Machine Sync Protocol
 
-**Two P0 bugs found and fixed** (diagnosed from cofounder memo + code audit):
+**Two P0 bugs fixed:** zero observe supervision in r9 training (`extract_turns.py` was discarding observe tool_use); personality prompt mismatch (training 2-sentence dict vs eval ~1.5KB .md file). Fixed via `extract_turns.py` emitting observe as first-class turn, `convert_to_qwen.py` mapping observe→tool_call, `train_modal.py` substituting at `__PERSONALITY_BLOCK__` placeholder for byte-parity with eval. 23 new regression tests.
 
-1. **Zero observe supervision in r9 training.** `dataset/qwen_sft/train.json` had 21,976 assistant tool calls, 0 were `observe`. Root cause: `extract_turns.py:875-879` was consuming Sonnet's observe tool_use blocks to populate `game_state` and discarding the tool_use itself; `convert_to_qwen.py:build_user_message` then injected state into every user message. Model was trained in a world where state is free; at inference the live prompt mandates observe. Base called observe 131×/ep, r9-sft only 54×/ep.
-
-2. **Personality prompt mismatch.** Training used `PERSONALITY_SUFFIXES` dict (2 sentences, ~190 bytes); eval loaded full `prompts/personalities/*.md` file (~1.5 KB with concrete rules like "kill 3+ mobs between NPC interactions"). The stale `PERSONALITY_INSTRUCTION_VARIANTS` dict in `train_modal.py:124-145` was silently overriding metadata.
-
-**Fixes landed (A+X+P path per plan):** extract_turns.py emits observe as first-class turn; convert_to_qwen.py maps observe→tool_call, drops `<game_state>` injection, loads full .md personality files; train_modal.py + train_kto_modal.py substitute at `__PERSONALITY_BLOCK__` placeholder (byte-parity with eval_harness); score_sessions.py filters observe from KTO scoring; 23 new regression tests (`tests/test_prompt_parity.py`, `tests/test_observe_supervision.py`, additions to `tests/test_dataset_filters.py`).
-
-**Dataset regenerated.** 12,900 train / 1,470 val (vs 5,871/575 in r9 — +120%). Observe: 26,995 calls (57.1% of 47,267 total). Token budget: 6.9% of records over MAX_SEQ_LEN=16384 — actually slightly better than r9's ~9% because dropped `<game_state>` per-user offsets added observe tool_results. 64/64 tests pass.
-
-**Open question:** window size 5→3 to reduce truncation further. User said hold; discuss first. Launch r10 after that call.
+**Eval watchdog** shipped (`scripts/eval_watchdog.py` + harness flags + dashboard banner). **Cross-machine sync protocol** added to CLAUDE.md after a stale-checkout incident produced revert-shaped diffs of cofounder commits.
 
 ---
 
-## 2026-04-17 — Eval Watchdog Landed + Cross-Machine Sync Protocol
-
-**Watchdog shipped to main.** `scripts/eval_watchdog.py` + `eval_harness.py` `--watchdog` flags + dashboard banner, all merged via `feat/eval-watchdog` (`f72c201`). It already earned its keep — caught a real failure during the curious-n10 eval and triggered `curious_n10_recover`, since archived.
-
-**Cross-machine sync protocol added to CLAUDE.md.** An agent tonight edited files on a stale VM checkout before pulling Niral's `c7fe0b8` (DB quest tracking) + `eff051f` (Qwen Live removal). The diff looked like a revert of both; it wasn't (origin/main stayed intact, nothing bad got pushed), but the confusion triggered an argument. New rules: pull-before-edit, branches for shared code, `git stash push -u` safety net for VM sync. All documented in the new CLAUDE.md "Multi-Machine Sync Protocol" section.
-
-**VM external IP changed** 35.224.227.251 → 34.28.111.6 (Niral's `8a04a3a`). All doc references updated.
-
-**Next:** r10 training on verified dataset (6353/587 SFT, 3212/313 KTO). Base vs r9-sft curious eval already archived.
-
----
-
-## 2026-04-17 — Research Compile Pass
-
-**Compile-research pass.** Restored research/ from git (was deleted when gitignored). Updated 7 files across the knowledge base:
-- **training-runs.md**: r9 status → COMPLETE, added r10 entry, updated serving endpoint to r9, updated What's Next with SOTA prompting, DB-authoritative quest tracking, eval infra consolidation
-- **preference-learning.md**: Pipeline sequence updated (r9 DONE, eval IN PROGRESS), eval infra updated (removed agent_4/5 refs, added watchdog)
-- **contribution.md**: Updated eval status (r9 in progress), replaced stale Qwen Live tab ref with quantitative eval harness
-- **INDEX.md**: Updated timeline ref, fixed eval gap (DONE), updated action items (agent_4/5 removed, r9 eval in progress, added r10 item), added SOTA prompting gap
-- **r7-hyperparameters.md**: Sequence length updated (8192→16384 in r9), added chat template hardening note
-- **data-quality.md**: Updated agent_4/5 note (slots removed)
-
-**Key findings:** r9 eval running but early results (2 episodes) still show base ahead of r9-sft. r10 experiment name set but not launched. No new Linear issues checked (MCP not available for this pass).
-
----
-
-_Older entries (r8 SFT, r9 launch, pre-Apr 17 compile passes) archived — see `research/experiments/training-runs.md` for full history._
+_Older entries (r4 through r9 launches, March personality finalization, pre-Apr 17 compile passes) archived — see `research/experiments/training-runs.md` for full history._

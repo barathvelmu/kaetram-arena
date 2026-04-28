@@ -439,7 +439,7 @@
       "achievements": [],
       "practical": [
         "Crafting unlocks as soon as the quest is started.",
-        "Pendant path needs Foraging 10 and Mining 1.",
+        "Pendant path needs Foraging 5 and 1 beryl from the Miner shop (20g).",
         "Bowlsmall needs Fletching 3.",
         "Final stew needs Fletching 5 and Cooking 1."
       ]
@@ -477,101 +477,24 @@
       "Babushka at (702, 608) is in a region disjoint from Mudwich. The canonical route requires the Aynor warp (gated by ancientlands quest) plus door 463 at (406, 292) \u2192 (433, 270), then walk to door (483, 275) which teleports to (702, 613) inside her room.",
       "Without ancientlands, an alternate route is: get to door (483, 275) on the Babushka exterior region somehow (no overland path from Mudwich exists per the static map). For a vanilla agent the practical route is: complete enough other quests to unlock a connecting warp, OR seed the agent at Babushka.",
       "Once adjacent to Babushka: interact_npc(name='Babushka', accept_quest_offer=True). This UNLOCKS Crafting on quest start (the unlock fires before you complete).",
-      "Stage 1 \u2192 2 (berylpendant): gather('Blue Lily Bush') at (278, 250) for 1 bluelily, then craft_item(skill='crafting', recipe_key='string'). Mine beryl with a bronzepickaxe (NOT bronzeaxe) at (645, 643) for 1 beryl. craft_item(skill='crafting', recipe_key='berylpendant'). interact_npc('Babushka') to turn in.",
+      "Stage 1 \u2192 2 (berylpendant): gather('Blue Lily Bush') at (278, 250) for 1 bluelily, then craft_item(skill='crafting', recipe_key='string'). Buy 1 beryl from the Miner shop (interact_npc('Miner') at 323,178; 20g). craft_item(skill='crafting', recipe_key='berylpendant'). interact_npc('Babushka') to turn in.",
       "Stage 2 \u2192 3 (bowlsmall): collect 1 logs (Foraging Lv1, Oak Tree near Mudwich). craft_item(skill='fletching', recipe_key='stick', count=1) \u2192 4 sticks. craft_item(skill='fletching', recipe_key='bowlsmall', count=1) (needs 2 sticks). interact_npc('Babushka') to turn in.",
       "Stage 3 \u2192 4 (stew): NOTE \u2014 server actually wants `bowlmedium`, not `bowlsmall`, for the final stew despite Babushka taking bowlsmall at stage 2. craft_item(skill='fletching', recipe_key='bowlmedium', count=1) (4 sticks). gather one tomato (220, 108) and one mushroom1 (drops from goblins/ogres/etc \u2014 slow, ~0.75% per kill; consider Babushka's store after the quest finishes). craft_item(skill='cooking', recipe_key='stew', count=1) using bowlmedium + tomato + mushroom1. interact_npc('Babushka') to finish."
     ]
   },
   "Miner's Quest": {
     "name": "Miner's Quest",
-    "status": "working",
-    "phase": 3,
-    "order": 12,
+    "status": "off-limits",
     "npc": "Miner (`miner`)",
-    "stages": 2,
-    "prereqs": "None",
-    "requirements": {
-      "quests_finished": [],
-      "quests_started": [],
-      "skills": [],
-      "achievements": [],
-      "practical": [
-        "Need a mining weapon.",
-        "Need Mining 1 for nisocore."
-      ]
-    },
-    "unlocks": {
-      "on_start": [],
-      "on_finish": []
-    },
-    "actual_rewards": [
-      "2000 Mining XP"
-    ],
-    "reward_caveats": [
-      "Quest text talks about store access, but the concrete reward path is the Mining XP."
-    ],
-    "known_mismatches": [
-      "Smithing is not gated by Anvil's Echoes on this tree."
-    ],
-    "blocked_reason": null,
-    "stage_summary": [
-      "Talk to Miner.",
-      "Mine 15 `nisocore`.",
-      "Return to Miner."
-    ],
-    "walkthrough": "Talk to the Miner, mine and deliver 15 `nisocore`, then turn in the quest.",
-    "items_needed": "15 nisocore",
-    "item_sources": {
-      "Nisoc Ore": "Mine `nisocrock` with a mining weapon."
-    },
-    "tips": "While mining for this quest, stockpile copper ore, tin ore, and coal for Miner's Quest II."
+    "blocked_reason": "Auto-bypassed on login (no Mining XP granted). Mining is not part of the agent playthrough. Treat the Miner NPC as a generic vendor only — buy ores, beryl, weapons, and armor from the shop.",
+    "walkthrough": "Do not accept this quest. The Miner is a vendor, not a quest giver."
   },
   "Miner's Quest II": {
     "name": "Miner's Quest II",
-    "status": "working",
-    "phase": 3,
-    "order": 13,
+    "status": "off-limits",
     "npc": "Miner (`miner`)",
-    "stages": 3,
-    "prereqs": "Miner's Quest completed; Mining 30",
-    "requirements": {
-      "quests_finished": [
-        "Miner's Quest"
-      ],
-      "quests_started": [],
-      "skills": [
-        "Mining 30"
-      ],
-      "achievements": [],
-      "practical": [
-        "Bring extra ore and coal for smelting failure rate."
-      ]
-    },
-    "unlocks": {
-      "on_start": [],
-      "on_finish": [
-        "Mining cave access"
-      ]
-    },
-    "actual_rewards": [],
-    "reward_caveats": [],
-    "known_mismatches": [
-      "bronzebar uses `copperore + tinore` only; it does not need coal."
-    ],
-    "blocked_reason": null,
-    "stage_summary": [
-      "Talk to Miner.",
-      "Turn in `tinbar x5 + copperbar x5`.",
-      "Turn in `bronzebar x5`."
-    ],
-    "walkthrough": "After Miner's Quest and Mining 30, talk to the Miner, turn in 5 tin bars and 5 copper bars, then 5 bronze bars.",
-    "items_needed": "5 tinbar, 5 copperbar, 5 bronzebar",
-    "crafting_chain": {
-      "tinbar": "tinore x1 + coal x1",
-      "copperbar": "copperore x1 + coal x1",
-      "bronzebar": "copperore x1 + tinore x1"
-    },
-    "tips": "Once this quest is actively claiming the Miner NPC, buying from the Miner shop is awkward. Stockpile ore first."
+    "blocked_reason": "Requires Miner's Quest I and Mining 30, both blocked by the auto-bypass. Mining is not part of the agent playthrough.",
+    "walkthrough": "Do not accept this quest."
   },
   "Herbalist's Desperation": {
     "name": "Herbalist's Desperation",
@@ -580,12 +503,12 @@
     "order": 14,
     "npc": "Herbalist (`herbalist`)",
     "stages": 3,
-    "prereqs": "Foraging 25 practical gate",
+    "prereqs": "Foraging 5 practical gate",
     "requirements": {
       "quests_finished": [],
       "quests_started": [],
       "skills": [
-        "Foraging 25"
+        "Foraging 5"
       ],
       "achievements": [],
       "practical": []
@@ -612,18 +535,18 @@
     "walkthrough": "Talk to the Herbalist, turn in 3 blue lilies, then 2 paprikas and 2 tomatoes.",
     "items_needed": "3 bluelily, 2 paprika, 2 tomato",
     "item_sources": {
-      "Blue Lily": "Forage Blue Lily Bush at Foraging 10. First placement (278, 250). Cluster spans (278\u2013441, 250\u2013363).",
-      "Tomato": "Forage Tomato Bush at Foraging 15. Cluster near Mudwich at (113\u2013386, 107\u2013326), e.g. (220, 108). Best XP/gather of the three.",
-      "Paprika": "Forage Paprika Bush at Foraging 25. Cluster (286\u2013390, 240\u2013484), e.g. (298, 301)."
+      "Blue Lily": "Forage Blue Lily Bush at Foraging 5. First placement (278, 250). Cluster spans (278\u2013441, 250\u2013363).",
+      "Tomato": "Forage Tomato Bush at Foraging 5. Cluster near Mudwich at (113\u2013386, 107\u2013326), e.g. (220, 108). 25 XP/pull.",
+      "Paprika": "Forage Paprika Bush at Foraging 5. Cluster (286\u2013390, 240\u2013484), e.g. (298, 301). 50 XP/pull \u2014 best XP of the three."
     },
-    "tips": "This is the highest hard Foraging gate in the working quest route.",
+    "tips": "All three required nodes share a single Foraging 5 gate \u2014 grind once (~25 blueberry gathers), harvest in any order.",
     "walkthrough_steps": [
       "Talk to Herbalist (333, 281) and accept_quest_offer=True.",
-      "Grind Foraging on Blueberry Bush at Mudwich (155, 103). ~70 gathers to Lv10 unlocks Blue Lily.",
+      "Grind Foraging on Blueberry Bush at Mudwich (155, 103). ~25 gathers to Lv5 unlocks Blue Lily, Tomato, and Paprika together.",
       "Walk to Blue Lily Bush (278, 250). Gather 3x bluelily.",
       "Return to Herbalist and turn in the lilies via interact_npc.",
-      "Continue grinding Foraging \u2014 switch to Tomato Bush (220, 108) once at Lv15. Pick 2 tomatoes.",
-      "At Foraging Lv25, walk to Paprika Bush (298, 301). Pick 2 paprika.",
+      "Walk to Paprika Bush (298, 301). Gather 2 paprika.",
+      "Walk to Tomato Bush (220, 108). Gather 2 tomato.",
       "Return to Herbalist for final turn-in."
     ]
   },
@@ -662,7 +585,7 @@
     "walkthrough": "Start with the Village Girl, talk to the Old Lady through the quest door, then turn in 2 tomatoes, 2 strawberries, and 1 string.",
     "items_needed": "2 tomato, 2 strawberry, 1 string",
     "item_sources": {
-      "Tomato": "Forage at Foraging 15, buy from ingredients store, or get vegetable-table drops.",
+      "Tomato": "Forage at Foraging 5, buy from ingredients store, or get vegetable-table drops.",
       "Strawberry": "Fruit-table drop from goblins, ogres, ants, hobgoblins \u2014 now ~10% per kill after drop-rate patch (was 0.8%). Plan ~20 goblin kills for 2 strawberries.",
       "String": "Craft from bluelily at Crafting 1 (requires Arts and Crafts started) or get ordinary-table drops."
     },

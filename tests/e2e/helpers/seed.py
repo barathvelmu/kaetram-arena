@@ -117,15 +117,17 @@ _SKILL_NAME_TO_TYPE: dict[str, int] = {
     "defense":       7,
     "fishing":       8,
     "cooking":       9,
-    "fletching":    10,
+    "smithing":     10,
     "crafting":     11,
-    "foraging":     12,
-    "eating":       13,
+    "chiseling":    12,
+    "fletching":    13,
     "loitering":    14,
-    "alchemy":      15,
-    "smithing":     16,
-    # 17 Chiseling and 18 Smelting are routing markers per GAME_SYSTEMS §2 —
-    # XP actually lands in crafting / smithing respectively, so omit them.
+    "foraging":     15,
+    "eating":       16,
+    "alchemy":      17,
+    "smelting":     18,
+    # All 19 Modules.Skills entries kept verbatim from packages/common/network/modules.ts:215-235.
+    # Smelting/Chiseling are real enum slots even if XP routing folds back into smithing/crafting.
 }
 
 

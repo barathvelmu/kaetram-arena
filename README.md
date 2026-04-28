@@ -1,6 +1,8 @@
 # Kaetram AI Agent
 
-An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-Open), a 2D pixel MMORPG, using a custom MCP server with typed game tools. The agent calls structured tools (observe, attack, navigate, interact_npc, etc.) — never writes JavaScript. Gameplay sessions are collected as SFT/KTO training data for finetuning Qwen3.5 9B.
+**Research project (target: ICLR 2027)** on **structured game-agent distillation** — distilling frontier LLM gameplay reasoning (Claude Sonnet) into a small open student model (Qwen3.5 9B) using a typed MCP tool API as the shared teacher–student interface in a persistent 2D pixel MMORPG ([Kaetram](https://github.com/Kaetram/Kaetram-Open)).
+
+The agent calls 17 structured tools (observe, attack, navigate, interact_npc, gather, craft_item, …) — never writes JavaScript or clicks pixels. Sessions across **5 frontier-LLM harnesses** (Claude / Codex / Gemini / OpenCode / xAI Grok) are collected as SFT + KTO training data, with progress measured against the **Core 5 quest benchmark** (see below).
 
 > **For developers:** see [`CLAUDE.md`](CLAUDE.md) for the full developer reference and [`session_log.md`](session_log.md) for the most recent decisions.
 
@@ -11,7 +13,21 @@ An autonomous AI agent that plays [Kaetram](https://github.com/Kaetram/Kaetram-O
 - Records every action as a `(game_state, reasoning, action)` tuple
 - Runs indefinitely in sessions — each session picks up where the last left off
 - Supports multi-agent mode: run N agents in parallel for scaled data collection
-- 3 capability archetypes (grinder, completionist, explorer_tinkerer) as a data factory for diverse training trajectories
+- 3 capability archetypes (GRINDER, COMPLETIONIST, EXPLORER_TINKERER) as a data factory for diverse training trajectories
+
+## The Core 5 benchmark
+
+Capability progress is measured against five canonical quests that span combat, gathering, crafting, dialogue, and exploration. Each is implemented as a headed pytest under `tests/e2e/quests/core/` and run from the dashboard's **Tests tab** (see below).
+
+| # | Quest | What it exercises |
+|---|-------|-------------------|
+| Q1 | **Foresting** | Woodcutting + simple multi-step gather/turn-in |
+| Q2 | **Herbalist's Desperation** | Long-tail gathering (blueberries, Blue Lily) + skill-gated foraging |
+| Q3 | **Rick's Roll** | Fishing + dialogue branching + safe-route navigation at low level |
+| Q4 | **Arts and Crafts** | Crafting/smelting production chain |
+| Q5 | **Sea Activities** | Boat travel + cross-zone exploration |
+
+The student model's quest completion rate on the Core 5 — alongside the Sonnet teacher's — is the primary capability metric, replacing earlier ad-hoc XP/level deltas.
 
 ## Current status
 
@@ -21,8 +37,8 @@ status summary that used to live here drifted in days.
 
 - **Harnesses.** `--claude` is the primary data-collection harness and the
   only one whose turns flow into Qwen SFT training. `--codex`, `--gemini`,
-  and `--opencode` are experimental smoke-test harnesses that share the
-  orchestrator/dashboard/log paths but are excluded from training.
+  `--opencode`, and `--grok` are experimental smoke-test harnesses that share
+  the orchestrator/dashboard/log paths but are excluded from training.
 - **Training.** Dataset stats: [`dataset/DATA.md`](dataset/DATA.md).
 - **Eval harness.** `eval_harness.py` runs side-by-side episodes on
   dedicated ports (9061 r9-sft, 9071 base). Live dashboard tab.
@@ -31,18 +47,19 @@ status summary that used to live here drifted in days.
 ## Architecture
 
 ```
-play.sh ──────► Claude/Codex/Gemini/OpenCode CLI ──► mcp_server/ (FastMCP) ──► Playwright ──► browser
-                       │                                  │                        │
-                 reads system.md +                17 typed tools             page.evaluate()
-                 game_knowledge.md                (observe, attack,           calls state_extractor.js
-                       │                          navigate, warp...)          helpers internally
-                       │                                  │
+play.sh ──► Claude / Codex / Gemini / OpenCode / xAI Grok CLI ──► mcp_server/ (FastMCP) ──► Playwright ──► browser
+                       │                                                  │                        │
+                 reads system.md +                                17 typed tools             page.evaluate()
+                 game_knowledge.md                                (observe, attack,           calls state_extractor.js
+                       │                                          navigate, warp...)          helpers internally
+                       │                                                  │
                        └──► logs/session_N_*.log (auto-logged JSONL)
 
                   dashboard (8080) ◄─── HLS (/tmp/hls/agent_N) + Mongo (kaetram_devlopment, 27017)
+                                  ◄─── Tests tab (Xvfb :198 + ffmpeg MJPEG, headed pytest runs)
 ```
 
-**`mcp_server/`** — custom FastMCP package exposing 17 typed game tools (entry point `mcp_game_server.py`). Manages Playwright internally. Agents call structured tools — never write JavaScript. See [`mcp_server/README.md`](mcp_server/README.md).
+**`mcp_server/`** — modular FastMCP package exposing 17 typed game tools. Was a single 2039-line `mcp_game_server.py` until PR #29 (2026-04-25); now split into `mcp_server/{core, helpers, login, mob_stats, resource_gates, state_heartbeat, utils}.py` + `tools/`, with `mcp_game_server.py` reduced to a 19-line stub entry point. Manages Playwright internally. Agents call structured tools — never write JavaScript. See [`mcp_server/README.md`](mcp_server/README.md).
 
 **`state_extractor.js`** — injected into browser via `context.add_init_script()`. Exposes `window.__extractGameState()`, `window.__attackMob()`, `window.__navigateTo()`, etc. Called by MCP server internally, never by the agent.
 
@@ -90,11 +107,17 @@ Run N agents in parallel, each with its own Kaetram server instance. The preferr
 ./scripts/restart-single-agent.sh 2 --reset
 ```
 
-Each agent gets its own server port (9001, 9011, 9021, 9031), username (`ClaudeBot0`–`ClaudeBot3`), log directory, and personality. All agents get `prompts/game_knowledge.md` (quest guides, NPC coords, mob stats). Resource budget for 3 agents (active collection config): ~2.5 GB RAM, ~27% CPU, ~4.5 GB disk/24h.
+Each agent gets its own server port (9001, 9011, 9021, 9031), username (`ClaudeBot0`–`ClaudeBot3`), log directory, and capability archetype. All agents get `prompts/game_knowledge.md` (quest guides, NPC coords, mob stats). Resource budget for 4 agents on the active VM (`e2-standard-8`): ~3 GB RAM, well under 50% CPU.
 
-> **Default agent count is 3** (was 8 prior to commit `3909f97`, dropped after the 2026-04-19 CPU-starvation reboot that prompted the e2-standard-4→8 VM upgrade). Pass an explicit count to `restart-agent.sh` if you want more or fewer.
+> **Default agent count is 4** (set in `scripts/restart-agent.sh`; was 8 prior to commit `3909f97`, dropped after the 2026-04-19 CPU-starvation reboot that prompted the e2-standard-4→8 VM upgrade). Pass an explicit count to `restart-agent.sh` if you want more or fewer.
 
-> **Harness flags:** `--claude` (primary, training data source) is fully integrated. `--codex` (GPT-5.4, Stop hook), `--gemini` (Gemini 2.5 Flash, `maxSessionTurns`), and `--opencode` (NVIDIA Qwen free API via OpenCode CLI; uses `opencode.template.json` + `AGENTS.md`; reasoning capture requires the NIM proxy at `scripts/start-nim-proxy.sh`) are experimental — their logs are collected but excluded from Qwen SFT training until validated. See [`CLAUDE.md`](CLAUDE.md) for details.
+> **Harness flags (5 supported).** `--claude` (Sonnet, primary, training data source) is fully integrated. The other four are experimental peer harnesses — their logs are collected but excluded from Qwen SFT training until validated:
+> - `--codex` — OpenAI Codex (GPT-5.4), Stop hook for turn continuation
+> - `--gemini` — Google Gemini 2.5 Flash, `maxSessionTurns` for turn limit
+> - `--opencode` — NVIDIA Qwen free API via OpenCode CLI (`opencode.template.json` + `AGENTS.md`; reasoning capture requires the NIM proxy at `scripts/start-nim-proxy.sh`)
+> - `--grok` — xAI Grok-4.1-Fast-Reasoning, also routed through OpenCode (`opencode.template.json`), wired in 2026-04-27 alongside the Tier-A unblock pass.
+>
+> See [`CLAUDE.md`](CLAUDE.md) for full details on each harness.
 
 ### End-to-end data pipeline
 
@@ -105,152 +128,49 @@ Each agent gets its own server port (9001, 9011, 9021, 9031), username (`ClaudeB
 
 ## Training pipeline
 
-Four-stage pipeline transforms raw Claude session logs into SFT + KTO training data for Qwen3.5 9B:
+Four stages transform raw Claude session logs into SFT + KTO training data for Qwen3.5 9B:
 
-```
-logs/session_*.log  ──►  extract_turns.py  ──►  dataset/extracted/*/turns.jsonl
-                                                         │
-                                                convert_to_qwen.py  ──►  dataset/qwen_sft/train.json
-                                                         │                dataset/qwen_sft/val.json
-                                                         │                      │
-                                                         │          finetune/train_modal.py (SFT, H100)
-                                                         │
-                               score_sessions.py + build_kto_dataset.py
-                                                         │
-                                                dataset/kto/*.json
-                                                         │
-                                            finetune/train_kto_modal.py (KTO, H100)
-```
+1. **Extract turns** (`extract_turns.py`) — parse JSONL session logs, identify OODA cycles, emit `(game_state, reasoning, action)` tuples per agent.
+2. **Convert to Qwen format** (`convert_to_qwen.py`) — Qwen3.5 9B conversation records with `<think>` + `<action>` tags. 90/10 train/val split stratified by session. Modes: `single` / `multi` / `mixed` (default 70/30). Format: `sft` or `grpo`.
+3. **KTO labels** (`score_sessions.py` + `build_kto_dataset.py`) — 0–1 outcome scores per session (XP, level, quest, exploration, turn quality, death penalty); sliding-window prompt/completion/label records.
+4. **Train + serve** — `finetune/train_modal.py` (SFT) and `finetune/train_kto_modal.py` (KTO) on Modal H100s; `finetune/serve_modal.py` exposes an OpenAI-compatible SGLang endpoint for the eval harness.
 
-**Stage 1: Extract turns** — Parses JSONL session logs, identifies OODA cycles (observe + reason + act), extracts game state, reasoning, and structured actions.
+### Model-visible tool vocabulary (17 tools)
 
-```bash
-python3 extract_turns.py --log-dir logs/ --output-dir dataset/extracted/
-```
+Teacher and student call the same surface. Categories:
 
-**Stage 2: Convert to Qwen format** — Transforms turns into Qwen3.5 9B conversation records with `<think>` reasoning and structured `<action>` tags. 90/10 train/val split stratified by session.
+- **Core loop:** `observe`
+- **Combat:** `attack(mob_name)`, `set_attack_style(style)`, `eat_food(slot)`, `respawn`, `loot`
+- **Movement:** `navigate(x, y)`, `warp(location)`, `cancel_nav`, `stuck_reset`
+- **Dialogue / quests:** `interact_npc(npc_name, accept_quest_offer=False)`, `query_quest(quest_name)`
+- **Economy / inventory:** `buy_item(npc_name, item_index, count)`, `equip_item(slot)`, `drop_item(slot)`
+- **Production:** `gather(resource_name)`, `craft_item(skill, recipe_key, count)`
 
-```bash
-# Default: mixed mode (70% multi-turn + 30% single-turn), SFT format
-python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
-
-# Single-turn only (one state → one action per record)
-python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode single
-
-# Multi-turn with windowed context (state deltas across turns)
-python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode multi
-
-# GRPO format (prompt-only with reward context for reinforcement learning)
-python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --format grpo
-```
-
-### Output format (Qwen3.5 9B SFT)
-
-```json
-{
-  "messages": [
-    {"role": "system", "content": [{"type": "text", "text": "<condensed game rules>"}]},
-    {"role": "user", "content": [
-      {"type": "text", "text": "<game_state>\n{...}\n</game_state>\n\nWhat should you do?"}
-    ]},
-    {"role": "assistant", "content": [{"type": "text", "text": "<think>\nI see a Rat at distance 2...\n</think>\n<action>\nclick(408, 312)\n</action>"}]}
-  ]
-}
-```
-
-### Model-Visible Tool Vocabulary (17 tools)
-
-| Tool | Description |
-|------|-------------|
-| `observe` | Game state JSON + ASCII map + stuck check |
-| `attack(mob_name)` | Attack nearest mob by name |
-| `set_attack_style(style)` | hack, chop, or defensive |
-| `navigate(x, y)` | BFS pathfinding to grid coords |
-| `warp(location)` | Fast travel (mudwich, aynor, lakesworld, crullfield, patsow, undersea). Auto-waits combat cooldown. |
-| `cancel_nav` | Cancel navigation |
-| `interact_npc(npc_name, accept_quest_offer=False)` | Walk to NPC, advance through dialogue, turn in eligible quests. Quest offers are read-only by default; pass `accept_quest_offer=True` to actually accept. |
-| `buy_item(npc_name, item_index, count)` | Buy an item from an NPC shop |
-| `eat_food(slot)` | Eat food to heal (fails at full HP) |
-| `drop_item(slot)` | Drop item to free inventory space |
-| `equip_item(slot)` | Equip item (returns success/failure with reason) |
-| `stuck_reset` | Reset stuck detection |
-| `respawn` | Respawn after death |
-| `gather(resource_name)` | Gather from a tree, rock, bush, or fish spot |
-| `loot` | Pick up nearby ground items and lootbag contents |
-| `query_quest(quest_name)` | Look up walkthrough for a specific quest |
-| `craft_item(skill, recipe_key, count)` | Open the right production interface and craft/cook/smelt the requested recipe |
-
-> **Note:** The live MCP export now matches this 17-tool model-visible surface exactly. Deprecated wrappers (`login`, `move`, `talk_npc`, `accept_quest`, `clear_combat`, `click_tile`) were removed from the exported action space so the missing production primitive could be added without reintroducing tool bloat.
+The live MCP export matches this surface exactly — deprecated wrappers (`login`, `move`, `talk_npc`, `accept_quest`, `clear_combat`, `click_tile`) were removed in PR #29 to avoid tool-bloat regression. Per-tool reference: [`mcp_server/README.md`](mcp_server/README.md).
 
 ## Project structure
 
 ```
 kaetram-agent/
-├── mcp_game_server.py       # 19-line stub — entry point that imports mcp_server.tools
-├── mcp_server/              # Modular MCP package (17 typed tools). See README.
-├── cli_adapter.py           # Harness abstraction (Claude = production; Codex, Gemini, OpenCode = experimental)
-├── play.sh                  # Claude Code agent loop (resolves .mcp.template.json)
-├── play_qwen.py             # Finetuned-model agent loop — same MCP server
-├── play_qwen.sh             # Qwen agent session launcher
+├── mcp_server/              # Modular FastMCP package — 17 typed game tools (see mcp_server/README.md)
+├── mcp_game_server.py       # 19-line stub entry point
+├── cli_adapter.py           # Harness abstraction (Claude / Codex / Gemini / OpenCode / Grok)
+├── play.sh, play_qwen.{py,sh}  # Single-agent loops (Claude teacher; finetuned Qwen student)
 ├── orchestrate.py           # Multi-agent launcher: game servers, Xvfb, ffmpeg, MCP, harness
-├── extract_turns.py         # JSONL log → clean OODA turn extraction
-├── convert_to_qwen.py       # Turns → Qwen3.5 9B SFT/GRPO format
-├── state_extractor.js       # Injected into browser — game helpers (called by MCP server)
-├── .mcp.template.json       # MCP config template (placeholders resolved per-sandbox at launch)
-├── opencode.template.json   # OpenCode provider config template (NVIDIA Qwen)
-├── dashboard/               # Dashboard package (modular)
-│   ├── api.py               # API endpoints (DB-first, log-fallback game state)
-│   ├── constants.py         # Config (ports, paths, MongoDB connection)
-│   ├── db.py                # MongoDB reader — authoritative player state
-│   ├── game_state.py        # Game state extraction (DB-based + log-based fallback)
-│   ├── handler.py           # HTTP request handler
-│   ├── parsers.py           # Session log parsing utilities
-│   ├── server.py            # HTTP + WebSocket server
-│   └── templates/index.html # Dashboard frontend
-├── finetune/                # ML training pipeline
-│   ├── SETUP_3060.md        # RTX 3060 local deployment guide
-│   ├── train_modal.py       # SFT training on Modal (Unsloth, H100)
-│   ├── train_kto_modal.py   # KTO preference learning on Modal (H100)
-│   ├── train_grpo_modal.py  # GRPO reinforcement learning on Modal
-│   ├── serve_modal.py       # vLLM serving endpoint (OpenAI-compatible)
-│   ├── convert_gguf.py      # Model → GGUF Q4_K_M conversion
-│   └── merge_and_quantize.py # LoRA merge + GGUF export (local)
-├── score_sessions.py        # Score sessions 0-1 for KTO labels (XP/quest/exploration)
-├── build_kto_dataset.py     # Build sliding-window KTO prompt/completion/label records
-├── inspect_kto_dataset.py   # KTO dataset dry-run and sample inspection
-├── world/                   # Forward dynamics model (2.2M param Transformer)
-│   ├── README.md            # Architecture overview + quickstart
-│   ├── schema.py            # State/action encoding (16-dim vectors, 26 actions)
-│   ├── model.py             # Transformer forward dynamics model
-│   ├── extract_transitions.py # Extract (state, action, next_state) from logs
-│   ├── train.py             # Local PyTorch training
-│   ├── train_modal.py       # Modal cloud training (T4 GPU)
-│   ├── evaluate.py          # Per-field accuracy + rollout drift metrics
-│   ├── mcts.py              # MCTS planner for multi-step lookahead
-│   └── demo.py              # Interactive terminal demo
-├── prompts/
-│   ├── system.md            # Base system prompt: login, OODA loop, targeting
-│   ├── game_knowledge.md    # Game knowledge: quests, NPCs, mobs (appended to all agents)
-│   └── personalities/       # Archetype DECIDE overrides (grinder, completionist, explorer_tinkerer)
-├── scripts/
-│   ├── start-kaetram.sh     # Starts Kaetram server (handles nvm use 20)
-│   ├── restart-agent.sh     # Primary command: kill + restart agents fresh (resets DB)
-│   ├── restart-single-agent.sh # Restart one agent (0-3) without affecting the others
-│   ├── resume-agent.sh      # Resume agents without DB reset
-│   ├── nuke-agents.sh       # Stop all agents (SIGKILL everything)
-│   ├── reset-state.sh       # Reset MongoDB player data only
-│   ├── collect_sft_data.sh  # End-to-end: orchestrate → extract → convert
-│   ├── check_research_staleness.py      # Detect stale research/ files
-│   ├── run_research_staleness_check.sh  # VM cron wrapper: auto-compile + commit + push
-│   ├── play_session.mjs     # Standalone Playwright script for manual testing
-│   ├── cut-highlight.sh     # Extract highlight clips from recordings
-│   └── format-vertical.sh   # Convert clips to 9:16 vertical format
-├── .claude/commands/        # Claude Code slash commands
-├── dataset/                 # Training data (gitignored)
-├── state/                   # Runtime state (gitignored)
-├── logs/                    # Claude Code JSONL session logs (gitignored)
+├── extract_turns.py, convert_to_qwen.py  # SFT data pipeline (logs → Qwen records)
+├── score_sessions.py, build_kto_dataset.py, inspect_kto_dataset.py  # KTO data pipeline
+├── eval_harness.py          # Side-by-side episode runner (r9-sft vs base)
+├── state_extractor.js       # Injected browser helpers (called by MCP server)
+├── dashboard/               # Live web dashboard + Tests tab (DB-first game state, MJPEG video)
+├── finetune/                # SFT / KTO / GRPO training on Modal + serving endpoints
+├── world/                   # WIP forward dynamics model (2.2M param Transformer)
+├── prompts/                 # system.md, game_knowledge.md, personalities/
+├── tests/                   # 136 e2e quest tests, including Core 5 under tests/e2e/quests/core/
+├── scripts/                 # restart/resume/nuke agents, eval, dashboards, research check
+├── research/                # Karpathy-style compiled knowledge base (gitignored)
+├── dataset/, state/, logs/  # Runtime artefacts (gitignored)
 ├── session_log.md           # Running decision log across sessions
-└── CLAUDE.md                # Developer reference for Claude Code
+└── CLAUDE.md                # Developer reference
 ```
 
 ## Ports
@@ -265,6 +185,17 @@ kaetram-agent/
 | 27017 | MongoDB (`kaetram-mongo` Docker container, db `kaetram_devlopment`) |
 | 9061, 9071 | Eval game servers (r9-sft, base) |
 | 9191 | E2E test-lane game server (db `kaetram_e2e`) |
+
+## Tests tab (dashboard)
+
+The dashboard at `http://localhost:8080` includes a **Tests tab** for launching headed pytest runs from the UI with live MJPEG video of the browser. This is how the Core 5 (and the broader 136-test quest suite under `tests/e2e/quests/`) are exercised end-to-end against a real Kaetram instance.
+
+- Uses a dedicated test-lane game server on **port 9191** (db `kaetram_e2e`) — start via `scripts/start-test-kaetram.sh`.
+- Renders the headed browser into Xvfb display `:198`, captured by ffmpeg as a single overwriting MJPEG stream (lockstep reliable on short test runs, unlike HLS).
+- Run history is persisted; per-test status pills update live via the dashboard WebSocket.
+- Terminal-launched pytest runs also surface here via the `/ingest/test_event` CLI shim.
+
+Backend lives in `dashboard/test_runner.py`; full reference in `dashboard/DASHBOARD.md`.
 
 ## Slash commands
 
@@ -306,9 +237,9 @@ The finetuned Qwen3.5-9B model is served from a Modal SGLang endpoint
 
 Experimental forward dynamics model (2.2M param Transformer) in `world/`. Concept for MCTS planning and reward shaping — not prioritized. See `world/README.md` for details.
 
-## Research Contribution
+## Research contribution
 
-This project is the basis for an arXiv paper on **structured game-agent distillation** — distilling frontier LLM gameplay reasoning into a small open model using a typed tool API as the teacher-student interface.
+This project is the basis for an **ICLR 2027** submission on **structured game-agent distillation** — distilling frontier LLM gameplay reasoning into a small open model using a typed tool API as the teacher-student interface.
 
 Unlike prior work where LLMs serve as decision advisors for human players ([Think in Games](https://arxiv.org/abs/2508.21365)), generate raw code or click pixels ([CRADLE](https://arxiv.org/abs/2403.03186), [Voyager](https://arxiv.org/abs/2305.16291)), or operate in episodic single-player environments ([Orak](https://arxiv.org/abs/2506.03610), [GamingAgent](https://arxiv.org/abs/2505.15146)), **our agent operates fully autonomously in a persistent open world using a shared typed tool API as the teacher-student interface.**
 
@@ -316,22 +247,11 @@ Unlike prior work where LLMs serve as decision advisors for human players ([Thin
 
 **1. Shared typed MCP tool vocabulary** — Teacher (Claude) and student (Qwen3.5-9B) call the same 17 typed tools (`attack("goblin")`, `navigate(188, 157)`, `interact_npc("Blacksmith")`). This eliminates action space mismatch between teacher and student at training time — a structural problem in prior game-agent distillation where teachers write raw code or click pixels the student can't reliably reproduce.
 
-**2. Capability-diverse teacher data** — 3 Claude agents with orthogonal capability archetypes (GRINDER, COMPLETIONIST, EXPLORER/TINKERER) produce structurally different decision distributions at overlapping game states. The student learns a richer action distribution than any single teacher policy provides. Archetypes are a data-factory mechanism, not a scientific claim — if trajectories collapse, we fall back to two policies (progression and uncertainty/recovery/coverage).
+**2. Capability-diverse teacher data** — Claude agents are run under three orthogonal capability archetypes (GRINDER, COMPLETIONIST, EXPLORER_TINKERER) that produce structurally different decision distributions at overlapping game states. The student learns a richer action distribution than any single teacher policy provides. Archetypes are a data-factory mechanism, not a scientific claim — if trajectories collapse, we fall back to two policies (progression and uncertainty/recovery/coverage).
 
 **3. KTO preference learning with automated game outcome scoring** — After SFT, we apply KTO using a 6-dimension composite reward signal (XP gain, level delta, quest progression, exploration, turn quality, death penalty). No human labels. Fully automated. Scales with agent runtime. Fits the MMORPG setting where there is no binary win condition.
 
-### Comparison
-
-| | This project | Think in Games | Orak | CRADLE / Voyager |
-|---|---|---|---|---|
-| Agent autonomy | Fully autonomous | Decision advisor (human executes) | Autonomous | Autonomous |
-| World type | Persistent MMORPG | Episodic MOBA (replays) | Episodic single-player | Open-ended |
-| Action interface | Shared typed MCP tools | 40 categorical labels | Heterogeneous per-game MCP | Raw code / pixel clicks |
-| Teacher diversity | 3 personality-distinct agents | Single teacher model | Single teacher model | Single teacher model |
-| Post-SFT refinement | KTO (offline, composite reward) | GRPO (online RL, Tencent scale) | None | None |
-| Open source | Full (game + data + pipeline) | No (proprietary Tencent data) | Partial (closed games) | Partial |
-
-Full novelty framing and paper outline are kept off-repo.
+vs. prior work: persistent MMORPG (not episodic), shared typed MCP tools (not categorical labels / raw code / pixel clicks), capability-archetype teacher diversity (not a single teacher), KTO post-SFT refinement (not online RL or none), full open source. Detailed comparison table and novelty framing live off-repo.
 
 ---
 

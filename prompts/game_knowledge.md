@@ -8,6 +8,8 @@ add-ons; off-limits quests are broken — don't waste turns on them.
 `interact_npc(name, accept_quest_offer=True)` — and only after `query_quest`
 returns `live_gate_status.gated: false` (see system.md Rule 10).
 
+**Tier-A signals reminder.** Every `observe()` carries Tier-A signals: `live_gate_status` (per-quest blockers vs current state), `station_locations` (nearest crafting tile per skill), `mob_stats.level/aggressive` (mob threat). Read these and act on them — don't just verbalize.
+
 ## QUEST CATALOG
 
 Single source of truth for every quest. Use the **Exact Quest Name** column
@@ -18,7 +20,7 @@ stage, items needed, and `live_gate_status` evaluated against your state.
 | # | Tier | Exact Quest Name | NPC + coords | Gate / Prereq | Reward / Unlock | Why / one-line action |
 |---|------|------------------|--------------|---------------|-----------------|------------------------|
 | 1 | **CORE** | Foresting | Forester (216, 114) | None | `ironaxe` | Warmup — 10+10 oak logs, turn in twice |
-| 2 | **CORE** | Herbalist's Desperation | Herby Mc. Herb (333, 281) | **Foraging 25** practical gate | `hotsauce` + 1500 Foraging XP | Turn in blue lily, then paprika + tomato |
+| 2 | **CORE** | Herbalist's Desperation | Herby Mc. Herb (333, 281) | **None for acceptance** — Foraging 25 is a *progress* gate (paprika at stage 2), NOT an acceptance gate. Talk to Herby Mc. Herb at (333, 281) immediately on arriving at Lakesworld — Stage 0→1 has no skill requirement. | `hotsauce` + 1500 Foraging XP | Turn in blue lily, then paprika + tomato |
 | 3 | **CORE** | Rick's Roll | Rick (1088, 833) | None | **1987 gold** | Fish + cook 5 shrimp, deliver `seaweedroll` |
 | 4 | **CORE** | Arts and Crafts | Babushka (702, 608) | None | **Crafting unlock on start** | `berylpendant → bowlsmall → stew` (`stew` needs `bowlmedium`) |
 | 5 | **CORE** | Sea Activities | Sponge (52, 310) | **`waterguardian` achievement** for undersea | **10000 gold** + sea quest gates | Sponge/Pickle talk chain, then kill `picklemob` |
@@ -99,17 +101,17 @@ Coords are first valid placement in `world.json` — useful as a `navigate(x,y)`
 
 ## SKILL PROGRESSION STRATEGY
 
-The skill XP table is steep. Estimated `gather`/`attack` count to hit each level (single-target XP per action):
+The skill XP table is steep. Estimated `gather`/`attack` count to hit each level. **XP per gather (verified vs `Kaetram-Open/packages/server/data/foraging.json` + formula in `packages/server/src/info/loader.ts:44-50`):** blueberry 10, corn 15, bluelily 20, tomato 25, paprika 50.
 
 | Skill gate | XP needed | Suggested grind |
 |---|---|---|
-| Foraging 10 | 1,355 | ~70 blueberry gathers (Mudwich) |
-| Foraging 15 | 2,740 | ~140 blueberry, OR switch to tomato at Lv10+ |
-| Foraging 25 | 8,730 | ~440 blueberry, OR switch to paprika once accessible |
+| Foraging 10 | 1,151 | ~115 blueberry gathers @ 10 XP each, OR ~58 corn @ 20 XP (Mudwich) |
+| Foraging 15 | 2,406 | ~241 blueberry, OR switch to bluelily/corn at L10 for ~70 mixed |
+| Foraging 25 | 7,833 | ~873 total blueberry gathers, OR optimal hybrid path (~70 blueberry → L10, ~140 bluelily → L15, ~250 tomato → L25 ≈ 460 mixed gathers) |
 | Mining 15 | 2,740 | ~140 copper/tin/coal at Lv1+ |
 | Fishing 5 | 511 | ~25 shrimp |
 
-For Herbalist's Desperation specifically: pick blue lily early (Lv10 gate), grind to 15 on tomato (better XP/action than blueberry once unlocked), grind to 25 on paprika (highest XP/action of the three).
+For Herbalist's Desperation specifically: pick blue lily early (Lv10 gate), grind to 15 on tomato (better XP/action than blueberry once unlocked), grind to 25 on paprika (highest XP/action of the three). When calling `gather`, the `resource_name` is `Tomato Plant Thingy` (not `Tomato`) and `Paprika Bush` — match `foraging.json` keys exactly.
 
 ## ACHIEVEMENTS (NOT QUESTS)
 
@@ -129,7 +131,7 @@ Boss kills also grant achievements. Highest-value route kill: Water Guardian for
 ## STORES / WARPS
 
 Use `buy_item(npc_name, item_index, count)`:
-- **Babushka** (ingredients store): access via door at **(483,275)**. Items: 0=Blue Lily, 1=Tomato, 2-3=Mushroom, 4=Egg, 5=Corn, 6=Raw Pork, 7=Raw Chicken. ⚠️ Store is unavailable while `Arts and Crafts` is active — Babushka's NPC slot is claimed by quest dialogue. Gather ingredients from the world instead, or finish the quest first.
+- **Babushka** (ingredients store): access via door at **(483,275)**. Items: 0=Blue Lily, 1=Tomato, 2-3=Mushroom, 4=Egg, 5=Corn, 6=Raw Pork, 7=Raw Chicken. ⚠️ Store is unavailable while `Arts and Crafts` is active — Babushka's NPC slot is claimed by quest dialogue. Gather ingredients from the world instead, or finish the quest first. Babushka also sells bluelily (item_index=0) — but Babushka is gated behind Ancient Lands quest (which itself needs the Aynor warp + a door at 463). For Herbalist, gathering is faster than waiting for Ancient Lands.
 - **Miner** (~323,178): 0=Coal, 1=Copper Ore, 2=Tin Ore, 3=Bronze Ore, 4=Gold Ore
 - **Forester** (~216,114): 0=Bronze Axe(1000g), 1=Iron Axe(5000g)
 - **Clerk** (startshop, Mudwich): 0=Arrow, 1=Knife, 2=Flask, 3=Mana Flask, 4=Burger, 5=Big Flask
@@ -150,6 +152,8 @@ Use `buy_item(npc_name, item_index, count)`:
 
 - **Ice Knight** at **(808, 813)** — drops `icesword` for Ancient Lands quest (L62, verified live placement).
 - **Strawberry drop rate** — ~8% per fruit-table kill (goblins, ogres, ants, bosses). Plan ~25 kills for 2 strawberries. Only relevant for bonus `Scavenger` quest.
+- **Rick's Roll is L1-safe end-to-end.** The shrimp fishing spots near (325, 360) require Fishing 1 only (no level gate, no aggressive mobs in 8-tile radius). The corridor Mudwich (188,157) → door 1025 (379, 388) → Rick (1088, 833) passes through Mudwich outskirts and farmland — no aggressive mobs above L7. Door 1025 is unguarded. Do NOT classify Rick's Roll as 'unreachable' based on travel distance.
+- **Rick's Roll route pin-chain.** Long-distance navigation cap is ~100 tiles per `navigate(x,y)` call. Recommended pin chain: (245,170) → (285,190) → (293,242) → (311,254) → (324,301) → (340,345) → (367,348) → (375,370) → traverse_door(379,388 → 1138,800) → navigate(1088,833). Each leg under 100 tiles.
 
 ---
 

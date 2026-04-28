@@ -30,7 +30,7 @@ print = functools.partial(print, flush=True)
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from cli_adapter import CLIAdapter, get_adapter
+from cli_adapter import CLIAdapter, get_adapter, opencode_bot_prefix
 from notifications import format_notification, send_email_notification
 
 PROJECT_DIR = Path(__file__).parent
@@ -1346,11 +1346,13 @@ class Orchestrator:
                  personality_counts: dict[str, int] | None = None,
                  harness_counts: dict[str, int] | None = None,
                  model: str | None = None,
+                 opencode_model: str | None = None,
                  max_budget_usd: float | None = None):
         self.n_agents = n_agents
         self.personality_counts = personality_counts
         self.harness_counts = harness_counts or {"claude": n_agents}
         self.model = model
+        self.opencode_model = opencode_model
         self.max_budget_usd = max_budget_usd
         self.deadline = time.time() + hours * 3600 if hours else None
         self.servers: list[GameServer] = []
@@ -1402,9 +1404,17 @@ class Orchestrator:
             self.servers.append(server)
 
             harness = harness_list[i] if i < len(harness_list) else "claude"
-            adapter = get_adapter(harness=harness, model=self.model)
-            prefix_map = {"codex": "CodexBot", "gemini": "GeminiBot", "opencode": "OpenCodeBot"}
-            bot_prefix = prefix_map.get(harness, "ClaudeBot")
+            # OpenCode has its own model override since the model is configured
+            # via opencode.json rather than a CLI flag — see OpenCodeAdapter.
+            adapter_model = self.opencode_model if harness == "opencode" else self.model
+            adapter = get_adapter(harness=harness, model=adapter_model)
+            if harness == "opencode":
+                # Split by model family — adapter.model is the resolved full
+                # ID after alias substitution, so substring matches work.
+                bot_prefix = opencode_bot_prefix(adapter.model)
+            else:
+                prefix_map = {"codex": "CodexBot", "gemini": "GeminiBot"}
+                bot_prefix = prefix_map.get(harness, "ClaudeBot")
 
             personality = assignments[i] if i < len(assignments) else "grinder"
             sandbox = Path(f"/tmp/kaetram_agent_{i}")
@@ -1736,6 +1746,12 @@ def main():
         help="Model name override (default: sonnet for Claude, gpt-5.4 for Codex)"
     )
     parser.add_argument(
+        "--opencode-model", dest="opencode_model", type=str, default=None,
+        help="OpenCode model override (alias or full ID). Aliases: grok-4-1-fast, "
+             "qwen3.5-35a3b, qwen3.5-397a17b, qwen3-80a3b, deepseek-v4-flash, "
+             "deepseek-v4-pro. Falls back to opencode.template.json default."
+    )
+    parser.add_argument(
         "--max-budget-usd", type=float, default=None,
         help="Max USD budget per agent session (API key only, auto-detected). Default: no limit."
     )
@@ -1808,6 +1824,7 @@ def main():
         n_agents=n_total, hours=args.hours,
         personality_counts=personality_counts,
         harness_counts=harness_counts, model=args.model,
+        opencode_model=args.opencode_model,
         max_budget_usd=args.max_budget_usd,
     )
 

@@ -117,7 +117,7 @@ Game-server port `P` reserves `P+1` for `apiPort` (currently dormant; matches
 | Port | What |
 |------|------|
 | 9000 | Kaetram client (HTTP, shared) |
-| 9001 + N×10, N ∈ [0,8] | Multi-agent game-server WS (default 4 agents per `orchestrate.py`: 9001 / 9011 / 9021 / 9031) |
+| 9001 + N×10, N ∈ [0,8] | Multi-agent game-server WS. **Standard run is 3 agents — one per archetype** (grinder + completionist + explorer-tinkerer): 9001 / 9011 / 9021. |
 | 9191 | Test-lane Kaetram (db `kaetram_e2e`, `TEST_AGENT_ID=99`, Xvfb `:198`) — isolated from data-collection lanes; dashboard Tests tab runs headed pytest against it |
 | 9061, 9071 | Eval game servers (r9-sft, base) |
 | 9191 | E2E test-lane game server (`scripts/start-test-kaetram.sh`, db `kaetram_e2e`) |
@@ -151,10 +151,25 @@ prevent drift.
 
 `--claude` is the primary data-collection harness — fully integrated and the
 only one whose turns flow into Qwen SFT training. `--codex` (GPT-5.4),
-`--gemini` (Gemini 2.5 Flash), and `--opencode` (NVIDIA Qwen free API via
-OpenCode CLI + NIM proxy) run the same orchestrator/dashboard/log paths but
-their turns are excluded from training until validated. Use them for
-cross-harness comparisons, not training data.
+`--gemini` (Gemini 2.5 Flash), and `--opencode` run the same
+orchestrator/dashboard/log paths but their turns are excluded from training
+until validated. Use them for cross-harness comparisons, not training data.
+
+`--opencode` is multi-model — pass `--opencode-model <alias|id>` to pick.
+Aliases (resolved by `cli_adapter.OPENCODE_MODEL_ALIASES`):
+
+| Alias                | Provider | Model |
+|----------------------|----------|-------|
+| `grok-4-1-fast`      | xAI direct                    | `xai/grok-4-1-fast-reasoning` |
+| `qwen3.5-35a3b`      | NVIDIA NIM (proxy :8889)      | `nvidia/qwen/qwen3.5-35b-a3b` |
+| `qwen3.5-397a17b`    | NVIDIA NIM (proxy :8889)      | `nvidia/qwen/qwen3.5-397b-a17b` |
+| `qwen3-80a3b`        | NVIDIA NIM (proxy :8889)      | `nvidia/qwen/qwen3-next-80b-a3b-thinking` |
+| `deepseek-v4-flash`  | DeepSeek direct (api.deepseek.com) | `deepseek/deepseek-v4-flash` |
+| `deepseek-v4-pro`    | DeepSeek direct (api.deepseek.com) | `deepseek/deepseek-v4-pro` |
+
+Provider blocks live in `opencode.template.json`. NIM-routed Qwen models
+require `scripts/start-nim-proxy.sh` to be running (idempotent; `restart-agent.sh`
+invokes it). DeepSeek requires `DEEPSEEK_API_KEY` in env; xAI uses `XAI_API_KEY`.
 
 ### Archetypes
 
@@ -182,7 +197,8 @@ counts, and lessons from r4-r10: `dataset/DATA.md` and
 - **`.mcp.template.json` vs `.mcp.json`.** The template is checked in; `.mcp.json` is the per-sandbox resolved copy. Claude reads the resolved copy via `--mcp-config --strict-mcp-config`.
 - **OpenCode reasoning needs the NIM proxy.** NVIDIA NIM streams Qwen reasoning via `delta.reasoning_content`; OpenCode only reads `delta.content`. `scripts/nim_proxy.py` rewrites SSE so reasoning is captured. Start it before `--opencode`.
 - **rsLoRA + `alpha=r` is an 8x LR trap.** rsLoRA scales `1/sqrt(r)` not `1/r`. With `r=alpha=64`, effective LR is 8x. r7 diverged. Keep `use_rslora=False` (the comment on `train_modal.py:359` is load-bearing).
-- **Counting running agents.** `pgrep -fa "claude -p"` self-matches the shell that ran it (the pattern appears in its own cmdline). Count unique `ClaudeBot[0-9]+` IDs from the output, or cross-check against listening game-server ports (`9001 + N×10`) — those are authoritative.
+- **Counting running agents.** `pgrep -fa "claude -p"` self-matches the shell that ran it (the pattern appears in its own cmdline). Count unique bot IDs from the output (`ClaudeBot[0-9]+`, `CodexBot[0-9]+`, `GeminiBot[0-9]+`, or for opencode: `BigQwenBot[0-9]+` / `GrokBot[0-9]+` / `DeepSeekBot[0-9]+` / `OpenCodeBot[0-9]+` depending on `--opencode-model`), or cross-check against listening game-server ports (`9001 + N×10`) — those are authoritative.
+- **OpenCode bot username depends on the model.** The opencode harness splits its in-game username + Mongo player row by model family so dashboard / log analysis can distinguish runs: `*qwen*` → `BigQwenBot` (separate from the local-eval `QwenBot`), `*grok*` → `GrokBot`, `*deepseek*` → `DeepSeekBot`, otherwise `OpenCodeBot`. Logic lives in `cli_adapter.opencode_bot_prefix()` and is mirrored in `restart-single-agent.sh` + `play.sh`.
 - **Qwen3 chat template drops `<think>` on intermediate turns** (QwenLM/Qwen3 #1831). Pre-r10 multi-turn records trained action-only on follow-ups. If you touch the tokenizer, re-run `tests/unit/test_think_roundtrip.py` to verify CoT survives `apply_chat_template`.
 
 ---

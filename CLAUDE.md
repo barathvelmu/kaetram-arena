@@ -117,7 +117,8 @@ Game-server port `P` reserves `P+1` for `apiPort` (currently dormant; matches
 | Port | What |
 |------|------|
 | 9000 | Kaetram client (HTTP, shared) |
-| 9001 + N×10, N ∈ [0,8] | Multi-agent game-server WS (today: 9001 / 9011 / 9021) |
+| 9001 + N×10, N ∈ [0,8] | Multi-agent game-server WS (default 4 agents per `orchestrate.py`: 9001 / 9011 / 9021 / 9031) |
+| 9191 | Test-lane Kaetram (db `kaetram_e2e`, `TEST_AGENT_ID=99`, Xvfb `:198`) — isolated from data-collection lanes; dashboard Tests tab runs headed pytest against it |
 | 9061, 9071 | Eval game servers (r9-sft, base) |
 | 9191 | E2E test-lane game server (`scripts/start-test-kaetram.sh`, db `kaetram_e2e`) |
 | 27017 | MongoDB (`kaetram-mongo`); per-lane isolation by db name |

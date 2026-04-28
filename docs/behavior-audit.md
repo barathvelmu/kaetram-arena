@@ -1,5 +1,16 @@
 # Behavior Differentiation Audit (Claude-only, latest data)
 
+> **Status: ARCHIVAL (n=30, 2026-04-16).** This audit was conducted under the legacy
+> AGGRESSIVE/METHODICAL/CURIOUS personality system. KAE-46 replaced that system with
+> outcome-anchored capability archetypes (GRINDER/COMPLETIONIST/EXPLORER_TINKERER) on
+> 2026-04-25 — partly motivated by this audit's "task pressure dominates personality"
+> finding. A larger n=731 follow-up audit (Linear `KAE-40`) reproduces the headline
+> conclusion across an independent sample.
+>
+> Preserved as historical evidence behind the personality reframe.
+
+---
+
 > **Verdict: CONDITIONAL SIGNAL with a sharp finding — task pressure dominates personality.**
 >
 > 30 latest Claude sessions (April 16, 2026), 10 per personality. Match/partial/mismatch tally: **12 / 11 / 7** (40% / 37% / 23%) — above 33% chance, below clean separation. *Curious* is the only personality that survives blind judgment cleanly (5 strong / 5 partial / 0 mismatch). *Methodical* has the highest mismatch rate (4/10). *Aggressive* has the highest within-class variance (extremes from "persists at 4% HP" to "doesn't engage anyone for 39 turns then dies").

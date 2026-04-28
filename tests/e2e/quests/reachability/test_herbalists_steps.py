@@ -36,9 +36,9 @@ from tests.e2e.quests.reachability.conftest import (
     REACHABILITY_NO_PROGRESS_TIMEOUT_S,
     assert_pos_within,
     navigate_long,
+    playthrough_seed_kwargs,
     reachability,
     slow,
-    vanilla_seed_kwargs,
 )
 
 FORAGING = 15  # Modules.Skills enum (Kaetram-Open common/network/modules.ts)
@@ -63,7 +63,7 @@ async def test_h1_navigate_mudwich_to_herbalist(test_username, test_debug):
     reachability audit, 4 single-tile gate doors sit in this corridor but
     should all be bypassable via adjacent tiles.
     """
-    seed_player(test_username, **vanilla_seed_kwargs())
+    seed_player(test_username, **playthrough_seed_kwargs("H1"))
     try:
         async with mcp_session(username=test_username) as session:
             # Pin chain along the actual reachable corridor (verified via
@@ -116,7 +116,7 @@ async def test_h2_accept_herbalist_quest(test_username):
     """
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(position=adjacent_to("herbalist")),
+        **playthrough_seed_kwargs("H2", position=adjacent_to("herbalist")),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -148,7 +148,7 @@ async def test_h3_forage_blueberry_near_mudwich(test_username):
     """
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(position=(BLUEBERRY_CLUSTER[0] - 1, BLUEBERRY_CLUSTER[1])),
+        **playthrough_seed_kwargs("H3", position=(BLUEBERRY_CLUSTER[0] - 1, BLUEBERRY_CLUSTER[1])),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -166,12 +166,13 @@ async def test_h3_forage_blueberry_near_mudwich(test_username):
 
 
 @reachability
-async def test_h4_forage_tomato_at_lv15(test_username):
-    """H4: With Foraging Lv15 seeded, can the player gather a tomato bush?
+async def test_h4_forage_tomato_at_lv5(test_username):
+    """H4: With Foraging Lv5 seeded, can the player gather a tomato bush?
     Isolates the bush recipe + world placement, not the skill grind."""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
+        **playthrough_seed_kwargs(
+            "H4",
             position=(TOMATO_CLUSTER[0], TOMATO_CLUSTER[1] + 1),
             skills=[{"type": FORAGING, "experience": 100_000}],
         ),
@@ -192,12 +193,13 @@ async def test_h4_forage_tomato_at_lv15(test_username):
 
 
 @reachability
-async def test_h5_forage_paprika_at_lv25(test_username):
-    """H5: With Foraging Lv25 seeded, can the player gather a paprika bush?
-    This is the highest foraging skill gate in the Herbalist quest chain."""
+async def test_h5_forage_paprika_at_lv5(test_username):
+    """H5: With Foraging Lv5 seeded, can the player gather a paprika bush?
+    All three Herbalist nodes share a single Lv5 gate post-2026-04-28 patch."""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
+        **playthrough_seed_kwargs(
+            "H5",
             position=(PAPRIKA_CLUSTER[0], PAPRIKA_CLUSTER[1] + 1),
             skills=[{"type": FORAGING, "experience": 100_000}],
         ),
@@ -218,21 +220,52 @@ async def test_h5_forage_paprika_at_lv25(test_username):
 
 
 @reachability
+async def test_h7_forage_bluelily_at_lv10(test_username):
+    """H7 (gap-fill): With Foraging Lv10 seeded, can the player gather a
+    blue lily bush? The Lv10 gate is the unlock that lets a fresh agent
+    pick up the first quest-required ingredient (`bluelily` -> `string`
+    via Crafting). Existing tests cover L1 (H3), L15 (H4), L25 (H5), but
+    no test exercises the L10 unlock specifically — this isolates it.
+
+    Per `prompts/game_knowledge.md`, Blue Lily Bush is Foraging Lv10.
+    """
+    seed_player(
+        test_username,
+        **playthrough_seed_kwargs(
+            "H7",
+            position=(BLUELILY_CLUSTER[0], BLUELILY_CLUSTER[1] + 1),
+            skills=[{"type": FORAGING, "experience": 1_500}],  # > L10 threshold (1355)
+        ),
+    )
+    try:
+        async with mcp_session(username=test_username) as session:
+            await gather_until_count(
+                session,
+                resource_name="Blue Lily",
+                item_key="bluelily",
+                target_count=1,
+                attempts=3,
+                polls_after_gather=4,
+                delay_after_gather_s=0.5,
+            )
+    finally:
+        cleanup_player(test_username)
+
+
+@reachability
 async def test_h6_full_turnin_with_seeded_items(test_username):
     """H6: With all foraged items in inventory and stage=1, can the full
     two-stage turn-in chain complete (bluelily x3 → tomato/paprika →
-    finished + hotsauce)?"""
+    finished + hotsauce)?
+
+    Seeded with cumulative playthrough state (Foresting done, ironaxe in
+    inventory, accumulated Foraging XP) + the items needed for turn-in.
+    Exercises the turn-in against a non-empty quest log — the actual
+    benchmark surface.
+    """
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
-            position=adjacent_to("herbalist"),
-            inventory=[
-                {"key": "bluelily", "count": 3},
-                {"key": "tomato", "count": 2},
-                {"key": "paprika", "count": 2},
-            ],
-            quests=[{"key": "herbalistdesperation", "stage": 1, "subStage": 0, "completedSubStages": []}],
-        ),
+        **playthrough_seed_kwargs("H6", position=adjacent_to("herbalist")),
     )
     try:
         async with mcp_session(username=test_username) as session:

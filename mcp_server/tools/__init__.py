@@ -10,4 +10,5 @@ from mcp_server.tools import (  # noqa: F401
     gathering,
     crafting,
     quest,
+    test_lane,  # conditionally registers __test_close_session / __test_login when KAETRAM_TEST_LANE=1
 )

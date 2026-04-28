@@ -321,6 +321,13 @@ def start(suite: str | None, markers: str | None, headed: bool) -> str:
         if run.headed:
             env["KAETRAM_HEADED"] = "1"
             env["DISPLAY"] = f":{TEST_DISPLAY}"
+        # Live-suite mode is on by default for dashboard-launched runs:
+        # warm-pool one MCP+browser per test module instead of per test.
+        # Only the reachability suite has the conftest hooks that consume
+        # this env var (module-scoped test_username + pool drain); other
+        # test surfaces (mcp/, game/, unit/) ignore it. Set
+        # KAETRAM_LIVE_SUITE=0 in the inherited env to opt out.
+        env.setdefault("KAETRAM_LIVE_SUITE", "1")
 
         log_path = run_dir / "log.txt"
         log_fh = open(log_path, "w")

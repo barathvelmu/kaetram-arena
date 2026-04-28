@@ -37,9 +37,9 @@ from tests.e2e.quests.reachability.conftest import (
     REACHABILITY_NO_PROGRESS_TIMEOUT_S,
     assert_pos_within,
     navigate_long,
+    playthrough_seed_kwargs,
     reachability,
     slow,
-    vanilla_seed_kwargs,
 )
 
 FISHING = 8
@@ -73,7 +73,7 @@ async def test_r1_navigate_mudwich_to_rick(test_username, test_debug):
     corridor is walkable — the audit found no reqQuest gates but did not
     analyze collision data.
     """
-    seed_player(test_username, **vanilla_seed_kwargs())
+    seed_player(test_username, **playthrough_seed_kwargs("R1"))
     # Mudwich (188,157) and Rick (1088,833) are in disjoint walkable
     # regions per offline BFS over world.json. The route uses door 1025
     # at (379,388) which teleports to (1138,800), within the same region
@@ -109,7 +109,10 @@ async def test_r1_navigate_mudwich_to_rick(test_username, test_debug):
 @reachability
 async def test_r2_accept_ricksroll_quest(test_username):
     """R2: Accept Rick's Roll by talking to Rick (seeded adjacent)."""
-    seed_player(test_username, **vanilla_seed_kwargs(position=adjacent_to("rick")))
+    seed_player(
+        test_username,
+        **playthrough_seed_kwargs("R2", position=adjacent_to("rick")),
+    )
     try:
         async with mcp_session(username=test_username) as session:
             r = await session.call_tool(
@@ -137,7 +140,8 @@ async def test_r3_fish_shrimp_at_nearest_spot(test_username):
     # was the only one without a real shore).
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
+        **playthrough_seed_kwargs(
+            "R3",
             position=SHRIMP_SPOT_SHORE,
             skills=[{"type": FISHING, "experience": 1_000}],
             # Fishing requires an EQUIPPED fishing weapon (server-side
@@ -179,11 +183,14 @@ async def test_r4_cook_shrimp_via_craft(test_username):
     """
     seed_player(
         test_username,
-        position=adjacent_to("iamverycoldnpc"),
-        inventory=[
-            {"key": "rawshrimp", "count": 5},
-        ],
-        skills=[{"type": COOKING, "experience": 1_000}],
+        **playthrough_seed_kwargs(
+            "R4",
+            position=adjacent_to("iamverycoldnpc"),
+            inventory=[
+                {"key": "rawshrimp", "count": 5},
+            ],
+            skills=[{"type": COOKING, "experience": 1_000}],
+        ),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -194,6 +201,11 @@ async def test_r4_cook_shrimp_via_craft(test_username):
             assert not r.is_error, r.text[:300]
             data = r.json() or {}
             assert "error" not in data, data
+        # Wait for autosave so the Mongo read below reflects the cooked item.
+        # In cold mode session exit triggers handleClose -> save(); in live
+        # mode the warm-pool keeps the session open, so we must wait out
+        # Kaetram's periodic world.save() interval explicitly.
+        await asyncio.sleep(AUTOSAVE_WAIT)
         # Confirm cookedshrimp arrived in inventory.
         assert count_saved_inventory(test_username, "cookedshrimp") >= 1, (
             "craft_item(cooking, cookedshrimp) should yield at least 1 "
@@ -208,9 +220,11 @@ async def test_r5_shrimp_turnin_receives_seaweedroll(test_username):
     """R5: Turn in 5× cookedshrimp to Rick; receive seaweedroll; stage 1→2."""
     seed_player(
         test_username,
-        position=adjacent_to("rick"),
-        inventory=[{"key": "cookedshrimp", "count": 5}],
-        quests=[{"key": "ricksroll", "stage": 1, "subStage": 0, "completedSubStages": []}],
+        **playthrough_seed_kwargs(
+            "R5",
+            position=adjacent_to("rick"),
+            inventory=[{"key": "cookedshrimp", "count": 5}],
+        ),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -238,10 +252,10 @@ async def test_r6_door_teleport_and_deliver_to_lena(test_username):
     the quest. Splitting them only paid 2× the per-test setup overhead."""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
+        **playthrough_seed_kwargs(
+            "R6",
             position=(RICK_DOOR[0], RICK_DOOR[1] + 1),
             inventory=[{"key": "seaweedroll", "count": 1}],
-            quests=[{"key": "ricksroll", "stage": 2, "subStage": 0, "completedSubStages": []}],
         ),
     )
     try:
@@ -266,6 +280,39 @@ async def test_r6_door_teleport_and_deliver_to_lena(test_username):
         assert_quest_finished(test_username, "ricksroll", stage_count=4)
         assert count_saved_inventory(test_username, "gold") >= 1987, (
             f"ricksroll completion awards 1987 gold; got {count_saved_inventory(test_username, 'gold')}"
+        )
+    finally:
+        cleanup_player(test_username)
+
+
+@reachability
+async def test_r7_lena_requires_seaweedroll_not_rawshrimp(test_username):
+    """R7 (gap-fill, negative): Verify Lena's stage-2 turn-in requires
+    `seaweedroll` specifically — handing her raw shrimp must NOT finish
+    the quest. Catches a bench-fairness bug where an alternative
+    inventory item silently satisfied the turn-in.
+    """
+    seed_player(
+        test_username,
+        **playthrough_seed_kwargs(
+            "R7",
+            position=adjacent_to("rickgf"),
+            inventory=[{"key": "rawshrimp", "count": 5}],
+        ),
+    )
+    try:
+        async with mcp_session(username=test_username) as session:
+            for _ in range(2):
+                r = await session.call_tool("interact_npc", {"npc_name": "Lena"})
+                assert not r.is_error, r.text[:300]
+                await asyncio.sleep(1.0)
+        await asyncio.sleep(AUTOSAVE_WAIT)
+        # Quest must still be at stage 2 (not finished). The reward
+        # `ricksroll` (1987 gold) should NOT have been granted.
+        assert_quest_state(test_username, "ricksroll", stage=2, sub_stage=0, completed_sub_stages=[])
+        assert count_saved_inventory(test_username, "gold") < 1987, (
+            "Lena should not award 1987 gold without a seaweedroll; "
+            f"got {count_saved_inventory(test_username, 'gold')}"
         )
     finally:
         cleanup_player(test_username)

@@ -29,6 +29,44 @@ MCP_SERVER = PROJECT_DIR / "mcp_game_server.py"
 STATE_EXTRACTOR = PROJECT_DIR / "state_extractor.js"
 
 
+# ── Live-suite warm-session pool ────────────────────────────────────────────
+#
+# When KAETRAM_LIVE_SUITE=1, mcp_session() borrows from this pool instead of
+# spawning a fresh MCP subprocess + Chromium per test. Each entry holds a
+# logged-in session that lives until its module's autouse fixture in
+# tests/e2e/quests/reachability/conftest.py drains it on module teardown.
+#
+# Pool key = lowercased username. Reachability conftest pins test_username
+# to module scope in live mode, so each test file ends up with a single
+# pool entry. Production / data-collection runs don't set the env var, so
+# the pool is unused and the legacy cold path is unchanged.
+_warm_pool: dict[str, dict[str, Any]] = {}
+
+
+def _live_mode() -> bool:
+    return os.environ.get("KAETRAM_LIVE_SUITE", "").lower() in {"1", "true", "yes"}
+
+
+async def _drain_warm_pool() -> None:
+    """Close every warm session and reset the pool. Call from a module/session
+    teardown fixture when running in live mode."""
+    drained = list(_warm_pool.keys())
+    if drained:
+        _harness_log(f"drain_warm_pool: closing {len(drained)} session(s) [{', '.join(drained)}]")
+    while _warm_pool:
+        username, entry = _warm_pool.popitem()
+        for closer in ("session", "transport"):
+            obj = entry.get(closer)
+            if obj is None:
+                continue
+            try:
+                await obj.__aexit__(None, None, None)
+            except Exception:  # noqa: BLE001 — drain is best-effort
+                pass
+    if drained:
+        _harness_log("drain_warm_pool: done")
+
+
 def _timing_enabled() -> bool:
     return os.environ.get("KAETRAM_TEST_TIMING", "1").lower() not in {"0", "false", "no"}
 
@@ -218,6 +256,90 @@ class ToolResult:
             return None
 
 
+def _ts() -> float:
+    return time.perf_counter()
+
+
+async def _reseed_and_reconnect(entry: dict[str, Any], username: str) -> None:
+    """Live-suite reconnect for a pooled MCP session.
+
+    1. Close the current in-game session via `__test_close_session` — this
+       navigates the browser to about:blank, which tears down the WS;
+       Kaetram's server runs `handleClose() -> save() -> removePlayer()`
+       (see `Kaetram-Open/.../player.ts:404`) and frees the player slot.
+    2. Re-write Mongo from the recorded `seed_player` kwargs. The autosave
+       just clobbered our intended state, so we replay the seed before the
+       server reads from Mongo on the next login.
+    3. Re-run the login flow via `__test_login`. login_impl already retries
+       on the "already logged in" race (player slot still held), so we
+       don't need a separate poll here.
+    4. Verify the session is back to a healthy observe before returning.
+
+    Raises on any step that doesn't complete cleanly. The caller in
+    `mcp_session()` catches and falls back to a cold boot.
+    """
+    from bench.seed import get_last_seed_kwargs, seed_player
+
+    handle = entry["handle"]
+    started_at = _ts()
+    phase_at = started_at
+
+    def _mark(phase: str) -> None:
+        nonlocal phase_at
+        now = _ts()
+        _harness_log(
+            f"reseed[{username}] {phase}: +{now - phase_at:.2f}s "
+            f"(total {now - started_at:.2f}s)"
+        )
+        phase_at = now
+
+    _harness_log(f"reseed[{username}] start (warm pool reuse)")
+
+    close_result = await handle.call_tool("__test_close_session", {})
+    if close_result.is_error:
+        raise RuntimeError(f"__test_close_session error: {close_result.text!r}")
+    _mark("close_session_done")
+
+    last_kwargs = get_last_seed_kwargs(username)
+    if last_kwargs is None:
+        raise RuntimeError(
+            f"no recorded seed for {username!r}; live-suite mode requires the "
+            f"test (or its fixture) to call seed_player(...) before mcp_session()"
+        )
+    # `seed_player` records the kwargs again on this call — idempotent.
+    seed_player(username, **last_kwargs)
+    _mark("reseed_mongo_done")
+
+    login_result = await handle.call_tool("__test_login", {})
+    if login_result.is_error or "FAILED" in login_result.text.upper():
+        raise RuntimeError(f"__test_login failed: {login_result.text!r}")
+    _mark("login_done")
+
+    # Healthy-observe gate, mirrors the cold-path warmup loop.
+    last_observe: ToolResult | None = None
+    last_payload: dict | None = None
+    healthy_attempts = 0
+    for _ in range(20):
+        healthy_attempts += 1
+        last_observe = await handle.call_tool("observe", {})
+        last_payload = last_observe.json()
+        if (
+            not last_observe.is_error
+            and isinstance(last_payload, dict)
+            and isinstance(last_payload.get("pos"), dict)
+            and "x" in last_payload["pos"]
+            and "y" in last_payload["pos"]
+            and isinstance(last_payload.get("inventory"), list)
+        ):
+            _mark(f"healthy_observe attempts={healthy_attempts}")
+            return
+        await asyncio.sleep(0.5)
+    raise RuntimeError(
+        f"observe did not become healthy after relogin; last_observe="
+        f"{(last_observe.text[:300] if last_observe else None)!r}"
+    )
+
+
 @asynccontextmanager
 async def mcp_session(
     *,
@@ -234,9 +356,53 @@ async def mcp_session(
     Yields an object with `.call_tool(name, args) -> ToolResult` and
     `.list_tools() -> list[str]`. Cleanup closes the MCP session + kills
     the browser.
+
+    Live-suite mode (`KAETRAM_LIVE_SUITE=1`): keeps the MCP subprocess +
+    Chromium alive across tests in a module. On enter for an already-pooled
+    username, closes the prior in-game session, replays the most recent
+    `seed_player(...)` kwargs (the server's autosave on disconnect clobbers
+    the seed; we restore it before the next login reads from Mongo), then
+    runs the login flow against the warm browser. On exit, leaves the
+    session in the pool — the reachability conftest drains it at module
+    teardown via `_drain_warm_pool()`.
+
+    On any reseed-reconnect failure the pool entry is torn down and the
+    cold path runs, so a single bad test cannot poison the rest of the
+    module.
     """
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
+
+    live = _live_mode()
+    pool_key = username.lower()
+
+    # ── Warm-pool fast path: borrow + reseed-reconnect ───────────────────
+    if live and pool_key in _warm_pool:
+        _harness_log(f"mcp_session[{username}] warm-pool hit")
+        entry = _warm_pool[pool_key]
+        try:
+            await _reseed_and_reconnect(entry, username)
+        except Exception as exc:  # noqa: BLE001 — fall back to cold boot on any failure
+            _harness_log(
+                f"mcp_session[{username}] live reseed-reconnect failed "
+                f"({exc!r}); tearing down warm entry and falling back to cold path"
+            )
+            for closer in ("session", "transport"):
+                obj = entry.get(closer)
+                if obj is None:
+                    continue
+                try:
+                    await obj.__aexit__(None, None, None)
+                except Exception:
+                    pass
+            _warm_pool.pop(pool_key, None)
+        else:
+            try:
+                yield entry["handle"]
+            finally:
+                # Leave the warm session in the pool; module teardown drains.
+                pass
+            return
 
     started_at = time.perf_counter()
     phase_at = started_at
@@ -293,6 +459,12 @@ async def mcp_session(
         # tests are launched from the dashboard with headed=true) unless the
         # caller explicitly requested headless.
         "KAETRAM_HEADED": "1" if headed else os.environ.get("KAETRAM_HEADED", "0"),
+        # Conditionally register __test_close_session / __test_login in the
+        # MCP subprocess. Always set in test runs so the tools are available
+        # whether or not the suite is in live mode (cheap to register;
+        # production agents don't go through this code path so model-visible
+        # tool surface is unchanged for them).
+        "KAETRAM_TEST_LANE": "1",
         **(extra_env or {}),
     }
 
@@ -352,6 +524,23 @@ async def mcp_session(
             f"last_observe={text!r} payload={last_payload!r}"
         )
     mark(f"warmup_ready attempts={warmup_attempts}")
+
+    if live:
+        # Register the freshly-created warm session in the pool so the next
+        # test in this module can reuse it via the reseed-reconnect path.
+        # Leave session/transport open; module teardown drains the pool.
+        _harness_log(f"mcp_session[{username}] cold boot complete; registering in warm pool")
+        _warm_pool[pool_key] = {
+            "session": session,
+            "transport": transport,
+            "handle": handle,
+        }
+        try:
+            yield handle
+        finally:
+            # Live mode: keep open. _drain_warm_pool() handles teardown.
+            pass
+        return
 
     try:
         yield handle

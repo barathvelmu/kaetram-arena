@@ -3,6 +3,18 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-28 — Economy Patch + Mining-Free Playthrough
+
+**Game-source + prompt patch landed on Niral's lane** to unblock Q2 (Herbalist) and remove Mining from the agent's mental model. Foraging gates dropped twice today (25 → 10 → 5) for `bluelilybush`, `tomatobush`, `paprikabush` — single ~25-blueberry grind unlocks all three Herbalist nodes. Miner shop reframed as a general outfitter: ores deeply cut (coal 3g, copper/tin 5g, gold 20g), beryl added at 20g (so Arts and Crafts no longer needs to mine), copper/tin starter swords (10g), full bronze kit (~560g), full gold kit (~3700g). Ghost-stock high-tier ores and the dead `alloweditems` field removed. Halved consumable prices in startshop + forester. Added price fields to coppersword/tinsword/bronzesword/goldsword so they sell back. Miner's Quest I/II marked off-limits in walkthroughs; pickaxe stays out of agent flow entirely. **Comprehensive .md sweep** also landed across both repos: `game_knowledge.md` (post-merge-conflict revert re-applied), `PLAYTHROUGH.md`, `GAME_SYSTEMS.md`, `QUEST_CITATIONS.md`, reachability `README.md` A4 marked deprecated.
+
+**Kaetram-Open commits:** `005244e62` (foraging Lv5 + miner outfitter + items prices), follow-up doc-fix commit pending.
+**kaetram-arena commits:** `421b4e2` (prompts: Foraging Lv5 + mining-free), follow-up doc-fix commit pending.
+**Server not restarted** — active test run holds the old state until cycled.
+
+**Next:** monitor next agent run for whether bronze-kit purchase becomes a routine action; if economy still feels frictionless or opaque, consider further price tuning.
+
+---
+
 ## 2026-04-28 — Code Red Doc Catch-up + KAE-50 Q2/Q3 Strike Team
 
 **10-day commit gap closed with documentation pass.** 7-agent strike team audited every tracked .md file against the cofounder's ~30 commits since Apr 18. Updates landed: `CLAUDE.md` (4-agent default, test-lane port 9191 / `TEST_AGENT_ID=99` callout), `dataset/DATA.md` (1,422 logs / r10 superseded / Tier-A signals listed / 3 archetypes named), `docs/r10_launch_gate.md` marked SUPERSEDED with pointer to `KAE-50`, `docs/dataset-regeneration-plan.md` marked HISTORICAL, `docs/behavior-audit.md` archival banner added (n=30 audit motivated KAE-46 reframe), `tests/e2e/quests/reachability/README.md` corrected (27 tests not 30, suite score replaced with live 2026-04-28 VM run: 20 PASSED / 2 FAILED on the fast subset).

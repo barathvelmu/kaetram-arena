@@ -20,7 +20,7 @@ stage, items needed, and `live_gate_status` evaluated against your state.
 | # | Tier | Exact Quest Name | NPC + coords | Gate / Prereq | Reward / Unlock | Why / one-line action |
 |---|------|------------------|--------------|---------------|-----------------|------------------------|
 | 1 | **CORE** | Foresting | Forester (216, 114) | None | `ironaxe` | Warmup — 10+10 oak logs, turn in twice |
-| 2 | **CORE** | Herbalist's Desperation | Herby Mc. Herb (333, 281) | **None for acceptance** — Foraging 25 is a *progress* gate (paprika at stage 2), NOT an acceptance gate. Talk to Herby Mc. Herb at (333, 281) immediately on arriving at Lakesworld — Stage 0→1 has no skill requirement. | `hotsauce` + 1500 Foraging XP | Turn in blue lily, then paprika + tomato |
+| 2 | **CORE** | Herbalist's Desperation | Herby Mc. Herb (333, 281) | **None for acceptance** — Foraging 5 is a *progress* gate (all three required nodes — bluelily, tomato, paprika — share Lv5). Talk to Herby Mc. Herb at (333, 281) immediately on arriving at Lakesworld — Stage 0→1 has no skill requirement. | `hotsauce` + 1500 Foraging XP | Turn in blue lily, then paprika + tomato |
 | 3 | **CORE** | Rick's Roll | Rick (1088, 833) | None | **1987 gold** | Fish + cook 5 shrimp, deliver `seaweedroll` |
 | 4 | **CORE** | Arts and Crafts | Babushka (702, 608) | None | **Crafting unlock on start** | `berylpendant → bowlsmall → stew` (`stew` needs `bowlmedium`) |
 | 5 | **CORE** | Sea Activities | Sponge (52, 310) | **`waterguardian` achievement** for undersea | **10000 gold** + sea quest gates | Sponge/Pickle talk chain, then kill `picklemob` |
@@ -47,7 +47,7 @@ stage, items needed, and `live_gate_status` evaluated against your state.
 - Tutorial is auto-finished at spawn; starter kit (bronzeaxe, knife, fishingpole, coppersword, woodenbow) is already in your inventory. Ignore all tutorial dialogue / NPCs.
 - 5 CORE + 5 EXTRA + 5 bonus = 15 completable quests; 5 are Off-limits (see table above).
 - Start **Arts and Crafts** to unlock Crafting. Start **Scientist's Potion** to unlock Alchemy.
-- Smithing, Smelting, and Cooking are always available on station click. Fletching requires a `knife` from Clerk.
+- Cooking is always available on a cauldron click. Fletching requires a `knife` (already in spawn kit). **Mining and Smithing/Smelting are not part of the playthrough** — buy ores, beryl, and finished weapons/armor from the Miner shop instead.
 - `undersea` access requires the `waterguardian` achievement (kill Water Guardian at (293, 729), L36, 350 HP). **Ancient Lands** (EXTRA #10) opens the mountain gate. **Evil Santa** (bonus) unlocks `iceworld`.
 - Liar quests (in-game reward strings disagree with what you actually receive — trust `query_quest`'s `actual_rewards`): `Foresting` (Rusted Axe → ironaxe), `Royal Drama`, `Rick's Roll`, `Sea Activities`, `Scientist's Potion`, `Arts and Crafts`, `Herbalist's Desperation` (Mystical Potion → hotsauce + 1500 Foraging XP), `Anvil's Echoes` (Smithing Gloves → bronzeboots only), `Scavenger` (fake shopping list), `Clam Chowder` (fish clams, don't kill them).
 
@@ -81,23 +81,17 @@ Coords are first valid placement in `world.json` — useful as a `navigate(x,y)`
 |---|---|---|---|---|
 | Oak Tree | Lumberjacking | 1 | Mudwich north (~210, 110) | Foresting |
 | Blueberry Bush | Foraging | 1 | Mudwich (105–238, 103–209), e.g. (155, 103) | Foraging grind |
-| Blue Lily Bush | Foraging | 10 | (278–441, 250–363), e.g. (278, 250) | Arts and Crafts (`string`) |
-| Tomato Bush | Foraging | 15 | (113–386, 107–326), e.g. (220, 108) | Herbalist's, Scavenger |
-| Paprika Bush | Foraging | 25 | (286–390, 240–484), e.g. (298, 301) | Herbalist's |
+| Blue Lily Bush | Foraging | 5 | (278–441, 250–363), e.g. (278, 250) | Arts and Crafts (`string`) |
+| Tomato Bush | Foraging | 5 | (113–386, 107–326), e.g. (220, 108) | Herbalist's, Scavenger |
+| Paprika Bush | Foraging | 5 | (286–390, 240–484), e.g. (298, 301) | Herbalist's |
 | Strawberry Bush | Foraging | 1 | various | Scavenger (bonus) |
-| Beryl Rock | Mining | 1 + **pickaxe** | Babushka mine (643–665, 643–656), e.g. (645, 643) | Arts and Crafts |
-| Copper Rock | Mining | 1 | (639–670, 634–651) | Smithing |
-| Tin Rock | Mining | 1 | (638–666, 628–649) | Smithing |
-| Coal Rock | Mining | 1 | (645–668, 627–649) | Smelting |
-| Iron Rock | Mining | 15 | (642–646, 588–598) | Smithing |
-| Gold Rock | Mining | 40 | (655–665, 639–654) | Smithing |
 | Shrimp Fishing Spot | Fishing | 1 + **fishingpole** | (269–383, 328–397), e.g. (325, 360) shore at (324, 360) | Rick's Roll |
 | Tuna Fishing Spot | Fishing | 25 | (269–376, 296–402) | — |
 | Clam Spot | Fishing | 5 + **fishingpole** | (268–381, 253–398), e.g. (322, 318) | Clam Chowder (bonus) |
 
-⚠️ Spots **in water** require approach from a shore tile, not standing on the spot. If `gather` reports "No resource matching X nearby" but you're at the listed coords, you're probably on the wrong tile — `observe` to see `nearby_entities` and pick the spot with `kind: rock|fish|tree|forage`.
+**Mining is not part of the agent playthrough.** Beryl, copper/tin/coal/iron/gold ores are all sold by the Miner shop (see Stores section). Do not attempt to mine — Miner's Quest I/II are off-limits.
 
-⚠️ Mining beryl needs a **pickaxe** (bronzepickaxe minimum). The starter `bronzeaxe` does NOT mine rocks.
+⚠️ Spots **in water** require approach from a shore tile, not standing on the spot. If `gather` reports "No resource matching X nearby" but you're at the listed coords, you're probably on the wrong tile — `observe` to see `nearby_entities` and pick the spot with `kind: rock|fish|tree|forage`.
 
 ## SKILL PROGRESSION STRATEGY
 
@@ -105,13 +99,10 @@ The skill XP table is steep. Estimated `gather`/`attack` count to hit each level
 
 | Skill gate | XP needed | Suggested grind |
 |---|---|---|
-| Foraging 10 | 1,151 | ~115 blueberry gathers @ 10 XP each, OR ~58 corn @ 20 XP (Mudwich) |
-| Foraging 15 | 2,406 | ~241 blueberry, OR switch to bluelily/corn at L10 for ~70 mixed |
-| Foraging 25 | 7,833 | ~873 total blueberry gathers, OR optimal hybrid path (~70 blueberry → L10, ~140 bluelily → L15, ~250 tomato → L25 ≈ 460 mixed gathers) |
-| Mining 15 | 2,740 | ~140 copper/tin/coal at Lv1+ |
+| Foraging 5 | 511 | ~52 blueberry gathers @ 10 XP each, OR ~26 corn @ 20 XP (Mudwich) — unlocks blue lily, tomato, AND paprika together |
 | Fishing 5 | 511 | ~25 shrimp |
 
-For Herbalist's Desperation specifically: pick blue lily early (Lv10 gate), grind to 15 on tomato (better XP/action than blueberry once unlocked), grind to 25 on paprika (highest XP/action of the three). When calling `gather`, the `resource_name` is `Tomato Plant Thingy` (not `Tomato`) and `Paprika Bush` — match `foraging.json` keys exactly.
+For Herbalist's Desperation specifically: a single Foraging 1→5 grind on blueberry unlocks all three required nodes simultaneously. Paprika gives the highest XP/pull (50) — switch to it after Lv5 if continuing to grind. When calling `gather`, the `resource_name` is `Tomato Plant Thingy` (not `Tomato`) and `Paprika Bush` — match `foraging.json` keys exactly.
 
 ## ACHIEVEMENTS (NOT QUESTS)
 
@@ -132,9 +123,15 @@ Boss kills also grant achievements. Highest-value route kill: Water Guardian for
 
 Use `buy_item(npc_name, item_index, count)`:
 - **Babushka** (ingredients store): access via door at **(483,275)**. Items: 0=Blue Lily, 1=Tomato, 2-3=Mushroom, 4=Egg, 5=Corn, 6=Raw Pork, 7=Raw Chicken. ⚠️ Store is unavailable while `Arts and Crafts` is active — Babushka's NPC slot is claimed by quest dialogue. Gather ingredients from the world instead, or finish the quest first. Babushka also sells bluelily (item_index=0) — but Babushka is gated behind Ancient Lands quest (which itself needs the Aynor warp + a door at 463). For Herbalist, gathering is faster than waiting for Ancient Lands.
-- **Miner** (~323,178): 0=Coal, 1=Copper Ore, 2=Tin Ore, 3=Bronze Ore, 4=Gold Ore
-- **Forester** (~216,114): 0=Bronze Axe(1000g), 1=Iron Axe(5000g)
-- **Clerk** (startshop, Mudwich): 0=Arrow, 1=Knife, 2=Flask, 3=Mana Flask, 4=Burger, 5=Big Flask
+- **Miner** (~323,178 OR ~1007,664): general outfitter. Buy via `buy_item(npc_name="Miner", item_index=N)`:
+  - **Ores**: 0=Coal(3g), 1=Copper Ore(5g), 2=Tin Ore(5g), 3=Bronze Ore(8g), 4=Gold Ore(20g)
+  - **Beryl** (Arts and Crafts): 5=Beryl(20g)
+  - **Starter swords**: 6=Copper Sword(10g), 7=Tin Sword(10g)
+  - **Bronze kit** (~560g full): 8=Bronze Sword(120g), 9=Bronze Helmet(100g), 10=Bronze Chestplate(140g), 11=Bronze Legplates(100g), 12=Bronze Boots(100g)
+  - **Gold kit** (~3700g full): 13=Gold Sword(700g), 14=Gold Helmet(700g), 15=Gold Chestplate(900g), 16=Gold Legplates(700g), 17=Gold Boots(700g)
+  - Buy bronze kit early (after Rick's Roll's 1987g). Gold kit is the late-game upgrade.
+- **Forester** (~216,114): 0=Bronze Axe(100g), 1=Iron Axe(500g) — Foresting quest gives ironaxe free, so usually skip this shop.
+- **Clerk** (startshop, Mudwich): 0=Arrow(1g), 1=Knife(50g), 2=Flask(10g), 3=Mana Flask(10g), 4=Burger(45g), 5=Big Flask(55g), 6=Big Mana Flask(50g)
 
 **Warps** - use `warp(location)`:
 | Destination | warp() arg | Coords | Unlock |

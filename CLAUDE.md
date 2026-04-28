@@ -31,21 +31,97 @@ VM if it runs that code.
 
 ---
 
-## Multi-machine sync protocol
+## Multi-machine sync protocol — MANDATORY
 
-Two machines (laptop + GCP VM `34.28.111.6`) share `origin/main`. Edits on a
-stale checkout produce diffs that look like reverts of missing commits — and
-silently are. The 2026-04-17 cofounder incident is why this section exists.
+Two machines (laptop + GCP VM `34.28.111.6`) share `origin/main`. **Stale
+checkouts are the #1 cause of cofounder confusion in this project.** Two
+incidents:
 
-1. **Pull before edit.** `git fetch origin && git pull --ff-only` on the
-   machine you're about to touch. If non-ff, investigate; local has diverged.
-2. **Branch for shared code, direct for solo lanes.** Push to `feat/…` /
-   `chore/…` for anything your cofounder might edit (`eval_harness.py`,
-   `dashboard/`, `prompts/`, `finetune/`, `scripts/`). Direct to main only
-   for solo lanes (`research/`, `session_log.md`, `.claude/memory/`).
-3. **VM sync when unsure:** `git stash push -u -m "safety-$(date +%s)"`
-   before pulling. Stash-first means nothing is destroyed if a cofounder
-   commit conflicts.
+- **2026-04-17:** Agent edited files on stale VM checkout before pulling,
+  diffs looked like reverts of cofounder commits. Triggered argument.
+- **2026-04-28:** Agent `scp`'d a modified file to VM mid-test, then committed
+  locally, never pulled on VM. VM working tree showed dirty file matching the
+  pushed commit. Niral spotted it, asked "did u touch the file in VM? its dirty".
+
+These rules are non-negotiable. Follow them on **every machine, every session,
+every file edit** — not just for shared code.
+
+### 1. ALWAYS pull before any work — every machine, every session
+
+`git fetch origin && git pull --ff-only` is the **first command** on any
+machine before reading code, editing files, running scripts, or spawning
+agents. If non-ff: STOP, investigate. Do not force, rebase, or merge without
+understanding what diverged.
+
+```bash
+# Boilerplate to start every session on every machine:
+cd /path/to/kaetram-agent && git fetch origin && git pull --ff-only && git status
+```
+
+### 2. NEVER `scp` / `rsync` files between laptop and VM
+
+The 2026-04-28 incident: testing a fix locally, `scp`'d the modified file
+to the VM to "test before committing". This created a dirty working tree on
+the VM that didn't match `origin/main` even after the fix landed via git.
+Cofounder spotted it as suspicious.
+
+**Always go through git.** The full loop is:
+
+```bash
+# 1. Edit + test locally
+# 2. Commit + push
+# 3. Immediately on the OTHER machine:
+ssh patnir41@34.28.111.6 "cd /home/patnir41/projects/kaetram-agent && git pull --ff-only"
+# 4. Now test on VM with origin/main HEAD, not a hand-copied file
+```
+
+If a fix needs VM-side testing before committing, use a `feat/...` branch:
+push the WIP branch, pull it on VM, test there, then merge to main when clean.
+Never bypass git for "just-this-once" file copies.
+
+### 3. After every push, sync the OTHER machine
+
+If you pushed from laptop, immediately:
+```bash
+ssh patnir41@34.28.111.6 "cd /home/patnir41/projects/kaetram-agent && git pull --ff-only"
+```
+
+If you pushed from VM (e.g. cron compile-research), pull on laptop next
+session start. Don't leave a machine on a stale HEAD overnight — the
+auto-compile-research cron runs at 00:07 UTC and will commit `session_log.md`
+ahead of you.
+
+### 4. Branch for shared code, direct for solo lanes
+
+Push to `feat/…` / `chore/…` for anything your cofounder might edit
+concurrently: `eval_harness.py`, `dashboard/`, `prompts/`, `finetune/`,
+`scripts/`, `mcp_server/`. Direct to `main` is fine for solo lanes:
+`research/`, `session_log.md`, `.claude/memory/`, personal docs.
+
+### 5. VM sync when unsure — stash first
+
+If you arrive on a machine and `git status` shows unexpected modifications:
+
+```bash
+git stash push -u -m "safety-$(date +%s)"   # nothing destroyed
+git fetch origin && git pull --ff-only
+git stash list                               # decide per-stash to pop or drop
+```
+
+Stash-first means nothing is destroyed if a cofounder commit conflicts. If
+the dirty diff turns out to match an already-pushed commit (the 2026-04-28
+case), `git checkout -- <file>` then pull — the working-tree change was
+redundant.
+
+### 6. Quick recovery checklist (when you spot a dirty VM)
+
+```bash
+ssh patnir41@34.28.111.6 "cd /home/patnir41/projects/kaetram-agent && git status"
+# If files modified that are already in origin/main:
+ssh patnir41@34.28.111.6 "cd /home/patnir41/projects/kaetram-agent && \
+    git checkout -- <files> && git pull --ff-only && git status"
+# Verify clean working tree before doing anything else.
+```
 
 ---
 

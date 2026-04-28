@@ -396,14 +396,21 @@ def cmd_metrics(views: list[tuple[Path, SessionView]]) -> None:
         core5_str = f"{finished_core_5}/5"
 
         # 5. Turn efficiency: Core 5 quests-finished / num_turns.
-        # Higher = better planning (fewer turns per stage).
+        # Higher = better planning (fewer turns per stage). Sessions terminated
+        # mid-flight have no `result_summary` (no final result event written),
+        # so fall back to `n_assistant` (assistant-message count as a turn proxy).
         n_turns = 0
-        if sv.result_summary:
-            n_turns = sv.result_summary.get("num_turns") or 0
+        turn_source = "?"
+        if sv.result_summary and sv.result_summary.get("num_turns"):
+            n_turns = sv.result_summary.get("num_turns")
+            turn_source = "result"
+        elif sv.n_assistant:
+            n_turns = sv.n_assistant
+            turn_source = "asst"  # truncated session — n_assistant proxy
         if n_turns and finished_core_5:
-            eff = f"{finished_core_5}/{n_turns}={finished_core_5/n_turns:.4f}"
+            eff = f"{finished_core_5}/{n_turns}={finished_core_5/n_turns:.4f}({turn_source})"
         elif n_turns:
-            eff = f"0/{n_turns}"
+            eff = f"0/{n_turns}({turn_source})"
         else:
             eff = "—"
 
@@ -419,6 +426,8 @@ def cmd_metrics(views: list[tuple[Path, SessionView]]) -> None:
     print("  core5      = Core 5 quests finished, out of 5. Refine to '/11 stages'")
     print("               once stage_count per quest is wired from the quest JSONs.")
     print("  turn-eff   = Core 5 finished / num_turns. Higher = better planning.")
+    print("               (result) = num_turns from final result event;")
+    print("               (asst)   = fallback to n_assistant (session was truncated)")
     print()
     print("Source: Niral's iMessage 2026-04-28 — format / argument / tool-selection /")
     print("stage-completion / turn-efficiency. Tool-selection requires sampled judge.")

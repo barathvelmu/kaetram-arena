@@ -1,32 +1,27 @@
 # Reachability tests — Core 2-5
 
-These tests answer **"can a vanilla post-tutorial player physically complete
-this quest without exploits or skipped prerequisites?"** Each discrete step
-of a Core quest is a separate test with a minimal seed — typically just
-Mudwich spawn + the tutorial starter kit (plus a 3039 HP / 15M Health-XP
-buffer so nav-only tests don't fail on stray aggro).
+These tests answer **"can the agent complete this discrete quest step from
+the cumulative playthrough state it realistically has at that point?"**
+Each step is a separate test seeded via `playthrough_seed_kwargs(step_id)`
+in `conftest.py`, which layers prior-quest rewards, accumulated skill XP,
+achievements, and gear/gold on top of a vanilla post-tutorial baseline
+(Mudwich spawn + tutorial starter kit + 3039 HP / 15M Health-XP buffer
+so nav-only tests don't fail on stray aggro).
 
-They complement but do not replace:
+## Coverage — 31 tests across 4 files
 
-| Tier | Location | Seeds | Proves |
-|---|---|---|---|
-| Stage | `../test_0{1..5}_*.py` | Everything pre-satisfied | Quest runtime transitions work |
-| Integration | `../integration/` (planned) | Moderate, re-seeds per phase | End-to-end playthrough completes |
-| **Reachability** | **this dir** | **Minimal — Mudwich + starter kit** | **Vanilla player CAN physically play the quest** |
-
-## Coverage — 27 tests across 4 files
-
-### Herbalist's Desperation (6 tests)
+### Herbalist's Desperation (7 tests)
 | ID | What | Marker |
 |---|---|---|
 | H1 | Overland walk Mudwich → Herbalist (~270 tiles) | `slow` |
 | H2 | Accept quest via `interact_npc` | |
 | H3 | Foraging 1→5 from Mudwich blueberry bushes | `slow` |
-| H4 | Gather tomato at Foraging Lv15 | |
-| H5 | Gather paprika at Foraging Lv25 | |
+| H4 | Gather tomato at Foraging Lv5 | |
+| H5 | Gather paprika at Foraging Lv5 | |
 | H6 | Full turn-in chain with seeded items | |
+| H7 | Gather bluelily at Foraging Lv5 (all three Herbalist nodes share a single Lv5 gate) | |
 
-### Rick's Roll (6 tests)
+### Rick's Roll (7 tests)
 | ID | What | Marker |
 |---|---|---|
 | R1 | Overland walk Mudwich → Rick (~1500 tiles) | `slow` |
@@ -35,11 +30,13 @@ They complement but do not replace:
 | R4 | Cook shrimp via `craft_item` | |
 | R5 | 5× cookedshrimp turn-in → seaweedroll | |
 | R6 | Stage-2 quest door teleport + deliver to Lena → 1987 gold | |
+| R7 | Negative: Lena rejects rawshrimp (only seaweedroll completes stage 2) | |
 
-### Arts and Crafts (7 tests)
+### Arts and Crafts (8 tests)
 | ID | What | Marker |
 |---|---|---|
 | A1 | Mudwich → Babushka door via **warp Aynor + door 463** (subsumes the prior A1+A2 split) | `slow` |
+| A2 | Crafting unlocks on quest **start** (per `player.ts:2110 canUseCrafting() := isStarted()`) | |
 | A3 | Accept quest | |
 | A4 | Confirm bronzeaxe **fails** + bronzepickaxe **succeeds** mining beryl (tool-gating control + positive case) | |
 | A5 | Craft string from bluelily | |
@@ -64,7 +61,7 @@ They complement but do not replace:
 > path verified (kills land), so A7 stays as xfail to flag if Kaetram
 > rebalances drops.
 
-### Sea Activities (8 tests)
+### Sea Activities (9 tests)
 | ID | What | Marker |
 |---|---|---|
 | S1 | Overland walk Mudwich → Water Guardian (~680 tiles) | `slow` |
@@ -75,15 +72,32 @@ They complement but do not replace:
 | **S7** | Picklemob fight with **realistic mid-route gear** | `slow` |
 | S7' | Picklemob fight with end-game gear (control) | `slow` |
 | S8 | Final turn-in chain → 10000 gold | |
+| S9 | Negative: undersea warp blocked without `waterguardian` achievement | |
 
 > **S7 is the critical diagnostic.** If it passes, Sea Activities is
 > genuinely playable by a fresh route agent. If it fails while S7' passes,
 > Core 5 must formally acknowledge Stage 4 requires a seeded checkpoint.
 
+## Seed model
+
+Every step seeds the cumulative state an agent realistically has when
+arriving at that step under `prompts/game_knowledge.md`'s suggested play
+order (Foresting → Herbalist → Rick's Roll → Arts and Crafts → Sea
+Activities). Prior-quest rewards, accumulated skill XP, achievements, and
+gear/gold are all layered on top of the vanilla post-tutorial baseline.
+
+Seeds are centralized in `playthrough_seed_kwargs(step_id)` in
+`conftest.py`. S7 / S7' (Sea Activities picklemob with mid-route vs
+end-game gear) is the prototype this pattern generalizes from — both
+test functions seed playthrough state at different gear levels for the
+same step.
+
+Every test carries the `@reachability` marker.
+
 ## Running
 
 ```bash
-# Fast reachability suite (excludes slow overland walks + combat grinds):
+# Fast subset (excludes slow overland walks + combat grinds):
 DISPLAY=:99 pytest tests/e2e/quests/reachability/ -m "reachability and not slow" -v
 
 # Full reachability audit (includes 15-30 min walk + combat tests):
@@ -91,6 +105,9 @@ DISPLAY=:99 pytest tests/e2e/quests/reachability/ -m reachability -v
 ```
 
 ## Suite score (live VM run 2026-04-28, fast subset)
+
+> Historical baseline from the prior vanilla-seed lane. A fresh run
+> under the playthrough seed will re-baseline these numbers.
 
 ```
 22 collected, 5 deselected (slow)

@@ -18,6 +18,7 @@ from tests.e2e.helpers.seed import (  # noqa: F401
     TUTORIAL_FINISHED_QUEST,
     STARTER_KIT,
     cleanup_player,
+    get_last_seed_kwargs,
     seed_player,
     snapshot_player,
     summarize_snapshot,

@@ -46,9 +46,9 @@ from tests.e2e.quests.reachability.conftest import (
     REACHABILITY_NO_PROGRESS_TIMEOUT_S,
     assert_pos_within,
     navigate_long,
+    playthrough_seed_kwargs,
     reachability,
     slow,
-    vanilla_seed_kwargs,
 )
 from tests.e2e.quests.reachability.debug import get_current_test_debug
 
@@ -107,10 +107,7 @@ async def test_a1_navigate_mudwich_to_babushka_room(test_username):
     pre-finishes it — A1 is testing reachability post-quest, not the
     quest itself.
     """
-    seed_player(
-        test_username,
-        **vanilla_seed_kwargs(quests=[ANCIENTLANDS_FINISHED_QUEST]),
-    )
+    seed_player(test_username, **playthrough_seed_kwargs("A1"))
     try:
         async with mcp_session(username=test_username) as session:
             # Warp to Aynor (lands at 411,288).
@@ -149,7 +146,7 @@ async def test_a3_accept_artsandcrafts_quest(test_username):
     """A3: Accept Arts and Crafts by talking to Babushka."""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(position=adjacent_to("iamverycoldnpc")),
+        **playthrough_seed_kwargs("A3", position=adjacent_to("iamverycoldnpc")),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -165,24 +162,60 @@ async def test_a3_accept_artsandcrafts_quest(test_username):
 
 
 @reachability
+async def test_a2_crafting_unlocks_on_quest_start(test_username):
+    """A2 (gap-fill): Verify that Crafting unlocks the moment the
+    Arts and Crafts quest is STARTED, not when it is finished.
+
+    Per `Kaetram-Open/.../player.ts:2110` (`canUseCrafting`), the gate
+    is `quests.get(CRAFTING_QUEST_KEY).isStarted()`, which is true at
+    any stage >= 1. This test seeds the quest at stage 1 (just-accepted
+    state) plus a bluelily and confirms `craft_item(string)` succeeds —
+    i.e. the Crafting bench is usable mid-quest, not only after finish.
+
+    Matches `prompts/game_knowledge.md`: "Crafting unlock on start."
+    """
+    seed_player(
+        test_username,
+        **playthrough_seed_kwargs(
+            "A2",
+            position=adjacent_to("iamverycoldnpc"),
+            inventory=[{"key": "bluelily", "count": 1}],
+            skills=[{"type": CRAFTING, "experience": 1_000}],
+        ),
+    )
+    try:
+        async with mcp_session(username=test_username) as session:
+            r = await session.call_tool(
+                "craft_item",
+                {"skill": "crafting", "recipe_key": "string", "count": 1},
+            )
+            assert not r.is_error, r.text[:300]
+            data = r.json() or {}
+            assert "error" not in data, (
+                f"craft_item(crafting,string) at quest stage 1 should succeed; "
+                f"got {data}"
+            )
+        # Wait for autosave so the Mongo read below reflects the crafted item.
+        # In cold mode session exit triggers handleClose -> save(); in live
+        # mode the warm-pool keeps the session open, so we must wait out
+        # Kaetram's periodic world.save() interval explicitly.
+        await asyncio.sleep(AUTOSAVE_WAIT)
+        # Confirm string actually landed in the saved inventory.
+        assert count_saved_inventory(test_username, "string") >= 1, (
+            "Crafting unlock-on-start contract violated: stage 1 should "
+            "permit Crafting use, but no `string` was crafted."
+        )
+    finally:
+        cleanup_player(test_username)
+
+
+@reachability
 async def test_a4_mine_beryl_with_bronzepickaxe(test_username):
     """A4: Confirm bronzepickaxe mines beryl. (Previously A4a/A4b paired:
     A4a verified bronzeaxe CANNOT mine beryl; A4b verified bronzepickaxe
     can. A4a was deleted as redundant — Kaetram's tool gating is well
     documented and the negative case adds little reachability signal.)"""
-    seed_player(
-        test_username,
-        **vanilla_seed_kwargs(
-            position=BERYL_GATHER_TILE,
-            inventory=[
-                {"index": 0, "key": "bronzepickaxe", "count": 1},
-            ],
-            equipment=[
-                {"type": 4, "key": "bronzepickaxe", "count": 1, "ability": -1, "abilityLevel": 0},
-            ],
-            skills=[{"type": MINING, "experience": 1_000}],
-        ),
-    )
+    seed_player(test_username, **playthrough_seed_kwargs("A4"))
     try:
         async with mcp_session(username=test_username) as session:
             await gather_until_count(
@@ -204,12 +237,7 @@ async def test_a5_craft_string_from_bluelily(test_username):
     can the player craft string?"""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
-            position=adjacent_to("iamverycoldnpc"),
-            inventory=[{"key": "bluelily", "count": 1}],
-            skills=[{"type": CRAFTING, "experience": 1_000}],
-            quests=[{"key": "artsandcrafts", "stage": 1, "subStage": 0, "completedSubStages": []}],
-        ),
+        **playthrough_seed_kwargs("A5", position=adjacent_to("iamverycoldnpc")),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -234,14 +262,7 @@ async def test_a6_fletch_chain_logs_to_bowlmedium(test_username):
     """
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
-            position=adjacent_to("iamverycoldnpc"),
-            inventory=[
-                {"index": 0, "key": "knife", "count": 1},
-                {"key": "stick", "count": 4},
-            ],
-            skills=[{"type": FLETCHING, "experience": 1_000}],
-        ),
+        **playthrough_seed_kwargs("A6", position=adjacent_to("iamverycoldnpc")),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -277,16 +298,9 @@ async def test_a7_farm_mushroom1_from_goblins_during_quest(test_username):
     """
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
+        **playthrough_seed_kwargs(
+            "A7",
             position=(GOBLIN_SPAWN[0], GOBLIN_SPAWN[1] + 1),
-            inventory=[
-                {"index": 0, "key": "coppersword", "count": 1},
-            ],
-            equipment=[
-                {"type": 4, "key": "coppersword", "count": 1, "ability": -1, "abilityLevel": 0},
-            ],
-            skills=[{"type": 6, "experience": 10_000}],   # Strength lvl ~20
-            quests=[{"key": "artsandcrafts", "stage": 3, "subStage": 0, "completedSubStages": []}],
         ),
     )
     try:
@@ -306,19 +320,14 @@ async def test_a7_farm_mushroom1_from_goblins_during_quest(test_username):
 @reachability
 async def test_a8_cook_stew_and_final_turnin(test_username):
     """A8: With ingredients in hand and stage=3, cook stew and deliver to
-    Babushka; quest finishes."""
+    Babushka; quest finishes.
+
+    Seeded with cumulative playthrough state (Foresting/Herbalist/Rick's
+    all done) so the final turn-in runs against a non-empty quest log —
+    the actual benchmark surface."""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
-            position=adjacent_to("iamverycoldnpc"),
-            inventory=[
-                {"key": "bowlmedium", "count": 1},
-                {"key": "mushroom1", "count": 1},
-                {"key": "tomato", "count": 1},
-            ],
-            skills=[{"type": COOKING, "experience": 100_000}],
-            quests=[{"key": "artsandcrafts", "stage": 3, "subStage": 0, "completedSubStages": []}],
-        ),
+        **playthrough_seed_kwargs("A8", position=adjacent_to("iamverycoldnpc")),
     )
     try:
         async with mcp_session(username=test_username) as session:

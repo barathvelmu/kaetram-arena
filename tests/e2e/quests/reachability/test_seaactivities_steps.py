@@ -35,6 +35,7 @@ from tests.e2e.quests.conftest import (
     assert_quest_finished,
     assert_quest_state,
     count_saved_inventory,
+    live_observe,
     traverse_door,
     wait_for_position,
     wait_for_quest_state,
@@ -44,9 +45,9 @@ from tests.e2e.quests.reachability.conftest import (
     REACHABILITY_NO_PROGRESS_TIMEOUT_S,
     assert_pos_within,
     navigate_long,
+    playthrough_seed_kwargs,
     reachability,
     slow,
-    vanilla_seed_kwargs,
 )
 
 WATERGUARDIAN_POS = (293, 729)
@@ -81,7 +82,7 @@ async def test_s1_navigate_mudwich_to_water_guardian(test_username, test_debug):
     # the undersea warp (gated by waterguardian achievement) → door
     # 337 at (56,311) which teleports to (292,734). The achievement is
     # therefore a hard prerequisite — seed it.
-    seed_player(test_username, **vanilla_seed_kwargs(achievements=[WATERGUARDIAN_ACH]))
+    seed_player(test_username, **playthrough_seed_kwargs("S1"))
     try:
         async with mcp_session(username=test_username) as session:
             warp = await session.call_tool("warp", {"location": "undersea"})
@@ -112,26 +113,16 @@ async def test_s1_navigate_mudwich_to_water_guardian(test_username, test_debug):
 
 @reachability
 async def test_s3_kill_water_guardian(test_username):
-    """S3: Confirm the Water Guardian is engageable with ~lvl-35 combat
-    gear. Reachability question is "can a mid-tier player land a hit?",
+    """S3: Confirm the Water Guardian is engageable with mid-route gear.
+    Reachability question is "can a mid-tier player land a hit?",
     answered by a single swing dealing damage. The full kill (and the
     `waterguardian` achievement award) is a combat-tuning question, not
-    a reachability one."""
-    wgx, wgy = WATERGUARDIAN_POS
-    seed_player(
-        test_username,
-        **vanilla_seed_kwargs(
-            position=(wgx - 1, wgy),
-            hit_points=1089,
-            inventory=[
-                {"index": 0, "key": "coppersword", "count": 1},
-            ],
-            equipment=[
-                {"type": 4, "key": "coppersword", "count": 1, "ability": -1, "abilityLevel": 0},
-            ],
-            skills=[{"type": 6, "experience": 200_000}],  # Strength lvl ~35
-        ),
-    )
+    a reachability one.
+
+    Seeded with the cumulative playthrough state — ironsword +
+    ironchestplate + ironboots + multi-skill mid-tier loadout an agent
+    realistically arrives with."""
+    seed_player(test_username, **playthrough_seed_kwargs("S3"))
     try:
         async with mcp_session(username=test_username) as session:
             r = await session.call_tool("attack", {"mob_name": "Water Guardian"})
@@ -150,13 +141,7 @@ async def test_s3_kill_water_guardian(test_username):
 async def test_s4_warp_undersea_after_waterguardian(test_username):
     """S4: After `waterguardian` achievement, warp(undersea) lands at
     (43, 313). Confirms the warp gate logic."""
-    seed_player(
-        test_username,
-        **vanilla_seed_kwargs(
-            position=(188, 157),
-            achievements=[WATERGUARDIAN_ACH],
-        ),
-    )
+    seed_player(test_username, **playthrough_seed_kwargs("S4"))
     try:
         async with mcp_session(username=test_username) as session:
             r = await session.call_tool("warp", {"location": "undersea"})
@@ -182,10 +167,7 @@ async def test_s5_sponge_dialogue_chain_0_to_4(test_username):
     navigate against the real NPC placements."""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
-            position=adjacent_to("sponge"),
-            achievements=[WATERGUARDIAN_ACH, MERMAIDGUARD_ACH],
-        ),
+        **playthrough_seed_kwargs("S5", position=adjacent_to("sponge")),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -227,10 +209,9 @@ async def test_s6_arena_door_teleport(test_username):
     to (858, 808) in the picklemob arena."""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
+        **playthrough_seed_kwargs(
+            "S6",
             position=(ARENA_ENTRY_DOOR[0], ARENA_ENTRY_DOOR[1] + 1),
-            quests=[{"key": "seaactivities", "stage": 4, "subStage": 0, "completedSubStages": []}],
-            achievements=[WATERGUARDIAN_ACH],
         ),
     )
     try:
@@ -266,31 +247,7 @@ async def test_s7_picklemob_with_mid_route_gear(test_username, test_debug):
     realistically assemble, in which case Sea Activities Stage 4 must
     be a seeded checkpoint rather than agent-driven).
     """
-    pmx, pmy = PICKLEMOB_POS
-    seed_player(
-        test_username,
-        **vanilla_seed_kwargs(
-            position=(pmx - 2, pmy),
-            hit_points=1539,  # 39 + 50*30
-            mana=200,
-            inventory=[
-                {"index": 0, "key": "ironspear", "count": 1},
-                {"index": 1, "key": "burger", "count": 10},
-            ],
-            equipment=[
-                {"type": 4, "key": "ironspear", "count": 1, "ability": -1, "abilityLevel": 0},
-                {"type": 3, "key": "platearmor", "count": 1, "ability": -1, "abilityLevel": 0},
-            ],
-            skills=[
-                {"type": 1, "experience": COMBAT_MID_XP},
-                {"type": 3, "experience": COMBAT_MID_XP},
-                {"type": 6, "experience": COMBAT_MID_XP},
-                {"type": 7, "experience": COMBAT_MID_XP},
-            ],
-            quests=[{"key": "seaactivities", "stage": 4, "subStage": 0, "completedSubStages": []}],
-            achievements=[WATERGUARDIAN_ACH],
-        ),
-    )
+    seed_player(test_username, **playthrough_seed_kwargs("S7"))
     try:
         async with mcp_session(username=test_username) as session:
             # Hydrate the entity grid so the picklemob is visible.
@@ -365,14 +322,14 @@ async def test_s7_prime_picklemob_with_endgame_gear(test_username):
 @reachability
 async def test_s8_final_turnin_chain_5_to_7(test_username):
     """S8: Stages 5 → 6 → 7 — talk Pickle (receive 1 gold), navigate
-    Sponge, turn in 1 gold, receive 10000 gold, quest finished."""
+    Sponge, turn in 1 gold, receive 10000 gold, quest finished.
+
+    Seeded with the cumulative playthrough state — prior Core 4 quests
+    finished, achievements seeded. The 10000g reward delta asserted at
+    the end runs against a non-empty quest log."""
     seed_player(
         test_username,
-        **vanilla_seed_kwargs(
-            position=adjacent_to("picklenpc"),
-            quests=[{"key": "seaactivities", "stage": 5, "subStage": 0, "completedSubStages": []}],
-            achievements=[WATERGUARDIAN_ACH, MERMAIDGUARD_ACH],
-        ),
+        **playthrough_seed_kwargs("S8", position=adjacent_to("picklenpc")),
     )
     try:
         async with mcp_session(username=test_username) as session:
@@ -401,5 +358,42 @@ async def test_s8_final_turnin_chain_5_to_7(test_username):
             f"seaactivities completion awards 10000 gold; got "
             f"{count_saved_inventory(test_username, 'gold')}"
         )
+    finally:
+        cleanup_player(test_username)
+
+
+@reachability
+async def test_s9_undersea_warp_blocked_without_waterguardian(test_username):
+    """S9 (gap-fill, negative): Without the `waterguardian` achievement,
+    `warp(undersea)` must NOT teleport the player to (43,313). S4 covers
+    the positive case; this is the missing negative gate-test that
+    catches a bench-fairness bug where a fresh agent could short-circuit
+    the Water Guardian fight.
+
+    Per `prompts/game_knowledge.md`: "undersea access requires the
+    `waterguardian` achievement (kill Water Guardian at (293,729))."
+    """
+    seed_player(test_username, **playthrough_seed_kwargs("S9"))
+    # NOTE: S9 playthrough seed deliberately omits the `waterguardian`
+    # achievement — this is the negative gate test for undersea warp.
+    try:
+        async with mcp_session(username=test_username) as session:
+            r = await session.call_tool("warp", {"location": "undersea"})
+            # The warp call may or may not surface as is_error depending
+            # on Kaetram's gating path (server notify vs hard reject).
+            # Either way the player must NOT have moved to undersea.
+            await asyncio.sleep(2.0)
+            obs = await live_observe(session)
+            pos = obs.get("pos") or {}
+            x = int(pos.get("x", -1))
+            y = int(pos.get("y", -1))
+            ux, uy = UNDERSEA_WARP_EXIT
+            manhattan = abs(x - ux) + abs(y - uy)
+            assert manhattan > 12, (
+                f"warp(undersea) without waterguardian achievement should "
+                f"have been blocked, but player ended at ({x},{y}) which is "
+                f"only {manhattan} tiles from the undersea landing "
+                f"({ux},{uy}). r.is_error={r.is_error}"
+            )
     finally:
         cleanup_player(test_username)

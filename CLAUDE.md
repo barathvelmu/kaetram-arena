@@ -106,7 +106,7 @@ Full reference: `dashboard/DASHBOARD.md`.
 | `dashboard/server.py` | Dashboard entry point (HTTP :8080 + WS :8081). Full reference: `dashboard/DASHBOARD.md`. |
 | `eval_harness.py` + `scripts/run-eval.sh` | Eval orchestrator: r9-sft vs base on dedicated ports 9061 / 9071. |
 | `play_qwen.py` / `play_qwen.sh` | Finetuned-model harness — calls Modal SGLang endpoint, spawns the same MCP server. |
-| `tests/e2e/quests/` | Tiered quest test suite (`core` / `bonus` / `extra` / `skip` / `reachability`). See `tests/e2e/quests/README.md`. |
+| `tests/e2e/quests/` | Reachability tier — per-step playthrough tests for Core 4 (Herbalist, Rick's Roll, Arts and Crafts, Sea Activities). Each step seeds the cumulative state an agent has at that point per game_knowledge.md. |
 
 ## Ports
 

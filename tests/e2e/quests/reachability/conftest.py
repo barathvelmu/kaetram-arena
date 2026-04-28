@@ -1,19 +1,21 @@
 """Reachability-test helpers.
 
-These tests ask whether a **vanilla post-tutorial player** — spawned at
-Mudwich with only the tutorial starter kit — can physically reach each
-discrete step of a Core-5 quest using only MCP tools. They are intentionally
-separate from:
+These tests ask whether an agent — seeded with the cumulative playthrough
+state it realistically has when arriving at a given step under
+`prompts/game_knowledge.md`'s suggested play order — can complete each
+discrete step of a Core-4 quest using only MCP tools.
 
-  - `core/` stage-transition tests: pre-seed every prereq to isolate runtime
-    quest-system transitions.
-  - `core/integration/`: compose stages into an end-to-end quest run (still
-    pre-seeds resource counts to keep runtime bounded).
+Per-step seeds are produced by `playthrough_seed_kwargs(step_id)`. The
+seed layers on top of a vanilla post-tutorial baseline (Mudwich spawn,
+tutorial starter kit, 3039 HP / 15M Health-XP buffer that keeps nav-only
+tests from failing on stray aggro) the prior-quest rewards, accumulated
+skill XP, achievements, and gear an agent would have walking the canonical
+path (Foresting -> Herbalist -> Rick's Roll -> Arts and Crafts -> Sea
+Activities).
 
-Reachability tests deliberately MINIMIZE the seed. They exist to catch
-benchmark fairness bugs — hidden region gates, stale NPC coords, missing
-resource placements, unsurvivable boss fights — that the other two tiers
-silently paper over.
+Reachability tests catch benchmark fairness bugs — hidden region gates,
+stale NPC coords, missing resource placements, unsurvivable boss fights —
+that the other tiers silently paper over.
 
 Most tests live under budgets that assume the agent driving the test is
 `navigate`, not the LLM. We're proving the *tool path* is walkable, not
@@ -22,6 +24,7 @@ that the agent can decide to use it.
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any
 
 import pytest
@@ -37,7 +40,7 @@ from tests.e2e.quests.reachability.debug import (
 # Tutorial bypass grants this exact starter kit — see
 # Kaetram-Open/packages/server/src/game/entity/character/player/quests.ts
 # `applyTutorialBypass()`.
-VANILLA_STARTER_KIT: list[dict[str, Any]] = [
+POST_TUTORIAL_STARTER_KIT: list[dict[str, Any]] = [
     {"index": 0, "key": "bronzeaxe", "count": 1},
     {"index": 1, "key": "knife", "count": 1},
     {"index": 2, "key": "fishingpole", "count": 1},
@@ -57,36 +60,402 @@ REACHABILITY_NO_PROGRESS_TIMEOUT_S = 10.0
 REACHABILITY_HEALTH_XP = 15_000_000
 
 
-def vanilla_seed_kwargs(**overrides: Any) -> dict[str, Any]:
-    """Return a `seed_player(**kwargs)`-compatible dict for a fresh
-    post-tutorial spawn at Mudwich with the starter kit and boosted HP.
+def playthrough_seed_kwargs(step_id: str, **overrides: Any) -> dict[str, Any]:
+    """THE seed source for reachability tests.
 
-    Caller may pass `position=`, `skills=`, etc. to override specific fields
-    — the default is "nothing pre-granted beyond what the tutorial bypass
-    gives a real player", except for the reachability HP buffer that keeps
-    nav-only assertions from failing due to stray mob damage.
+    Returns a `seed_player(**kwargs)`-compatible dict encoding the
+    cumulative state an agent realistically has when arriving at `step_id`
+    under `prompts/game_knowledge.md`'s suggested play order
+    (Foresting -> Herbalist -> Rick's Roll -> Arts and Crafts -> Sea
+    Activities). On top of the vanilla post-tutorial baseline (Mudwich
+    spawn, starter kit, 3039 HP / 15M Health-XP buffer so nav-only tests
+    don't fail on stray aggro), this layers prior-quest rewards,
+    accumulated skill XP, achievements, and gear/gold the agent would
+    have picked up walking the canonical path.
+
+    Item keys referenced are verified against
+    `Kaetram-Open/packages/server/data/items.json` where possible.
+    Discrepancies surfaced during construction:
+      - `ironchest` is NOT a real item key; the iron-tier chestpiece is
+        `ironchestplate`. Used here for S3/S7-realistic.
+      - `platearmor` (referenced by existing S7) does not exist in
+        items.json (unverified — items.json check failed); preserved as
+        the pre-existing test surface.
     """
-    base = {
+    base = _baseline_seed_kwargs()
+    sid = step_id.upper()
+
+    # Skill enum indices (Modules.Skills): see reachability/README.md
+    # 0 LJ, 1 Acc, 3 Health, 5 Mining, 6 Str, 7 Def, 8 Fish, 9 Cook,
+    # 11 Crafting, 13 Fletching, 15 Foraging.
+    foresting_done = {"key": "foresting", "stage": 3, "subStage": 0, "completedSubStages": []}
+    herbalist_done = {"key": "herbalistdesperation", "stage": 3, "subStage": 0, "completedSubStages": []}
+    ricksroll_done = {"key": "ricksroll", "stage": 4, "subStage": 0, "completedSubStages": []}
+    artsandcrafts_done = {"key": "artsandcrafts", "stage": 4, "subStage": 0, "completedSubStages": []}
+    ancientlands_done = {"key": "ancientlands", "stage": 2, "subStage": 0, "completedSubStages": []}
+    waterguardian_ach = {"key": "waterguardian", "stage": 1, "stageCount": 1}
+
+    # Per-step cumulative state. Each block stamps over `base`.
+    if sid == "H1":
+        base["inventory"] = [
+            {"index": 0, "key": "bronzeaxe", "count": 1},
+            {"index": 1, "key": "knife", "count": 1},
+            {"index": 2, "key": "fishingpole", "count": 1},
+            {"index": 3, "key": "coppersword", "count": 1},
+            {"index": 4, "key": "woodenbow", "count": 1},
+            {"index": 5, "key": "ironaxe", "count": 1},
+        ]
+        base["quests"] = [foresting_done]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 0, "experience": 150},  # ~Lumberjacking from 20 oak gathers
+        ]
+    elif sid == "H2":
+        base["position"] = (333, 281)
+        base["quests"] = [foresting_done]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 0, "experience": 150},
+        ]
+    elif sid == "H3":
+        # Foraging Lv1 — same as vanilla on the foraging axis. Position
+        # at Mudwich blueberry zone.
+        base["position"] = (155, 104)
+        base["quests"] = [foresting_done]
+    elif sid == "H4":
+        # Foraging Lv10 (just unlocked tomato). XP for L10 ~ 1355.
+        base["position"] = (220, 108)
+        base["quests"] = [foresting_done]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 15, "experience": 1_500},
+        ]
+    elif sid == "H5":
+        # Foraging Lv15 — XP > 2740.
+        base["position"] = (220, 108)
+        base["quests"] = [foresting_done]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 15, "experience": 3_500},
+        ]
+    elif sid == "H6":
+        # Lv25 + items in hand for turn-in.
+        base["position"] = (333, 282)
+        base["inventory"] = [
+            {"key": "bluelily", "count": 3},
+            {"key": "tomato", "count": 2},
+            {"key": "paprika", "count": 2},
+        ]
+        base["quests"] = [
+            foresting_done,
+            {"key": "herbalistdesperation", "stage": 1, "subStage": 0, "completedSubStages": []},
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 15, "experience": 10_000},
+        ]
+    elif sid == "H7":
+        # Bluelily forage gate at L10 (newly added gap-fill step).
+        base["position"] = (278, 251)
+        base["quests"] = [foresting_done]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 15, "experience": 1_500},
+        ]
+    elif sid == "R1":
+        # Herbalist done (hotsauce + 1500 Foraging XP bonus).
+        base["inventory"] = [
+            {"index": 0, "key": "bronzeaxe", "count": 1},
+            {"index": 1, "key": "knife", "count": 1},
+            {"index": 2, "key": "fishingpole", "count": 1},
+            {"index": 3, "key": "coppersword", "count": 1},
+            {"index": 4, "key": "woodenbow", "count": 1},
+            {"index": 5, "key": "ironaxe", "count": 1},
+            {"index": 6, "key": "hotsauce", "count": 1},
+        ]
+        base["quests"] = [foresting_done, herbalist_done]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 0, "experience": 150},
+            {"type": 15, "experience": 11_500},
+        ]
+    elif sid == "R2":
+        base["position"] = (1088, 833)
+        base["quests"] = [foresting_done, herbalist_done]
+    elif sid == "R3":
+        # Already realistic: Fishing Lv1, fishingpole equipped.
+        base["position"] = (324, 360)
+        base["equipment"] = [
+            {"type": 4, "key": "fishingpole", "count": 1, "ability": -1, "abilityLevel": 0},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done,
+            {"key": "ricksroll", "stage": 1, "subStage": 0, "completedSubStages": []},
+        ]
+    elif sid == "R4":
+        base["inventory"] = [
+            {"index": 0, "key": "knife", "count": 1},
+            {"key": "rawshrimp", "count": 5},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done,
+            {"key": "ricksroll", "stage": 1, "subStage": 0, "completedSubStages": []},
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 8, "experience": 1_000},
+            {"type": 9, "experience": 200},
+        ]
+    elif sid == "R5":
+        base["position"] = (1088, 832)
+        base["inventory"] = [{"key": "cookedshrimp", "count": 5}]
+        base["quests"] = [
+            foresting_done, herbalist_done,
+            {"key": "ricksroll", "stage": 1, "subStage": 0, "completedSubStages": []},
+        ]
+    elif sid == "R6":
+        base["position"] = (260, 230)
+        base["inventory"] = [{"key": "seaweedroll", "count": 1}]
+        base["quests"] = [
+            foresting_done, herbalist_done,
+            {"key": "ricksroll", "stage": 2, "subStage": 0, "completedSubStages": []},
+        ]
+    elif sid == "R7":
+        # Negative test (gap-fill): cookedshrimp instead of seaweedroll.
+        base["position"] = (425, 909)
+        base["inventory"] = [{"key": "rawshrimp", "count": 5}]
+        base["quests"] = [
+            foresting_done, herbalist_done,
+            {"key": "ricksroll", "stage": 2, "subStage": 0, "completedSubStages": []},
+        ]
+    elif sid == "A1":
+        # Rick's done (1987g) + Ancient Lands done (Aynor warp). Already
+        # the existing A1 seed; add Foresting/Herbalist for completeness.
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
+        ]
+    elif sid == "A2":
+        # Gap-fill: at-Babushka, quest just accepted (stage 1).
+        base["position"] = (702, 609)
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
+            {"key": "artsandcrafts", "stage": 1, "subStage": 0, "completedSubStages": []},
+        ]
+    elif sid == "A3":
+        base["position"] = (702, 609)
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
+        ]
+    elif sid == "A4":
+        # Bronzepickaxe purchased (300g spent earlier).
+        base["position"] = (644, 643)
+        base["inventory"] = [{"index": 0, "key": "bronzepickaxe", "count": 1}]
+        base["equipment"] = [
+            {"type": 4, "key": "bronzepickaxe", "count": 1, "ability": -1, "abilityLevel": 0},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
+            {"key": "artsandcrafts", "stage": 1, "subStage": 0, "completedSubStages": []},
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 5, "experience": 1_000},
+        ]
+    elif sid == "A5":
+        base["position"] = (702, 609)
+        base["inventory"] = [{"key": "bluelily", "count": 1}]
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
+            {"key": "artsandcrafts", "stage": 1, "subStage": 0, "completedSubStages": []},
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 11, "experience": 1_000},
+        ]
+    elif sid == "A6":
+        base["position"] = (702, 609)
+        base["inventory"] = [
+            {"index": 0, "key": "knife", "count": 1},
+            {"key": "stick", "count": 4},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
+            {"key": "artsandcrafts", "stage": 1, "subStage": 0, "completedSubStages": []},
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 13, "experience": 1_000},
+        ]
+    elif sid == "A7":
+        # Combat skill ~lvl 20 from any prior grind.
+        base["position"] = (190, 205)
+        base["inventory"] = [{"index": 0, "key": "coppersword", "count": 1}]
+        base["equipment"] = [
+            {"type": 4, "key": "coppersword", "count": 1, "ability": -1, "abilityLevel": 0},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
+            {"key": "artsandcrafts", "stage": 3, "subStage": 0, "completedSubStages": []},
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 6, "experience": 10_000},
+        ]
+    elif sid == "A8":
+        base["position"] = (702, 609)
+        base["inventory"] = [
+            {"key": "bowlmedium", "count": 1},
+            {"key": "mushroom1", "count": 1},
+            {"key": "tomato", "count": 1},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
+            {"key": "artsandcrafts", "stage": 3, "subStage": 0, "completedSubStages": []},
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 9, "experience": 100_000},
+        ]
+    elif sid == "S1":
+        # A&C done (Crafting unlocked). Combat XP from the path.
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 6, "experience": 100_000},
+        ]
+        base["achievements"] = [waterguardian_ach]
+    elif sid == "S3":
+        # Combat ~Lv30, mid-tier gear (ironsword + ironchestplate +
+        # ironboots — note `ironchest` is NOT a valid items.json key).
+        wgx, wgy = 293, 729
+        base["position"] = (wgx - 1, wgy)
+        base["hit_points"] = 1089
+        base["inventory"] = [{"index": 0, "key": "ironsword", "count": 1}]
+        base["equipment"] = [
+            {"type": 4, "key": "ironsword", "count": 1, "ability": -1, "abilityLevel": 0},
+            {"type": 3, "key": "ironchestplate", "count": 1, "ability": -1, "abilityLevel": 0},
+            {"type": 11, "key": "ironboots", "count": 1, "ability": -1, "abilityLevel": 0},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 1, "experience": 200_000},
+            {"type": 6, "experience": 200_000},
+            {"type": 7, "experience": 200_000},
+        ]
+    elif sid == "S4":
+        base["position"] = (188, 157)
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+        ]
+        base["achievements"] = [waterguardian_ach]
+    elif sid == "S5":
+        base["position"] = (52, 311)
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+        ]
+        base["achievements"] = [
+            waterguardian_ach,
+            {"key": "mermaidguard", "stage": 1, "stageCount": 1},
+        ]
+    elif sid == "S6":
+        base["position"] = (693, 837)
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+            {"key": "seaactivities", "stage": 4, "subStage": 0, "completedSubStages": []},
+        ]
+        base["achievements"] = [waterguardian_ach]
+    elif sid == "S7":
+        # Mid-route gear: lvl 50 combat skills, ironspear + platearmor +
+        # 10 burgers — the realistic loadout an agent following
+        # game_knowledge.md could assemble en route to picklemob. Note
+        # `platearmor` is the pre-existing test-surface item key
+        # (unverified against items.json).
+        wgx, wgy = 858, 815  # PICKLEMOB_POS
+        base["position"] = (wgx - 2, wgy)
+        base["hit_points"] = 1539  # 39 + 50*30
+        base["mana"] = 200
+        base["inventory"] = [
+            {"index": 0, "key": "ironspear", "count": 1},
+            {"index": 1, "key": "burger", "count": 10},
+        ]
+        base["equipment"] = [
+            {"type": 4, "key": "ironspear", "count": 1, "ability": -1, "abilityLevel": 0},
+            {"type": 3, "key": "platearmor", "count": 1, "ability": -1, "abilityLevel": 0},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+            {"key": "seaactivities", "stage": 4, "subStage": 0, "completedSubStages": []},
+        ]
+        base["achievements"] = [waterguardian_ach]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 1, "experience": 500_000},
+            {"type": 6, "experience": 500_000},
+            {"type": 7, "experience": 500_000},
+        ]
+    elif sid == "S8":
+        base["position"] = (691, 839)
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+            {"key": "seaactivities", "stage": 5, "subStage": 0, "completedSubStages": []},
+        ]
+        base["achievements"] = [
+            waterguardian_ach,
+            {"key": "mermaidguard", "stage": 1, "stageCount": 1},
+        ]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 6, "experience": 100_000},
+        ]
+    elif sid == "S9":
+        # Negative gate test (gap-fill): no waterguardian achievement.
+        base["position"] = (188, 157)
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+        ]
+        # NOTE: deliberately NO achievements list -> defaults / not seeded.
+    else:
+        raise ValueError(f"playthrough_seed_kwargs: unknown step_id {step_id!r}")
+
+    # Apply overrides; preserve the Health-XP buffer if the caller passes
+    # a `skills=` override that doesn't include Health (type 3).
+    override_skills = overrides.get("skills")
+    base.update(overrides)
+    if override_skills is not None:
+        skills_list = list(override_skills)
+        has_health = any(int(s.get("type", -1)) == 3 for s in skills_list)
+        if not has_health:
+            skills_list.append({"type": 3, "experience": REACHABILITY_HEALTH_XP})
+        base["skills"] = skills_list
+    return base
+
+
+def _baseline_seed_kwargs() -> dict[str, Any]:
+    """Internal: vanilla post-tutorial baseline used as the starting point
+    for `playthrough_seed_kwargs`. Mudwich spawn, tutorial starter kit,
+    HP buffer, and Health-XP buffer so nav-only assertions don't fail
+    due to stray mob damage.
+    """
+    return {
         "position": MUDWICH_SPAWN,
         "hit_points": REACHABILITY_HP_BUFFER,
         "mana": 20,
-        "inventory": list(VANILLA_STARTER_KIT),
+        "inventory": list(POST_TUTORIAL_STARTER_KIT),
         "skills": [{"type": 3, "experience": REACHABILITY_HEALTH_XP}],
     }
-    merged = dict(base)
-    merged.update(overrides)
-
-    override_skills = list(overrides.get("skills") or [])
-    if override_skills:
-        has_health = any(int(skill.get("type", -1)) == 3 for skill in override_skills)
-        if not has_health:
-            override_skills.append({"type": 3, "experience": REACHABILITY_HEALTH_XP})
-        merged["skills"] = override_skills
-
-    if "inventory" in overrides and overrides["inventory"] is not None:
-        merged["inventory"] = list(overrides["inventory"])
-
-    return merged
 
 
 def _nav_log(msg: str) -> None:
@@ -639,3 +1008,64 @@ def pytest_runtest_makereport(item, call):
         rep.passed = passed
         rep.skipped = False
         item.rep_call = rep
+
+
+# ── Live-suite mode (KAETRAM_LIVE_SUITE=1) ──────────────────────────────────
+#
+# When the env var is set, all tests in a reachability module share one warm
+# MCP subprocess + Chromium + login session. Each test reseeds Mongo with the
+# kwargs `seed_player(...)` recorded, then calls `__test_close_session` +
+# `__test_login` via the MCP layer to swap player state in-place. Cuts ~14s
+# per-test infra (measured 2026-04-28: H2 "accept quest" took 15.5s of which
+# ~all was boot) down to ~3s reconnect.
+#
+# Test bodies don't change. mcp_session() in tests/e2e/helpers/mcp_client.py
+# detects KAETRAM_LIVE_SUITE and routes through the warm pool. The two
+# fixtures below provide module-scoped username (so the pool key is stable
+# across tests in a file) and the teardown drain (so the warm session is
+# released cleanly when the file finishes).
+#
+# Without the env var, this whole block is a no-op: the original
+# function-scoped `test_username` from tests/e2e/conftest.py wins and every
+# test gets a fresh cold mcp_session.
+
+
+def _live_suite_active() -> bool:
+    return os.environ.get("KAETRAM_LIVE_SUITE", "").lower() in {"1", "true", "yes"}
+
+
+@pytest.fixture(scope="module")
+def test_username(request):
+    """Live-suite override of the function-scoped test_username from the
+    parent conftest. In live mode, all tests in this module share one
+    username so the warm-session pool key is stable. In cold mode, this
+    fixture is still module-scoped — but each test cleans up its player
+    state in a `finally` block, so the shared name is safe; the cold path
+    just respawns MCP per test as it always has."""
+    import uuid
+
+    if _live_suite_active():
+        slug = uuid.uuid4().hex[:6]
+        return f"LiveBot_{slug}"
+    # Cold mode: still module-scoped here (kept for symmetry with live), but
+    # since each test calls cleanup_player() in finally, sharing across the
+    # 6-9 tests in a module is fine.
+    slug = uuid.uuid4().hex[:6]
+    return f"TestBot_{slug}"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _live_suite_pool_drain():
+    """Drain the warm-session pool when this module finishes. No-op outside
+    live-suite mode. Always autouse so file-level teardown is reliable even
+    if a test crashes mid-module."""
+    yield
+    if not _live_suite_active():
+        return
+    from tests.e2e.helpers.mcp_client import _drain_warm_pool
+
+    try:
+        asyncio.get_event_loop().run_until_complete(_drain_warm_pool())
+    except RuntimeError:
+        # If the event loop is closed (test session ending), spin up a fresh one.
+        asyncio.new_event_loop().run_until_complete(_drain_warm_pool())

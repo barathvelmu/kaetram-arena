@@ -231,12 +231,20 @@ async def traverse_door(
     max_distance: int = 5,
     polls: int = 15,
     delay_s: float = 1.0,
+    post_arrive_settle_s: float = 2.0,
 ) -> dict[str, Any]:
     """Step onto a door tile and wait for the expected teleport exit.
 
     Some door tiles are sensitive to approach direction. If the first
     navigate-to-door attempt stalls in place, try a few adjacent approach
     tiles and retry the door step before failing.
+
+    `post_arrive_settle_s` (default 2.0) sleeps after the player lands on
+    the exit tile, before returning. This works around a previously-flaky
+    R6/S8 failure mode where `navigate_long` immediately following
+    `traverse_door` thrashed against stale region/collision state — the
+    server hadn't finished post-teleport bookkeeping when the next BFS
+    plan ran. Set to 0 in tests where the door is the last action.
     """
     debug = get_current_test_debug()
     phase_cm = (
@@ -245,10 +253,20 @@ async def traverse_door(
         else nullcontext()
     )
     with phase_cm:
-        return await _traverse_door_inner(
+        result = await _traverse_door_inner(
             session, door_x=door_x, door_y=door_y, exit_x=exit_x, exit_y=exit_y,
             max_distance=max_distance, polls=polls, delay_s=delay_s, debug=debug,
         )
+        if post_arrive_settle_s > 0:
+            if debug is not None:
+                debug.event(
+                    "traverse_door_post_arrive_settle",
+                    door=(door_x, door_y),
+                    exit=(exit_x, exit_y),
+                    sleep_s=post_arrive_settle_s,
+                )
+            await asyncio.sleep(post_arrive_settle_s)
+        return result
 
 
 async def _traverse_door_inner(

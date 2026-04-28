@@ -279,6 +279,22 @@ def _with_default_tutorial(quests: Iterable[dict[str, Any]] | None) -> list[dict
     return merged
 
 
+# Records the most-recent seed kwargs per username so the live-suite
+# reconnect path (tests/e2e/quests/reachability/conftest.py) can re-apply
+# the seed after the server's autosave clobbers Mongo on disconnect. Only
+# touched in test runs; production has no callers of get_last_seed_kwargs.
+_LAST_SEED_KWARGS: dict[str, dict[str, Any]] = {}
+
+
+def get_last_seed_kwargs(username: str) -> dict[str, Any] | None:
+    """Test-lane only: return the most recent `seed_player(**kwargs)` for
+    `username`, or None if not seeded yet. Live-suite mode uses this to
+    re-write the seed after closing the prior session (the server's
+    autosave overwrites Mongo with stale state on disconnect — we replay
+    the recorded kwargs to restore the intended seed before reconnect)."""
+    return _LAST_SEED_KWARGS.get(username.lower())
+
+
 def seed_player(
     username: str,
     *,
@@ -314,6 +330,23 @@ def seed_player(
     inventory" — previously the prompt was lying because the default was
     None → empty 25 slots.
     """
+    # Record kwargs for live-suite reconnect replay before any Mongo work,
+    # so even if the write fails the recording is consistent. Materialize
+    # iterables so a generator/iterator caller can't be drained on replay.
+    _LAST_SEED_KWARGS[username.lower()] = {
+        "position": tuple(int(v) for v in position),
+        "hit_points": hit_points,
+        "mana": mana,
+        "inventory": list(inventory) if inventory is not None else None,
+        "bank": list(bank) if bank is not None else None,
+        "equipment": list(equipment) if equipment is not None else None,
+        "quests": list(quests) if quests is not None else None,
+        "achievements": list(achievements) if achievements is not None else None,
+        "skills": list(skills) if skills is not None else None,
+        "statistics": dict(statistics) if statistics is not None else None,
+        "player_info_overrides": dict(player_info_overrides) if player_info_overrides else None,
+    }
+
     x, y = int(position[0]), int(position[1])
     client = _client(mongo_uri)
     try:
@@ -372,6 +405,7 @@ def cleanup_player(
 ) -> dict[str, int]:
     """Delete the player's docs from every player_* collection. Returns the
     per-collection deleted count."""
+    _LAST_SEED_KWARGS.pop(username.lower(), None)
     client = _client(mongo_uri)
     try:
         db = client[db_name]

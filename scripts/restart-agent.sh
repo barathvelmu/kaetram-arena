@@ -298,16 +298,25 @@ else
   echo "Dashboard already running on :8080"
 fi
 
-# Ensure the NIM proxy is running for any opencode agents (it flattens
-# extraBody and rewrites reasoning_content → content so opencode actually
-# surfaces Qwen thinking). Cheap to run when no opencode agents are launched
-# either, so we always start it.
+# Ensure both reasoning-capture proxies are running for any opencode agents:
+#   - NIM proxy (:8889) — flattens extraBody + rewrites reasoning_content for
+#     NVIDIA NIM (Qwen thinking models).
+#   - DeepSeek proxy (:8890) — same SSE rewrite pointed at api.deepseek.com,
+#     because opencode 1.14.29's @ai-sdk/openai-compatible provider doesn't
+#     read DeepSeek's delta.reasoning_content (issue #24097).
+# Cheap when no opencode agents are launched, so always start.
 if [ -n "$N_OPENCODE" ] && [ "$N_OPENCODE" != "0" ]; then
   if ! ss -lnt 'sport = :8889' | grep -q LISTEN; then
     echo "Starting NIM proxy on 127.0.0.1:8889 ..."
-    "$PROJECT_DIR/scripts/start-nim-proxy.sh" || echo "  (proxy start failed — opencode will still run but reasoning won't surface)"
+    "$PROJECT_DIR/scripts/start-nim-proxy.sh" || echo "  (NIM proxy start failed — Qwen reasoning won't surface)"
   else
     echo "NIM proxy already running on 127.0.0.1:8889"
+  fi
+  if ! ss -lnt 'sport = :8890' | grep -q LISTEN; then
+    echo "Starting DeepSeek proxy on 127.0.0.1:8890 ..."
+    "$PROJECT_DIR/scripts/start-deepseek-proxy.sh" || echo "  (DeepSeek proxy start failed — V4 reasoning won't surface)"
+  else
+    echo "DeepSeek proxy already running on 127.0.0.1:8890"
   fi
 fi
 

@@ -38,7 +38,7 @@ so nav-only tests don't fail on stray aggro).
 | A1 | Mudwich → Babushka door via **warp Aynor + door 463** (subsumes the prior A1+A2 split) | `slow` |
 | A2 | Crafting unlocks on quest **start** (per `player.ts:2110 canUseCrafting() := isStarted()`) | |
 | A3 | Accept quest | |
-| A4 | ~~Confirm bronzeaxe fails + bronzepickaxe succeeds mining beryl~~ **(DEPRECATED 2026-04-28: beryl is now bought from Miner shop for 20g; mining is no longer part of agent playthrough)** | |
+| A4 | Buy beryl from the Miner shop (item_index=5, 20g) — canonical post-economy-patch path. Live-suite skipped (warm-pool caches MQ at stage 0 in-memory; cold pytest still exercises). | |
 | A5 | Craft string from bluelily | |
 | A6 | Fletch 4 sticks → 1 bowlmedium | |
 | A7 | Farm mushroom1 from goblins (asserts only damage>0 — drop-rate math is upstream) | `slow` |
@@ -51,12 +51,17 @@ so nav-only tests don't fail on stray aggro).
 > unmarked door at (406,292) → (433,270) inside the Babushka exterior.
 > A1 verifies that route works end-to-end.
 
-> **A4 is deprecated.** As of 2026-04-28, beryl is sold by the Miner shop
-> at 20g — mining is no longer part of the agent playthrough. The historical
-> A4a (bronzeaxe → 0 beryl) and A4b (bronzepickaxe → beryl) tests
-> documented tool-gating that no longer affects agents. They remain in the
-> source for non-agent reference but should not be relied on for benchmark
-> coverage.
+> **A4 was rewritten 2026-04-29** as `test_a4_buy_beryl_from_miner` —
+> verifies the canonical post-economy-patch acquisition path (Miner shop
+> at 20g). Seed is `(323, 179)` directly south of the Miner with 50g and
+> Miner's Quest 1 finished + Miner's Quest 2 started-but-never-completed
+> (MQ2 is off-limits per `game_knowledge.md`; the started state is the
+> minimum that keeps the shop UI from being shadowed by repeated MQ2
+> dialogue offers). Live-suite skipped — warm-pool MCP sessions cache
+> `minersquest.isFinished()` from the FIRST login, so by the time A4 runs
+> the shop UI has already been gated against the cached stage-0 state.
+> Cold-mode pytest (each test relogs) exercises this test correctly.
+> The historical A4a/A4b mining tests are gone.
 
 > **A7 is xfail.** Goblin loot math from Kaetram-Open data: mushrooms
 > droptable rolls at 6%, then 1-of-8 mushrooms = ~0.75% chance of
@@ -107,26 +112,32 @@ DISPLAY=:99 pytest tests/e2e/quests/reachability/ -m "reachability and not slow"
 DISPLAY=:99 pytest tests/e2e/quests/reachability/ -m reachability -v
 ```
 
-## Suite score (live VM run 2026-04-28, fast subset)
+## Suite score (2026-04-28 baseline, fast subset)
 
-> Historical baseline from the prior vanilla-seed lane. A fresh run
-> under the playthrough seed will re-baseline these numbers.
+> Pre-2026-04-29 patch baseline. R6 + S8 + R4 + A2 listed below have
+> since been patched; rerun the suite to re-baseline.
 
 ```
 22 collected, 5 deselected (slow)
 20 PASSED, 2 FAILED, 0 XFAIL — runtime 9:38
 ```
 
-The 2 failures are both `navigate_long` door-teleport edge cases at end-of-quest
-chains — not test logic:
+**Patches landed 2026-04-29 (re-run pending):**
 
-- `test_r6_door_teleport_and_deliver_to_lena`: pathfinder thrashes near (425,909)
-  while heading to (455,924).
-- `test_s8_final_turnin_chain_5_to_7`: stops 13 tiles short of (688,844). Browser
-  shows door tile flagged `IS DOOR` correctly, but path traversal fails.
-
-Suspect a shared root cause in door-tile transitions inside `navigate_long`'s
-hop logic. Slow subset (5 tests, ~30+ min walks) was deselected for this run.
+- `test_r4_cook_shrimp_via_craft_item` + `test_a2_crafting_unlocks_on_quest_start`:
+  switched from `count_saved_inventory` to `wait_for_inventory_count` — the
+  warm-pool MCP session never triggers Kaetram's 60s autosave, so Mongo
+  reads raced the craft. Live observe is authoritative.
+- `test_r6_door_teleport_and_deliver_to_lena`: stage-2 maze is a 4-door
+  puzzle, not a single teleport. Test now walks the explicit chain via
+  `(424, 902)` → `(425, 901)` → `(453, 904)` → `(453, 907)` → `(426, 927)`
+  → `(431, 920)` → `(455, 930)` → Lena.
+- `test_s8_final_turnin_chain_5_to_7`: target was `(688, 844)` — door tile
+  itself, which the BFS treats as collision. Corrected to `(688, 843)`.
+- `test_s9_undersea_warp_blocked_without_waterguardian`: `skipif
+  KAETRAM_LIVE_SUITE` — warm-pool caches the `waterguardian` achievement
+  flag from the FIRST login, so seeding the next test without it doesn't
+  invalidate the in-memory state. Cold pytest still exercises it.
 
 ## Common pitfalls (read before debugging)
 

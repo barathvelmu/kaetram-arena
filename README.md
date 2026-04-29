@@ -141,11 +141,11 @@ Four stages transform raw Claude session logs into SFT + KTO training data for Q
 Teacher and student call the same surface. Categories:
 
 - **Core loop:** `observe`
-- **Combat:** `attack(mob_name)`, `set_attack_style(style)`, `eat_food(slot)`, `respawn`, `loot`
+- **Combat:** `attack(mob_name)` (auto-loots on kill), `set_attack_style(style)`, `eat_food(slot)`, `respawn`, `loot` (free-standing drops only)
 - **Movement:** `navigate(x, y)`, `warp(location)`, `cancel_nav`, `stuck_reset`
-- **Dialogue / quests:** `interact_npc(npc_name, accept_quest_offer=False)`, `query_quest(quest_name)`
-- **Economy / inventory:** `buy_item(npc_name, item_index, count)`, `equip_item(slot)`, `drop_item(slot)`
-- **Production:** `gather(resource_name)`, `craft_item(skill, recipe_key, count)`
+- **Dialogue / quests:** `interact_npc(npc_name, accept_quest_offer=False)` (returns `quest_opened` / `quest_accepted` / `quest_offered` / `quest_state_changed`), `query_quest(quest_name)`
+- **Economy / inventory:** `buy_item(npc_name, item_index, count)` (auto-walks to NPC + opens shop), `equip_item(slot)`, `drop_item(slot)`
+- **Production:** `gather(resource_name)`, `craft_item(skill, recipe_key, count)` (auto-walks to nearest station on the current map)
 
 The live MCP export matches this surface exactly — deprecated wrappers (`login`, `move`, `talk_npc`, `accept_quest`, `clear_combat`, `click_tile`) were removed in PR #29 to avoid tool-bloat regression. Per-tool reference: [`mcp_server/README.md`](mcp_server/README.md).
 
@@ -167,8 +167,7 @@ kaetram-agent/
 ├── world/                   # WIP forward dynamics model (2.2M param Transformer)
 ├── prompts/                 # system.md, game_knowledge.md, personalities/
 ├── tests/                   # 136 e2e quest tests, including Core 5 under tests/e2e/quests/core/
-├── scripts/                 # restart/resume/nuke agents, eval, dashboards, research check
-├── research/                # Karpathy-style compiled knowledge base (gitignored)
+├── scripts/                 # restart/resume/nuke agents, eval, dashboards
 ├── dataset/, state/, logs/  # Runtime artefacts (gitignored)
 ├── session_log.md           # Running decision log across sessions
 └── CLAUDE.md                # Developer reference
@@ -205,7 +204,6 @@ Backend lives in `dashboard/test_runner.py`; full reference in `dashboard/DASHBO
 | `/game-session` | Check what's running, get startup commands, see port status |
 | `/verify-pipeline` | Confirm data is flowing, inspect latest training record |
 | `/training-summary` | Dataset stats, reward trends, best/worst sessions |
-| `/compile-research` | LLM compile pass over `research/` — fix stale facts, add missing entries |
 
 ## Gotchas
 

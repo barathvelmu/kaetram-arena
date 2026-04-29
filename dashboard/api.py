@@ -110,6 +110,18 @@ class APIMixin:
         from dashboard import test_runner
         self._send_json({"current": test_runner.get_current()})
 
+    def send_test_reach_log(self, test_name):
+        """GET /api/test/reach_log?test=<name> → tail of a reachability JSONL."""
+        from dashboard import test_runner
+        if not test_name:
+            return self._send_json({"error": "missing test"})
+        # Defensive: prevent path traversal. Test names are pytest node
+        # names — alphanumerics + underscores + brackets/dots/dashes.
+        safe = "".join(ch for ch in test_name if ch.isalnum() or ch in "_-[].")
+        if safe != test_name:
+            return self._send_json({"error": "invalid test name"})
+        self._send_json(test_runner.read_reach_log_tail(test_name))
+
     def send_game_state(self, qs=None):
         state_dir = self._resolve_state_dir(qs)
         data = {}
@@ -339,28 +351,11 @@ class APIMixin:
     # ── Live status (multi-agent aware) ──
 
     def send_live_status(self):
-        mode = "none"
-        agent_count = 0
-        # Use /proc scan instead of subprocess fork
-        if check_process_running("python3 orchestrate.py"):
-            mode = "multi"
-            for j in range(MAX_AGENTS):
-                meta_file = os.path.join("/tmp", f"kaetram_agent_{j}", "metadata.json")
-                if os.path.isfile(meta_file):
-                    try:
-                        with open(meta_file) as mf:
-                            meta = json.load(mf)
-                        if meta.get("personality") != "qwen":
-                            agent_count += 1
-                    except Exception:
-                        pass
-        if mode == "none" and check_process_running("play.sh"):
-            mode = "single"
-            agent_count = 1
-
-        agent_running = mode != "none"
-
-        # Use cached ss output (shared 5s TTL)
+        # Use cached ss output (shared 5s TTL) — listening ports are the
+        # ground-truth signal for "is this agent actually running right now".
+        # Pure metadata.json count is wrong: stale files from prior runs
+        # linger after a partial resume (e.g. --opencode 1 leaves agent_1/2
+        # metadata on disk but only agent_0's port is bound).
         ss_out = get_ss_output()
         active_ports = []
         game_server_up = ":9000" in ss_out
@@ -370,6 +365,32 @@ class APIMixin:
                 active_ports.append(port)
         if not game_server_up and active_ports:
             game_server_up = True
+
+        mode = "none"
+        agent_count = 0
+        if check_process_running("python3 orchestrate.py"):
+            mode = "multi"
+            # Count only agents whose game server is currently listening AND
+            # have metadata (rules out qwen sandboxes and bare ports).
+            for j in range(MAX_AGENTS):
+                port = BASE_SERVER_PORT + j * PORT_STRIDE
+                if port not in active_ports:
+                    continue
+                meta_file = os.path.join("/tmp", f"kaetram_agent_{j}", "metadata.json")
+                if not os.path.isfile(meta_file):
+                    continue
+                try:
+                    with open(meta_file) as mf:
+                        meta = json.load(mf)
+                    if meta.get("personality") != "qwen":
+                        agent_count += 1
+                except Exception:
+                    pass
+        if mode == "none" and check_process_running("play.sh"):
+            mode = "single"
+            agent_count = 1
+
+        agent_running = mode != "none"
 
         single_sessions = len(glob.glob(os.path.join(LOG_DIR, "session_*.log")))
         multi_sessions = len(glob.glob(os.path.join(DATASET_DIR, "raw", "agent_*", "runs", "*", "session_*.log")))
@@ -485,6 +506,12 @@ class APIMixin:
 
             # Use ss port check instead of raw TCP probe (avoids TIME-WAIT flood on game servers)
             agent["server_healthy"] = agent["server_port"] in listening_ports
+            # Skip agents whose game server isn't currently listening. This is
+            # how we distinguish "live" from "stale sandbox left over from a
+            # prior run" — a resume with --opencode 1 leaves agent_1/2 metadata
+            # on disk but only agent_0's port is bound.
+            if not agent["server_healthy"]:
+                continue
 
             log_dir = os.path.join(DATASET_DIR, "raw", f"agent_{i}", "logs")
             agent["log_dir"] = log_dir

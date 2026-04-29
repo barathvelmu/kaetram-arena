@@ -328,6 +328,10 @@ def start(suite: str | None, markers: str | None, headed: bool) -> str:
         # test surfaces (mcp/, game/, unit/) ignore it. Set
         # KAETRAM_LIVE_SUITE=0 in the inherited env to opt out.
         env.setdefault("KAETRAM_LIVE_SUITE", "1")
+        # Reachability JSONL debug logs on by default — dashboard runs
+        # need the per-test sandbox/<slot>/reachability_logs/*.jsonl to
+        # diagnose failures post-hoc. Set KAETRAM_DEBUG=0 to opt out.
+        env.setdefault("KAETRAM_DEBUG", "1")
 
         log_path = run_dir / "log.txt"
         log_fh = open(log_path, "w")
@@ -400,6 +404,16 @@ def list_runs() -> list[dict]:
             continue
         meta["progress"] = _read_progress(d)
         meta["junit"] = _read_junit_summary(d)
+        # Slim case list (name + outcome + time only) so the history list
+        # can render per-test chips inline without firing a detail fetch
+        # for every row. The fat detail (`message`, `detail`, `reach_log`)
+        # only loads on expand.
+        cases = _read_junit_cases(d)
+        if cases:
+            meta["cases"] = [
+                {"name": c["name"], "outcome": c["outcome"], "time": c["time"]}
+                for c in cases
+            ]
         runs.append(meta)
     return runs
 
@@ -413,6 +427,7 @@ def get_run(run_id: str) -> dict | None:
         return None
     meta["progress"] = _read_progress(d)
     meta["junit"] = _read_junit_summary(d)
+    meta["cases"] = _read_junit_cases(d)
     log_path = d / "log.txt"
     if log_path.exists():
         try:
@@ -587,6 +602,108 @@ def _read_junit_summary(d: Path) -> dict | None:
         return totals
     except Exception:
         return None
+
+
+# Reachability JSONL logs the @reachability fixture writes per test.
+# Lives at <repo-parent>/sandbox/<slot>/reachability_logs/<test_name>.jsonl
+# (matches tests/e2e/quests/reachability/debug.py's `_slot_logs_dir`,
+# which uses `parents[5]` from inside the tests tree → repo's parent).
+# Default slot is "niral" but agents/data-collection use other slots —
+# honor KAETRAM_SLOT here so dashboard runs find the right files.
+def _reach_logs_dir() -> Path:
+    slot = os.environ.get("KAETRAM_SLOT", "niral")
+    return PROJECT_DIR.parent / "sandbox" / slot / "reachability_logs"
+
+
+def _reach_log_path(test_name: str) -> Path:
+    return _reach_logs_dir() / f"{test_name}.jsonl"
+
+
+def _read_junit_cases(d: Path) -> list[dict] | None:
+    """Per-testcase outcomes from junit.xml — name, classname, time,
+    outcome (passed/failed/error/skipped), short message, and a pointer
+    to the matching reachability JSONL when present."""
+    p = d / "junit.xml"
+    if not p.exists():
+        return None
+    try:
+        root = ET.parse(p).getroot()
+    except Exception:
+        return None
+    cases: list[dict] = []
+    for tc in root.iter("testcase"):
+        name = tc.attrib.get("name", "")
+        classname = tc.attrib.get("classname", "")
+        try:
+            elapsed = float(tc.attrib.get("time", "0"))
+        except ValueError:
+            elapsed = 0.0
+        outcome = "passed"
+        message = None
+        detail = None
+        for tag, kind in (("failure", "failed"), ("error", "error"), ("skipped", "skipped")):
+            node = tc.find(tag)
+            if node is not None:
+                outcome = kind
+                message = (node.attrib.get("message") or "").strip() or None
+                # Body holds the captured traceback; truncate so we don't
+                # ship 50 KB per case to the UI.
+                body = (node.text or "").strip()
+                detail = body[-2000:] if body else None
+                break
+        # Reachability JSONL pointer (if file exists).
+        log_path = _reach_log_path(name)
+        log_meta = None
+        if log_path.exists():
+            try:
+                st = log_path.stat()
+                log_meta = {
+                    "path": str(log_path),
+                    "size": st.st_size,
+                    "mtime": st.st_mtime,
+                }
+            except OSError:
+                pass
+        cases.append({
+            "name": name,
+            "classname": classname,
+            "time": elapsed,
+            "outcome": outcome,
+            "message": message,
+            "detail": detail,
+            "reach_log": log_meta,
+        })
+    return cases
+
+
+def read_reach_log_tail(test_name: str, max_bytes: int = 200_000) -> dict:
+    """Read the tail of a reachability JSONL for the given test.
+
+    Returns {"path", "size", "mtime", "tail"}; the tail is the last
+    `max_bytes` of the file, decoded with errors='replace'. The UI
+    renders the JSONL as one event per line, so a byte-tail is fine —
+    we trim to the next newline.
+    """
+    path = _reach_log_path(test_name)
+    if not path.exists():
+        return {"error": "not_found", "path": str(path)}
+    try:
+        st = path.stat()
+        with open(path, "rb") as f:
+            if st.st_size > max_bytes:
+                f.seek(-max_bytes, 2)
+                # Skip partial line at the head of the window so JSON parsing
+                # in the UI doesn't choke on a half-event.
+                f.readline()
+            data = f.read()
+        return {
+            "path": str(path),
+            "size": st.st_size,
+            "mtime": st.st_mtime,
+            "tail": data.decode(errors="replace"),
+        }
+    except OSError as e:
+        return {"error": str(e), "path": str(path)}
 
 
 def prune_old_runs(keep: int = 20) -> int:

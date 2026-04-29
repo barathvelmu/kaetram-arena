@@ -9,6 +9,7 @@ On a 200 MB log with 1 KB of new bytes, this is the difference between
 
 import json
 import logging
+import re
 import sys
 from collections import OrderedDict
 from pathlib import Path
@@ -154,11 +155,69 @@ def _consume_claude_obj(state: dict, obj: dict) -> None:
             state["model"] = obj.get("model", "")
         return
 
-    # OpenCode emits a "text" event for every model utterance — natural-language
-    # reasoning between tool calls. Surface as a `thinking` event (matches the
-    # existing 🧠 frontend renderer) so the activity feed shows in-context model
-    # thoughts.
+    # OpenCode emits a "text" event for the model's visible content. Two cases:
+    #   - Plain prose: terse OODA narration between tool calls — surface as
+    #     `talk` (🗣️).
+    #   - <think>...</think> wrapped content: chain-of-thought from the
+    #     DeepSeek SSE-rewriting proxy (scripts/nim_proxy.py merges
+    #     reasoning_content into delta.content, since opencode's
+    #     openai-compatible provider doesn't read reasoning_content directly).
+    #     Split out as `thinking` (🧠) so the dashboard renders it correctly.
     if t == "text":
+        part = obj.get("part") or {}
+        txt = part.get("text") or obj.get("text") or ""
+        if txt:
+            think_pattern = re.compile(r"<think>(.*?)</think>", re.DOTALL)
+            seen_cot: set[str] = state.setdefault("seen_cot_per_turn", {}).setdefault(
+                state["turn"], set()
+            )
+            def _emit_thinking(cot_text: str):
+                cot_text = cot_text.strip()
+                if not cot_text:
+                    return
+                # Dedupe identical thinking within the same turn — DeepSeek can
+                # echo prior reasoning when our proxy round-trips <think> tags
+                # in the assistant history (a known artifact pending an
+                # opencode-side fix that omits reasoning_content from
+                # request history).
+                key = cot_text[:200]
+                if key in seen_cot:
+                    return
+                seen_cot.add(key)
+                events.append({
+                    "turn": state["turn"], "type": "thinking",
+                    "text": sanitize(cot_text[:8000]),
+                })
+            last_end = 0
+            for m in think_pattern.finditer(txt):
+                pre = txt[last_end:m.start()].strip()
+                if pre:
+                    events.append({
+                        "turn": state["turn"], "type": "text",
+                        "text": sanitize(pre[:8000]),
+                    })
+                _emit_thinking(m.group(1))
+                last_end = m.end()
+            tail = txt[last_end:].strip()
+            # Handle unclosed <think> from a stream that ended mid-thinking
+            # (proxy's _finalize_think emits </think> on stream end, so this
+            # path is rare — defensive only).
+            if tail.startswith("<think>"):
+                _emit_thinking(tail[len("<think>"):])
+            elif tail:
+                events.append({
+                    "turn": state["turn"], "type": "text",
+                    "text": sanitize(tail[:8000]),
+                })
+        # Either talk or reasoning counts as "the step said something" — both
+        # suppress the (silent) deliberated placeholder.
+        state["last_step_had_text"] = True
+        return
+
+    # OpenCode reasoning part — chain-of-thought stream from providers that
+    # emit it (e.g. DeepSeek V4 with thinking mode + interleaved config). Maps
+    # to the existing 🧠 thinking renderer.
+    if t == "reasoning":
         part = obj.get("part") or {}
         txt = (part.get("text") or obj.get("text") or "").strip()
         if txt:
@@ -166,8 +225,6 @@ def _consume_claude_obj(state: dict, obj: dict) -> None:
                 "turn": state["turn"], "type": "thinking",
                 "text": sanitize(txt[:8000]),
             })
-        # Track that this step had narration so we don't synthesize
-        # a "(silent thinking)" placeholder for it later.
         state["last_step_had_text"] = True
         return
 

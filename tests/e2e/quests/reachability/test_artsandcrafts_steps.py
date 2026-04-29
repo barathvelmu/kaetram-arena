@@ -23,6 +23,7 @@ Steps:
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pytest
 
@@ -195,37 +196,60 @@ async def test_a2_crafting_unlocks_on_quest_start(test_username):
                 f"craft_item(crafting,string) at quest stage 1 should succeed; "
                 f"got {data}"
             )
-        # Wait for autosave so the Mongo read below reflects the crafted item.
-        # In cold mode session exit triggers handleClose -> save(); in live
-        # mode the warm-pool keeps the session open, so we must wait out
-        # Kaetram's periodic world.save() interval explicitly.
-        await asyncio.sleep(AUTOSAVE_WAIT)
-        # Confirm string actually landed in the saved inventory.
-        assert count_saved_inventory(test_username, "string") >= 1, (
-            "Crafting unlock-on-start contract violated: stage 1 should "
-            "permit Crafting use, but no `string` was crafted."
-        )
+            # Verify the craft persisted by polling the LIVE inventory
+            # (server state). In live-suite mode the warm pool keeps the
+            # session open, so Kaetram's 60s SAVE_INTERVAL hasn't fired
+            # yet — Mongo `count_saved_inventory` would race the save.
+            # Live observe is authoritative; same pattern as r4/a5/a8.
+            await wait_for_inventory_count(
+                session, "string", expected_at_least=1,
+            )
     finally:
         cleanup_player(test_username)
 
 
 @reachability
-async def test_a4_mine_beryl_with_bronzepickaxe(test_username):
-    """A4: Confirm bronzepickaxe mines beryl. (Previously A4a/A4b paired:
-    A4a verified bronzeaxe CANNOT mine beryl; A4b verified bronzepickaxe
-    can. A4a was deleted as redundant — Kaetram's tool gating is well
-    documented and the negative case adds little reachability signal.)"""
+@pytest.mark.skipif(
+    os.environ.get("KAETRAM_LIVE_SUITE", "").lower() in {"1", "true", "yes"},
+    reason=(
+        "Live-suite warm pool uses a module-scoped MCP session. The Miner "
+        "shop UI checks the player's IN-MEMORY `minersquest.isFinished()` "
+        "state, which is set at login time from Mongo. A1/A3/A2 all log in "
+        "before A4 runs (without `minersquest` seeded), so the warm "
+        "session's in-memory state has MQ at stage 0 even after this test "
+        "writes the finished state to Mongo. Cold-mode pytest runs (each "
+        "test relogs) still exercise this test correctly."
+    ),
+)
+async def test_a4_buy_beryl_from_miner(test_username):
+    """A4: Confirm the canonical beryl-acquisition path — buy from the
+    Miner shop. Per `prompts/game_knowledge.md`, the Miner shop sells
+    Beryl at item_index=5 for 20g (no Miner's Quest is on the agent
+    route, so mining-with-bronzepickaxe is off-route). Seeded adjacent
+    to the Miner at (323, 178) with 50g.
+
+    Replaces the prior `test_a4_mine_beryl_with_bronzepickaxe` test —
+    mining still works at runtime, but the prompt-canonical strategy
+    is buying, so reachability tests should mirror the prompt."""
     seed_player(test_username, **playthrough_seed_kwargs("A4"))
     try:
         async with mcp_session(username=test_username) as session:
-            await gather_until_count(
-                session,
-                resource_name="Beryl Rock",
-                item_key="beryl",
-                target_count=1,
-                attempts=5,
-                polls_after_gather=6,
-                delay_after_gather_s=0.5,
+            # Settle: the live client needs a moment to finish initial UI
+            # hydration before the shop UI will visibly open. Same pattern
+            # as tests/e2e/mcp/test_buy_item.py.
+            await asyncio.sleep(1.5)
+            r = await session.call_tool(
+                "buy_item",
+                {"npc_name": "Miner", "item_index": 5, "count": 1},
+            )
+            assert not r.is_error, r.text[:300]
+            data = r.json() or {}
+            assert "error" not in data, (
+                f"buy_item(Miner, beryl) at adjacent position should succeed; "
+                f"got {data}"
+            )
+            await wait_for_inventory_count(
+                session, "beryl", expected_at_least=1,
             )
     finally:
         cleanup_player(test_username)

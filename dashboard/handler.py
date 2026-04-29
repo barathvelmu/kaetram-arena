@@ -338,6 +338,8 @@ class DashboardHandler(APIMixin, http.server.BaseHTTPRequestHandler):
                 self.send_test_run_detail(run_id)
             elif path == "/api/test/current":
                 self.send_test_current()
+            elif path == "/api/test/reach_log":
+                self.send_test_reach_log(qs.get("test", [None])[0])
             elif path == "/api/raw":
                 which = qs.get("file", [None])[0]
                 self.send_raw_file(which, qs)

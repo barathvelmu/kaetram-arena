@@ -247,19 +247,28 @@ def playthrough_seed_kwargs(step_id: str, **overrides: Any) -> dict[str, Any]:
             foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
         ]
     elif sid == "A4":
-        # Bronzepickaxe purchased (300g spent earlier).
-        base["position"] = (644, 643)
-        base["inventory"] = [{"index": 0, "key": "bronzepickaxe", "count": 1}]
-        base["equipment"] = [
-            {"type": 4, "key": "bronzepickaxe", "count": 1, "ability": -1, "abilityLevel": 0},
-        ]
+        # A4 verifies the canonical beryl-acquisition path: buy from the
+        # Miner shop (item_index=5, 20g). Mining via bronzepickaxe also
+        # works at runtime, but the prompt-canonical path is buying.
+        #
+        # Important: the Miner NPC cannot open the shop UI while he is
+        # offering Miner's Quest dialogue. The shop opens once MQ1 is
+        # finished AND MQ2 is at least started (so the NPC isn't
+        # repeatedly offering MQ2 as a fresh quest). MQ2 is off-limits
+        # per game_knowledge.md (circular nisocrock dependency), so we
+        # seed it at stage 1 — accepted but never completed. This is
+        # the minimum state that unblocks the shop without claiming MQ2
+        # as finished.
+        base["position"] = (323, 179)  # directly south of Miner (323, 178)
+        base["inventory"] = [{"index": 0, "key": "gold", "count": 50}]
         base["quests"] = [
             foresting_done, herbalist_done, ricksroll_done, ancientlands_done,
             {"key": "artsandcrafts", "stage": 1, "subStage": 0, "completedSubStages": []},
+            {"key": "minersquest",  "stage": 2, "subStage": 0, "completedSubStages": []},
+            {"key": "minersquest2", "stage": 1, "subStage": 0, "completedSubStages": []},
         ]
         base["skills"] = [
             {"type": 3, "experience": REACHABILITY_HEALTH_XP},
-            {"type": 5, "experience": 1_000},
         ]
     elif sid == "A5":
         base["position"] = (702, 609)

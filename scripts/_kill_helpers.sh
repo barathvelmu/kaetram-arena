@@ -64,6 +64,16 @@ _ks_is_data_collection() {
   # 2) Environment variables point at a sandbox.
   if _ks_environ_has "$pid" "^HOME=$KAETRAM_SANDBOX_PREFIX"; then return 0; fi
   if _ks_environ_has "$pid" "^KAETRAM_STATE_DIR=$KAETRAM_SANDBOX_PREFIX"; then return 0; fi
+  # 2b) Cwd points at a sandbox. Catches opencode subprocesses launched by
+  #     orchestrate.py with cwd=$SANDBOX but no --dir flag and no KAETRAM_*
+  #     env (orchestrate doesn't set KAETRAM_STATE_DIR for the harness env).
+  #     Without this, ancestor walk (#4) fails after orchestrate is killed
+  #     first and opencode gets reparented to init.
+  local cwd_link
+  cwd_link="$(readlink "/proc/$pid/cwd" 2>/dev/null || true)"
+  if [ -n "$cwd_link" ] && printf '%s' "$cwd_link" | grep -q "^$KAETRAM_SANDBOX_PREFIX"; then
+    return 0
+  fi
   # 3) Holds a data-collection port directly.
   if _ks_holds_data_port "$pid"; then return 0; fi
   # 4) Walk up to 5 ancestors looking for orchestrate.py / play.sh.

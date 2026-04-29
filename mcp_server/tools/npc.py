@@ -481,8 +481,10 @@ async def interact_npc(
         "dialogue_lines": dialogue_result["dialogue_lines"],
         "dialogue": dialogue_result["dialogue"],
         "dialogue_complete": True,
-        "quest_opened": quest_opened or quest_changed,
-        "quest_accepted": quest_opened or quest_changed,
+        "quest_opened": quest_opened,
+        "quest_accepted": bool(dialogue_result.get("quest_accepted", False)),
+        "quest_offered": dialogue_result.get("quest_offered"),
+        "quest_state_changed": quest_changed,
         "last_dialogue": dialogue_result.get("last_dialogue"),
     }
     if include_ui_state:

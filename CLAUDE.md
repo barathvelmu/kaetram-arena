@@ -200,6 +200,8 @@ Game-server port `P` reserves `P+1` for `apiPort` (currently dormant; matches
 | 27017 | MongoDB (`kaetram-mongo`); per-lane isolation by db name |
 | 8080 | Dashboard HTTP (UI + `/hls/agent_N/*` + `/ingest/{state,activity}`) |
 | 8081 | Dashboard WebSocket relay (state, activity, heartbeat) |
+| 8889 | NIM SSE-rewriting proxy (NVIDIA NIM Qwen reasoning capture) — booted by `restart-agent.sh` / `orchestrate.py` when any opencode agent uses an NVIDIA Qwen model |
+| 8890 | DeepSeek SSE-rewriting proxy (DeepSeek V4 reasoning capture) — same role for `deepseek-v4-pro` / `deepseek-v4-flash`; required because opencode 1.14.29 doesn't read DeepSeek's `delta.reasoning_content` |
 
 ---
 
@@ -240,12 +242,15 @@ Aliases (resolved by `cli_adapter.OPENCODE_MODEL_ALIASES`):
 | `qwen3.5-35a3b`      | NVIDIA NIM (proxy :8889)      | `nvidia/qwen/qwen3.5-35b-a3b` |
 | `qwen3.5-397a17b`    | NVIDIA NIM (proxy :8889)      | `nvidia/qwen/qwen3.5-397b-a17b` |
 | `qwen3-80a3b`        | NVIDIA NIM (proxy :8889)      | `nvidia/qwen/qwen3-next-80b-a3b-thinking` |
-| `deepseek-v4-flash`  | DeepSeek direct (api.deepseek.com) | `deepseek/deepseek-v4-flash` |
-| `deepseek-v4-pro`    | DeepSeek direct (api.deepseek.com) | `deepseek/deepseek-v4-pro` |
+| `deepseek-v4-flash`  | DeepSeek (proxy :8890)        | `deepseek/deepseek-v4-flash` |
+| `deepseek-v4-pro`    | DeepSeek (proxy :8890)        | `deepseek/deepseek-v4-pro` |
 
 Provider blocks live in `opencode.template.json`. NIM-routed Qwen models
-require `scripts/start-nim-proxy.sh` to be running (idempotent; `restart-agent.sh`
-invokes it). DeepSeek requires `DEEPSEEK_API_KEY` in env; xAI uses `XAI_API_KEY`.
+require `scripts/start-nim-proxy.sh` (port 8889); DeepSeek-routed models
+require `scripts/start-deepseek-proxy.sh` (port 8890). Both are idempotent
+and `restart-agent.sh` / `orchestrate.py` boot whichever the active
+harness mix needs. DeepSeek also requires `DEEPSEEK_API_KEY` in env; xAI
+uses `XAI_API_KEY`.
 
 ### Archetypes
 
@@ -271,7 +276,8 @@ counts, and lessons from r4-r10: `dataset/DATA.md` and
 - **`yarn build` after every Kaetram-Open patch.** `yarn start` alone fails. Any quest/mob/map JSON edit under `Kaetram-Open/` needs a rebuild.
 - **Game-server port override.** `PORT=X yarn start` doesn't work — Kaetram reads `.env`, not `process.env`. Use `node dist/main.js --port X`. `orchestrate.py` does this.
 - **`.mcp.template.json` vs `.mcp.json`.** The template is checked in; `.mcp.json` is the per-sandbox resolved copy. Claude reads the resolved copy via `--mcp-config --strict-mcp-config`.
-- **OpenCode reasoning needs the NIM proxy.** NVIDIA NIM streams Qwen reasoning via `delta.reasoning_content`; OpenCode only reads `delta.content`. `scripts/nim_proxy.py` rewrites SSE so reasoning is captured. Start it before `--opencode`.
+- **OpenCode reasoning needs an SSE-rewriting proxy.** OpenCode 1.14.29's `@ai-sdk/openai-compatible` provider reads `delta.content` only — providers that stream reasoning via `delta.reasoning_content` (NVIDIA NIM Qwen, DeepSeek V4) lose CoT without `scripts/nim_proxy.py` in front. Two daemons: NIM (`scripts/start-nim-proxy.sh`, :8889) and DeepSeek (`scripts/start-deepseek-proxy.sh`, :8890). Both reuse `nim_proxy.py` and are idempotent; `restart-agent.sh` / `orchestrate.py` start whichever the harness mix needs. The proxy also strips wrapped `<think>...</think>` from assistant message history before forwarding — DeepSeek otherwise echoes prior reasoning and emits malformed `<that>` close tags on subsequent turns.
+- **Tool API auto-actions (since 2026-04-29).** `attack` auto-loots on kill (response includes `auto_loot: {looted, target}`), `buy_item` auto-walks to NPC + opens shop (do NOT call `interact_npc` first — races the shop flow), `craft_item` auto-walks to the nearest station on the current map (do NOT manually `navigate` first; if no station on this map it errors and you `warp` elsewhere). `interact_npc` returns four disambiguated quest fields: `quest_opened` (panel appeared), `quest_accepted` (we passed `accept_quest_offer=True` and clicked through), `quest_offered` (offer name), `quest_state_changed` (any quest-list delta — covers turn-ins/stage advances). The old `quest_opened or quest_changed` conflation is gone. Live tool description is in `prompts/system.md`; older agent training data may still reference manual nav-to-station / manual-loot patterns.
 - **rsLoRA + `alpha=r` is an 8x LR trap.** rsLoRA scales `1/sqrt(r)` not `1/r`. With `r=alpha=64`, effective LR is 8x. r7 diverged. Keep `use_rslora=False` (the comment on `train_modal.py:359` is load-bearing).
 - **Counting running agents.** `pgrep -fa "claude -p"` self-matches the shell that ran it (the pattern appears in its own cmdline). Count unique bot IDs from the output (`ClaudeBot[0-9]+`, `CodexBot[0-9]+`, `GeminiBot[0-9]+`, or for opencode: `BigQwenBot[0-9]+` / `GrokBot[0-9]+` / `DeepSeekBot[0-9]+` / `OpenCodeBot[0-9]+` depending on `--opencode-model`), or cross-check against listening game-server ports (`9001 + N×10`) — those are authoritative.
 - **OpenCode bot username depends on the model.** The opencode harness splits its in-game username + Mongo player row by model family so dashboard / log analysis can distinguish runs: `*qwen*` → `BigQwenBot` (separate from the local-eval `QwenBot`), `*grok*` → `GrokBot`, `*deepseek*` → `DeepSeekBot`, otherwise `OpenCodeBot`. Logic lives in `cli_adapter.opencode_bot_prefix()` and is mirrored in `restart-single-agent.sh` + `play.sh`.

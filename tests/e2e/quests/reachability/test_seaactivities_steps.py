@@ -24,6 +24,7 @@ Steps:
 from __future__ import annotations
 
 import asyncio
+import os
 
 import pytest
 
@@ -340,7 +341,14 @@ async def test_s8_final_turnin_chain_5_to_7(test_username):
             # Pickle (691,838) and Sponge (52,310) are in disjoint regions —
             # need door 557 (688,844)→(683,844), then door 538 (665,836)→
             # (46,363), then walk overland to Sponge.
-            await navigate_long(session, target_x=688, target_y=844, max_step=15, max_hops=4, arrive_tolerance=3)
+            #
+            # Approach (688, 843) one tile NORTH of door 557, mirroring S5's
+            # (683, 843) approach for door 556. Walking directly to (688, 844)
+            # steps on the door and teleports the player to (683, 844) before
+            # traverse_door can fire — leaves the player on the wrong side of
+            # an impassable wall (no walking path between (683,844) and
+            # (688,844); they're connected only by the door teleport).
+            await navigate_long(session, target_x=688, target_y=843, max_step=15, max_hops=4, arrive_tolerance=3)
             await traverse_door(session, door_x=688, door_y=844, exit_x=683, exit_y=844, max_distance=5)
             await navigate_long(session, target_x=665, target_y=837, max_step=15, max_hops=4, arrive_tolerance=3)
             await traverse_door(session, door_x=665, door_y=836, exit_x=46, exit_y=363, max_distance=5)
@@ -363,6 +371,18 @@ async def test_s8_final_turnin_chain_5_to_7(test_username):
 
 
 @reachability
+@pytest.mark.skipif(
+    os.environ.get("KAETRAM_LIVE_SUITE", "").lower() in {"1", "true", "yes"},
+    reason=(
+        "Live-suite warm pool keeps the player's in-memory Kaetram session "
+        "alive across tests in this module. S5/S6/S7/S8 all seed the "
+        "`waterguardian` achievement, which is then resident in the warm "
+        "session's in-memory state — `cleanup_player` clears Mongo but the "
+        "server doesn't reload achievements from disk on the next interaction. "
+        "S9 is a negative gate-test that requires a clean (cold) login to "
+        "validate the warp gate; cold-mode pytest runs still exercise it."
+    ),
+)
 async def test_s9_undersea_warp_blocked_without_waterguardian(test_username):
     """S9 (gap-fill, negative): Without the `waterguardian` achievement,
     `warp(undersea)` must NOT teleport the player to (43,313). S4 covers

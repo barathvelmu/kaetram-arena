@@ -52,6 +52,46 @@ def _flatten_extra_body(body: dict) -> dict:
     return body
 
 
+_THINK_STRIP_RE = None  # lazy compile
+
+
+def _strip_think_tags_from_history(body: dict) -> dict:
+    """Remove ``<think>...</think>`` blocks from assistant message ``content``.
+
+    Why: opencode includes our previous-turn merged reasoning (which the
+    proxy injected as ``<think>X</think>`` into ``delta.content``) in the
+    next request's message history. DeepSeek then sees ``<think>`` tags in
+    prior assistant content and mis-handles them — emitting duplicate
+    reasoning bursts and malformed ``<that>...</that>`` close tags.
+    Stripping the wrapped CoT from assistant history before forwarding
+    makes DeepSeek see only the visible content, restoring clean turns.
+
+    User and system messages are untouched. Only assistant content gets
+    stripped, mirroring the round-trip rule from DeepSeek's docs that
+    reasoning_content is OUT of the conversation context, not IN it.
+    """
+    global _THINK_STRIP_RE
+    if _THINK_STRIP_RE is None:
+        import re
+        _THINK_STRIP_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+    msgs = body.get("messages")
+    if not isinstance(msgs, list):
+        return body
+    for m in msgs:
+        if not isinstance(m, dict):
+            continue
+        if m.get("role") != "assistant":
+            continue
+        c = m.get("content")
+        if isinstance(c, str) and "<think>" in c:
+            m["content"] = _THINK_STRIP_RE.sub("", c).strip()
+        elif isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict) and isinstance(part.get("text"), str) and "<think>" in part["text"]:
+                    part["text"] = _THINK_STRIP_RE.sub("", part["text"]).strip()
+    return body
+
+
 def _rewrite_sse_line(line: bytes, stream_state: dict) -> bytes:
     """Map ``delta.reasoning_content`` → ``delta.content`` and wrap the
     reasoning span in ``<think>...</think>`` so downstream extractors
@@ -125,11 +165,14 @@ async def proxy(request: web.Request) -> web.StreamResponse:
     }
     body_bytes = await request.read()
 
-    # Mutate chat-completions bodies to flatten extraBody.
+    # Mutate chat-completions bodies: flatten extraBody + strip our own
+    # <think> tags from assistant history (so DeepSeek doesn't see prior CoT
+    # and produce duplicates / malformed tags on the next turn).
     if path.endswith("chat/completions") and body_bytes:
         try:
             body = json.loads(body_bytes)
             body = _flatten_extra_body(body)
+            body = _strip_think_tags_from_history(body)
             body_bytes = json.dumps(body, separators=(",", ":")).encode()
             fwd_headers["Content-Length"] = str(len(body_bytes))
         except (ValueError, TypeError):

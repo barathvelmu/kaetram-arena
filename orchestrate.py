@@ -67,11 +67,15 @@ BASE_SERVER_PORT = 9001
 PORT_STRIDE = 10
 CLIENT_PORT = 9000  # shared static client
 
-# NIM proxy (SSE-rewriting bridge for OpenCode reasoning capture).
-# scripts/start-nim-proxy.sh daemonizes scripts/nim_proxy.py on this port.
+# Reasoning-capture proxies (SSE-rewriting bridges for OpenCode CoT capture).
+# - NIM (:8889): NVIDIA NIM upstream for Qwen thinking models.
+# - DeepSeek (:8890): api.deepseek.com upstream — required because opencode
+#   1.14.29 doesn't read DeepSeek's delta.reasoning_content directly.
 NIM_PROXY_HOST = "127.0.0.1"
 NIM_PROXY_PORT = 8889
 NIM_PROXY_SCRIPT = PROJECT_DIR / "scripts" / "start-nim-proxy.sh"
+DEEPSEEK_PROXY_PORT = 8890
+DEEPSEEK_PROXY_SCRIPT = PROJECT_DIR / "scripts" / "start-deepseek-proxy.sh"
 
 
 @dataclass
@@ -533,7 +537,6 @@ class AgentInstance:
             game_state_block = (
                 "\nPrevious game state (from last observe step):\n"
                 f"{game_state}\n"
-                "Use nearest_mob.click_x/click_y to click on targets. "
                 "Use player_position for spatial awareness."
             )
 
@@ -1359,9 +1362,10 @@ class Orchestrator:
         self.agents: list[AgentInstance] = []
         self.running = True
         self.start_time = time.time()
-        # Tracks a NIM-proxy daemon we spawned (None if it was already
-        # running externally, or no OpenCode agents are configured).
+        # Tracks proxy daemons we spawned (None if already running
+        # externally, or no OpenCode agents needing them).
         self._nim_proxy_proc: subprocess.Popen | None = None
+        self._deepseek_proxy_proc: subprocess.Popen | None = None
         # Detect auth mode once at startup (cached for all agents)
         self.auth_mode = detect_auth_mode()
         if self.auth_mode == "api_key":
@@ -1534,11 +1538,66 @@ class Orchestrator:
                 pass
         self._nim_proxy_proc = None
 
+    def _deepseek_proxy_reachable(self) -> bool:
+        try:
+            with socket.create_connection((NIM_PROXY_HOST, DEEPSEEK_PROXY_PORT), timeout=1):
+                return True
+        except (ConnectionRefusedError, OSError, TimeoutError):
+            return False
+
+    def _ensure_deepseek_proxy(self):
+        """Start scripts/start-deepseek-proxy.sh if any OpenCode agent uses
+        a DeepSeek model. Same role as _ensure_nim_proxy but for the
+        api.deepseek.com upstream (port 8890). Without it, opencode silently
+        drops DeepSeek V4 Pro/Flash reasoning_content."""
+        if self.harness_counts.get("opencode", 0) <= 0:
+            return
+        if "deepseek" not in (self.opencode_model or ""):
+            return
+        if self._deepseek_proxy_reachable():
+            print(f"[i] DeepSeek proxy already up on {NIM_PROXY_HOST}:{DEEPSEEK_PROXY_PORT}, reusing")
+            return
+        if not DEEPSEEK_PROXY_SCRIPT.exists():
+            print(f"ERROR: DeepSeek opencode model requested but {DEEPSEEK_PROXY_SCRIPT} missing.")
+            sys.exit(1)
+        print(f"[i] Starting DeepSeek proxy via {DEEPSEEK_PROXY_SCRIPT.name}...")
+        self._deepseek_proxy_proc = subprocess.Popen(
+            ["bash", str(DEEPSEEK_PROXY_SCRIPT)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid,
+        )
+        for _ in range(20):
+            time.sleep(0.25)
+            if self._deepseek_proxy_reachable():
+                print(f"[i] DeepSeek proxy ready on {NIM_PROXY_HOST}:{DEEPSEEK_PROXY_PORT}")
+                return
+        print(f"ERROR: DeepSeek proxy did not come up on {NIM_PROXY_HOST}:{DEEPSEEK_PROXY_PORT}.")
+        print("       Check /tmp/deepseek_proxy.log; reasoning capture will be broken.")
+        sys.exit(1)
+
+    def _stop_deepseek_proxy(self):
+        if self._deepseek_proxy_proc is None or self._deepseek_proxy_proc.poll() is not None:
+            self._deepseek_proxy_proc = None
+            return
+        try:
+            os.killpg(os.getpgid(self._deepseek_proxy_proc.pid), signal.SIGTERM)
+        except (ProcessLookupError, OSError):
+            pass
+        try:
+            self._deepseek_proxy_proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(self._deepseek_proxy_proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
+        self._deepseek_proxy_proc = None
+
     def start(self):
         """Start all servers, wait for health, then start all agents."""
-        # Bring up the NIM proxy first (only if we'll need it) — agents must
-        # not race the proxy boot.
+        # Bring up reasoning-capture proxies first (only if needed) — agents
+        # must not race proxy boot.
         self._ensure_nim_proxy()
+        self._ensure_deepseek_proxy()
 
         harness_parts = []
         for h, count in [("Claude", "claude"), ("Codex", "codex"), ("Gemini", "gemini"), ("OpenCode", "opencode")]:
@@ -1692,6 +1751,7 @@ class Orchestrator:
         for server in self.servers:
             server.stop()
         self._stop_nim_proxy()
+        self._stop_deepseek_proxy()
 
         # Copy any remaining sandbox state
         for agent in self.agents:

@@ -136,10 +136,13 @@ async def set_attack_style(ctx: Context, style: str = "hack") -> str:
         style: 'hack' (strength+defense), 'chop' (accuracy+defense), or 'defensive' (defense)
     """
     style_ids = {"hack": 6, "chop": 7, "defensive": 3}
-    sid = style_ids.get(style.lower(), 6)
+    key = (style or "").lower()
+    if key not in style_ids:
+        return json.dumps({"error": f"Unknown attack style '{style}'", "allowed": sorted(style_ids)})
+    sid = style_ids[key]
     page = await get_page(ctx)
     await page.evaluate(f"() => window.game.player.setAttackStyle({sid})")
-    return f"Set attack style to {style} (id={sid})"
+    return f"Set attack style to {key} (id={sid})"
 
 
 @mcp.tool()

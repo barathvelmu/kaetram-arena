@@ -39,10 +39,12 @@ N_CLAUDE=""
 N_CODEX=""
 N_GEMINI=""
 N_OPENCODE=""
+OPENCODE_MODEL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --grinder)            N_GRINDER="$2"; shift 2;;
     --completionist)      N_COMPLETIONIST="$2"; shift 2;;
+    --opencode-model)     OPENCODE_MODEL="$2"; shift 2;;
     --explorer-tinkerer|--explorer)  N_EXPLORER_TINKERER="$2"; shift 2;;
     --hours)       HOURS="$2"; shift 2;;
     --claude)
@@ -141,6 +143,39 @@ if [ "$DETECTED" -eq 0 ]; then
   exit 1
 fi
 
+# Auto-detect prior harness per agent from the latest session log so resume
+# preserves harness assignments across sessions. Without this, orchestrate.py
+# fills any unspecified slot with Claude (orchestrate.py:1804-1805), which
+# silently downgrades opencode runs to ClaudeBot when --opencode N < detected.
+# Detect prior harness per agent. Skips logs younger than 120s so a partial
+# in-flight run from a misconfigured prior resume doesn't poison detection
+# (e.g. a 30s-old ClaudeBot log shouldn't override months of opencode history).
+_detect_prior_harness() {
+  cd "$PROJECT_DIR" && .venv/bin/python3 - 2>/dev/null <<'PYEOF'
+from pathlib import Path
+import sys, time
+sys.path.insert(0, str(Path('.').resolve()))
+from cli_adapter import detect_log_format
+from collections import Counter
+NOW = time.time()
+counts = Counter()
+for i in range(3):
+    logs = sorted(
+        Path(f"dataset/raw/agent_{i}/runs").glob("run_*/session_*.log"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    chosen = next((p for p in logs if NOW - p.stat().st_mtime > 120), None) or (logs[0] if logs else None)
+    if chosen is None:
+        continue
+    h = detect_log_format(chosen)
+    if h != "unknown":
+        counts[h] += 1
+print(" ".join(f"{h}={n}" for h, n in counts.items()))
+PYEOF
+}
+PRIOR_DETECTED="$(_detect_prior_harness || true)"
+
 # Determine agent count from personality flags or detected state
 HAS_PERSONALITY=false
 PERSONALITY_ARGS=""
@@ -208,7 +243,36 @@ else
   echo "Dashboard already running on :8080"
 fi
 
-# ── Step 5: Launch orchestrator in datacol tmux session ──
+# ── Step 5: Resolve harness assignments, then launch orchestrator ──
+# Harness resolution must happen BEFORE building ORCH_ARGS so --agents picks
+# up the corrected N_AGENTS:
+#   - If user passed explicit harness flags, their sum is authoritative and
+#     N_AGENTS shrinks to match (so `--opencode 1` runs exactly 1 agent, not
+#     1 opencode + 2 padded-with-Claude as orchestrate.py:1804 would default).
+#   - If user passed nothing, derive from the prior-detected harness mix so
+#     resume preserves harness identity across runs (no silent claude downgrade).
+USER_TOTAL=0
+for v in "$N_CLAUDE" "$N_CODEX" "$N_GEMINI" "$N_OPENCODE"; do
+  [ -n "$v" ] && [ "$v" != "-1" ] && USER_TOTAL=$((USER_TOTAL + v))
+done
+[ -n "$PRIOR_DETECTED" ] && echo "  Prior harness mix: $PRIOR_DETECTED"
+if [ "$USER_TOTAL" -gt 0 ]; then
+  if [ "$USER_TOTAL" -ne "$N_AGENTS" ]; then
+    echo "  Note: explicit harness flags total $USER_TOTAL — running $USER_TOTAL of $N_AGENTS detected agent(s)"
+    N_AGENTS="$USER_TOTAL"
+  fi
+elif [ -n "$PRIOR_DETECTED" ]; then
+  for kv in $PRIOR_DETECTED; do
+    h="${kv%=*}"; n="${kv#*=}"
+    case "$h" in
+      claude)   N_CLAUDE="$n";;
+      codex)    N_CODEX="$n";;
+      gemini)   N_GEMINI="$n";;
+      opencode) N_OPENCODE="$n";;
+    esac
+  done
+fi
+
 # Build orchestrator command with personality flags
 ORCH_ARGS=""
 if $HAS_PERSONALITY; then
@@ -225,6 +289,23 @@ fi
 [ -n "$N_CODEX" ] && ORCH_ARGS="$ORCH_ARGS --codex $N_CODEX"
 [ -n "$N_GEMINI" ] && ORCH_ARGS="$ORCH_ARGS --gemini $N_GEMINI"
 [ -n "$N_OPENCODE" ] && ORCH_ARGS="$ORCH_ARGS --opencode $N_OPENCODE"
+[ -n "$OPENCODE_MODEL" ] && ORCH_ARGS="$ORCH_ARGS --opencode-model $OPENCODE_MODEL"
+
+# Same auto-detection for opencode model: if user didn't pass --opencode-model
+# and prior runs used a non-default model, recover it from the most recent
+# sandbox config so we don't silently fall back to the template default.
+if [ -z "$OPENCODE_MODEL" ] && [ "${N_OPENCODE:-0}" -gt 0 ]; then
+  for i in 0 1 2; do
+    cfg="/tmp/kaetram_agent_$i/opencode.json"
+    [ -f "$cfg" ] || continue
+    M=$(python3 -c "import json,sys; print(json.load(open('$cfg')).get('model',''))" 2>/dev/null)
+    if [ -n "$M" ]; then
+      ORCH_ARGS="$ORCH_ARGS --opencode-model $M"
+      echo "  Recovered prior opencode model from sandbox $i: $M"
+      break
+    fi
+  done
+fi
 
 ORCH_CMD="cd $PROJECT_DIR && python3 orchestrate.py $ORCH_ARGS 2>&1 | tee /tmp/orchestrate.log"
 

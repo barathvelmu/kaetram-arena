@@ -1365,14 +1365,106 @@
       /* History */
       .tests-history { margin-top: 16px; }
       .tests-history-row {
-        font-size: 10px; padding: 5px 8px; cursor: pointer;
+        font-size: 10px; padding: 6px 8px; cursor: pointer;
         color: var(--ink-2); display: flex; align-items: center; gap: 10px;
         border-bottom: 1px solid var(--rule-2);
       }
       .tests-history-row:hover { background: var(--rule-2); color: var(--ink); }
+      .tests-history-row.expanded { background: var(--rule-2); color: var(--ink); }
+      .tests-history-row .chev {
+        flex-shrink: 0; color: var(--ink-3); font-size: 9px;
+        width: 10px; transition: transform 0.1s;
+      }
+      .tests-history-row.expanded .chev { transform: rotate(90deg); }
       .tests-history-row .icon { flex-shrink: 0; }
-      .tests-history-row .id { color: var(--ink); font-weight: 500; }
-      .tests-history-row .meta { color: var(--ink-3); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tests-history-row .icon.pass { color: var(--accent-good, #4caf50); }
+      .tests-history-row .icon.fail { color: var(--accent-bad, #d04040); }
+      .tests-history-row .icon.cancel { color: var(--ink-3); }
+      .tests-history-row .id { color: var(--ink); font-weight: 500; flex-shrink: 0; }
+      .tests-history-row .when { color: var(--ink-3); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+      .tests-history-row .duration { color: var(--ink-3); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+      .tests-history-row .badge {
+        flex-shrink: 0; font-size: 9px; padding: 1px 5px; border-radius: 2px;
+        background: var(--rule); color: var(--ink-2); letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      .tests-history-row .suite {
+        color: var(--ink-2); flex: 1; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; font: 10px var(--font-mono);
+      }
+      .tests-history-row .chips { display: flex; gap: 3px; flex-shrink: 0; }
+      .tests-history-row .chip {
+        font-size: 9px; padding: 1px 5px; border-radius: 2px;
+        font-variant-numeric: tabular-nums; background: var(--rule);
+        color: var(--ink-3);
+      }
+      .tests-history-row .chip.pass.has  { background: rgba(76, 175, 80, 0.18); color: #4caf50; }
+      .tests-history-row .chip.fail.has  { background: rgba(208, 64, 64, 0.18); color: #d04040; }
+      .tests-history-row .chip.err.has   { background: rgba(208, 64, 64, 0.28); color: #ff5050; }
+      .tests-history-row .chip.skip.has  { background: rgba(255, 180, 0, 0.15); color: #d0a040; }
+      .tests-history-detail {
+        font-size: 10px; padding: 8px 14px; border-bottom: 1px solid var(--rule-2);
+        background: var(--paper); color: var(--ink-2);
+      }
+      .tests-history-detail .meta-line {
+        display: flex; gap: 14px; flex-wrap: wrap; color: var(--ink-3);
+        margin-bottom: 8px; font-variant-numeric: tabular-nums;
+      }
+      .tests-history-detail .meta-line strong { color: var(--ink); font-weight: 500; }
+      .tests-history-detail .case-list {
+        display: flex; flex-direction: column;
+      }
+      .tests-history-detail .case {
+        display: flex; align-items: center; gap: 8px; padding: 3px 4px;
+        border-bottom: 1px dotted var(--rule-2);
+      }
+      .tests-history-detail .case:last-child { border-bottom: none; }
+      .tests-history-detail .case.failed,
+      .tests-history-detail .case.error { background: rgba(208,64,64,0.06); }
+      .tests-history-detail .case .o {
+        flex-shrink: 0; width: 10px; text-align: center;
+      }
+      .tests-history-detail .case .o.passed  { color: #4caf50; }
+      .tests-history-detail .case .o.failed  { color: #d04040; }
+      .tests-history-detail .case .o.error   { color: #ff5050; }
+      .tests-history-detail .case .o.skipped { color: #d0a040; }
+      .tests-history-detail .case .name {
+        flex: 1; font: 10px var(--font-mono); color: var(--ink);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .tests-history-detail .case .time {
+        color: var(--ink-3); font-variant-numeric: tabular-nums; flex-shrink: 0;
+      }
+      .tests-history-detail .case .actions {
+        display: flex; gap: 6px; flex-shrink: 0;
+      }
+      .tests-history-detail .case .act {
+        font-size: 9px; color: var(--ink-3); cursor: pointer;
+        text-decoration: underline; padding: 0 2px;
+      }
+      .tests-history-detail .case .act:hover { color: var(--accent); }
+      .tests-history-detail .case .act[disabled] {
+        color: var(--rule); cursor: default; text-decoration: none;
+      }
+      .tests-history-detail .fail-msg {
+        font: 10px var(--font-mono); color: #d04040; white-space: pre-wrap;
+        margin: 4px 0 4px 22px; padding: 4px 6px; background: rgba(208,64,64,0.06);
+        border-left: 2px solid #d04040; border-radius: 2px;
+      }
+      .tests-history-detail .reach-pre {
+        font: 9px var(--font-mono); white-space: pre-wrap;
+        color: var(--ink-2); padding: 6px 8px; background: var(--rule-2);
+        border: 1px solid var(--rule); border-radius: 2px;
+        max-height: 320px; overflow: auto; margin: 4px 0 4px 22px;
+      }
+      .tests-history-detail .row-actions {
+        display: flex; gap: 12px; margin-top: 6px;
+        font-size: 10px; color: var(--ink-3);
+      }
+      .tests-history-detail .row-actions a {
+        color: var(--ink-3); text-decoration: underline; cursor: pointer;
+      }
+      .tests-history-detail .row-actions a:hover { color: var(--accent); }
       .tests-history-empty {
         color: var(--ink-3); font-size: 10px; padding: 16px;
         text-align: center; letter-spacing: 0.1em; text-transform: uppercase;
@@ -1383,6 +1475,23 @@
         border: 1px solid var(--rule); border-radius: var(--radius);
         max-height: 50vh; overflow: auto;
       }
+      /* Empty-state card showing last-completed run summary */
+      .tests-last-run {
+        font-size: 10px; padding: 10px; color: var(--ink-2);
+        background: var(--paper); border: 1px dashed var(--rule);
+        border-radius: var(--radius);
+      }
+      .tests-last-run .head {
+        display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+      }
+      .tests-last-run .label {
+        font-size: 9px; letter-spacing: .14em; text-transform: uppercase;
+        color: var(--ink-3);
+      }
+      .tests-last-run .quick-fails {
+        margin-top: 6px; padding-left: 14px; color: var(--ink-2);
+      }
+      .tests-last-run .quick-fails li { color: #d04040; font: 10px var(--font-mono); }
     </style>
 
     <!-- Live video (only when headed; renders above the layout) -->
@@ -2001,7 +2110,7 @@ function simpleMarkdown(text) {
 // === Semantic action classifier ===
 function classifyAction(ev) {
   if (ev.type === 'thinking') return { icon: '\ud83e\udde0', cls: 'thinking-event', label: 'Think' };
-  if (ev.type === 'text') return { icon: '\ud83d\udcac', cls: 'text-event', label: 'Say' };
+  if (ev.type === 'text') return { icon: '\ud83d\udde3\ufe0f', cls: 'text-event', label: 'Say' };
   if (ev.type === 'error') return { icon: '\u26a0\ufe0f', cls: 'error-event', label: 'Error' };
   const tool = (ev.tool || '').toLowerCase();
   const toolFull = (ev.tool_full || '').toLowerCase();
@@ -2016,7 +2125,7 @@ function classifyAction(ev) {
     navigate:         { icon: '\ud83d\uddfa', cls: 'move-event', label: 'Navigate' },
     move:             { icon: '\ud83d\udeb6', cls: 'move-event', label: 'Move' },
     warp:             { icon: '\u26a1', cls: 'move-event', label: 'Warp' },
-    interact_npc:     { icon: '\ud83d\udde3', cls: 'text-event', label: 'NPC' },
+    interact_npc:     { icon: '\ud83e\uddcd', cls: 'text-event', label: 'NPC' },
     talk_npc:         { icon: '\ud83d\udcac', cls: 'text-event', label: 'Talk' },
     accept_quest:     { icon: '\ud83d\udcdc', cls: 'text-event', label: 'Quest' },
     eat_food:         { icon: '\ud83c\udf4e', cls: '', label: 'Heal' },
@@ -2054,7 +2163,7 @@ function classifyAction(ev) {
     if (detail.includes('warp'))
       return { icon: '\u26a1', cls: 'move-event', label: 'Warp' };
     if (detail.includes('__talktonpc') || detail.includes('__acceptquest'))
-      return { icon: '\ud83d\udde3', cls: 'text-event', label: 'NPC' };
+      return { icon: '\ud83e\uddcd', cls: 'text-event', label: 'NPC' };
     return { icon: '\ud83c\udfae', cls: '', label: 'Code' };
   }
   if (tool.includes('bash'))
@@ -2147,7 +2256,7 @@ function buildEventHTML(ev, idx, prefix, withDetails, isNew) {
       + '<span class="summary" style="color:#e07b7b">' + esc(ev.summary || '') + '</span>'
       + '<span class="ev-time" data-ev-turn="' + ev.turn + '"></span>'
       + '</div>';
-  } else if (ev.type === 'thinking') {
+  } else if (ev.type === 'thinking' || ev.type === 'text') {
     html += '<div class="activity-event thinking-event' + newCls + '" data-ev-idx="' + idx + '" onclick="toggleDetail(\'' + id + '\')">'
       + '<span class="ev-icon">' + cls.icon + '</span>'
       + '<span class="turn-num">#' + ev.turn + '</span>'
@@ -3616,6 +3725,9 @@ const Tests = (() => {
       const r = await fetch('/api/test/runs').then(r => r.json());
       state.runs = r.runs || [];
       renderHistory();
+      // Refresh the empty-state card too if no run is in flight, so the
+      // last-run summary shown there ticks forward as new runs land.
+      if (!state.currentRunId) renderEmptyStateWithLastRun();
     } catch (e) { /* swallow */ }
   }
 
@@ -3642,46 +3754,227 @@ const Tests = (() => {
     } catch (e) {}
   }
 
+  // ── History helpers ────────────────────────────────────────────────
+
+  // Per-run expanded panels (id → detail JSON). Persists across re-renders
+  // so a poll tick doesn't collapse open panels.
+  const _historyOpen = new Set();
+  const _historyDetail = new Map();
+  // Per-test reach-log panels, scoped by `${runId}::${testName}`.
+  const _reachOpen = new Set();
+
+  function _runIcon(r) {
+    if (r.cancelled) return { icon: '✋', cls: 'cancel' };
+    if (r.exit_code == null) return { icon: '⏳', cls: '' };
+    const j = r.junit || {};
+    const failed = (j.failures || 0) + (j.errors || 0);
+    if (r.exit_code === 0 && failed === 0) return { icon: '✓', cls: 'pass' };
+    return { icon: '✗', cls: 'fail' };
+  }
+
+  function _relTime(epochSec) {
+    if (!epochSec) return '';
+    const diff = Date.now() / 1000 - epochSec;
+    if (diff < 0) return 'in the future';
+    if (diff < 60) return `${Math.floor(diff)}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  function _fmtDuration(sec) {
+    if (sec == null || isNaN(sec)) return '—';
+    if (sec < 1) return `${Math.round(sec * 1000)}ms`;
+    if (sec < 60) return `${sec.toFixed(1)}s`;
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return `${m}m${s.toString().padStart(2, '0')}s`;
+  }
+
+  function _runDuration(r) {
+    if (r.junit && r.junit.time) return r.junit.time;
+    if (r.started_at && r.finished_at) return r.finished_at - r.started_at;
+    return null;
+  }
+
+  function _runSuiteLabel(r) {
+    return (r.suite || 'tests/').replace(/^tests\//, '');
+  }
+
+  function _chip(label, n, cls) {
+    const has = (n > 0) ? ' has' : '';
+    return `<span class="chip ${cls}${has}">${n}${label}</span>`;
+  }
+
+  function _runChips(j) {
+    if (!j || !j.tests) return '<span class="chip">—</span>';
+    return [
+      _chip('P', (j.tests || 0) - (j.failures || 0) - (j.errors || 0) - (j.skipped || 0), 'pass'),
+      _chip('F', j.failures || 0, 'fail'),
+      _chip('E', j.errors || 0, 'err'),
+      _chip('S', j.skipped || 0, 'skip'),
+    ].join('');
+  }
+
   function renderHistory() {
     const el = $('tests-history-list');
     if (!state.runs.length) { el.innerHTML = '<div class="tests-history-empty">No history yet</div>'; return; }
-    el.innerHTML = state.runs.slice(0, 12).map(r => {
-      const j = r.junit || {};
-      let icon = '⏳';
-      if (r.cancelled) icon = '✋';
-      else if (r.exit_code === 0) icon = '✓';
-      else if (r.exit_code != null) icon = '✗';
-      const totals = j.tests
-        ? `${j.tests}T · ${j.failures||0}F · ${j.errors||0}E · ${j.skipped||0}S`
-        : '';
-      const suite = (r.suite || 'tests/').replace(/^tests\//, '');
-      return `<div class="tests-history-row" data-id="${escapeHtml(r.run_id)}">
-        <span class="icon">${icon}</span>
-        <span class="id">${escapeHtml(r.run_id)}</span>
-        <span class="meta">${escapeHtml(suite)} · ${totals}</span>
-      </div>`;
-    }).join('');
+    el.innerHTML = state.runs.slice(0, 20).map(r => _renderRow(r)).join('');
     el.querySelectorAll('.tests-history-row').forEach(row => {
-      row.onclick = () => loadHistoryRun(row.getAttribute('data-id'));
+      row.addEventListener('click', e => {
+        if (e.target.closest('.act')) return;
+        toggleHistoryRow(row.getAttribute('data-id'));
+      });
     });
   }
 
-  async function loadHistoryRun(runId) {
+  function _renderRow(r) {
+    const id = r.run_id;
+    const { icon, cls } = _runIcon(r);
+    const j = r.junit || {};
+    const isOpen = _historyOpen.has(id);
+    const headed = r.headed ? '<span class="badge">HEADED</span>' : '';
+    const duration = _fmtDuration(_runDuration(r));
+    const when = r.started_at ? _relTime(r.started_at) : '';
+    const detailHtml = isOpen ? _renderRunDetail(id) : '';
+    return `<div class="tests-history-row${isOpen ? ' expanded' : ''}" data-id="${escapeHtml(id)}">
+      <span class="chev">▸</span>
+      <span class="icon ${cls}">${icon}</span>
+      <span class="id">${escapeHtml(id)}</span>
+      <span class="when">${escapeHtml(when)}</span>
+      <span class="duration">${escapeHtml(duration)}</span>
+      ${headed}
+      <span class="suite" title="${escapeHtml(r.suite || 'tests/')}">${escapeHtml(_runSuiteLabel(r))}</span>
+      <span class="chips">${_runChips(j)}</span>
+    </div>${detailHtml}`;
+  }
+
+  function _renderRunDetail(runId) {
+    const det = _historyDetail.get(runId);
+    if (!det) return `<div class="tests-history-detail">Loading…</div>`;
+    if (det.error) return `<div class="tests-history-detail">Error: ${escapeHtml(det.error)}</div>`;
+    const cases = det.cases || [];
+    const j = det.junit || {};
+    const startedISO = det.started_at ? new Date(det.started_at * 1000).toISOString().replace('T', ' ').slice(0, 19) : '—';
+    const exit = det.exit_code == null ? (det.cancelled ? 'cancelled' : 'in flight') : det.exit_code;
+    const meta = `
+      <div class="meta-line">
+        <span><strong>started:</strong> ${escapeHtml(startedISO)}</span>
+        <span><strong>duration:</strong> ${escapeHtml(_fmtDuration(_runDuration(det)))}</span>
+        <span><strong>exit:</strong> ${escapeHtml(String(exit))}</span>
+        <span><strong>suite:</strong> <code>${escapeHtml(det.suite || 'tests/')}</code></span>
+        ${det.markers ? `<span><strong>marks:</strong> ${escapeHtml(det.markers)}</span>` : ''}
+      </div>
+    `;
+    const caseRows = cases.map(c => {
+      const reachKey = `${runId}::${c.name}`;
+      const reachOpen = _reachOpen.has(reachKey);
+      const o = c.outcome || 'passed';
+      const oIcon = ({ passed: '✓', failed: '✗', error: '✗', skipped: '○' })[o] || '·';
+      const failBlock = (o === 'failed' || o === 'error') && c.message
+        ? `<div class="fail-msg">${escapeHtml(c.message)}</div>`
+        : '';
+      const reachBtn = c.reach_log
+        ? `<span class="act" data-reach="${escapeHtml(c.name)}" data-run="${escapeHtml(runId)}">
+             ${reachOpen ? 'hide jsonl' : 'view jsonl'}
+           </span>`
+        : `<span class="act" disabled>no jsonl</span>`;
+      const reachBlock = reachOpen
+        ? `<div class="reach-pre" data-reach-pre="${escapeHtml(c.name)}">Loading…</div>`
+        : '';
+      return `<div class="case ${o}">
+        <span class="o ${o}">${oIcon}</span>
+        <span class="name" title="${escapeHtml(c.classname + '::' + c.name)}">${escapeHtml(c.name)}</span>
+        <span class="time">${escapeHtml(_fmtDuration(c.time))}</span>
+        <span class="actions">${reachBtn}</span>
+      </div>${failBlock}${reachBlock}`;
+    }).join('');
+    const rowActions = `
+      <div class="row-actions">
+        <a data-loglog="${escapeHtml(runId)}">view pytest log</a>
+      </div>
+    `;
+    return `<div class="tests-history-detail" data-detail-for="${escapeHtml(runId)}">
+      ${meta}
+      <div class="case-list">${caseRows || '<div style="color:var(--ink-3)">No testcases parsed.</div>'}</div>
+      ${rowActions}
+    </div>`;
+  }
+
+  async function toggleHistoryRow(runId) {
+    if (_historyOpen.has(runId)) {
+      _historyOpen.delete(runId);
+      renderHistory();
+      return;
+    }
+    _historyOpen.add(runId);
+    renderHistory();
+    try {
+      const det = await fetch('/api/test/run?id=' + encodeURIComponent(runId)).then(r => r.json());
+      _historyDetail.set(runId, det || { error: 'empty' });
+    } catch (e) {
+      _historyDetail.set(runId, { error: String(e) });
+    }
+    if (_historyOpen.has(runId)) renderHistory();
+    _wireDetailHandlers();
+  }
+
+  function _wireDetailHandlers() {
+    document.querySelectorAll('.tests-history-detail .act[data-reach]').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const test = el.getAttribute('data-reach');
+        const runId = el.getAttribute('data-run');
+        toggleReachLog(runId, test);
+      };
+    });
+    document.querySelectorAll('.tests-history-detail a[data-loglog]').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        loadHistoryRunLog(el.getAttribute('data-loglog'));
+      };
+    });
+  }
+
+  async function toggleReachLog(runId, testName) {
+    const key = `${runId}::${testName}`;
+    if (_reachOpen.has(key)) {
+      _reachOpen.delete(key);
+      renderHistory();
+      _wireDetailHandlers();
+      return;
+    }
+    _reachOpen.add(key);
+    renderHistory();
+    _wireDetailHandlers();
+    try {
+      const r = await fetch('/api/test/reach_log?test=' + encodeURIComponent(testName)).then(r => r.json());
+      const pre = document.querySelector(`[data-reach-pre="${CSS.escape(testName)}"]`);
+      if (!pre) return;
+      if (r.error) {
+        pre.textContent = `Error: ${r.error} (${r.path || ''})`;
+      } else {
+        pre.textContent = (r.tail || '').slice(-60_000);
+        // Anchor scroll to the bottom — the most recent events are usually
+        // the most diagnostic.
+        pre.scrollTop = pre.scrollHeight;
+      }
+    } catch (e) {
+      const pre = document.querySelector(`[data-reach-pre="${CSS.escape(testName)}"]`);
+      if (pre) pre.textContent = 'Fetch failed: ' + e;
+    }
+  }
+
+  async function loadHistoryRunLog(runId) {
+    // Side-overlay the historical pytest log into the live feed pane.
     const det = await fetch('/api/test/run?id=' + encodeURIComponent(runId)).then(r => r.json());
     if (!det || det.error) return;
-    // Don't tear down a live run when peeking at history. If a run is in
-    // flight we just render the historical log_tail in a side overlay-style
-    // pane below the live feed; the active run UI (status, video, current
-    // counts) stays put.
     const liveRunActive = state.currentRunId && state.currentRunId !== runId;
     const feed = $('tests-feed');
     const html = det.log_tail
       ? `<pre class="tests-log-pre">${escapeHtml(det.log_tail.slice(-12000))}</pre>`
       : '<div class="tests-feed-empty">— No log captured —</div>';
     if (liveRunActive) {
-      // Soft-overlay: prepend a banner saying "viewing history" without
-      // killing the active state. User can click another live event to
-      // re-render.
       feed.innerHTML =
         `<div style="font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);padding:6px 0">History · ${escapeHtml(runId)} · live run still active</div>`
         + html;
@@ -3692,6 +3985,45 @@ const Tests = (() => {
         updateCounts(det.progress.counts, det.progress.completed, det.progress.total);
       }
     }
+  }
+
+  // Render a "no active run" empty state that includes the most recent
+  // run's headline (counts, duration, failed tests) so the user has
+  // something to look at the moment they open the tab. This replaces a
+  // dead "No active run" string that hid all the data we already had.
+  function renderEmptyStateWithLastRun() {
+    const el = $('tests-counts');
+    if (!el) return;
+    const last = state.runs[0];
+    if (!last) {
+      el.innerHTML = '<span style="color:var(--ink-3)">No runs yet — pick a suite and hit Run.</span>';
+      return;
+    }
+    const { icon, cls } = _runIcon(last);
+    const j = last.junit || {};
+    const when = last.started_at ? _relTime(last.started_at) : '';
+    const dur = _fmtDuration(_runDuration(last));
+    const headed = last.headed ? ' · headed' : '';
+    const fails = (last.cases || []).filter(c => c.outcome === 'failed' || c.outcome === 'error');
+    const failsHtml = fails.length
+      ? `<ul class="quick-fails">${fails.slice(0, 8).map(c =>
+            `<li>${escapeHtml(c.name)} (${_fmtDuration(c.time)})</li>`).join('')}</ul>`
+      : '';
+    el.innerHTML = `
+      <div class="tests-last-run">
+        <div class="head">
+          <span class="label">No active run · last:</span>
+          <span class="icon ${cls}" style="color:${cls === 'pass' ? '#4caf50' : cls === 'fail' ? '#d04040' : 'var(--ink-3)'}">${icon}</span>
+          <strong>${escapeHtml(last.run_id)}</strong>
+          <span style="color:var(--ink-3)">${escapeHtml(when)} · ${escapeHtml(dur)}${escapeHtml(headed)}</span>
+          <span class="chips" style="margin-left:auto">${_runChips(j)}</span>
+        </div>
+        <div style="color:var(--ink-3);font:10px var(--font-mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${escapeHtml(last.suite || 'tests/')}
+        </div>
+        ${failsHtml}
+      </div>
+    `;
   }
 
   function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -3930,7 +4262,7 @@ const Tests = (() => {
   function clearFeedToIdle() {
     state.rows.clear();
     $('tests-feed').innerHTML = '<div class="tests-feed-empty">— Idle —</div>';
-    $('tests-counts').innerHTML = '<span style="color:var(--ink-3)">No active run</span>';
+    renderEmptyStateWithLastRun();
     showFilterRow(false);
   }
 
@@ -3939,10 +4271,12 @@ const Tests = (() => {
     // Fire once immediately so a tab-switch-back catches a finished-while-away
     // run without waiting up to 8s for the first interval tick.
     reconcileCurrent();
+    // 3s while the tab is visible — fast enough to feel synced as a run
+    // ticks through tests, not so fast that we hammer disk on idle.
     state.pollTimer = setInterval(() => {
       loadRuns();
       reconcileCurrent();
-    }, 8000);
+    }, 3000);
   }
   function stopPolling() { if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; } }
 

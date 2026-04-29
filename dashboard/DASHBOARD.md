@@ -22,7 +22,7 @@ dashboard/
 ├── server.py        # Entry point: ThreadedHTTPServer (:8080), WebSocketRelay (:8081, permessage-deflate)
 ├── handler.py       # HTTP routing (HTTP/1.1 keep-alive); HLS, /static/, /ingest/, /stream/test_run endpoints
 ├── api.py           # APIMixin — all /api/* endpoint methods (mixed into DashboardHandler)
-├── parsers.py       # Session log parsers (Claude/Codex/Gemini/OpenCode); incremental, offset-tracked
+├── parsers.py       # Session log parsers (Claude/Codex/Gemini/OpenCode); incremental, offset-tracked. OpenCode handler emits `talk` for plain `text` parts, splits `<think>...</think>` wrappers (CoT injected by `nim_proxy.py` for providers without `delta.reasoning_content` support) into `thinking` events with per-turn dedupe, and renders `reasoning` part-types as `thinking` directly for providers whose CoT comes through native (e.g. opencode `interleaved.field` config when honored).
 ├── _log_tail.py     # Offset-tracking JSONL tail helper used by parsers
 ├── game_state.py    # Game-state extraction: MongoDB (authoritative) + game_state.json (live, 30 s window) + log fallback
 ├── db.py            # MongoDB queries: player_info, skills, equipment, inventory, quests, achievements
@@ -70,7 +70,7 @@ Python `http.server` with HTTP/1.1 keep-alive and threaded request handling. No 
 | Sessions | `/api/sessions`, `/api/dataset-stats`, `/api/sft-stats` | Session history, cost/turns/duration, SFT pipeline stats |
 | Prompt | `/api/prompt`, `/api/session-log` | System prompt viewer, personality grid, game knowledge, CLAUDE.md |
 | Eval | `/api/eval/latest`, `/api/eval/live` | Eval comparison: r9-sft vs base, live split-screen + results (Glass's delta, action distributions) |
-| Tests | `/api/test/{tree,runs,run,current,cancel}`, `/stream/test_run`, WS `{type:"test_event"}` | Pytest run launcher: collapsible suite tree, Run/Cancel/Headed toggle, live counts + per-test pills, streaming pytest stdout tail, run history with junit summary, MJPEG live video for headed runs |
+| Tests | `/api/test/{tree,runs,run,current,cancel,reach_log}`, `/stream/test_run`, WS `{type:"test_event"}` | Pytest run launcher: collapsible suite tree, Run/Cancel/Headed toggle, live counts + per-test pills, streaming pytest stdout tail, run history with per-case status chips inline (slim cases preloaded with each run row), JSONL reach-log tail viewer on expand for reachability tests, MJPEG live video for headed runs. `KAETRAM_DEBUG=1` is the default for dashboard-launched runs (so the JSONL traces always exist). |
 
 ## API endpoints
 
@@ -96,6 +96,7 @@ Python `http.server` with HTTP/1.1 keep-alive and threaded request handling. No 
 | `/api/test/run` | POST | body: `{suite, markers, headed}` | Start a pytest run. 409 if another run is in flight |
 | `/api/test/cancel` | POST | — | Cancel the in-flight run, if any |
 | `/api/test/current` | GET | — | Meta of the in-flight run, or `{current: null}` |
+| `/api/test/reach_log` | GET | `?test=<node_name>` | Tail (~200 KB) of `sandbox/<slot>/reachability_logs/<test_name>.jsonl` for post-hoc per-test debug. Surfaced in the Tests tab when a reachability case is expanded. |
 | `/stream/test_run` | GET | `?run=<id>` | MJPEG stream of `/tmp/test_run/frame.jpg` (only populated during a headed run) |
 | `/hls/agent_N/stream.m3u8` | GET | — | Per-agent HLS playlist served from `/tmp/hls/agent_N/` (allowlisted segments only) |
 | `/hls/agent_N/seg_*.ts` | GET | — | HLS segment files |
@@ -111,7 +112,7 @@ Every dashboard worker is single-process; caches keep the UI responsive on the 8
 
 | Cache | TTL | Why |
 |-------|-----|-----|
-| `_agents_cache` | 15 s (`AGENTS_CACHE_TTL`) | Avoids re-parsing logs + port probing on every poll. Includes `hls_age` and `hls_available`. Invalidated on restart. |
+| `_agents_cache` | 15 s (`AGENTS_CACHE_TTL`) | Avoids re-parsing logs + port probing on every poll. Includes `hls_age` and `hls_available`. **Filters out agents whose game-server port isn't currently listening** (kills stale-sandbox UI ghosts after a partial resume — e.g. `--opencode 1` leaves agent_1/2 metadata on disk but only agent_0's port is bound). `/api/live` applies the same filter for the agent count. Invalidated on restart. |
 | `_ss_cache` (ss -tlnp) | 5 s | Avoids forking subprocess per request. Invalidated on restart. |
 | MongoDB player state | 3 s | DB only saves on autosave/logout — more frequent queries waste cycles. |
 | Session log parser | offset-tracked, persistent across calls (LRU 25 files) | Incremental tail: O(new bytes), not O(file size). On a 4 MB log, cold ≈ 250 ms, warm ≈ 0.3 ms. |

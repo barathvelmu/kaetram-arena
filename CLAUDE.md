@@ -301,43 +301,53 @@ tool surface in the high teens.
 Primary tool for "how are the agents doing" — parses session JSONL logs
 under `dataset/raw/agent_*/runs/run_*/` (with `logs/` symlink to the latest
 run) and reports per-agent status, quests, tool distribution, categorized
-errors, Tier-A adoption, and reasoning. **Prefer this over LLM subagents for
+errors, rule-adoption signals, and reasoning. **Prefer this over LLM subagents for
 live status / behavioral audit** — it parses fields directly (`active_quests`,
 `live_gate_status.gated`, `inventory_summary.full`, mob `level`, etc.), so the
 answer is ground truth not an inference, and it doesn't burn tokens.
 
-By default scopes to currently running agents (log touched in last 10 min);
-pass `--stale` for historical sessions, or `--run <run_id>` to scope to any
-specific run.
+**Default scope:** the **latest run per agent**, aggregating every
+session_*.log in that run dir — so `metrics`, `tools`, `errors`, `status`,
+`quests`, `timeline` all report on the whole run. Use `--run <id>` to scope
+to a past run, `--session N` to drill into one session, `--stale` to include
+agents whose latest run hasn't been touched in 10+ min. Both Claude and
+OpenCode (DeepSeek/Qwen/Grok) logs parse via auto-detect.
 
 ```bash
-# Live snapshot
+# Live snapshot (run-aggregated)
 python3 scripts/log_analysis/analyze.py            # full report
-python3 scripts/log_analysis/analyze.py status     # one-line per agent + run header
+python3 scripts/log_analysis/analyze.py status     # one-line per agent + run header (turns/errors/cost summed across sessions)
 
 # Historical / cross-run
 python3 scripts/log_analysis/analyze.py runs -n 10            # last N runs across all agents
 python3 scripts/log_analysis/analyze.py runs --all-runs       # every run ever
-python3 scripts/log_analysis/analyze.py status --run <run_id> # status for a past run
+python3 scripts/log_analysis/analyze.py --run <run_id> status # full breakdown of a past run (parses ALL its sessions)
 
 # Behavioral audits (use these when assessing whether prompt/tool changes worked)
-python3 scripts/log_analysis/analyze.py tier_a     # adoption: Rule 10 compliance, BFS→warp rate, A2 gate, mob-overshot, station_locations, drop@full
-python3 scripts/log_analysis/analyze.py errors     # CATEGORIZED errors (BFS_NO_PATH, STILL_MOVING, NPC_NOT_FOUND, STATION_UNREACHABLE, …) + top next-action transitions
-python3 scripts/log_analysis/analyze.py timeline -n 30   # chronological event stream (warps, accepts, BFS-fails, level-ups, deaths) for the live run
+python3 scripts/log_analysis/analyze.py errors                # CATEGORIZED errors (BFS_NO_PATH, STILL_MOVING, NPC_NOT_FOUND, STATION_UNREACHABLE, …) + top next-action transitions — also where you read off rule-adoption (e.g. BFS→warp vs BFS→navigate retry)
+python3 scripts/log_analysis/analyze.py errors --by-quest     # same, sliced by which Core 5 quest was active at the error
+python3 scripts/log_analysis/analyze.py timeline -n 30        # chronological event stream across the run, with session boundaries
 
-# Drill-downs
+# Quest progression (where the agent actually got stuck)
+python3 scripts/log_analysis/analyze.py quest                 # per-Core-5 stage timeline + reasoning at each advance
+python3 scripts/log_analysis/analyze.py quest rick            # scope to one quest by substring match
+python3 scripts/log_analysis/analyze.py quest --cross-run     # max-stage histogram across every run per agent — answers "where do agents plateau?"
+
+# Drill-downs (recent/thinking are session-scoped — pass --session N to pick)
 python3 scripts/log_analysis/analyze.py quests
 python3 scripts/log_analysis/analyze.py tools
-python3 scripts/log_analysis/analyze.py recent -n 8
+python3 scripts/log_analysis/analyze.py recent -n 8                # latest session of latest run
+python3 scripts/log_analysis/analyze.py --session 1 recent -n 8    # session 1 of latest run
 python3 scripts/log_analysis/analyze.py thinking -n 3
-python3 scripts/log_analysis/analyze.py agent 1 -n 10
+python3 scripts/log_analysis/analyze.py agent 1 -n 10              # full per-agent run dive
 ```
 
 **When to reach for which command:**
-- Just stopped/restarted agents → `status` to confirm they're up + see run_id/elapsed
-- "Did my prompt fix actually change behavior?" → `tier_a` (compares against the rules each fix targets)
-- "Why is agent N looping?" → `errors` shows what failed + what it did next (warp vs retry-navigate is the smoking gun for Rule 4a)
-- "What did agent N do today?" → `timeline` for an emoji-tagged event stream
+- Just stopped/restarted agents → `status` to confirm they're up + see run_id/elapsed/cost
+- "Did my prompt fix actually change behavior?" → `errors` (next-action transitions show whether rules landed — BFS_NO_PATH → warp vs retry-navigate)
+- "Why is agent N looping?" → `errors` shows what failed + what it did next
+- "How much real Core 5 progress this run?" → `metrics` — uses last-vs-first-observe DELTA so resume-state replays don't inflate the count
+- "What did agent N do today?" → `timeline` for an emoji-tagged event stream across sessions
 - "How does this run compare to last week's?" → `runs -n 20` or `--all-runs`
 
 See `scripts/log_analysis/README.md` for the log-shape reference. To write a
@@ -345,14 +355,17 @@ custom one-off analysis, import from `parse.py`:
 
 ```python
 from scripts.log_analysis.parse import (
-    latest_runs_per_agent, parse_run, parse_session_auto,
-    tier_a_signals, categorize_error, RunView, SessionView,
+    list_agent_dirs, latest_run, parse_run_sessions,
+    parse_session_auto, latest_observe, categorize_error,
+    RunSessionsView, SessionView,
 )
+for ad in list_agent_dirs():
+    rv = parse_run_sessions(ad, latest_run(ad))
+    print(rv.run_id, rv.n_sessions, rv.total_turns, rv.total_cost_usd)
 ```
 
-`tier_a_signals(sv)` returns a `TierASignals` dataclass with the same metrics
-the `tier_a` CLI command reports — useful for batch comparison across many
-runs (e.g. "did Rule 4a uptake go up after we shipped the BFS→warp prompt?").
+`scripts/export_report.py` uses the same parser kernel — the dashboard
+JSON report and the CLI stay in lock-step.
 
 ## Slash commands (`.claude/commands/`)
 

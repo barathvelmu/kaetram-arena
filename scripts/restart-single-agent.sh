@@ -15,6 +15,9 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/_kill_helpers.sh
+source "$SCRIPT_DIR/_kill_helpers.sh"
 
 # Parse args
 AGENT_ID=""
@@ -186,9 +189,7 @@ fi
 # ── Step 3: Reset state if requested ──
 if [ "$RESET" = true ]; then
   echo "Resetting sandbox state..."
-  STATE_DIR="$SANDBOX/state"
-  rm -f "$STATE_DIR/game_state.json" \
-        "$STATE_DIR/.session_counter"
+  clear_sandbox_state_reset "$AGENT_ID"
 
   # Reset MongoDB player data
   MONGO_CONTAINER="kaetram-mongo"

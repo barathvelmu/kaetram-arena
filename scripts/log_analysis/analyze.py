@@ -1,23 +1,34 @@
 #!/usr/bin/env python3
 """Comprehensive log analyzer for Kaetram agent runs.
 
+Default scope: the **latest run per agent**, aggregating every session_*.log
+in that run dir. Pass `--run <id>` to scope to a past run, or `--session N`
+to drill down to a single session within the resolved run (default for
+session-only commands like `recent`/`thinking`: latest session in the
+resolved run).
+
 Usage:
     python3 scripts/log_analysis/analyze.py                  # full report (default)
-    python3 scripts/log_analysis/analyze.py status           # one-line per agent (latest run)
+    python3 scripts/log_analysis/analyze.py status           # one-line per agent (run-aggregated)
     python3 scripts/log_analysis/analyze.py runs [-n 10]     # recent runs across all agents
-    python3 scripts/log_analysis/analyze.py timeline [-n 30] # chronological event stream (latest run)
-    python3 scripts/log_analysis/analyze.py tier_a           # Tier-A adoption metrics per agent
-    python3 scripts/log_analysis/analyze.py quests           # quest-focused detail
-    python3 scripts/log_analysis/analyze.py tools            # tool call breakdown
-    python3 scripts/log_analysis/analyze.py recent [-n 10]   # last N tool calls per agent
-    python3 scripts/log_analysis/analyze.py errors           # categorized errors + next-action transitions
-    python3 scripts/log_analysis/analyze.py thinking [-n 5]  # last N thinking blocks per agent
-    python3 scripts/log_analysis/analyze.py agent <N>        # deep-dive single agent
+    python3 scripts/log_analysis/analyze.py timeline [-n 30] # chronological events across the run
+    python3 scripts/log_analysis/analyze.py quests           # quest delta first→last in run
+    python3 scripts/log_analysis/analyze.py quest [name]     # per-quest progression timeline (default: Core 5)
+    python3 scripts/log_analysis/analyze.py quest --cross-run [name]  # max-stage histogram across all runs
+    python3 scripts/log_analysis/analyze.py tools            # tool counts + error rates across the run
+    python3 scripts/log_analysis/analyze.py recent [-n 10]   # last N tool calls (latest session — session-scoped)
+    python3 scripts/log_analysis/analyze.py errors [--by-quest]  # categorized errors + next-action transitions across the run
+    python3 scripts/log_analysis/analyze.py thinking [-n 5]  # last N reasoning blocks (latest session — session-scoped)
+    python3 scripts/log_analysis/analyze.py metrics          # paper metrics (run-scoped, stage-level Core 5 denominator)
+    python3 scripts/log_analysis/analyze.py agent <N>        # deep-dive single agent (run-aggregated)
 
-Defaults to LATEST session log per agent. Pass `--run <run_id>` to scope to a
-specific run, or `--all-runs` to span the entire history (heavy commands only).
-`--stale` includes agents whose log is >10 min old (default: only currently
-running).
+Filters:
+    --run <id>      scope to that run dir (parses ALL sessions in it)
+    --session N     drill down to one session inside the resolved run
+    --stale         include agents whose latest run hasn't been touched in 10+ min
+    --by-quest      (errors) slice errors by which Core 5 quest was active
+    --cross-run     (quest)  walk every run per agent for a max-stage histogram
+    --opencode/--claude  force a parser (default: auto-detect from each session's meta.json)
 """
 
 from __future__ import annotations
@@ -31,22 +42,25 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from scripts.log_analysis.parse import (  # noqa: E402
+    CORE_5_QUEST_NAMES,
+    QuestProgression,
+    RunSessionsView,
     SessionView,
     categorize_error,
+    core5_total_stage_count,
     deaths,
     first_observe,
     fmt_duration,
     fmt_est,
-    latest_logs_per_agent,
     latest_observe,
-    latest_runs_per_agent,
-    parse_run,
-    parse_session_auto,
+    latest_run,
+    list_agent_dirs,
+    list_runs,
+    parse_run_sessions,
     parse_session_timestamp,
+    progression_for_quests,
+    quest_stage_counts,
     runs_per_agent,
-    tier_a_signals,
-    tool_call_counts,
-    tool_error_counts,
 )
 
 
@@ -75,6 +89,21 @@ def _fmt_quests(qs: list | None) -> str:
     return ", ".join(parts) if parts else "—"
 
 
+def _fmt_quest_names(qs: list | None) -> list[str]:
+    """Names only, defensively (qs may contain strings or dicts)."""
+    if not qs:
+        return []
+    out = []
+    for q in qs:
+        if isinstance(q, dict):
+            n = q.get("name")
+            if n:
+                out.append(n)
+        elif isinstance(q, str):
+            out.append(q)
+    return out
+
+
 def _age(path: Path) -> str:
     age_s = dt.datetime.now().timestamp() - path.stat().st_mtime
     if age_s < 60:
@@ -84,7 +113,7 @@ def _age(path: Path) -> str:
     return f"{age_s/3600:.1f}h ago"
 
 
-def _agent_id(agent_dir: Path) -> str:
+def _agent_id_from_dir(agent_dir: Path) -> str:
     return agent_dir.name.replace("agent_", "")
 
 
@@ -96,117 +125,159 @@ _ARCH_ABBREV = {
 }
 
 
-def _personality(sv: SessionView, short: bool = False) -> str:
-    p = sv.meta.get("personality", "?")
-    return _ARCH_ABBREV.get(p, p[:10]) if short else p
+def _personality_short(name: str | None) -> str:
+    if not name:
+        return "?"
+    return _ARCH_ABBREV.get(name, name[:10])
 
 
 def _bar(label: str) -> str:
     return f"\n{'─' * 4} {label} {'─' * max(0, 70 - len(label))}\n"
 
 
-# ── Commands ─────────────────────────────────────────────────────────────────
+# ── Run-scoped commands (consume RunSessionsView) ────────────────────────────
 
-def cmd_status(views: list[tuple[Path, SessionView]]) -> None:
-    """One-line per agent — the quickest possible health check.
+def cmd_status(rvs: list[RunSessionsView]) -> None:
+    """One-line per agent — run-aggregated health check.
 
-    Header line shows the run_id + EST start time so we know which run we're
-    looking at when comparing across days.
+    Columns: agent / arch / lvl / hp / pos / total turns across run / total
+    errors across run / rate-limit events / cumulative finished quests /
+    currently active quests.
     """
-    # Header context: pull run.meta from each agent's latest run.
-    runs = latest_runs_per_agent()
-    if runs:
-        primary = runs[0]
+    if rvs:
+        primary = rvs[0]
         print(f"  Run: {primary.run_id}   started: {fmt_est(primary.started_at)}   "
-              f"elapsed: {fmt_duration(primary.duration_s)}")
+              f"elapsed: {fmt_duration(primary.duration_s)}   "
+              f"sessions: {primary.n_sessions}   "
+              f"cost: {_fmt_cost(primary.total_cost_usd)}")
         print()
     print(f"{'agent':<6}{'arch':<9}{'lvl':<5}{'hp':<11}{'pos':<13}"
           f"{'turns':<7}{'errs':<6}{'rl':<4}finished | active")
     print("─" * 110)
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        arch = _personality(sv, short=True)
-        gs = latest_observe(sv) or {}
+    for rv in rvs:
+        aid = _agent_id_from_dir(rv.agent_dir)
+        arch = _personality_short(rv.personality)
+        gs = rv.last_observe_in_run() or {}
         stats = gs.get("stats", {}) or {}
         lvl = stats.get("level", "?")
         hp = f"{stats.get('hp','?')}/{stats.get('max_hp','?')}"
         pos = _fmt_pos(gs.get("pos"))
-        turns = sv.n_assistant
-        err_total = sum(1 for tc in sv.tool_calls if tc.is_error)
-        rl = sv.rate_limit_events
-        finished = ", ".join(q.get("name", "?") for q in (gs.get("finished_quests") or []) if isinstance(q, dict)) or "—"
+        turns = rv.total_turns
+        err_total = sum(1 for tc in rv.all_tool_calls if tc.is_error)
+        rl = sum(sv.rate_limit_events for sv in rv.sessions)
+        finished = ", ".join(_fmt_quest_names(gs.get("finished_quests"))) or "—"
         active = _fmt_quests(gs.get("active_quests"))
         print(f"{aid:<6}{arch:<14}{str(lvl):<5}{hp:<11}{pos:<13}"
               f"{str(turns):<7}{str(err_total):<6}{str(rl):<4}{finished} | {active}")
 
 
-def cmd_quests(views: list[tuple[Path, SessionView]]) -> None:
-    """Quest progression detail per agent."""
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        print(_bar(f"agent_{aid} ({_personality(sv)})  {sv.log_path.name}"))
-        gs0 = first_observe(sv) or {}
-        gs = latest_observe(sv) or {}
-        print(f"  start: finished={[q.get('name') for q in gs0.get('finished_quests') or []]}  "
-              f"active={[q.get('name') for q in gs0.get('active_quests') or []]}")
-        print(f"  now:   finished={[q.get('name') for q in gs.get('finished_quests') or []]}  "
-              f"active={_fmt_quests(gs.get('active_quests'))}")
+def cmd_quests(rvs: list[RunSessionsView]) -> None:
+    """Quest progression detail per agent — first observe of run vs last
+    observe of run, plus NPC interactions and query_quest calls aggregated."""
+    for rv in rvs:
+        aid = _agent_id_from_dir(rv.agent_dir)
+        print(_bar(f"agent_{aid} ({rv.personality})  run={rv.run_id}  ({rv.n_sessions} sessions)"))
+        gs0 = rv.first_observe_in_run() or {}
+        gs1 = rv.last_observe_in_run() or {}
+        f0 = _fmt_quest_names(gs0.get("finished_quests"))
+        f1 = _fmt_quest_names(gs1.get("finished_quests"))
+        new_completions = sorted(set(f1) - set(f0))
+        print(f"  start: finished={f0}  active={_fmt_quest_names(gs0.get('active_quests'))}")
+        print(f"  end:   finished={f1}  active={_fmt_quests(gs1.get('active_quests'))}")
+        print(f"  NEW completions this run: {new_completions or '—'}")
 
-        # quest-relevant tool calls
-        npc_calls = [tc for tc in sv.tool_calls if tc.short_name == "interact_npc"]
         npc_count: dict[str, int] = {}
         accepts = 0
-        for tc in npc_calls:
-            npc = tc.input.get("npc_name", "?")
-            npc_count[npc] = npc_count.get(npc, 0) + 1
-            if isinstance(tc.result_payload, dict) and tc.result_payload.get("quest_accepted"):
-                accepts += 1
+        qq_names: list[str] = []
+        for tc in rv.all_tool_calls:
+            if tc.short_name == "interact_npc":
+                npc = tc.input.get("npc_name", "?")
+                npc_count[npc] = npc_count.get(npc, 0) + 1
+                if isinstance(tc.result_payload, dict) and tc.result_payload.get("quest_accepted"):
+                    accepts += 1
+            elif tc.short_name == "query_quest":
+                qq_names.append(tc.input.get("quest_name", "?"))
         if npc_count:
-            top = sorted(npc_count.items(), key=lambda kv: -kv[1])[:6]
-            print(f"  NPC talks: {dict(top)}    quest_accepted events: {accepts}")
-        qq = [tc for tc in sv.tool_calls if tc.short_name == "query_quest"]
-        if qq:
-            print(f"  query_quest: {[tc.input.get('quest_name','?') for tc in qq]}")
+            top = sorted(npc_count.items(), key=lambda kv: -kv[1])[:8]
+            print(f"  NPC talks (top 8): {dict(top)}    quest_accepted events: {accepts}")
+        if qq_names:
+            print(f"  query_quest ({len(qq_names)}): {qq_names[:12]}{' …' if len(qq_names) > 12 else ''}")
 
 
-def cmd_tools(views: list[tuple[Path, SessionView]]) -> None:
-    """Tool call distribution + error rates per agent."""
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        print(_bar(f"agent_{aid} ({_personality(sv)})  {len(sv.tool_calls)} calls"))
-        ec = tool_error_counts(sv)
+def cmd_tools(rvs: list[RunSessionsView]) -> None:
+    """Tool call distribution + error rates aggregated across the run."""
+    for rv in rvs:
+        aid = _agent_id_from_dir(rv.agent_dir)
+        n = rv.total_tool_calls
+        print(_bar(f"agent_{aid} ({rv.personality})  {n} calls across {rv.n_sessions} sessions"))
+        ec = rv.tool_error_counts()
         for tool, (errs, total) in sorted(ec.items(), key=lambda kv: -kv[1][1]):
             pct_err = (errs / total * 100) if total else 0
             tag = f"  ERR {errs}/{total} ({pct_err:.0f}%)" if errs else ""
             print(f"    {tool:<20} {total:>4}{tag}")
 
 
-def cmd_recent(views: list[tuple[Path, SessionView]], n: int) -> None:
-    """Last N tool calls per agent — very useful for 'what's it doing right now'."""
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        print(_bar(f"agent_{aid} ({_personality(sv)}) — last {n} tool calls"))
-        for tc in sv.tool_calls[-n:]:
-            inp = ", ".join(f"{k}={v!r}" for k, v in list(tc.input.items())[:3])
-            err = " [ERR]" if tc.is_error else ""
-            err_msg = f"  → {tc.result_error[:80]}" if tc.is_error else ""
-            print(f"    #{tc.idx:<3} {tc.short_name:<16} {inp}{err}{err_msg}")
+def cmd_errors(rvs: list[RunSessionsView], by_quest: bool = False) -> None:
+    """Categorized errors + 'what did the agent do next' transitions across
+    the entire run. The next-action transition is THE diagnostic for whether
+    a rule landed (e.g. BFS_NO_PATH → warp vs BFS_NO_PATH → navigate retry).
 
-
-def cmd_errors(views: list[tuple[Path, SessionView]]) -> None:
-    """Categorized error breakdown + 'what did the agent do next' transition matrix.
-
-    Surfaces the recurring failure modes (BFS_NO_PATH, STILL_MOVING,
-    NPC_NOT_FOUND, STATION_UNREACHABLE, etc.) so we can tell whether the
-    agent recovers (e.g., warps after BFS fail per Rule 4a) or loops.
+    `by_quest=True` slices each agent's errors by which Core 5 quest was
+    active at the time, surfacing per-quest failure modes (e.g. Rick's Roll
+    stage-1 STATION_UNREACHABLE vs Herbalist's BFS_NO_PATH on overland walk).
     """
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        errs = [(i, tc) for i, tc in enumerate(sv.tool_calls) if tc.is_error]
+    for rv in rvs:
+        aid = _agent_id_from_dir(rv.agent_dir)
+        all_calls = rv.all_tool_calls
+        errs = [(i, tc) for i, tc in enumerate(all_calls) if tc.is_error]
         if not errs:
             continue
-        print(_bar(f"agent_{aid} — {len(errs)} errors of {len(sv.tool_calls)}"))
-        # Per-category counts + next-action transitions.
+        print(_bar(f"agent_{aid} — {len(errs)} errors of {len(all_calls)} across {rv.n_sessions} sessions"))
+
+        if by_quest:
+            # Build a per-quest progression so we know, for each tool-call
+            # index, which Core 5 quests were active. Then group errors by
+            # the active set at error time.
+            progs = progression_for_quests(rv)
+            # Replay observes to build a per-run-idx → active set map.
+            active_at: list[set[str]] = []
+            current: set[str] = set()
+            for tc in all_calls:
+                if tc.short_name == "observe" and isinstance(tc.result_payload, dict):
+                    current = {
+                        q.get("name") for q in (tc.result_payload.get("active_quests") or [])
+                        if isinstance(q, dict) and q.get("name") in CORE_5_QUEST_NAMES
+                    }
+                active_at.append(set(current))
+
+            buckets: dict[str, list[tuple[int, "ToolCall"]]] = {}  # noqa: F821
+            for i, tc in errs:
+                actives = active_at[i] if i < len(active_at) else set()
+                if not actives:
+                    buckets.setdefault("(none active)", []).append((i, tc))
+                else:
+                    for qname in actives:
+                        buckets.setdefault(qname, []).append((i, tc))
+
+            for qname in sorted(buckets.keys(), key=lambda k: -len(buckets[k])):
+                qerrs = buckets[qname]
+                cat_counts: dict[str, int] = {}
+                next_actions: dict[str, dict[str, int]] = {}
+                sample: dict[str, str] = {}
+                for i, tc in qerrs:
+                    cat = categorize_error(tc.result_error or "")
+                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
+                    sample.setdefault(cat, f"{tc.short_name}: {(tc.result_error or '')[:100]}")
+                    nxt = all_calls[i+1].short_name if i+1 < len(all_calls) else "<end>"
+                    next_actions.setdefault(cat, {})
+                    next_actions[cat][nxt] = next_actions[cat].get(nxt, 0) + 1
+                print(f"  ▸ while {qname} active — {len(qerrs)} errors")
+                for cat, count in sorted(cat_counts.items(), key=lambda kv: -kv[1]):
+                    top_next = sorted(next_actions[cat].items(), key=lambda kv: -kv[1])[:3]
+                    transitions = ", ".join(f"{n}×{c}" for n, c in top_next)
+                    print(f"      [{count}x] {cat:<22} → next: {transitions}")
+            continue
+
         cat_counts: dict[str, int] = {}
         next_actions: dict[str, dict[str, int]] = {}
         sample: dict[str, str] = {}
@@ -214,7 +285,7 @@ def cmd_errors(views: list[tuple[Path, SessionView]]) -> None:
             cat = categorize_error(tc.result_error or "")
             cat_counts[cat] = cat_counts.get(cat, 0) + 1
             sample.setdefault(cat, f"{tc.short_name}: {(tc.result_error or '')[:120]}")
-            nxt = sv.tool_calls[i+1].short_name if i+1 < len(sv.tool_calls) else "<end>"
+            nxt = all_calls[i+1].short_name if i+1 < len(all_calls) else "<end>"
             next_actions.setdefault(cat, {})
             next_actions[cat][nxt] = next_actions[cat].get(nxt, 0) + 1
         for cat, count in sorted(cat_counts.items(), key=lambda kv: -kv[1]):
@@ -224,11 +295,449 @@ def cmd_errors(views: list[tuple[Path, SessionView]]) -> None:
             print(f"           ex: {sample[cat]}")
 
 
-def _run_total_cost_usd(run) -> float:
-    """Sum total_cost_usd across every session log in a run by scanning only
-    the trailing `result` line of each file. parse.py already extracts cost
-    into result_summary but throws it away in cmd_runs — surface it here so
-    operators can see $ spend per run without spinning up the full parser."""
+# Argument-style error markers — distinguish schema/validation failures from
+# game-state errors (NPC_NOT_FOUND, BFS_NO_PATH, etc., which are gameplay
+# outcomes, not bad arguments).
+_ARG_ERROR_KEYWORDS = (
+    "validation", "invalid type", "missing field", "schema",
+    "required parameter", "must be one of", "expected ", "unexpected keyword",
+    "could not parse", "invalid argument",
+)
+
+# Core 5 quest names for stage-completion scoring (Niral's metric #4).
+_CORE_5_QUEST_NAMES = {
+    "Foresting", "Herbalist's Desperation", "Rick's Roll",
+    "Arts and Crafts", "Sea Activities",
+}
+
+
+def cmd_metrics(rvs: list[RunSessionsView]) -> None:
+    """Paper metrics scored over the entire run (Niral's 5).
+
+    core5 is the **stage** delta first→last observe — captures partial
+    progress (e.g. Rick's Roll 1→3 counts as +2 of 4) so the metric moves
+    week-over-week instead of remaining 0/5 until a whole quest finishes.
+    turn-eff denominator is total_turns across the run.
+    """
+    total_stages = core5_total_stage_count()
+    counts = quest_stage_counts()
+    core5_set = set(CORE_5_QUEST_NAMES)
+
+    print(_bar("METRICS — paper-claim scorer (run-scoped)"))
+    print(f"{'agent':<7}{'persona':<14}{'calls':<7}"
+          f"{'format':<10}{'argument':<11}{'tool-sel':<10}"
+          f"{'core5_stages':<14}{'turn-eff':<18}")
+    print("─" * 100)
+
+    for rv in rvs:
+        aid = _agent_id_from_dir(rv.agent_dir)
+        persona = _personality_short(rv.personality)
+        all_calls = rv.all_tool_calls
+        n_calls = len(all_calls)
+        if n_calls == 0:
+            print(f"{aid:<7}{persona:<14}{'0':<7}(no tool calls)")
+            continue
+
+        # 1. Format accuracy — payload decoded.
+        n_format_ok = sum(1 for tc in all_calls if tc.result_payload is not None)
+        format_pct = 100 * n_format_ok / n_calls
+
+        # 2. Argument accuracy — format-ok AND no schema/validation error.
+        def _is_arg_error(tc) -> bool:
+            err = (tc.result_error or "").lower()
+            if not err:
+                return False
+            return any(k in err for k in _ARG_ERROR_KEYWORDS)
+
+        n_arg_ok = sum(
+            1 for tc in all_calls
+            if tc.result_payload is not None and not _is_arg_error(tc)
+        )
+        arg_pct = 100 * n_arg_ok / n_calls
+
+        # 3. Tool selection — needs LLM judge; deferred.
+        tool_sel = "DEFERRED"
+
+        # 4. Core 5 STAGE completion across the run. Compute first-of-run
+        # and last-of-run state for each Core 5 quest (active stage if
+        # active, full stage_count if finished, 0 otherwise) and sum the
+        # delta. Subtracting the first observe's state defends against
+        # quest_resume.json replaying prior-run completions into session 1.
+        def _stage_state_at(observe_payload: dict) -> dict[str, int]:
+            out: dict[str, int] = {n: 0 for n in core5_set}
+            for q in (observe_payload.get("finished_quests") or []):
+                if isinstance(q, dict):
+                    n = q.get("name")
+                    if n in core5_set:
+                        out[n] = counts.get(n, 0)
+            for q in (observe_payload.get("active_quests") or []):
+                if isinstance(q, dict):
+                    n = q.get("name")
+                    if n in core5_set:
+                        st = q.get("stage")
+                        if isinstance(st, int) and st > out[n]:
+                            out[n] = st
+            return out
+
+        gs0 = rv.first_observe_in_run() or {}
+        gs1 = rv.last_observe_in_run() or {}
+        s0 = _stage_state_at(gs0)
+        s1 = _stage_state_at(gs1)
+        new_stages = sum(max(0, s1[n] - s0[n]) for n in core5_set)
+        core5_str = f"{new_stages}/{total_stages}"
+
+        # 5. Turn efficiency — Core 5 stage progress / total turns.
+        n_turns = rv.total_turns
+        if n_turns and new_stages:
+            eff = f"{new_stages}/{n_turns}={new_stages/n_turns:.4f}"
+        elif n_turns:
+            eff = f"0/{n_turns}"
+        else:
+            eff = "—"
+
+        print(f"{aid:<7}{persona:<14}{n_calls:<7}"
+              f"{format_pct:>5.1f}%    {arg_pct:>5.1f}%     {tool_sel:<10}"
+              f"{core5_str:<14}{eff:<18}")
+    print()
+    print("Caveats:")
+    print("  format       = % tool results where the JSON payload parsed (decoder ok)")
+    print("  argument     = format-ok AND no schema/validation error in result.")
+    print("                 Game-state errors (NPC_NOT_FOUND, BFS_NO_PATH, …) do NOT count.")
+    print("  tool-sel     = DEFERRED — needs LLM-judge or hand-labeled sample.")
+    print(f"  core5_stages = NEW Core 5 stages reached this run (last − first observe).")
+    print(f"                 Denominator {total_stages} = sum of stage counts: "
+          + ", ".join(f"{n}={counts.get(n,'?')}" for n in CORE_5_QUEST_NAMES))
+    print("  turn-eff     = new stages / total_turns. Higher = better planning.")
+    print("                 total_turns sums per-session num_turns across the run.")
+
+
+def cmd_timeline(rvs: list[RunSessionsView], n: int = 30) -> None:
+    """Chronological event stream for one agent across the entire run.
+
+    Walks every session in order, emitting deaths, accepts, BFS-fails, warps,
+    query_quests, level-ups, and first-time quest completions.
+    """
+    for rv in rvs:
+        aid = _agent_id_from_dir(rv.agent_dir)
+        print(_bar(f"agent_{aid} — run={rv.run_id} ({rv.n_sessions} sessions, "
+                   f"started {fmt_est(rv.started_at)})"))
+        events: list[tuple[int, int, str]] = []   # (session_idx, tc_idx, msg)
+        last_level: int | None = None
+        seen_finished: set[str] = set()
+        for s_idx, sv in enumerate(rv.sessions):
+            ts = parse_session_timestamp(sv.log_path)
+            events.append((s_idx, -1, f"━━━ session #{s_idx+1} starts at {fmt_est(ts)} ━━━"))
+            for tc in sv.tool_calls:
+                p = tc.result_payload if isinstance(tc.result_payload, dict) else {}
+                if tc.short_name == "respawn":
+                    events.append((s_idx, tc.idx, "💀 respawn"))
+                elif tc.short_name == "interact_npc" and tc.input.get("accept_quest_offer") \
+                     and isinstance(p, dict) and (p.get("quest_accepted") or p.get("quest_opened")):
+                    events.append((s_idx, tc.idx, f"📜 ACCEPT {tc.input.get('npc_name')}"))
+                elif tc.short_name == "navigate" and tc.is_error and "BFS" in (tc.result_error or ""):
+                    events.append((s_idx, tc.idx, f"🚫 BFS no-path → ({tc.input.get('x')},{tc.input.get('y')})"))
+                elif tc.short_name == "warp":
+                    events.append((s_idx, tc.idx, f"🌀 warp({tc.input.get('location')})"))
+                elif tc.short_name == "query_quest":
+                    lgs = (p.get("live_gate_status") or {}) if isinstance(p, dict) else {}
+                    tag = " [GATED]" if lgs.get("gated") else ""
+                    events.append((s_idx, tc.idx, f"❓ query {tc.input.get('quest_name')}{tag}"))
+                if tc.short_name == "observe" and isinstance(p, dict):
+                    lvl = (p.get("stats") or {}).get("level")
+                    if lvl is not None and last_level is not None and lvl > last_level:
+                        events.append((s_idx, tc.idx, f"⭐ LEVEL UP {last_level} → {lvl}"))
+                    if lvl is not None:
+                        last_level = lvl
+                    for q in (p.get("finished_quests") or []):
+                        if not isinstance(q, dict):
+                            continue
+                        name = q.get("name") or "?"
+                        if name not in seen_finished:
+                            seen_finished.add(name)
+                            events.append((s_idx, tc.idx, f"✅ {name}"))
+        for s_idx, tc_idx, msg in events[-n:]:
+            tag = "──" if tc_idx < 0 else f"#{tc_idx:<3}"
+            print(f"  s{s_idx+1} {tag} {msg}")
+        if not events:
+            print("  (no notable events)")
+
+
+def cmd_agent_run(rv: RunSessionsView, n_recent: int = 10) -> None:
+    """Deep-dive one agent across its run."""
+    aid = _agent_id_from_dir(rv.agent_dir)
+    print(_bar(f"agent_{aid} ({rv.personality}) — run={rv.run_id} "
+               f"({rv.n_sessions} sessions, {fmt_duration(rv.duration_s)})"))
+    print(f"  meta: harness={rv.harness}  model={rv.model}")
+    n_assistant = sum(sv.n_assistant for sv in rv.sessions)
+    n_user = sum(sv.n_user for sv in rv.sessions)
+    n_thinking = rv.n_thinking
+    n_text = rv.n_text
+    rl = sum(sv.rate_limit_events for sv in rv.sessions)
+    print(f"  turns: {n_assistant} assistant / {n_user} user / "
+          f"{n_thinking} thinking / {n_text} text / "
+          f"{rv.total_tool_calls} tool_calls / {rl} rate_limit_events")
+    print(f"  cost: {_fmt_cost(rv.total_cost_usd)}    "
+          f"tokens: {_fmt_tokens(rv.total_tokens)}    "
+          f"terminal: {rv.terminal_reason}{' (synthetic)' if rv.synthetic_summary else ''}")
+
+    gs0 = rv.first_observe_in_run() or {}
+    gs1 = rv.last_observe_in_run() or {}
+    s0 = (gs0.get("stats") or {})
+    s1 = (gs1.get("stats") or {})
+
+    def _chg(a, b):
+        try: return f"{a}→{b} (+{b-a})"
+        except Exception: return f"{a}→{b}"
+
+    print(f"  level: {_chg(s0.get('level','?'), s1.get('level','?'))}    "
+          f"xp: {_chg(s0.get('xp','?'), s1.get('xp','?'))}    "
+          f"hp now: {s1.get('hp','?')}/{s1.get('max_hp','?')}")
+    print(f"  pos start: {_fmt_pos(gs0.get('pos'))}   pos now: {_fmt_pos(gs1.get('pos'))}")
+    print(f"  finished: {_fmt_quest_names(gs1.get('finished_quests'))}")
+    print(f"  new this run: {sorted(set(_fmt_quest_names(gs1.get('finished_quests'))) - set(_fmt_quest_names(gs0.get('finished_quests'))))}")
+    print(f"  active:   {_fmt_quests(gs1.get('active_quests'))}")
+    print(f"  inv items: {len(gs1.get('inventory') or [])}    "
+          f"deaths: {len(rv.deaths())}")
+
+    print(f"\n  tool counts: {rv.tool_call_counts()}")
+
+    err_count = sum(1 for tc in rv.all_tool_calls if tc.is_error)
+    if err_count:
+        print(f"  errors: {err_count} (run `analyze.py errors` for detail)")
+
+    print(f"\n  last {n_recent} tool calls (latest session):")
+    last_sv = rv.sessions[-1] if rv.sessions else None
+    if last_sv:
+        for tc in last_sv.tool_calls[-n_recent:]:
+            inp = ", ".join(f"{k}={v!r}" for k, v in list(tc.input.items())[:3])
+            err = " [ERR]" if tc.is_error else ""
+            print(f"    #{tc.idx:<3} {tc.short_name:<16} {inp}{err}")
+
+
+def _resolve_quest_filter(quest_arg: str | None) -> list[str]:
+    """Translate a `quest <name>` argument into a concrete name list.
+
+    No arg / `core5` → the Core 5. Any other string → resolve against
+    quest_walkthroughs.json keys; case-insensitive substring match wins.
+    Unknown names fall through as-is so callers always get *something*.
+    """
+    if not quest_arg or quest_arg.lower() == "core5":
+        return list(CORE_5_QUEST_NAMES)
+    targets = list(quest_stage_counts().keys())
+    needle = quest_arg.lower()
+    matches = [n for n in targets if needle in n.lower()]
+    return matches or [quest_arg]
+
+
+def _fmt_progression_block(prog: QuestProgression) -> list[str]:
+    """Multi-line render of a single QuestProgression — used by cmd_quest."""
+    lines: list[str] = []
+    reached, total = prog.stage_fraction
+    if prog.finished:
+        header = f"  {prog.quest_name}  {reached}/{total}  ✅ FINISHED"
+    elif prog.accepted_at_run_idx is None:
+        header = f"  {prog.quest_name}  0/{total}  (untouched)"
+    else:
+        last = prog.last_state or (prog.max_stage_reached, 0)
+        header = (
+            f"  {prog.quest_name}  {reached}/{total}  "
+            f"(active — last seen at stage {last[0]}/{total} sub_stage={last[1]})"
+        )
+    lines.append(header)
+    if prog.stage_events:
+        for ev in prog.stage_events:
+            args = ev.trigger_args or {}
+            arg_hint = (
+                args.get("npc_name") or args.get("location")
+                or args.get("recipe_key") or args.get("resource_name") or ""
+            )
+            arg_str = f"({arg_hint})" if arg_hint else ""
+            kind_emoji = "📜" if ev.kind == "accept" else ("🎯" if ev.to_stage == prog.stage_count else "↗️")
+            lines.append(
+                f"    {kind_emoji} s{ev.session_idx+1} #{ev.tc_session_idx}: "
+                f"{ev.from_stage}→{ev.to_stage} via {ev.trigger_tool}{arg_str}"
+            )
+            if ev.thinking:
+                snippet = ev.thinking.replace("\n", " ").strip()
+                if snippet:
+                    lines.append(f"        thinking: {snippet[:200]}")
+    if prog.turns_active:
+        top_tools = sorted(prog.tools_while_active.items(), key=lambda kv: -kv[1])[:5]
+        lines.append(
+            f"    {prog.turns_active} active observes; "
+            f"top tools: {dict(top_tools)}"
+        )
+    if prog.npcs_while_active:
+        top_npcs = sorted(prog.npcs_while_active.items(), key=lambda kv: -kv[1])[:5]
+        lines.append(f"    NPCs talked to: {dict(top_npcs)}")
+    if prog.errors_while_active:
+        sorted_errs = sorted(prog.errors_while_active.items(), key=lambda kv: -kv[1])
+        lines.append(
+            f"    errors while active: "
+            + ", ".join(f"{cat}×{n}" for cat, n in sorted_errs)
+        )
+    return lines
+
+
+def cmd_quest(rvs: list[RunSessionsView], quest_arg: str | None = None,
+              cross_run: bool = False, harness_override: str | None = None) -> None:
+    """Per-quest progression timeline + diagnostics across the run.
+
+    Default scope: Core 5. Pass a quest name (or substring) to scope to one.
+    `--cross-run` switches to a max-stage histogram across every run for
+    each agent — answers "where do agents plateau on quest X?".
+    """
+    targets = _resolve_quest_filter(quest_arg)
+
+    if cross_run:
+        _cmd_quest_cross_run(targets, harness_override=harness_override)
+        return
+
+    for rv in rvs:
+        aid = _agent_id_from_dir(rv.agent_dir)
+        print(_bar(f"agent_{aid} ({rv.personality})  run={rv.run_id}  ({rv.n_sessions} sessions)"))
+        progs = progression_for_quests(rv, quest_names=targets)
+        for name in targets:
+            prog = progs.get(name)
+            if prog is None:
+                print(f"  {name}: (no stage_count in quest_walkthroughs.json)")
+                continue
+            for line in _fmt_progression_block(prog):
+                print(line)
+            print()
+
+
+def _cmd_quest_cross_run(targets: list[str], harness_override: str | None = None) -> None:
+    """Histogram of max-stage reached per quest across every run for each
+    agent. Answers 'where do agents plateau?'. Heavy — re-parses every run."""
+    from collections import Counter
+    print(_bar(f"CROSS-RUN max-stage histogram for {len(targets)} quest(s)"))
+    counts = quest_stage_counts()
+    for agent_dir in list_agent_dirs():
+        run_dirs = list_runs(agent_dir)
+        if not run_dirs:
+            continue
+        # Per-quest histogram of max stages reached across the agent's runs.
+        per_quest: dict[str, Counter] = {n: Counter() for n in targets}
+        finished_count: dict[str, int] = {n: 0 for n in targets}
+        runs_seen = 0
+        for rd in run_dirs:
+            try:
+                rv = parse_run_sessions(agent_dir, rd, harness=harness_override)
+            except Exception:
+                continue
+            if not rv.sessions:
+                continue
+            runs_seen += 1
+            progs = progression_for_quests(rv, quest_names=targets)
+            for n in targets:
+                p = progs.get(n)
+                if p is None:
+                    continue
+                if p.finished:
+                    finished_count[n] += 1
+                    per_quest[n][p.stage_count] += 1
+                else:
+                    per_quest[n][p.max_stage_reached] += 1
+        aid = _agent_id_from_dir(agent_dir)
+        print(f"\n  agent_{aid}  ({runs_seen} runs)")
+        for n in targets:
+            sc = counts.get(n, 0)
+            hist = per_quest[n]
+            if not hist:
+                continue
+            histogram_str = "  ".join(
+                f"[{stage}]×{hist[stage]}" for stage in sorted(hist.keys())
+            )
+            fin = finished_count[n]
+            print(f"    {n:<25} {histogram_str}    →  finished {fin}/{runs_seen}")
+
+
+def cmd_full(rvs: list[RunSessionsView]) -> None:
+    """Full report across the run: status + quests + tools + core5 quest progression + errors."""
+    print(_bar("STATUS"))
+    cmd_status(rvs)
+    print(_bar("QUESTS"))
+    cmd_quests(rvs)
+    print(_bar("TOOLS"))
+    cmd_tools(rvs)
+    print(_bar("CORE 5 PROGRESSION"))
+    cmd_quest(rvs)
+    has_errs = any(tc.is_error for rv in rvs for tc in rv.all_tool_calls)
+    if has_errs:
+        print(_bar("ERRORS"))
+        cmd_errors(rvs)
+
+
+# ── Session-scoped commands (consume SessionView) ────────────────────────────
+#
+# `recent` and `thinking` semantically want a single session — the user is
+# asking "what's the model doing/thinking right now". Run-aggregating those
+# loses the temporal locality. Both default to the latest session in the
+# resolved run; `--session N` picks a specific session.
+
+def cmd_recent(views: list[tuple[Path, SessionView]], n: int) -> None:
+    """Last N tool calls per agent in the resolved session."""
+    for agent_dir, sv in views:
+        aid = _agent_id_from_dir(agent_dir)
+        persona = sv.meta.get("personality", "?")
+        print(_bar(f"agent_{aid} ({persona}) — {sv.log_path.name} — last {n} tool calls"))
+        for tc in sv.tool_calls[-n:]:
+            inp = ", ".join(f"{k}={v!r}" for k, v in list(tc.input.items())[:3])
+            err = " [ERR]" if tc.is_error else ""
+            err_msg = f"  → {tc.result_error[:80]}" if tc.is_error else ""
+            print(f"    #{tc.idx:<3} {tc.short_name:<16} {inp}{err}{err_msg}")
+
+
+def cmd_thinking(views: list[tuple[Path, SessionView]], n: int) -> None:
+    """Last N reasoning blocks per agent in the resolved session."""
+    for agent_dir, sv in views:
+        aid = _agent_id_from_dir(agent_dir)
+        persona = sv.meta.get("personality", "?")
+        print(_bar(f"agent_{aid} ({persona}) — {sv.log_path.name} — last {n} thinking blocks"))
+        with_think = [tc for tc in sv.tool_calls if tc.thinking]
+        for tc in with_think[-n:]:
+            think = (tc.thinking or "").replace("\n", " ")[:400]
+            print(f"  → before #{tc.idx} ({tc.short_name}): {think}")
+
+
+# ── Cost / token formatting ──────────────────────────────────────────────────
+
+def _fmt_cost(cost: float | None) -> str:
+    if cost is None:
+        return "—"
+    return f"${cost:.2f}"
+
+
+def _fmt_tokens(toks: dict | None) -> str:
+    if not toks:
+        return "—"
+    parts = []
+    for k in ("input_tokens", "output_tokens", "reasoning_tokens",
+              "cache_read_tokens", "cache_write_tokens", "total_tokens"):
+        v = toks.get(k)
+        if v:
+            parts.append(f"{k.replace('_tokens',''):>6}={_humanize(v)}")
+    return "  ".join(parts) if parts else "—"
+
+
+def _humanize(n: int) -> str:
+    if n >= 1_000_000_000:
+        return f"{n/1_000_000_000:.1f}B"
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.1f}k"
+    return str(n)
+
+
+# ── `runs` command (run-meta listing — unchanged, uses RunView lite) ─────────
+
+def _run_total_cost_usd_lite(run) -> float:
+    """Cheap cost-from-tail. Used by `cmd_runs` to avoid parsing every session
+    log just to render a table row. For claude this reads the `result` event;
+    for opencode this is N/A (no final result line) and we return 0 — the
+    full parse_run_sessions surfaces real opencode cost."""
     total = 0.0
     for p in run.session_paths:
         try:
@@ -260,292 +769,24 @@ def cmd_runs(_views, n: int = 10, all_runs: bool = False) -> None:
     if not all_runs:
         runs = runs[:n]
     print(f"{'run_id':<24}{'agent':<7}{'pers':<14}{'harness':<9}"
-          f"{'sessions':<10}{'started_at':<22}{'duration':<10}{'cost_usd':<10}")
-    print("─" * 106)
+          f"{'sessions':<10}{'started_at':<26}{'duration':<10}{'cost_usd':<10}")
+    print("─" * 110)
     for r in runs:
         m = r.meta
         sessions_meta = m.get("session_count")
         sessions_actual = len(r.session_paths)
         sessions = (f"{sessions_actual}" if sessions_meta == sessions_actual
                     else f"{sessions_actual} (meta:{sessions_meta})")
-        cost = _run_total_cost_usd(r)
+        cost = _run_total_cost_usd_lite(r)
         cost_str = f"${cost:.2f}" if cost > 0 else "—"
         print(f"{r.run_id:<24}"
               f"{str(m.get('agent_id','?')):<7}"
               f"{(m.get('personality') or '?')[:13]:<14}"
               f"{(m.get('harness') or '?')[:8]:<9}"
               f"{sessions:<10}"
-              f"{fmt_est(r.started_at):<22}"
+              f"{fmt_est(r.started_at):<26}"
               f"{fmt_duration(r.duration_s):<10}"
               f"{cost_str:<10}")
-
-
-def cmd_tier_a(views: list[tuple[Path, SessionView]]) -> None:
-    """Per-agent Tier-A adoption metrics (rules + tool fields actually used)."""
-    print(f"{'agent':<7}{'qq':<5}{'qq+gate':<9}{'gated':<7}"
-          f"{'accepts':<9}{'q→accept':<10}"
-          f"{'BFS':<5}{'→warp':<7}{'→retry':<8}"
-          f"{'gather✓gate':<13}{'inv_full':<10}{'drop@full':<11}"
-          f"{'mob_overshot':<13}{'stations':<9}{'deaths':<7}")
-    print("─" * 130)
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        s = tier_a_signals(sv)
-        warp_pct = f"{s.bfs_then_warp}({100*s.bfs_then_warp//max(1,s.bfs_fails)}%)"
-        retry_pct = f"{s.bfs_then_navigate}({100*s.bfs_then_navigate//max(1,s.bfs_fails)}%)"
-        accept_pct = f"{s.accept_with_prior_query}/{s.accept_calls}"
-        print(f"{aid:<7}{s.query_quest_calls:<5}{s.query_quest_with_live_gate:<9}"
-              f"{s.query_quest_gated_seen:<7}{s.accept_calls:<9}{accept_pct:<10}"
-              f"{s.bfs_fails:<5}{warp_pct:<7}{retry_pct:<8}"
-              f"{s.gather_with_gate_explained:<13}{s.inv_full_observed:<10}"
-              f"{s.drops_after_full:<11}{s.mob_level_overshoot_attacks:<13}"
-              f"{s.station_locations_returned:<9}{s.deaths:<7}")
-    print()
-    print("Legend:")
-    print("  qq          query_quest calls this session")
-    print("  qq+gate     of those, how many returned a live_gate_status block")
-    print("  gated       of those, how many showed gated:true (Rule 9 fallback fired)")
-    print("  q→accept    accepts preceded by query_quest within 3 calls (Rule 10 compliance)")
-    print("  BFS         navigate calls that returned BFS no-path")
-    print("  →warp /     of BFS-fails, what the agent did next")
-    print("    →retry      (Rule 4a wants ≥80% →warp)")
-    print("  gather✓gate gather calls that returned a structured `gate` block (A2)")
-    print("  inv_full    observes that surfaced inventory_summary.full=true")
-    print("  drop@full   drop_item within 3 turns of inv_full (correct response)")
-    print("  mob_overshot attacks on mobs >+10 levels above player (Rule 11 violation)")
-    print("  stations    query_quest calls that returned station_locations (new field)")
-
-
-# Argument-style error markers — distinguish schema/validation failures from
-# game-state errors (NPC_NOT_FOUND, BFS_NO_PATH, etc., which are gameplay
-# outcomes, not bad arguments).
-_ARG_ERROR_KEYWORDS = (
-    "validation", "invalid type", "missing field", "schema",
-    "required parameter", "must be one of", "expected ", "unexpected keyword",
-    "could not parse", "invalid argument",
-)
-
-# Core 5 quest names — used to score stage completion against the paper's
-# "stages out of 11" headline framing.
-_CORE_5_QUEST_NAMES = {
-    "Foresting", "Herbalist's Desperation", "Rick's Roll",
-    "Arts and Crafts", "Sea Activities",
-}
-
-
-def cmd_metrics(views: list[tuple[Path, SessionView]]) -> None:
-    """v1 paper metrics — Niral's 5 metrics from 2026-04-28 iMessage.
-
-    Format / Argument / Stage / Turn-efficiency scored directly from logs.
-    Tool-selection accuracy deferred to a Claude-as-judge or hand-labeled pass.
-
-    Per-agent on the latest session per agent (current run scope). Run-level
-    aggregation across sessions is a follow-up — for now, multiply stages
-    by sessions-in-run for a rough estimate.
-    """
-    print(_bar("METRICS (v1) — paper-claim scorer"))
-    print(f"{'agent':<7}{'persona':<14}{'calls':<7}"
-          f"{'format':<10}{'argument':<11}{'tool-sel':<10}"
-          f"{'core5':<8}{'turn-eff':<14}")
-    print("─" * 90)
-
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        persona = _personality(sv, short=True) or "?"
-        calls = sv.tool_calls
-        n_calls = len(calls)
-        if n_calls == 0:
-            print(f"{aid:<7}{persona:<14}{'0':<7}(no tool calls)")
-            continue
-
-        # 1. Format accuracy: tool result decoded to a structured payload.
-        n_format_ok = sum(1 for tc in calls if tc.result_payload is not None)
-        format_pct = 100 * n_format_ok / n_calls
-
-        # 2. Argument accuracy: format-ok AND no schema/validation-style error.
-        # Game-state errors (NPC_NOT_FOUND etc.) don't count — they're gameplay
-        # outcomes, not bad arguments.
-        def _is_arg_error(tc) -> bool:
-            err = (tc.result_error or "").lower()
-            if not err:
-                return False
-            return any(k in err for k in _ARG_ERROR_KEYWORDS)
-
-        n_arg_ok = sum(
-            1 for tc in calls
-            if tc.result_payload is not None and not _is_arg_error(tc)
-        )
-        arg_pct = 100 * n_arg_ok / n_calls
-
-        # 3. Tool selection: requires LLM-judge or hand-labeled sample.
-        tool_sel = "DEFERRED"
-
-        # 4. Stage completion (Core 5): how many Core 5 quests are finished.
-        # v1 = quest count out of 5. Niral's "/11" framing wants stages summed
-        # across Core 5 quest JSONs (Foresting=2, Herbalist=2, Rick's=3,
-        # Arts=2, Sea=2 = 11). Refine once we wire stage_count from the
-        # game source.
-        last = latest_observe(sv) or {}
-        finished = last.get("finished_quests") or []
-        finished_names = [
-            (q if isinstance(q, str) else q.get("name", ""))
-            for q in finished
-        ]
-        finished_core_5 = sum(1 for name in finished_names
-                              if name in _CORE_5_QUEST_NAMES)
-        core5_str = f"{finished_core_5}/5"
-
-        # 5. Turn efficiency: Core 5 quests-finished / num_turns.
-        # Higher = better planning (fewer turns per stage). Sessions terminated
-        # mid-flight have no `result_summary` (no final result event written),
-        # so fall back to `n_assistant` (assistant-message count as a turn proxy).
-        n_turns = 0
-        turn_source = "?"
-        if sv.result_summary and sv.result_summary.get("num_turns"):
-            n_turns = sv.result_summary.get("num_turns")
-            turn_source = "result"
-        elif sv.n_assistant:
-            n_turns = sv.n_assistant
-            turn_source = "asst"  # truncated session — n_assistant proxy
-        if n_turns and finished_core_5:
-            eff = f"{finished_core_5}/{n_turns}={finished_core_5/n_turns:.4f}({turn_source})"
-        elif n_turns:
-            eff = f"0/{n_turns}({turn_source})"
-        else:
-            eff = "—"
-
-        print(f"{aid:<7}{persona:<14}{n_calls:<7}"
-              f"{format_pct:>5.1f}%    {arg_pct:>5.1f}%     {tool_sel:<10}"
-              f"{core5_str:<8}{eff:<14}")
-    print()
-    print("v1 caveats (Niral, refine as needed):")
-    print("  format     = % tool results where the JSON payload parsed (decoder ok)")
-    print("  argument   = format-ok AND no schema/validation error in result.")
-    print("               Game-state errors (NPC_NOT_FOUND, BFS_NO_PATH, …) do NOT count.")
-    print("  tool-sel   = DEFERRED — needs Claude-as-judge or hand-labeled sample.")
-    print("  core5      = Core 5 quests finished, out of 5. Refine to '/11 stages'")
-    print("               once stage_count per quest is wired from the quest JSONs.")
-    print("  turn-eff   = Core 5 finished / num_turns. Higher = better planning.")
-    print("               (result) = num_turns from final result event;")
-    print("               (asst)   = fallback to n_assistant (session was truncated)")
-    print()
-    print("Source: Niral's iMessage 2026-04-28 — format / argument / tool-selection /")
-    print("stage-completion / turn-efficiency. Tool-selection requires sampled judge.")
-
-
-def cmd_timeline(views: list[tuple[Path, SessionView]], n: int = 30) -> None:
-    """Chronological event stream for one agent — sessions, deaths, quest events,
-    level-ups, accepts, BFS-fails. Shows the last N events."""
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        ts = parse_session_timestamp(sv.log_path)
-        print(_bar(f"agent_{aid} — {sv.log_path.name} (started {fmt_est(ts)})"))
-        events: list[tuple[int, str]] = []
-        last_level = None
-        seen_finished: set[str] = set()
-        for tc in sv.tool_calls:
-            p = tc.result_payload if isinstance(tc.result_payload, dict) else {}
-            if tc.short_name == "respawn":
-                events.append((tc.idx, "💀 respawn"))
-            elif tc.short_name == "interact_npc" and tc.input.get("accept_quest_offer") \
-                 and isinstance(p, dict) and (p.get("quest_accepted") or p.get("quest_opened")):
-                events.append((tc.idx, f"📜 ACCEPT {tc.input.get('npc_name')}"))
-            elif tc.short_name == "navigate" and tc.is_error and "BFS" in (tc.result_error or ""):
-                events.append((tc.idx, f"🚫 BFS no-path → ({tc.input.get('x')},{tc.input.get('y')})"))
-            elif tc.short_name == "warp":
-                events.append((tc.idx, f"🌀 warp({tc.input.get('location')})"))
-            elif tc.short_name == "query_quest":
-                lgs = (p.get("live_gate_status") or {}) if isinstance(p, dict) else {}
-                tag = " [GATED]" if lgs.get("gated") else ""
-                events.append((tc.idx, f"❓ query {tc.input.get('quest_name')}{tag}"))
-            if tc.short_name == "observe" and isinstance(p, dict):
-                lvl = (p.get("stats") or {}).get("level")
-                if lvl is not None and last_level is not None and lvl > last_level:
-                    events.append((tc.idx, f"⭐ LEVEL UP {last_level} → {lvl}"))
-                if lvl is not None:
-                    last_level = lvl
-                # Quest finished events — emit on the FIRST observe where each
-                # name appears in finished_quests (subsequent polls would
-                # otherwise spam an identical event line).
-                for q in (p.get("finished_quests") or []):
-                    if not isinstance(q, dict):
-                        continue
-                    name = q.get("name") or "?"
-                    if name not in seen_finished:
-                        seen_finished.add(name)
-                        events.append((tc.idx, f"✅ {name}"))
-        for idx, msg in events[-n:]:
-            print(f"  #{idx:<4} {msg}")
-        if not events:
-            print("  (no notable events)")
-
-
-def cmd_thinking(views: list[tuple[Path, SessionView]], n: int) -> None:
-    """Last N reasoning blocks per agent — shows what the model is currently planning."""
-    for agent_dir, sv in views:
-        aid = _agent_id(agent_dir)
-        print(_bar(f"agent_{aid} ({_personality(sv)}) — last {n} thinking blocks"))
-        with_think = [tc for tc in sv.tool_calls if tc.thinking]
-        for tc in with_think[-n:]:
-            think = (tc.thinking or "").replace("\n", " ")[:400]
-            print(f"  → before #{tc.idx} ({tc.short_name}): {think}")
-
-
-def cmd_agent(view: tuple[Path, SessionView], n_recent: int = 10) -> None:
-    """Deep-dive one agent."""
-    agent_dir, sv = view
-    aid = _agent_id(agent_dir)
-    print(_bar(f"agent_{aid} ({_personality(sv)}) — {sv.log_path.name} ({_age(sv.log_path)})"))
-    print(f"  meta: {sv.meta}")
-    print(f"  turns: {sv.n_assistant} assistant / {sv.n_user} user / "
-          f"{sv.n_thinking} thinking / {sv.n_text} text / "
-          f"{len(sv.tool_calls)} tool_calls / {sv.rate_limit_events} rate_limit_events")
-
-    gs0 = first_observe(sv) or {}
-    gs = latest_observe(sv) or {}
-    s0 = (gs0.get("stats") or {})
-    s1 = (gs.get("stats") or {})
-
-    def _chg(a, b):
-        try: return f"{a}→{b} (+{b-a})"
-        except Exception: return f"{a}→{b}"
-
-    print(f"  level: {_chg(s0.get('level','?'), s1.get('level','?'))}    "
-          f"xp: {_chg(s0.get('xp','?'), s1.get('xp','?'))}    "
-          f"hp now: {s1.get('hp','?')}/{s1.get('max_hp','?')}")
-    print(f"  pos start: {_fmt_pos(gs0.get('pos'))}   pos now: {_fmt_pos(gs.get('pos'))}")
-    print(f"  finished: {[q.get('name') for q in gs.get('finished_quests') or []]}")
-    print(f"  active:   {_fmt_quests(gs.get('active_quests'))}")
-    print(f"  inv items: {len(gs.get('inventory') or [])}    "
-          f"deaths: {len(deaths(sv))}")
-
-    print(f"\n  tool counts: {tool_call_counts(sv)}")
-
-    err_count = sum(1 for tc in sv.tool_calls if tc.is_error)
-    if err_count:
-        print(f"  errors: {err_count} (run `analyze.py errors` for detail)")
-
-    print(f"\n  last {n_recent} tool calls:")
-    for tc in sv.tool_calls[-n_recent:]:
-        inp = ", ".join(f"{k}={v!r}" for k, v in list(tc.input.items())[:3])
-        err = " [ERR]" if tc.is_error else ""
-        print(f"    #{tc.idx:<3} {tc.short_name:<16} {inp}{err}")
-
-
-def cmd_full(views: list[tuple[Path, SessionView]]) -> None:
-    """Full report: status + quests + tools + recent + errors."""
-    print(_bar("STATUS"))
-    cmd_status(views)
-    print(_bar("QUESTS"))
-    cmd_quests(views)
-    print(_bar("TOOLS"))
-    cmd_tools(views)
-    print(_bar("RECENT (last 8)"))
-    cmd_recent(views, n=8)
-    has_errs = any(tc.is_error for _, sv in views for tc in sv.tool_calls)
-    if has_errs:
-        print(_bar("ERRORS"))
-        cmd_errors(views)
 
 
 # ── Driver ───────────────────────────────────────────────────────────────────
@@ -553,36 +794,74 @@ def cmd_full(views: list[tuple[Path, SessionView]]) -> None:
 _STALE_SECONDS = 600  # 10 minutes — log untouched longer than this is from a prior run
 
 
-def _load_views(only_agent: int | None = None, include_stale: bool = False,
-                harness_override: str | None = None,
-                run_id: str | None = None) -> list[tuple[Path, SessionView]]:
-    """Latest session log per agent, optionally scoped to a specific run_id.
+def _resolve_run_dir(agent_dir: Path, run_id: str | None) -> Path | None:
+    """Resolve an agent's run dir given an optional run_id filter.
 
-    `--run <id>` resolves to the matching `runs/<id>/` dir per agent and
-    picks that run's most-recent session log. Without a run filter we use
-    the agent's `logs/` symlink (current run).
+    No run_id → latest run (resolves the `logs/` symlink).
+    run_id given → that specific run's dir under the agent.
     """
     if run_id:
-        from pathlib import Path as _P
-        from scripts.log_analysis.parse import RAW_DIR as _RAW
-        pairs: list[tuple[Path, Path]] = []
-        for agent_dir in sorted(p for p in _RAW.glob("agent_*") if p.is_dir()):
-            run_dir = agent_dir / "runs" / run_id
-            if not run_dir.is_dir():
+        rd = agent_dir / "runs" / run_id
+        return rd if rd.is_dir() else None
+    return latest_run(agent_dir)
+
+
+def _load_run_views(only_agent: int | None = None,
+                    include_stale: bool = False,
+                    harness_override: str | None = None,
+                    run_id: str | None = None) -> list[RunSessionsView]:
+    """Multi-session view for each agent, scoped to the resolved run."""
+    out: list[RunSessionsView] = []
+    now = dt.datetime.now().timestamp()
+    for agent_dir in list_agent_dirs():
+        if only_agent is not None and agent_dir.name != f"agent_{only_agent}":
+            continue
+        run_dir = _resolve_run_dir(agent_dir, run_id)
+        if not run_dir:
+            continue
+        sessions = sorted(run_dir.glob("session_*.log"))
+        if not sessions:
+            continue
+        # Stale filter: skip agents whose latest session log is >10 min old
+        # — applies only when run_id is not explicitly set (live mode).
+        if not run_id and not include_stale:
+            latest_mtime = max(p.stat().st_mtime for p in sessions)
+            if (now - latest_mtime) > _STALE_SECONDS:
                 continue
-            logs = sorted(run_dir.glob("session_*.log"), key=lambda p: p.stat().st_mtime)
-            if logs:
-                pairs.append((agent_dir, logs[-1]))
-    else:
-        pairs = latest_logs_per_agent()
-    if only_agent is not None:
-        pairs = [(d, l) for d, l in pairs if d.name == f"agent_{only_agent}"]
-    elif not include_stale and not run_id:
-        now = dt.datetime.now().timestamp()
-        pairs = [(d, l) for d, l in pairs if (now - l.stat().st_mtime) <= _STALE_SECONDS]
+        rv = parse_run_sessions(agent_dir, run_dir, harness=harness_override)
+        if rv.sessions:
+            out.append(rv)
+    return out
+
+
+def _load_session_views(rvs: list[RunSessionsView],
+                        session_n: int | None) -> list[tuple[Path, SessionView]]:
+    """Pick one SessionView per agent for session-scoped commands.
+
+    `session_n` is 1-based (matching session_N_... filenames). When None, picks
+    the latest session in each run. Out-of-range falls back silently to the
+    latest available session.
+    """
     out: list[tuple[Path, SessionView]] = []
-    for agent_dir, log in pairs:
-        out.append((agent_dir, parse_session_auto(log, harness=harness_override)))
+    for rv in rvs:
+        if not rv.sessions:
+            continue
+        if session_n is None:
+            sv = rv.sessions[-1]
+        else:
+            # Match by session_N_... filename token, not list index.
+            picked: SessionView | None = None
+            for sv_candidate in rv.sessions:
+                m = sv_candidate.log_path.name.split("_", 2)
+                if len(m) >= 2:
+                    try:
+                        if int(m[1]) == session_n:
+                            picked = sv_candidate
+                            break
+                    except ValueError:
+                        pass
+            sv = picked or rv.sessions[-1]
+        out.append((rv.agent_dir, sv))
     return out
 
 
@@ -594,26 +873,36 @@ def main() -> int:
     sub.add_parser("quests")
     sub.add_parser("tools")
     pr = sub.add_parser("recent"); pr.add_argument("-n", type=int, default=8)
-    sub.add_parser("errors")
+    pe = sub.add_parser("errors")
+    pe.add_argument("--by-quest", action="store_true",
+                    help="slice errors by which Core 5 quest was active at the time")
     pt = sub.add_parser("thinking"); pt.add_argument("-n", type=int, default=3)
     pa = sub.add_parser("agent"); pa.add_argument("agent_id", type=int); pa.add_argument("-n", type=int, default=10)
     sub.add_parser("full")
-    sub.add_parser("tier_a")
     sub.add_parser("metrics")
+    pq = sub.add_parser("quest")
+    pq.add_argument("name", nargs="?", default=None,
+                    help="quest name (or substring). Defaults to all Core 5.")
+    pq.add_argument("--cross-run", action="store_true",
+                    help="show max-stage histogram across every run for each agent")
     pn = sub.add_parser("runs"); pn.add_argument("-n", type=int, default=10)
     pl = sub.add_parser("timeline"); pl.add_argument("-n", type=int, default=30)
     p.add_argument("--stale", action="store_true",
-                   help="include sessions whose log hasn't been touched in 10+ minutes "
+                   help="include runs whose latest session log is >10 min old "
                         "(default: only currently-running agents)")
     p.add_argument("--run", dest="run_id", default=None,
                    help="scope to a specific run_id (e.g. run_20260427_135613). "
                         "Without this, looks at the latest run per agent.")
+    p.add_argument("--session", dest="session_n", type=int, default=None,
+                   help="drill down to one session inside the resolved run "
+                        "(1-based, matches session_N_... filename). Default: "
+                        "latest session for session-scoped commands.")
     p.add_argument("--all-runs", action="store_true",
                    help="for `runs` cmd: show every run, not just the recent N")
     p.add_argument("--opencode", action="store_const", const="opencode", dest="harness",
-                   help="force the OpenCode log parser (default: auto-detect from meta.json)")
+                   help="force the OpenCode log parser (default: auto-detect from each session's meta.json)")
     p.add_argument("--claude", action="store_const", const="claude", dest="harness",
-                   help="force the Claude log parser (default: auto-detect from meta.json)")
+                   help="force the Claude log parser (default: auto-detect from each session's meta.json)")
     args = p.parse_args()
 
     cmd = args.cmd or "full"
@@ -623,38 +912,55 @@ def main() -> int:
         cmd_runs(None, n=args.n, all_runs=args.all_runs)
         return 0
 
-    if cmd == "agent":
-        views = _load_views(only_agent=args.agent_id, harness_override=args.harness, run_id=args.run_id)
-        if not views:
-            print(f"No log found for agent_{args.agent_id}", file=sys.stderr)
-            return 1
-        cmd_agent(views[0], n_recent=args.n)
+    # `quest --cross-run` walks every run for every agent — bypasses the
+    # current-run loader since the output is multi-run by definition.
+    if cmd == "quest" and getattr(args, "cross_run", False):
+        cmd_quest([], quest_arg=args.name, cross_run=True, harness_override=args.harness)
         return 0
 
-    views = _load_views(include_stale=args.stale, harness_override=args.harness, run_id=args.run_id)
-    if not views:
-        msg = (f"No agent logs found for run {args.run_id}." if args.run_id
-               else "No active agent logs in the last 10 minutes. "
-                    "Pass --stale to include older sessions.")
+    # Single-agent deep dive.
+    if cmd == "agent":
+        rvs = _load_run_views(only_agent=args.agent_id, harness_override=args.harness,
+                              run_id=args.run_id, include_stale=True)
+        if not rvs:
+            print(f"No run found for agent_{args.agent_id}", file=sys.stderr)
+            return 1
+        cmd_agent_run(rvs[0], n_recent=args.n)
+        return 0
+
+    rvs = _load_run_views(include_stale=args.stale, harness_override=args.harness,
+                          run_id=args.run_id)
+    if not rvs:
+        msg = (f"No agent runs found for run {args.run_id}." if args.run_id
+               else "No active agent runs in the last 10 minutes. "
+                    "Pass --stale to include older runs.")
         print(msg, file=sys.stderr)
         return 1
 
-    # Header — show file + age for every report
-    print(f"# Log analysis  ({dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
-    for agent_dir, sv in views:
-        print(f"  agent_{_agent_id(agent_dir)}: {sv.log_path.name}  "
-              f"(modified {_age(sv.log_path)}, {len(sv.tool_calls)} tool calls)")
+    # Header — show run summary per agent
+    print(f"# Log analysis  ({dt.datetime.now().strftime('%Y-%m-%d %I:%M %p')})")
+    for rv in rvs:
+        sessions_str = f"{rv.n_sessions} session{'s' if rv.n_sessions != 1 else ''}"
+        cost_str = _fmt_cost(rv.total_cost_usd)
+        latest_age = _age(rv.sessions[-1].log_path) if rv.sessions else "?"
+        print(f"  agent_{_agent_id_from_dir(rv.agent_dir)}: run={rv.run_id}  "
+              f"{sessions_str}, {rv.total_turns} turns, {rv.total_tool_calls} tool calls, "
+              f"{cost_str}  (latest session: {latest_age})")
 
-    if cmd == "status":   cmd_status(views)
-    elif cmd == "quests": cmd_quests(views)
-    elif cmd == "tools":  cmd_tools(views)
-    elif cmd == "recent": cmd_recent(views, n=args.n)
-    elif cmd == "errors": cmd_errors(views)
-    elif cmd == "thinking": cmd_thinking(views, n=args.n)
-    elif cmd == "tier_a": cmd_tier_a(views)
-    elif cmd == "metrics": cmd_metrics(views)
-    elif cmd == "timeline": cmd_timeline(views, n=args.n)
-    elif cmd == "full":   cmd_full(views)
+    if cmd == "status":   cmd_status(rvs)
+    elif cmd == "quests": cmd_quests(rvs)
+    elif cmd == "tools":  cmd_tools(rvs)
+    elif cmd == "errors": cmd_errors(rvs, by_quest=getattr(args, "by_quest", False))
+    elif cmd == "metrics": cmd_metrics(rvs)
+    elif cmd == "timeline": cmd_timeline(rvs, n=args.n)
+    elif cmd == "quest":   cmd_quest(rvs, quest_arg=args.name, cross_run=False)
+    elif cmd == "full":   cmd_full(rvs)
+    elif cmd == "recent":
+        svs = _load_session_views(rvs, args.session_n)
+        cmd_recent(svs, n=args.n)
+    elif cmd == "thinking":
+        svs = _load_session_views(rvs, args.session_n)
+        cmd_thinking(svs, n=args.n)
     else:
         p.print_help()
         return 1

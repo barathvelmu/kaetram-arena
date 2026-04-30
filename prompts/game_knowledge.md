@@ -8,7 +8,7 @@ add-ons; off-limits quests are broken — don't waste turns on them.
 `interact_npc(name, accept_quest_offer=True)` — and only after `query_quest`
 returns `live_gate_status.gated: false` (see system.md Rule 10).
 
-**Tier-A signals reminder.** Every `observe()` carries Tier-A signals: `live_gate_status` (per-quest blockers vs current state), `station_locations` (nearest crafting tile per skill), `mob_stats.level/aggressive` (mob threat). Read these and act on them — don't just verbalize.
+**Observe-time signals.** Every `observe()` carries `live_gate_status` (per-quest blockers vs current state), `station_locations` (nearest crafting tile per skill), and `mob_stats.level/aggressive` (mob threat). Read these and act on them — don't just verbalize.
 
 ## QUEST CATALOG
 

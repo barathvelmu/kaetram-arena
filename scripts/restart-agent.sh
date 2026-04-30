@@ -256,10 +256,7 @@ echo ""
 echo "Clearing agent sandbox state (logs preserved)..."
 for i in $(seq 0 $((TOTAL_AGENTS - 1))); do
   sandbox="/tmp/kaetram_agent_$i"
-  if [ -d "$sandbox/state" ]; then
-    rm -f "$sandbox/state/game_state.json" \
-          "$sandbox/state/.session_counter"
-  fi
+  clear_sandbox_state_reset "$i"
   # Clean stale files from previous architectures (old scripts, workarounds)
   rm -f "$sandbox"/*.js "$sandbox"/*.py "$sandbox"/package.json "$sandbox"/package-lock.json 2>/dev/null
   rm -rf "$sandbox"/node_modules "$sandbox"/ipc 2>/dev/null

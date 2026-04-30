@@ -3,6 +3,24 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-04-30 — Run-Scoped Analysis + OpenCode Parser Parity + Tier-A Removal + quest_resume Reset Fix
+
+**Analysis now spans entire runs, not just latest sessions.** `scripts/log_analysis/analyze.py` consumed one `SessionView` per agent (latest log only); 8 of 9 subcommands silently reported on a single session. Added `RunSessionsView` + `parse_run_sessions()` to `parse.py`; rewrote `_load_views` to return run-scoped views; converted every cmd_* (except `recent`/`thinking` — temporal-locality semantics) to aggregate across sessions in the run. `--run <id>` now parses ALL sessions in the run dir (was: `logs[-1]`); new `--session N` flag drills into one session. `metrics` core5 now computed as `last_observe.finished_core5 − first_observe.finished_core5` so resume-state replays don't inflate. EST timestamps switched to 12-hour AM/PM.
+
+**OpenCode/DeepSeek parser parity.** `parse_session_opencode` was at ~70% parity: cost/tokens dropped on the floor, `<think>` tags from the SSE proxy collapsed into thinking with no n_text accounting, no synthetic result_summary, no init_info. Now: aggregates `step_finish.cost` and `step_finish.tokens` across the log (current 6h run reports a real $93.27 / $108.54 / $99.83 per agent vs the prior `(asst)` fallback); splits `<think>...</think>` from prose; counts text and reasoning records correctly; synthesizes a `result_summary` so downstream code doesn't special-case None.
+
+**Killed "Tier-A" framing entirely.** Was instrumentation for the 2026-04-27 prompt+tool batch (Rule 10, BFS→warp, gather-gate, station_locations); ossified into a fake peer of Niral's 5 paper metrics across CLAUDE.md, the slash command, README, prompts. Removed `cmd_tier_a` + `tier_a_signals` + `TierASignals` from `analyze.py`/`parse.py`; stripped the framing from all active docs. The one diagnostic that mattered (BFS_NO_PATH → next-action transitions) lives in `errors` and is now run-aggregated.
+
+**`quest_resume.json` reset leak fixed.** `restart-agent.sh`, `restart-single-agent.sh --reset`, and `reset-state.sh` cleared only `game_state.json` + `.session_counter` — `quest_resume.json` survived Mongo wipes, so session 1 of a fresh run got a "Resume from last session" prompt block contradicting the freshly reset character. Added `clear_sandbox_state_reset()` in `_kill_helpers.sh` as single source of truth; replaced four duplicated cleanup blocks.
+
+**Refactored `scripts/export_report.py` onto the shared parser kernel** (drops its own `parse_claude_log`/`parse_opencode_log`/`_peek_shape`); added per-agent cross-run summary section (`agents[id].summary`) with total runs/sessions/turns/cost/level_max/harnesses_used/models_used. Schema bumped to v3. **Deleted `scripts/dataset_stats.py`** — broken on new run-dir layout, single-harness, never invoked, duplicated parse logic.
+
+Cumulative training-data scale per `export_report`: 105 runs, 656 sessions, 68k turns, $1,887 spent across all agents to date. Per-agent: agent_0 = 37 runs / $603, agent_1 = 34 runs / $622, agent_2 = 34 runs / $662.
+
+**Next:** lift Rick's Roll stage-2+ knowledge from `tests/e2e/quests/reachability/test_ricksroll_steps.py` into `prompts/game_knowledge.md` (puzzle-room door chain, Lena coords, decoy ladders) — every agent in both recent DeepSeek runs ground out at Rick's Roll 1/4 because the prompt only documents stage 1.
+
+---
+
 ## 2026-04-29 — Tool API Auto-Actions + DeepSeek V4 Reasoning Capture + Reachability Patches
 
 **Tool surface simplified.** `attack` auto-loots on kill (response carries `auto_loot: {looted, target}`); `buy_item` and `craft_item` auto-walk to NPC/station — agents no longer call `interact_npc` before `buy_item` or `navigate` before `craft_item`. `interact_npc` return fields disambiguated: `quest_opened` (panel appeared) vs `quest_accepted` (we accepted) vs `quest_offered` (offer name) vs `quest_state_changed` (any quest-list delta — covers turn-ins/stage advances). `set_attack_style` rejects unknowns; `navigate` adds `short_path` status + structured error envelope. `prompts/system.md` Rules 7/8 + tool table updated; old "navigate to station_locations first" guidance retired.

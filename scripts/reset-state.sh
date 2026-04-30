@@ -25,6 +25,9 @@ done
 
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/_kill_helpers.sh
+source "$SCRIPT_DIR/_kill_helpers.sh"
 N_AGENTS="${1:-4}"
 FORCE=false
 [[ "${2:-}" == "--force" ]] && FORCE=true
@@ -143,10 +146,8 @@ echo ""
 # ── Clear sandbox state ──
 echo "Clearing sandbox state..."
 for i in $(seq 0 $((N_AGENTS - 1))); do
-  sandbox="/tmp/kaetram_agent_$i/state"
-  if [ -d "$sandbox" ]; then
-    rm -f "$sandbox/game_state.json" \
-          "$sandbox/.session_counter"
+  if [ -d "/tmp/kaetram_agent_$i/state" ]; then
+    clear_sandbox_state_reset "$i"
     echo "  Cleared /tmp/kaetram_agent_$i/state/"
   else
     echo "  /tmp/kaetram_agent_$i/state/ does not exist (OK)"

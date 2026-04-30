@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """Export a comprehensive JSON report of all agent training data.
 
-Parses session logs (Claude + OpenCode shapes) plus run/session meta files
-and MongoDB into a single JSON file that Claude web/mobile can fetch.
+Walks `dataset/raw/agent_*/runs/run_*/` via the shared
+`scripts/log_analysis/parse.py` kernel (so log parsing stays in lock-step
+with `analyze.py`), aggregates per-run *and* per-agent cross-run rollups,
+and serializes to `/tmp/kaetram-export/report.json` for web/mobile fetch.
 
 Output: /tmp/kaetram-export/report.json
 """
 
+from __future__ import annotations
+
 import fcntl
 import json
 import os
-import re
+import sys
 import time
 from collections import Counter
 from datetime import datetime, timezone
@@ -23,9 +27,24 @@ OUTPUT = OUTPUT_DIR / "report.json"
 CACHE_FILE = OUTPUT_DIR / "session_cache.json"
 LOCK_FILE = OUTPUT_DIR / ".regen.lock"
 
-REPORT_SCHEMA_VERSION = 2
 DATE_FLOOR = datetime(2026, 4, 25, tzinfo=timezone.utc)
 DATE_FLOOR_TS = DATE_FLOOR.timestamp()
+
+# Shared parser kernel — single source of truth for log shape, harness
+# detection, cost/token aggregation, and run-level views.
+sys.path.insert(0, str(PROJECT_DIR))
+from scripts.log_analysis.parse import (  # noqa: E402
+    SessionView,
+    deaths,
+    fmt_est,
+    latest_observe,
+    list_agent_dirs,
+    list_runs,
+    parse_run_sessions,
+    parse_session_auto,
+    run_meta as read_run_meta,
+    session_meta as read_session_meta,
+)
 
 # MongoDB (optional)
 try:
@@ -39,183 +58,81 @@ except Exception:
     _db = None
 
 
-# ─────────────────────────── log shape detection ───────────────────────────
+# ─────────────────────────── per-session stats extraction ───────────────────
+#
+# Reduces a parsed `SessionView` (from `scripts/log_analysis/parse.py`) into
+# a small JSON-friendly stats dict suitable for caching and serialization.
 
-def _peek_shape(path: Path) -> str:
-    """Return 'opencode' or 'claude' based on the first non-empty JSON line."""
-    try:
-        with open(path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                # OpenCode events always carry sessionID + part at the top level.
-                if "sessionID" in obj and "part" in obj:
-                    return "opencode"
-                return "claude"
-    except OSError:
-        pass
-    return "claude"
+def _session_stats(sv: SessionView) -> dict:
+    """Per-session stats dict (small, cacheable, JSON-friendly)."""
+    p = sv.log_path
+    tool_counter: Counter = Counter()
+    npc_interactions: list[dict] = []
+    for tc in sv.tool_calls:
+        tool_counter[tc.short_name] += 1
+        if tc.short_name in ("interact_npc", "talk_npc"):
+            inp = tc.input or {}
+            npc_interactions.append({
+                "tool": tc.short_name,
+                "npc": inp.get("npc_name", inp.get("instance_id", "?")),
+            })
 
+    last = latest_observe(sv) or {}
+    stats_block = (last.get("stats") or {}) if isinstance(last, dict) else {}
+    level_end = stats_block.get("level") if isinstance(stats_block.get("level"), int) else None
 
-# ─────────────────────────── parsers ───────────────────────────
+    # level_start: try first observe (cheap re-walk; tool_calls is in memory).
+    level_start: int | None = None
+    for tc in sv.tool_calls:
+        if tc.short_name == "observe" and isinstance(tc.result_payload, dict):
+            s = tc.result_payload.get("stats") or {}
+            lvl = s.get("level")
+            if isinstance(lvl, int):
+                level_start = lvl
+                break
 
-_LEVEL_RE = re.compile(r'"level"\s*:\s*(\d+)')
-_DEAD_RE = re.compile(r'is_dead[\\":\s]+true')
+    rs = sv.result_summary or {}
+    duration_s = 0
+    if isinstance(rs.get("duration_ms"), (int, float)):
+        duration_s = rs["duration_ms"] / 1000.0
 
-
-def _empty_stats(path: Path) -> dict:
     return {
-        "file": path.name,
-        "agent": path.parts[-4] if len(path.parts) >= 4 else "unknown",
-        "tools": Counter(),
-        "turns": 0,
-        "duration_s": 0,
-        "npc_interactions": [],
-        "deaths": 0,
-        "errors": [],
-        "model": "",
-        "harness": "",
-        "level_start": None,
-        "level_end": None,
+        "file": p.name,
+        "agent": p.parts[-4] if len(p.parts) >= 4 else "unknown",
+        "tools": dict(tool_counter),
+        "turns": sv.num_turns,
+        "duration_s": duration_s,
+        "npc_interactions": npc_interactions,
+        "deaths": len(deaths(sv)),
+        "model": (sv.meta or {}).get("model", ""),
+        "harness": (sv.meta or {}).get("harness", ""),
+        "level_start": level_start,
+        "level_end": level_end,
+        "session_index": (sv.meta or {}).get("session"),
+        "auth_mode": (sv.meta or {}).get("auth_mode"),
+        "log_shape": (sv.meta or {}).get("harness", "claude"),
+        "total_cost_usd": sv.total_cost_usd,
+        "total_tokens": dict(sv.total_tokens) if sv.total_tokens else {},
+        "synthetic_summary": bool(rs.get("synthetic")),
+        "started_at": _filename_timestamp(p),
     }
 
 
-def parse_claude_log(path: Path) -> dict:
-    """Original Claude JSONL shape."""
-    stats = _empty_stats(path)
-    try:
-        with open(path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-
-                etype = event.get("type", "")
-
-                if etype == "result":
-                    stats["turns"] = event.get("num_turns", 0)
-                    stats["duration_s"] = event.get("duration_ms", 0) / 1000
-                    stats["model"] = event.get("model", "")
-
-                elif etype == "assistant":
-                    content = event.get("message", {}).get("content", [])
-                    if isinstance(content, list):
-                        for c in content:
-                            if isinstance(c, dict) and c.get("type") == "tool_use":
-                                name = c.get("name", "unknown").replace("mcp__kaetram__", "")
-                                stats["tools"][name] += 1
-                                if name in ("interact_npc", "talk_npc"):
-                                    inp = c.get("input", {}) or {}
-                                    stats["npc_interactions"].append({
-                                        "tool": name,
-                                        "npc": inp.get("npc_name", inp.get("instance_id", "?")),
-                                    })
-
-                elif etype == "user":
-                    content = event.get("message", {}).get("content", [])
-                    if isinstance(content, list):
-                        for c in content:
-                            if isinstance(c, dict):
-                                text = str(c.get("content", "") or c.get("text", ""))
-                                if _DEAD_RE.search(text):
-                                    stats["deaths"] += 1
-                                m = _LEVEL_RE.search(text)
-                                if m:
-                                    lvl = int(m.group(1))
-                                    if 0 < lvl < 200:
-                                        if stats["level_start"] is None:
-                                            stats["level_start"] = lvl
-                                        stats["level_end"] = lvl
-    except Exception as e:
-        stats["errors"].append(str(e))
-    return stats
-
-
-def parse_opencode_log(path: Path) -> dict:
-    """OpenCode JSONL shape (DeepSeek / Qwen / Grok / generic opencode)."""
-    stats = _empty_stats(path)
-    first_ts = None
-    last_ts = None
-    try:
-        with open(path, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-
-                ts = event.get("timestamp")
-                if isinstance(ts, (int, float)):
-                    if first_ts is None:
-                        first_ts = ts
-                    last_ts = ts
-
-                etype = event.get("type", "")
-                part = event.get("part") or {}
-
-                if etype == "tool_use":
-                    state = part.get("state") or {}
-                    if state.get("status") not in (None, "completed", "error"):
-                        # Skip in-flight placeholders without input/output.
-                        pass
-                    name = part.get("tool") or "unknown"
-                    # Normalise: OpenCode tool ids are bare ("kaetram_observe").
-                    name = name.replace("kaetram_", "")
-                    stats["tools"][name] += 1
-                    stats["turns"] += 1
-
-                    inp = state.get("input") or {}
-                    if name in ("interact_npc", "talk_npc"):
-                        stats["npc_interactions"].append({
-                            "tool": name,
-                            "npc": inp.get("npc_name", inp.get("instance_id", "?")),
-                        })
-
-                    out = state.get("output")
-                    if isinstance(out, str) and out:
-                        if _DEAD_RE.search(out):
-                            stats["deaths"] += 1
-                        m = _LEVEL_RE.search(out)
-                        if m:
-                            lvl = int(m.group(1))
-                            if 0 < lvl < 200:
-                                if stats["level_start"] is None:
-                                    stats["level_start"] = lvl
-                                stats["level_end"] = lvl
-    except Exception as e:
-        stats["errors"].append(str(e))
-
-    if first_ts is not None and last_ts is not None and last_ts > first_ts:
-        stats["duration_s"] = (last_ts - first_ts) / 1000.0
-    return stats
-
-
-def parse_session_log(path: Path) -> dict:
-    shape = _peek_shape(path)
-    stats = parse_opencode_log(path) if shape == "opencode" else parse_claude_log(path)
-    stats["log_shape"] = shape
-    # Filename timestamp (used as fallback ordering key).
-    m = re.search(r"(\d{8})_(\d{6})", path.name)
-    if m:
-        d, t = m.group(1), m.group(2)
-        stats["started_at"] = f"{d[:4]}-{d[4:6]}-{d[6:8]}T{t[:2]}:{t[2:4]}:{t[4:6]}"
-    stats["tools"] = dict(stats["tools"])
-    return stats
+def _filename_timestamp(p: Path) -> str:
+    """ISO-ish string from session_N_YYYYMMDD_HHMMSS.log filename."""
+    import re as _re
+    m = _re.search(r"(\d{8})_(\d{6})", p.name)
+    if not m:
+        return ""
+    d, t = m.group(1), m.group(2)
+    return f"{d[:4]}-{d[4:6]}-{d[6:8]}T{t[:2]}:{t[2:4]}:{t[4:6]}"
 
 
 # ─────────────────────────── per-session cache ───────────────────────────
+#
+# Closed sessions never reparse. Keyed by (mtime, size) to invalidate when a
+# log is appended-to or rotated. Cache value is the small stats dict above
+# (NOT the full SessionView), so each entry stays a few KB.
 
 def _load_cache() -> dict:
     if not CACHE_FILE.exists():
@@ -239,153 +156,192 @@ def _save_cache(cache: dict) -> None:
         pass
 
 
-def _cached_parse(path: Path, cache: dict) -> dict:
-    """Parse with mtime+size keyed cache. Closed sessions never reparse."""
-    st = path.stat()
-    key = str(path)
+def _cached_session_stats(log_path: Path, cache: dict) -> dict:
+    """Parse via shared kernel + cache the small stats dict."""
+    st = log_path.stat()
+    key = str(log_path)
     sig = [int(st.st_mtime), int(st.st_size)]
     entry = cache.get(key)
     if entry and entry.get("sig") == sig:
         return entry["stats"]
-    stats = parse_session_log(path)
+    sv = parse_session_auto(log_path)
+    stats = _session_stats(sv)
     cache[key] = {"sig": sig, "stats": stats}
     return stats
 
 
-# ─────────────────────────── meta files ───────────────────────────
-
-def _read_json(path: Path) -> dict:
-    try:
-        with open(path, "r") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def _read_run_meta(run_dir: Path) -> dict:
-    return _read_json(run_dir / "run.meta.json")
-
-
-def _read_session_meta(log_path: Path) -> dict:
-    meta_path = log_path.with_suffix(".meta.json")
-    return _read_json(meta_path)
-
-
 # ─────────────────────────── run grouping ───────────────────────────
 
-def build_runs_for_agent(agent_dir: Path, cache: dict) -> tuple[list[dict], list[dict]]:
-    """Return (runs, all_sessions) for one agent_N directory.
+def _build_run_record(agent_dir: Path, run_dir: Path, cache: dict) -> dict | None:
+    """One run dict with session details + run-wide aggregates.
 
-    Groups by run_*/ subdirectory (no more session-number-reset heuristic).
+    Returns None when nothing in the run is recent enough to include
+    (DATE_FLOOR cheap-skip).
     """
+    log_files = sorted(run_dir.glob("session_*.log"), key=lambda p: p.stat().st_mtime)
+    if not log_files:
+        return None
+    if log_files[-1].stat().st_mtime < DATE_FLOOR_TS:
+        return None
+
+    rmeta = read_run_meta(run_dir)
+    sessions: list[dict] = []
+    for lf in log_files:
+        try:
+            st = lf.stat()
+        except OSError:
+            continue
+        if st.st_size < 1024:
+            continue
+        if st.st_mtime < DATE_FLOOR_TS:
+            continue
+        sessions.append(_cached_session_stats(lf, cache))
+
+    if not sessions:
+        return None
+
+    total_turns = sum(s["turns"] for s in sessions)
+    total_deaths = sum(s["deaths"] for s in sessions)
+    total_duration = sum(s.get("duration_s", 0) for s in sessions)
+    total_cost = sum(s.get("total_cost_usd") or 0 for s in sessions)
+
+    level_start = next(
+        (s["level_start"] for s in sessions if s.get("level_start") is not None),
+        None,
+    )
+    level_end = next(
+        (s["level_end"] for s in reversed(sessions) if s.get("level_end") is not None),
+        None,
+    )
+
+    run_tools: Counter = Counter()
+    run_tokens: Counter = Counter()
+    for s in sessions:
+        for tool, count in s["tools"].items():
+            run_tools[tool] += count
+        for tk, tv in (s.get("total_tokens") or {}).items():
+            if isinstance(tv, (int, float)):
+                run_tokens[tk] += int(tv)
+
+    npcs: list[dict] = []
+    for s in sessions:
+        npcs.extend(s.get("npc_interactions", []))
+
+    harness = rmeta.get("harness") or sessions[0].get("harness", "")
+    model = rmeta.get("model") or sessions[0].get("model", "")
+    username = rmeta.get("username", "")
+    personality = rmeta.get("personality", "")
+    started_at = rmeta.get("started_at") or sessions[0].get("started_at", "")
+    ended_at = sessions[-1].get("started_at", "")
+
+    return {
+        "run_id": run_dir.name,
+        "harness": harness,
+        "model": model,
+        "username": username,
+        "personality": personality,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "sessions": len(sessions),
+        "total_turns": total_turns,
+        "total_duration_s": round(total_duration),
+        "total_duration_min": round(total_duration / 60, 1),
+        "total_deaths": total_deaths,
+        "total_cost_usd": round(total_cost, 4) if total_cost > 0 else None,
+        "total_tokens": dict(run_tokens),
+        "level_start": level_start,
+        "level_end": level_end,
+        "level_gain": (level_end or 0) - (level_start or 0),
+        "tool_usage": dict(run_tools.most_common(15)),
+        "npc_interactions": len(npcs),
+        "npcs_talked_to": sorted({n["npc"] for n in npcs}),
+        "session_details": [
+            {
+                "file": s["file"],
+                "session_index": s.get("session_index"),
+                "log_shape": s.get("log_shape"),
+                "turns": s["turns"],
+                "duration_s": round(s.get("duration_s", 0)),
+                "deaths": s["deaths"],
+                "level_start": s["level_start"],
+                "level_end": s["level_end"],
+                "cost_usd": s.get("total_cost_usd"),
+                "synthetic": s.get("synthetic_summary"),
+                "top_tools": dict(Counter(s["tools"]).most_common(5)),
+            }
+            for s in sessions
+        ],
+    }
+
+
+def build_runs_for_agent(agent_dir: Path, cache: dict) -> tuple[list[dict], list[dict]]:
+    """Return (runs, all_sessions) for one agent_N directory."""
     runs: list[dict] = []
     all_sessions: list[dict] = []
-
-    runs_dir = agent_dir / "runs"
-    if not runs_dir.exists():
-        return runs, all_sessions
-
-    for run_d in sorted(runs_dir.iterdir(), key=lambda p: p.name):
-        if not run_d.is_dir() or not run_d.name.startswith("run_"):
+    for run_dir in list_runs(agent_dir):
+        rec = _build_run_record(agent_dir, run_dir, cache)
+        if not rec:
             continue
-
-        run_meta = _read_run_meta(run_d)
-        # Cheap whole-run skip: if run.meta started_at is before floor and
-        # newest log file is also before floor, skip entirely.
-        log_files = sorted(run_d.glob("session_*.log"), key=lambda p: p.stat().st_mtime)
-        if not log_files:
-            continue
-        if log_files[-1].stat().st_mtime < DATE_FLOOR_TS:
-            continue
-
-        sessions = []
-        for lf in log_files:
-            try:
-                st = lf.stat()
-            except OSError:
-                continue
-            if st.st_size < 1024:
-                continue
-            if st.st_mtime < DATE_FLOOR_TS:
-                continue
-            stats = _cached_parse(lf, cache)
-            sm = _read_session_meta(lf)
-            if sm:
-                stats = dict(stats)
-                stats["session_index"] = sm.get("session")
-                stats["auth_mode"] = sm.get("auth_mode")
-                # Prefer meta-declared model over log-derived.
-                if sm.get("model"):
-                    stats["model"] = sm["model"]
-                if sm.get("harness"):
-                    stats["harness"] = sm["harness"]
-            sessions.append(stats)
-
-        if not sessions:
-            continue
-        all_sessions.extend(sessions)
-
-        total_turns = sum(s["turns"] for s in sessions)
-        total_deaths = sum(s["deaths"] for s in sessions)
-        total_duration = sum(s.get("duration_s", 0) for s in sessions)
-
-        level_start = next((s["level_start"] for s in sessions if s.get("level_start") is not None), None)
-        level_end = next((s["level_end"] for s in reversed(sessions) if s.get("level_end") is not None), None)
-
-        run_tools: Counter = Counter()
-        for s in sessions:
-            for tool, count in s["tools"].items():
-                run_tools[tool] += count
-
-        run_npcs = []
-        for s in sessions:
-            run_npcs.extend(s.get("npc_interactions", []))
-
-        # Resolve identity from run.meta with fallback to first session.
-        harness = run_meta.get("harness") or sessions[0].get("harness", "")
-        model = run_meta.get("model") or sessions[0].get("model", "")
-        username = run_meta.get("username", "")
-        personality = run_meta.get("personality", "")
-        started_at = run_meta.get("started_at") or sessions[0].get("started_at", "")
-        ended_at = sessions[-1].get("started_at", "")
-
-        runs.append({
-            "run_id": run_d.name,
-            "harness": harness,
-            "model": model,
-            "username": username,
-            "personality": personality,
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "sessions": len(sessions),
-            "total_turns": total_turns,
-            "total_duration_s": round(total_duration),
-            "total_duration_min": round(total_duration / 60, 1),
-            "total_deaths": total_deaths,
-            "level_start": level_start,
-            "level_end": level_end,
-            "level_gain": (level_end or 0) - (level_start or 0),
-            "tool_usage": dict(run_tools.most_common(15)),
-            "npc_interactions": len(run_npcs),
-            "npcs_talked_to": sorted({n["npc"] for n in run_npcs}),
-            "session_details": [
-                {
-                    "file": s["file"],
-                    "session_index": s.get("session_index"),
-                    "log_shape": s.get("log_shape"),
-                    "turns": s["turns"],
-                    "duration_s": round(s.get("duration_s", 0)),
-                    "deaths": s["deaths"],
-                    "level_start": s["level_start"],
-                    "level_end": s["level_end"],
-                    "top_tools": dict(Counter(s["tools"]).most_common(5)),
-                }
-                for s in sessions
-            ],
-        })
-
+        runs.append(rec)
+        # Re-derive session list from the record's session_details + cache
+        # so callers can roll up across runs without re-walking the FS.
+        all_sessions.extend(
+            _cached_session_stats(run_dir / sd["file"], cache)
+            for sd in rec["session_details"]
+        )
     return runs, all_sessions
+
+
+# ─────────────────────────── per-agent cross-run rollup ───────────────────
+
+def _agent_summary(runs: list[dict], all_sessions: list[dict]) -> dict:
+    """Aggregate stats for one agent across ALL its runs.
+
+    This is the new section in v3. Lets web/mobile clients answer
+    "agent_2 across all runs: X total turns, $Y, max level Z" without
+    iterating the per-run array themselves.
+    """
+    if not runs:
+        return {}
+    tools: Counter = Counter()
+    tokens: Counter = Counter()
+    harnesses: set[str] = set()
+    models: set[str] = set()
+    cost_total = 0.0
+    has_any_cost = False
+    for r in runs:
+        for tool, count in (r.get("tool_usage") or {}).items():
+            tools[tool] += count
+        for tk, tv in (r.get("total_tokens") or {}).items():
+            if isinstance(tv, (int, float)):
+                tokens[tk] += int(tv)
+        if r.get("harness"):
+            harnesses.add(r["harness"])
+        if r.get("model"):
+            models.add(r["model"])
+        c = r.get("total_cost_usd")
+        if c is not None:
+            cost_total += c
+            has_any_cost = True
+
+    levels = [r.get("level_end") for r in runs if r.get("level_end") is not None]
+    return {
+        "total_runs": len(runs),
+        "total_sessions": len(all_sessions),
+        "total_turns": sum(r["total_turns"] for r in runs),
+        "total_deaths": sum(r["total_deaths"] for r in runs),
+        "total_cost_usd": round(cost_total, 4) if has_any_cost else None,
+        "total_tokens": dict(tokens),
+        "level_max": max(levels) if levels else None,
+        "level_latest": runs[-1].get("level_end"),
+        "tool_usage": dict(tools.most_common(20)),
+        "harnesses_used": sorted(harnesses),
+        "models_used": sorted(models),
+        "first_run": runs[0]["run_id"] if runs else None,
+        "latest_run": runs[-1]["run_id"] if runs else None,
+        "first_run_started_at": runs[0].get("started_at"),
+        "latest_run_started_at": runs[-1].get("started_at"),
+    }
 
 
 # ─────────────────────────── mongo (meta-driven) ───────────────────────────
@@ -396,7 +352,10 @@ def collect_known_usernames() -> dict[str, dict]:
     if not RAW_DIR.exists():
         return out
     for meta in RAW_DIR.glob("agent_*/runs/run_*/run.meta.json"):
-        m = _read_json(meta)
+        try:
+            m = json.loads(meta.read_text())
+        except (OSError, ValueError):
+            continue
         u = m.get("username")
         if not u:
             continue
@@ -455,13 +414,14 @@ def get_mongo_state(usernames_meta: dict[str, dict]) -> dict:
 def build_report() -> dict:
     cache = _load_cache()
     report: dict = {
-        "schema_version": REPORT_SCHEMA_VERSION,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "generated_at_est": fmt_est(datetime.now(timezone.utc)),
         "date_range": f"{DATE_FLOOR.date().isoformat()} to present",
         "description": (
             "Kaetram AI Agent training data. Multi-harness (Claude + OpenCode "
             "models: DeepSeek V4, Qwen, Grok). Each 'run' is a fresh Level 1 "
-            "start (restart-agent.sh resets DB). Runs contain multiple sessions."
+            "start (restart-agent.sh resets DB). Runs contain multiple sessions. "
+            "Parsing kernel: scripts/log_analysis/parse.py — same one analyze.py uses."
         ),
     }
 
@@ -472,9 +432,11 @@ def build_report() -> dict:
     total_turns = 0
     total_deaths = 0
     total_sessions_count = 0
+    total_cost = 0.0
+    has_any_cost = False
 
     if RAW_DIR.exists():
-        for agent_dir in sorted(RAW_DIR.glob("agent_*")):
+        for agent_dir in list_agent_dirs():
             runs, sessions = build_runs_for_agent(agent_dir, cache)
             if not sessions:
                 continue
@@ -483,30 +445,44 @@ def build_report() -> dict:
                     all_tools[tool] += count
                 total_turns += s["turns"]
                 total_deaths += s["deaths"]
+                if s.get("total_cost_usd") is not None:
+                    total_cost += s["total_cost_usd"]
+                    has_any_cost = True
             total_sessions_count += len(sessions)
 
             for r in runs:
                 h = r.get("harness") or "unknown"
-                hb = harness_breakdown.setdefault(h, {"runs": 0, "sessions": 0, "turns": 0, "deaths": 0})
+                hb = harness_breakdown.setdefault(h, {"runs": 0, "sessions": 0, "turns": 0, "deaths": 0, "cost_usd": 0.0})
                 hb["runs"] += 1
                 hb["sessions"] += r["sessions"]
                 hb["turns"] += r["total_turns"]
                 hb["deaths"] += r["total_deaths"]
+                if r.get("total_cost_usd") is not None:
+                    hb["cost_usd"] += r["total_cost_usd"]
 
                 mdl = r.get("model") or "unknown"
-                mb = model_breakdown.setdefault(mdl, {"harness": h, "runs": 0, "sessions": 0, "turns": 0, "deaths": 0})
+                mb = model_breakdown.setdefault(mdl, {"harness": h, "runs": 0, "sessions": 0, "turns": 0, "deaths": 0, "cost_usd": 0.0})
                 mb["runs"] += 1
                 mb["sessions"] += r["sessions"]
                 mb["turns"] += r["total_turns"]
                 mb["deaths"] += r["total_deaths"]
+                if r.get("total_cost_usd") is not None:
+                    mb["cost_usd"] += r["total_cost_usd"]
 
-            agent_data[agent_dir.name] = {"runs": runs, "session_count": len(sessions)}
+            agent_data[agent_dir.name] = {"runs": runs, "sessions": sessions}
+
+    # Round breakdown costs.
+    for hb in harness_breakdown.values():
+        hb["cost_usd"] = round(hb["cost_usd"], 4)
+    for mb in model_breakdown.values():
+        mb["cost_usd"] = round(mb["cost_usd"], 4)
 
     report["overview"] = {
         "total_sessions": total_sessions_count,
         "total_runs": sum(len(d["runs"]) for d in agent_data.values()),
         "total_turns": total_turns,
         "total_deaths": total_deaths,
+        "total_cost_usd": round(total_cost, 4) if has_any_cost else None,
         "agents": list(agent_data.keys()),
     }
 
@@ -516,9 +492,11 @@ def build_report() -> dict:
     report["agents"] = {}
     for agent_name, data in agent_data.items():
         runs = data["runs"]
+        sessions = data["sessions"]
         best = max(runs, key=lambda r: r.get("level_end") or 0) if runs else None
         report["agents"][agent_name] = {
-            "total_sessions": data["session_count"],
+            "summary": _agent_summary(runs, sessions),
+            "total_sessions": len(sessions),
             "total_runs": len(runs),
             "best_run_level": best.get("level_end") if best else None,
             "best_run_id": best.get("run_id") if best else None,
@@ -556,13 +534,15 @@ def main() -> None:
         os.replace(tmp, OUTPUT)
 
     size_kb = OUTPUT.stat().st_size / 1024
+    cost = report["overview"].get("total_cost_usd")
     print(f"Exported {OUTPUT} ({size_kb:.1f} KB)")
-    print(f"  Schema:   v{report['schema_version']}")
     print(f"  Range:    {report['date_range']}")
     print(f"  Runs:     {report['overview']['total_runs']}")
     print(f"  Sessions: {report['overview']['total_sessions']}")
     print(f"  Turns:    {report['overview']['total_turns']}")
     print(f"  Deaths:   {report['overview']['total_deaths']}")
+    if cost is not None:
+        print(f"  Cost:     ${cost:.2f}")
     print(f"  Harnesses:{list(report['harness_breakdown'].keys())}")
     print(f"  Models:   {list(report['model_breakdown'].keys())}")
 

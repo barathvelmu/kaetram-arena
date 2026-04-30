@@ -101,7 +101,7 @@ Personality system being built and broken mid-run. Prompt changes mid-collection
 | Total session logs on VM | ~1,422 (490 / 479 / 453 for agents 0/1/2) — re-extraction estimate ~58k records (+124% over r10's 23,382 train build) |
 | SFT training records | r10 frozen at 23,382 train / 2,590 val (`dataset/qwen_sft/`, Claude-only, observe-supervision fix applied) |
 | Architecture | Modular MCP package (`mcp_server/{core,tools/...}`, entry point `mcp_game_server.py` is now a 19-line stub since PR #29), 17 model-visible typed tools |
-| Active SFT focus | r10 launch superseded; current focus is Sonnet → 100% Core 5 completion (`KAE-50`) before any new SFT run. Tier-A unblock pass (`live_gate_status`, `quest_resume.json`, `recent_failures` injection, `mob_stats`, `station_locations`) shipped 2026-04-27. |
+| Active SFT focus | r10 launch superseded; current focus is Sonnet → 100% Core 5 completion (`KAE-50`) before any new SFT run. Agent-side unblock pass (`live_gate_status`, `quest_resume.json`, `recent_failures` injection, `mob_stats`, `station_locations`) shipped 2026-04-27. |
 | Latest completed SFT | r9 (Apr 16-17) — observe-supervision audit motivated r10 patch set. r10 dataset prepared but training not launched (pivot to Core 5 first). |
 
 Dataset is growing. Rebuild with `scripts/collect_sft_data.sh` or manually:

@@ -69,12 +69,13 @@ so nav-only tests don't fail on stray aggro).
 > path verified (kills land), so A7 stays as xfail to flag if Kaetram
 > rebalances drops.
 
-### Sea Activities (9 tests)
+### Sea Activities (10 tests)
 | ID | What | Marker |
 |---|---|---|
 | S1 | Overland walk Mudwich → Water Guardian (~680 tiles) | `slow` |
 | S3 | Kill Water Guardian at lvl-35 combat | |
 | S4 | Warp undersea after `waterguardian` achievement | |
+| S4b | Kill Mermaid at (676, 851) and verify `mermaidguard` achievement is granted (door 556 gate) | |
 | S5 | Dialogue chain Sponge↔Pickle stages 0→4 | |
 | S6 | Arena door teleport | |
 | **S7** | Picklemob fight with **realistic mid-route gear** | `slow` |

@@ -96,6 +96,24 @@ def assert_quest_stage(username: str, quest_key: str, expected_min: int) -> None
     )
 
 
+def assert_achievement_unlocked(username: str, achievement_key: str) -> None:
+    """Assert the player has earned the named achievement (stage >= 1).
+
+    Achievements live in `player_achievements.achievements[]` as
+    `{key, stage, stageCount}`. A stage of 0 means not started; >= 1
+    means the achievement task chain has fired at least once. For
+    single-stage achievements (`stageCount: 1`, e.g. `mermaidguard`,
+    `waterguardian`) stage == 1 means earned/finished.
+    """
+    snap = snapshot_player(username)
+    achs = (snap.get("player_achievements") or {}).get("achievements") or []
+    found = next((a for a in achs if a.get("key") == achievement_key), None)
+    assert found is not None and int(found.get("stage", 0) or 0) >= 1, (
+        f"{achievement_key}: expected stage>=1, got {found}. "
+        f"all achievements={[(a.get('key'), a.get('stage')) for a in achs]}"
+    )
+
+
 def assert_quest_finished(username: str, quest_key: str, stage_count: int) -> None:
     # NOTE: This is a LOOSE check — only verifies stage progression, not that
     # the quest's `isFinished` flag is true or that reward items landed in the

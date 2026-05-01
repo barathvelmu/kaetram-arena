@@ -3,6 +3,20 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-05-01 — Core 5 prompt knowledge parity (e2e tests as source-of-truth) + S4B Mermaid test + unit-test refresh
+
+**E2E reachability now treated as single source of truth for Core 5 knowledge.** Five parallel audits compared `tests/e2e/quests/reachability/test_*_steps.py` against `prompts/game_knowledge.md` + `prompts/quest_walkthroughs.json`; 18 misalignments fixed across tiers A (blockers) and B/C (drift / underspec). Top items: `mermaidguard` gate added to ACHIEVEMENTS table + catalog row 5; "Pickle" → **`Sea Cucumber`** call-name footgun called out (explains 0/282 historical Pickle interactions); A&C catalog "Gate: None" → **Aynor warp + Ancient Lands**; Rick's Roll cooking-station now points at runtime `query_quest.station_locations.cooking` (was AL-gated dead-end at 706,605); Rick + Lena turn-ins documented as **TWO `interact_npc` calls** (matches R5 test, explains "Thank you, I'm so touched" stuck-state); MOB PROGRESSION table extended with Mermaid L40/150HP and picklemob L88/1250HP; Mermaid level corrected (was L55, actual L40 per mobs.json); tomato/paprika coords drifted 1 tile, fixed; A&C A6 step rewrote bowl chain (Lumberjacking+3 logs+6 sticks split for bowlsmall+bowlmedium, was wrong); Rick stage-2 puzzle decoys expanded from 1 of 7 to all 7 in `tips`; chained-craft + 2-call turn-in caveats added to GAME MECHANICS; Coder's Glitch/Glitch II/Coder's Fallacy walkthrough JSON statuses flipped to `off-limits` with `blocked_reason` populated.
+
+**S4B reachability test added.** `test_s4b_kill_mermaid_grants_mermaidguard` walks undersea → door 539 → ~15-tile SE leg → Mermaid kill loop → asserts `mermaidguard` via new `assert_achievement_unlocked` helper. Closes the only Sea Activities reachability gap (S5/S7/S8 all *seeded* the achievement).
+
+**Unit tests refreshed.** Pre-existing `parent.parent` path bug fixed across 9 unit-test files (`parents[2]`, fallout from the unit/ + e2e/ split). `test_quest_knowledge.py` rewritten against current truth (15-completable count, Coder chain in off-limits, Mermaid Guard + Sea Cucumber snippet checks, Herbalist NPC name parity, Mermaid L40 fact, Aynor-gate hoist check). `convert_to_qwen.py` PERSONALITY_SUFFIXES + AGENT_PERSONALITY_MAP migrated from legacy aggressive/methodical/curious to current grinder/completionist/explorer_tinkerer. `test_prompt_parity.py`, `test_dataset_filters.py`, `test_tool_vocab_drift.py` updated; vocab-drift now scans `mcp_server/tools/` package (was scanning the 19-line stub). Skipif gates added to `test_think_roundtrip` (modal SDK) and `test_truncation` (HF cache). Result: **104 passed, 2 legit skips** across the full unit suite.
+
+**Deferred:** SOTA prompting compliance (6.3K-token bloat, 2× MUST overuse, missing `<verification>` block, rule duplication). Knowledge-parity must be 100% before restructuring the prompt frame.
+
+**Next:** restart 3 agents on opencode/deepseek-v4-pro for an A/B run; watch any `interact_npc("Sea Cucumber")`, any `interact_npc("Babushka")`, Rick 2-call turn-in conversion, Mermaid kill at (676, 851) pre-door-556. Then plan tier-D prompt-architecture pass.
+
+---
+
 ## 2026-04-30 — Run-Scoped Analysis + OpenCode Parser Parity + Tier-A Removal + quest_resume Reset Fix
 
 **Analysis now spans entire runs, not just latest sessions.** `scripts/log_analysis/analyze.py` consumed one `SessionView` per agent (latest log only); 8 of 9 subcommands silently reported on a single session. Added `RunSessionsView` + `parse_run_sessions()` to `parse.py`; rewrote `_load_views` to return run-scoped views; converted every cmd_* (except `recent`/`thinking` — temporal-locality semantics) to aggregate across sessions in the run. `--run <id>` now parses ALL sessions in the run dir (was: `logs[-1]`); new `--session N` flag drills into one session. `metrics` core5 now computed as `last_observe.finished_core5 − first_observe.finished_core5` so resume-state replays don't inflate. EST timestamps switched to 12-hour AM/PM.

@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 # Make the repo root importable when run as `pytest tests/...` or directly.
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

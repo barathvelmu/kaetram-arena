@@ -365,6 +365,44 @@ def playthrough_seed_kwargs(step_id: str, **overrides: Any) -> dict[str, Any]:
             artsandcrafts_done, ancientlands_done,
         ]
         base["achievements"] = [waterguardian_ach]
+    elif sid == "S4B":
+        # Mermaid nav + kill + achievement-grant test. Mermaid (mob
+        # `mermaid`) at (676, 851) — L40, 150 HP per Kaetram-Open
+        # mobs.json. Achievement `mermaidguard` is hidden, single-stage,
+        # granted on kill; it gates door 556 in the Sponge↔Pickle
+        # corridor (S5/S8 currently *seed* it; S4B earns it canonically).
+        # Seeded at the undersea landing area near Sponge (52, 311) —
+        # the test walks the full canonical route an agent would take:
+        # navigate to door 539 approach → traverse_door 539 → navigate
+        # SE to Mermaid → kill loop → assert achievement.  Gives us
+        # reachability coverage on the post-door-539 leg (~15 tiles
+        # south to (676, 851)), which neither S4 nor S5 exercises.
+        # End-game-equivalent gear so the kill resolves quickly — combat
+        # tuning is not the question here (S7 covers that for picklemob).
+        # `waterguardian` is required to be in the region at all, so
+        # seed that achievement; `mermaidguard` is the one we're testing
+        # for and is deliberately omitted.
+        base["position"] = (52, 311)
+        base["hit_points"] = 3039
+        base["mana"] = 200
+        base["inventory"] = [{"key": "apple", "count": 5}]
+        base["equipment"] = [
+            {"type": 0,  "key": "conquerorhelmet",     "count": 1, "ability": -1, "abilityLevel": 0},
+            {"type": 3,  "key": "conquerorchestplate", "count": 1, "ability": -1, "abilityLevel": 0},
+            {"type": 4,  "key": "moongreataxe",        "count": 1, "ability": -1, "abilityLevel": 0},
+            {"type": 11, "key": "hellkeeperboots",     "count": 1, "ability": -1, "abilityLevel": 0},
+        ]
+        base["quests"] = [
+            foresting_done, herbalist_done, ricksroll_done,
+            artsandcrafts_done, ancientlands_done,
+        ]
+        base["achievements"] = [waterguardian_ach]
+        base["skills"] = [
+            {"type": 3, "experience": REACHABILITY_HEALTH_XP},
+            {"type": 1, "experience": 15_000_000},
+            {"type": 6, "experience": 15_000_000},
+            {"type": 7, "experience": 15_000_000},
+        ]
     elif sid == "S5":
         base["position"] = (52, 311)
         base["quests"] = [

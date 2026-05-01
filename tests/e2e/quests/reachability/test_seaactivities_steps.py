@@ -14,6 +14,8 @@ Steps:
   S2: skip — combat grind is out of scope for reachability (pre-seeded)
   S3: kill Water Guardian with seeded mid-level combat stats
   S4: warp undersea after waterguardian achievement
+  S4b: kill the Mermaid at (676, 851) and verify `mermaidguard`
+       achievement is granted (gates door 556 in S5's corridor)
   S5: Sponge dialogue chain stages 0 → 4
   S6: arena door teleport
   S7: picklemob fight with realistic mid-route gear — THE diagnostic test
@@ -33,6 +35,7 @@ from tests.e2e.helpers.kaetram_world import NPCS, adjacent_to
 from tests.e2e.helpers.mcp_client import mcp_session
 from tests.e2e.quests.conftest import (
     AUTOSAVE_WAIT,
+    assert_achievement_unlocked,
     assert_quest_finished,
     assert_quest_state,
     count_saved_inventory,
@@ -51,6 +54,7 @@ from tests.e2e.quests.reachability.conftest import (
     slow,
 )
 
+MERMAID_POS = (676, 851)
 WATERGUARDIAN_POS = (293, 729)
 UNDERSEA_WARP_EXIT = (43, 313)
 SPONGE_POS = NPCS["sponge"]             # (52, 310)
@@ -157,6 +161,84 @@ async def test_s4_warp_undersea_after_waterguardian(test_username):
                 target_y=UNDERSEA_WARP_EXIT[1],
                 tolerance=8,
             )
+    finally:
+        cleanup_player(test_username)
+
+
+@reachability
+async def test_s4b_kill_mermaid_grants_mermaidguard(test_username):
+    """S4b: Walk from the undersea landing to the Mermaid at (676, 851),
+    kill her, and verify the `mermaidguard` achievement is granted.
+    Mermaid is L40 / 150 HP per
+    `Kaetram-Open/packages/server/data/mobs.json`. The achievement is
+    hidden + single-stage (granted on first kill), and it gates door 556
+    in the Sponge↔Pickle corridor — S5/S8 currently *seed* it; S4b
+    canonically earns it.
+
+    The test walks the full canonical post-undersea route — door 539
+    traversal + ~15-tile SE leg from the door landing to Mermaid — that
+    neither S4 (warp only) nor S5 (door 539 → NE to door 556) exercises.
+    End-game-equivalent gear so the kill itself resolves in a handful
+    of swings; Mermaid combat tunability is not the question (S7 covers
+    that for picklemob).
+    """
+    seed_player(test_username, **playthrough_seed_kwargs("S4b"))
+    try:
+        async with mcp_session(username=test_username) as session:
+            # Stage 1: nav within undersea region (52, 311) → door 539
+            # approach (46, 362). Mirrors S5's leg.
+            await navigate_long(
+                session, target_x=46, target_y=362,
+                max_step=20, max_hops=6, arrive_tolerance=3,
+            )
+            await traverse_door(
+                session, door_x=46, door_y=363,
+                exit_x=665, exit_y=836, max_distance=5,
+            )
+            # Stage 2: nav post-door-539 (665, 836) → Mermaid west-
+            # adjacent (675, 851). ~15-tile SE leg — the bit nothing
+            # else in the suite covers.
+            await navigate_long(
+                session, target_x=675, target_y=851,
+                max_step=20, max_hops=6, arrive_tolerance=2,
+            )
+            await assert_pos_within(
+                session, target_x=MERMAID_POS[0], target_y=MERMAID_POS[1],
+                tolerance=4,
+            )
+
+            # Hydrate the entity grid so the Mermaid is visible to attack.
+            for _ in range(5):
+                obs = await session.call_tool("observe", {})
+                if "Mermaid" in (obs.text or ""):
+                    break
+                await asyncio.sleep(1.0)
+
+            # Swing loop. With end-game gear vs 150 HP, expect ~3-6
+            # swings; cap at 20 for a generous safety bound (each
+            # `attack` call already waits 3s server-side).
+            killed = False
+            for _ in range(20):
+                r = await session.call_tool("attack", {"mob_name": "Mermaid"})
+                assert not r.is_error, r.text[:300]
+                data = r.json() or {}
+                post = data.get("post_attack") or {}
+                if post.get("killed"):
+                    killed = True
+                    break
+                # Damage must be landing — if not, gear/distance is broken.
+                assert int(post.get("damage_dealt", 0)) >= 0, (
+                    f"attack returned no damage_dealt field: {data}"
+                )
+                await asyncio.sleep(0.3)
+            assert killed, (
+                "Mermaid did not die within 20 swings with end-game gear "
+                "— combat reachability is broken or the seed is off."
+            )
+            # Brief settle so the server commits the achievement update.
+            await asyncio.sleep(1.5)
+        await asyncio.sleep(AUTOSAVE_WAIT)
+        assert_achievement_unlocked(test_username, "mermaidguard")
     finally:
         cleanup_player(test_username)
 

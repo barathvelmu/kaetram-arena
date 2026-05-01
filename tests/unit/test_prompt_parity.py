@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
 
@@ -60,29 +60,29 @@ def test_prompt_parity_no_personality():
     )
 
 
-def test_prompt_parity_aggressive():
-    train = _strip_project_dir(_build_train_prompt("aggressive"))
-    evl = _strip_project_dir(_build_eval_prompt("aggressive"))
+def test_prompt_parity_grinder():
+    train = _strip_project_dir(_build_train_prompt("grinder"))
+    evl = _strip_project_dir(_build_eval_prompt("grinder"))
     assert train == evl, (
-        f"Drift (aggressive): train={len(train)}B vs eval={len(evl)}B\n"
+        f"Drift (grinder): train={len(train)}B vs eval={len(evl)}B\n"
         f"First diff at byte {_first_diff(train, evl)}"
     )
 
 
-def test_prompt_parity_methodical():
-    train = _strip_project_dir(_build_train_prompt("methodical"))
-    evl = _strip_project_dir(_build_eval_prompt("methodical"))
+def test_prompt_parity_completionist():
+    train = _strip_project_dir(_build_train_prompt("completionist"))
+    evl = _strip_project_dir(_build_eval_prompt("completionist"))
     assert train == evl, (
-        f"Drift (methodical): train={len(train)}B vs eval={len(evl)}B\n"
+        f"Drift (completionist): train={len(train)}B vs eval={len(evl)}B\n"
         f"First diff at byte {_first_diff(train, evl)}"
     )
 
 
-def test_prompt_parity_curious():
-    train = _strip_project_dir(_build_train_prompt("curious"))
-    evl = _strip_project_dir(_build_eval_prompt("curious"))
+def test_prompt_parity_explorer_tinkerer():
+    train = _strip_project_dir(_build_train_prompt("explorer_tinkerer"))
+    evl = _strip_project_dir(_build_eval_prompt("explorer_tinkerer"))
     assert train == evl, (
-        f"Drift (curious): train={len(train)}B vs eval={len(evl)}B\n"
+        f"Drift (explorer_tinkerer): train={len(train)}B vs eval={len(evl)}B\n"
         f"First diff at byte {_first_diff(train, evl)}"
     )
 
@@ -91,7 +91,7 @@ def test_personality_block_is_full_md_file():
     """PERSONALITY_SUFFIXES must contain the full .md file contents, not a paraphrase."""
     from convert_to_qwen import PERSONALITY_SUFFIXES
 
-    for name in ("aggressive", "methodical", "curious"):
+    for name in ("grinder", "completionist", "explorer_tinkerer"):
         md_path = REPO_ROOT / "prompts" / "personalities" / f"{name}.md"
         expected = md_path.read_text()
         actual = PERSONALITY_SUFFIXES[name]

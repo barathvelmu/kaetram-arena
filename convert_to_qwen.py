@@ -96,9 +96,9 @@ def _load_personality_block(name: str) -> str:
 # Full personality .md contents, keyed by name. Substituted into __PERSONALITY_BLOCK__
 # at training time. Byte-identical to what eval_harness loads.
 PERSONALITY_SUFFIXES = {
-    "aggressive": _load_personality_block("aggressive"),
-    "methodical": _load_personality_block("methodical"),
-    "curious":    _load_personality_block("curious"),
+    "grinder":            _load_personality_block("grinder"),
+    "completionist":      _load_personality_block("completionist"),
+    "explorer_tinkerer":  _load_personality_block("explorer_tinkerer"),
 }
 
 LOGIN_LOOP_RESULT_MARKERS = (
@@ -490,11 +490,12 @@ def detect_personality(session_name: str, input_dir: Path) -> str | None:
             except (json.JSONDecodeError, ValueError):
                 pass
 
-    # Fallback: infer from agent_N directory name
+    # Fallback: infer from agent_N directory name. Order matches the standard
+    # 3-agent run launched by scripts/restart-agent.sh — one per archetype.
     AGENT_PERSONALITY_MAP = {
-        "agent_0": "aggressive",
-        "agent_1": "methodical",
-        "agent_2": "curious",
+        "agent_0": "grinder",
+        "agent_1": "completionist",
+        "agent_2": "explorer_tinkerer",
     }
     for part in session_path.parts:
         if part in AGENT_PERSONALITY_MAP:

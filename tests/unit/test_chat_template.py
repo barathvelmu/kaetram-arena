@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_qwen_chat_templates_preserve_reasoning_content():

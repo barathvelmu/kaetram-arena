@@ -22,8 +22,8 @@ stage, items needed, and `live_gate_status` evaluated against your state.
 | 1 | **CORE** | Foresting | Forester (216, 114) | None | `ironaxe` | Warmup — 10+10 oak logs, turn in twice |
 | 2 | **CORE** | Herbalist's Desperation | Herby Mc. Herb (333, 281) | **None for acceptance** — Foraging 5 is a *progress* gate (all three required nodes — bluelily, tomato, paprika — share Lv5). Talk to Herby Mc. Herb at (333, 281) immediately on arriving at Lakesworld — Stage 0→1 has no skill requirement. | `hotsauce` + 1500 Foraging XP | Turn in blue lily, then paprika + tomato |
 | 3 | **CORE** | Rick's Roll | Rick (1088, 833) | None | **1987 gold** | Fish + cook 5 shrimp, deliver `seaweedroll` |
-| 4 | **CORE** | Arts and Crafts | Babushka (702, 608) | None | **Crafting unlock on start** | `berylpendant → bowlsmall → stew` (`stew` needs `bowlmedium`) |
-| 5 | **CORE** | Sea Activities | Sponge (52, 310) | **`waterguardian` achievement** for undersea | **10000 gold** + sea quest gates | Sponge/Pickle talk chain, then kill `picklemob` |
+| 4 | **CORE** | Arts and Crafts | Babushka (702, 608) | **Aynor warp** (finish Ancient Lands first; overland from Mudwich is map-disjoint) — then door 463 (406,292)→(433,270), then door (483,275)→(702,613) into Babushka's room | **Crafting unlock on start** | `berylpendant → bowlsmall → stew` (`stew` needs `bowlmedium`) |
+| 5 | **CORE** | Sea Activities | Sponge (52, 310) | **`waterguardian` achievement** for undersea; **`mermaidguard`** for door 556 (kill Mermaid at (676, 851)) | **10000 gold** + sea quest gates | Sponge/Pickle talk chain (Pickle's `interact_npc` name is **`Sea Cucumber`**, not `Pickle`), then kill `picklemob` (also display-name `Sea Cucumber`) |
 | 6 | EXTRA | Desert Quest | Dying Soldier (288, 134) | None | Unlocks `crullfield` + `lakesworld` warps | Deliver `cd` to Wife, then return |
 | 7 | EXTRA | Royal Drama | Royal Guard (282, 887) | None | **10000 gold** | `royalguard2 → ratnpc → king2` |
 | 8 | EXTRA | Royal Pet | King (284, 884) | **Royal Drama** finished | `catpet` (pet) | Deliver 3 books, return to King |
@@ -68,8 +68,10 @@ XP per kill scales with mob HP. Move up quickly once low mobs stop paying.
 | 50-60 | Snow Wolf | 1185 | 2370 | Snow zone (x:451-785, y:251-767) |
 | 60-80 | Dark Skeleton | 740 | 1480 | Widespread (x:38-1145, y:411-851) |
 | 80+ | Frozen Bat | 825 | 1650 | Ice zone (x:549-701, y:282-367) |
+| 40 (req) | Mermaid | 150 | — | Sea Activities prereq — kill once for `mermaidguard` (676, 851 undersea); door 556 gate |
+| 88 (boss) | picklemob (Sea Cucumber) | 1250 | — | Sea Activities Stage 4 boss; END-GAME GEAR — mid-route gear is marginal (audit predicts ~1900 dmg taken vs ~1389 max HP at Lv50) |
 
-Goblins past Lv20 give poor XP. Dark Skeletons are the main efficient late grind.
+Goblins past Lv20 give poor XP. Dark Skeletons are the main efficient late grind. For Sea Activities Stage 4 (picklemob L88, 1250 HP) you need lvl 80+ combat skills *and* end-game gear; mid-route gear is marginal per the audit.
 
 ---
 
@@ -82,8 +84,8 @@ Coords are first valid placement in `world.json` — useful as a `navigate(x,y)`
 | Oak Tree | Lumberjacking | 1 | Mudwich north (~210, 110) | Foresting |
 | Blueberry Bush | Foraging | 1 | Mudwich (105–238, 103–209), e.g. (155, 103) | Foraging grind |
 | Blue Lily Bush | Foraging | 5 | (278–441, 250–363), e.g. (278, 250) | Arts and Crafts (`string`) |
-| Tomato Plant Thingy | Foraging | 5 | (113–386, 107–326), e.g. (220, 108) | Herbalist's, Scavenger |
-| Paprika Bush | Foraging | 5 | (286–390, 240–484), e.g. (298, 301) | Herbalist's |
+| Tomato Plant Thingy | Foraging | 5 | (113–386, 107–326), e.g. (220, 107) | Herbalist's, Scavenger |
+| Paprika Bush | Foraging | 5 | (286–390, 240–484), e.g. (298, 300) | Herbalist's |
 | Strawberry Bush | Foraging | 1 | various | Scavenger (bonus) |
 | Shrimp Fishing Spot | Fishing | 1 + **fishingpole** | (269–383, 328–397), e.g. (325, 360) shore at (324, 360) | Rick's Roll |
 | Tuna Fishing Spot | Fishing | 25 | (269–376, 296–402) | — |
@@ -99,7 +101,7 @@ The skill XP table is steep. Estimated `gather`/`attack` count to hit each level
 
 | Skill gate | XP needed | Suggested grind |
 |---|---|---|
-| Foraging 5 | 511 | ~52 blueberry gathers @ 10 XP each, OR ~26 corn @ 20 XP (Mudwich) — unlocks blue lily, tomato, AND paprika together |
+| Foraging 5 | 511 | ~52 blueberry gathers @ 10 XP each, OR ~34 corn @ 15 XP (Mudwich) — unlocks blue lily, tomato, AND paprika together |
 | Fishing 5 | 511 | ~25 shrimp |
 
 For Herbalist's Desperation specifically: a single Foraging 1→5 grind on blueberry unlocks all three required nodes simultaneously. Paprika gives the highest XP/pull (50) — switch to it after Lv5 if continuing to grind. `gather` matches resource_name as a case-insensitive substring of the entity's display name, so `"Tomato"` works (display name is `Tomato Plant Thingy`); use the full names from the table above to be safe.
@@ -114,15 +116,16 @@ These are NPC task chains or kill rewards. They do not show up in the quest pane
 | Boxing Man | Bike Lyson (~166,114) | Kill 25 sneks | **Run ability** + 2000 Str XP |
 | Oh Crab! | Bubba (~121,231) | Kill 10 crabs / hermit crabs | 696 Acc XP |
 | Zombie Lovers | Zombie Girlfriend (undersea) | Kill 20 zombies | 4269 Str XP |
+| Mermaid Guard | Mermaid (676, 851), undersea | Kill 1 Mermaid (L40, 150 HP) | Unlocks door 556 (Sponge ↔ Pickle corridor) |
 
-Boss kills also grant achievements. Highest-value route kill: Water Guardian for `undersea`.
+Boss kills also grant achievements. Highest-value route kills: **Water Guardian** for `undersea` warp; **Mermaid** for `mermaidguard` (door 556 gate). The door-block error message says "Mermaid **Sword**" but the achievement display is "Mermaid **Guard**" — same gate, just a confusing alias.
 
 ---
 
 ## STORES / WARPS
 
 Use `buy_item(npc_name, item_index, count)`:
-- **Babushka** (ingredients store): access via door at **(483,275)**. Items: 0=Blue Lily, 1=Tomato, 2-3=Mushroom, 4=Egg, 5=Corn, 6=Raw Pork, 7=Raw Chicken. ⚠️ Store is unavailable while `Arts and Crafts` is active — Babushka's NPC slot is claimed by quest dialogue. Gather ingredients from the world instead, or finish the quest first. Babushka also sells bluelily (item_index=0) — but Babushka is gated behind Ancient Lands quest (which itself needs the Aynor warp + a door at 463). For Herbalist, gathering is faster than waiting for Ancient Lands.
+- **Babushka** (ingredients store): **gated behind Ancient Lands** — Mudwich and Babushka's region are map-disjoint, so the only in-game route is `warp("aynor")` (lands at (411, 288)) → walk to door 463 at (406, 292) → teleports to (433, 270) → walk to door (483, 275) → teleports to (702, 613) inside her room. Items: 0=Blue Lily, 1=Tomato, 2-3=Mushroom, 4=Egg, 5=Corn, 6=Raw Pork, 7=Raw Chicken. ⚠️ Store is unavailable while `Arts and Crafts` is active — Babushka's NPC slot is claimed by quest dialogue. Gather ingredients from the world instead, or finish the quest first. For Herbalist, gathering is faster than waiting for Ancient Lands.
 - **Miner** (~323,178 OR ~1007,664): general outfitter. Buy via `buy_item(npc_name="Miner", item_index=N)`:
   - **Ores**: 0=Coal(3g), 1=Copper Ore(5g), 2=Tin Ore(5g), 3=Bronze Ore(8g), 4=Gold Ore(20g)
   - **Beryl** (Arts and Crafts): 5=Beryl(20g)
@@ -160,3 +163,5 @@ Use `buy_item(npc_name, item_index, count)`:
 - `string` = `bluelily` at Crafting Lv1.
 - `clamchowder` = `clamobject + potato + bowlsmall` at Cooking Lv15. Fish clams at coastal `clamspot` nodes, not mob drops.
 - Item drops despawn after 64s. Inventory has 25 slots.
+- **Chained crafts no-op.** The Crafting/Fletching menu stays open after `craft_item`; a second `craft_item` on the same skill in one open session no-ops (selected_name updates client-side, inventory does not change). Force the menu closed (move 1 tile or `interact_npc` on a non-shop NPC) before the next `craft_item`.
+- **Quest turn-ins often need TWO `interact_npc` calls.** First call opens dialogue, second consumes items / advances stage. If after one call your inventory is unchanged and `quest_state_changed=false`, call again before assuming failure (canonical case: Rick stage-1 cookedshrimp delivery).

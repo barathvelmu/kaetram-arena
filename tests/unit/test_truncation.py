@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DATASET = REPO_ROOT / "dataset" / "qwen_sft" / "train.json"
 
 MAX_SEQ_LEN = 16384
@@ -30,7 +30,22 @@ LIMIT = MAX_SEQ_LEN - SAFETY_MARGIN  # 16128
 TOKENIZER_ID = "unsloth/Qwen3.5-9B"
 
 
+def _hf_tokenizer_available() -> bool:
+    """True only if the tokenizer can plausibly be loaded — i.e. it's already
+    cached locally OR we have HF_TOKEN to authenticate. Without one of these,
+    `from_pretrained` makes a long-blocking HTTPS call that hangs the suite."""
+    if os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN"):
+        return True
+    cache_root = Path(os.environ.get("HF_HOME") or os.path.expanduser("~/.cache/huggingface"))
+    cache_dir = cache_root / "hub" / f"models--{TOKENIZER_ID.replace('/', '--')}"
+    return cache_dir.exists()
+
+
 @pytest.mark.skipif(not DATASET.exists(), reason="dataset not built")
+@pytest.mark.skipif(
+    not _hf_tokenizer_available(),
+    reason=f"{TOKENIZER_ID} not in HF cache and no HF_TOKEN — would hang on download",
+)
 def test_no_record_exceeds_max_seq_len():
     """No training record may tokenize to more than MAX_SEQ_LEN - SAFETY_MARGIN.
 
@@ -43,7 +58,12 @@ def test_no_record_exceeds_max_seq_len():
     except ImportError:
         pytest.skip("transformers not installed")
 
-    tok = AutoTokenizer.from_pretrained(TOKENIZER_ID)
+    # Tokenizer pulls from HuggingFace Hub on first call — fails on offline
+    # / sandboxed envs. Skip rather than hang.
+    try:
+        tok = AutoTokenizer.from_pretrained(TOKENIZER_ID)
+    except Exception as e:
+        pytest.skip(f"tokenizer fetch failed ({e.__class__.__name__}); needs HF Hub access")
 
     with open(DATASET) as f:
         records = json.load(f)

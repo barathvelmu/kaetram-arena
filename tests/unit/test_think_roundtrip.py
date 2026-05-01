@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DATASET = REPO_ROOT / "dataset" / "qwen_sft" / "train.json"
 
 TOKENIZER_ID = "unsloth/Qwen3.5-9B"
@@ -46,7 +46,19 @@ def _apply_runtime_template_patch(tokenizer):
     _patch_qwen_chat_template(tokenizer)
 
 
+def _modal_available() -> bool:
+    try:
+        import modal  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 @pytest.mark.skipif(not DATASET.exists(), reason="dataset not built")
+@pytest.mark.skipif(
+    not _modal_available(),
+    reason="modal SDK not installed locally (only present on Modal cloud)",
+)
 def test_think_survives_roundtrip_for_multi_turn_records():
     """Every assistant turn (including intermediate ones) must retain `<think>`
     after `apply_chat_template` round-trips the messages THROUGH THE PATCHED

@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -16,7 +16,9 @@ from tool_surface import (  # noqa: E402
 )
 
 SYSTEM_PROMPT = REPO_ROOT / "prompts" / "system.md"
-MCP_SERVER = REPO_ROOT / "mcp_game_server.py"
+# mcp_game_server.py is now a 19-line stub; @mcp.tool() decorators live inside
+# the modular package mcp_server/tools/*.py — scan all files there.
+MCP_TOOLS_DIR = REPO_ROOT / "mcp_server" / "tools"
 
 
 def _system_prompt_tool_names() -> tuple[str, ...]:
@@ -36,10 +38,22 @@ def _system_prompt_tool_names() -> tuple[str, ...]:
 
 
 def _exported_mcp_tool_names() -> tuple[str, ...]:
-    text = MCP_SERVER.read_text()
-    return tuple(
-        re.findall(r"@mcp\.tool\(\)\s+async def ([a-zA-Z_][a-zA-Z0-9_]*)\(", text)
-    )
+    """Collect every @mcp.tool()-decorated async function across mcp_server/tools/.
+
+    Skips `test_lane.py` — its tools (`__test_login`, `__test_close_session`)
+    are conditionally registered only when `KAETRAM_TEST_LANE=1` is set in
+    the MCP subprocess environment, so they never reach the model-visible
+    surface in production agent runs.
+    """
+    names: list[str] = []
+    for path in sorted(MCP_TOOLS_DIR.glob("*.py")):
+        if path.name in ("__init__.py", "test_lane.py"):
+            continue
+        text = path.read_text()
+        names.extend(
+            re.findall(r"@mcp\.tool\(\)\s+async def ([a-zA-Z_][a-zA-Z0-9_]*)\(", text)
+        )
+    return tuple(names)
 
 
 def test_system_prompt_matches_curated_model_visible_surface():

@@ -6,7 +6,7 @@ import pytest
 from convert_to_qwen import _is_excluded_agent
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SFT_DIR = REPO_ROOT / "dataset" / "qwen_sft"
 
 
@@ -63,13 +63,24 @@ def test_observe_tool_calls_present_in_training_data():
 @pytest.mark.skipif(not (SFT_DIR / "metadata.json").exists(), reason="dataset not built")
 def test_metadata_personality_suffixes_match_md_files_on_disk():
     """Regression guard: r9 personality_suffixes were 2-sentence paraphrases; eval
-    loaded the full .md file. r10 must store full .md content in metadata so
-    training and eval render the same system prompt at the __PERSONALITY_BLOCK__
-    substitution point.
+    loaded the full .md file. Current pipeline must store full .md content in
+    metadata so training and eval render the same system prompt at the
+    __PERSONALITY_BLOCK__ substitution point.
+
+    Skips when the dataset's metadata predates the 2026-04 rename of vibe-flag
+    personalities (aggressive/methodical/curious) to archetype-axes
+    (grinder/completionist/explorer_tinkerer). Rebuilding the dataset via
+    `convert_to_qwen.py` regenerates metadata.json with the current keys.
     """
     metadata = json.loads((SFT_DIR / "metadata.json").read_text())
     suffixes = metadata.get("personality_suffixes", {})
-    for name in ("aggressive", "methodical", "curious"):
+    current_names = ("grinder", "completionist", "explorer_tinkerer")
+    if not any(name in suffixes for name in current_names):
+        pytest.skip(
+            f"dataset metadata predates personality rename "
+            f"(keys={list(suffixes)}); rebuild via convert_to_qwen.py"
+        )
+    for name in current_names:
         md_path = REPO_ROOT / "prompts" / "personalities" / f"{name}.md"
         if not md_path.exists():
             pytest.fail(f"{md_path} missing — prompts/personalities/ incomplete")

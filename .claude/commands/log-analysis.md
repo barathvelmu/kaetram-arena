@@ -39,10 +39,8 @@ Emits per-agent (run-aggregated): format accuracy, argument accuracy,
 tool-selection (DEFERRED — needs Claude-as-judge or hand-label), **Core 3
 stages newly reached this run** (last_observe stage − first_observe stage
 summed across the 3 quests, denominator 10), and turn efficiency (new stages
-÷ total turns). Headline number framework for the paper. Subtracting the
-first observe defends against `quest_resume.json` replaying prior-run
-completions into session 1's prompt; only stages genuinely reached this run
-count.
+÷ total turns). Headline number framework for the paper. Only stages
+genuinely reached this run count.
 
 ## Step 3 — Core 3 progression timeline
 

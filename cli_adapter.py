@@ -129,54 +129,6 @@ class CLIAdapter(ABC):
     def get_env(self) -> dict[str, str]:
         """Extra environment variables for the subprocess."""
 
-    def parse_game_state_from_log(self, log_path: Path) -> str | None:
-        """Extract the last observe game-state JSON from a session log file.
-
-        Used by orchestrate.py to seed a "resume from last session" block in
-        the next session's prompt. Searches the tail of the log for an
-        observe payload (identified by `active_quests` + `pos` markers),
-        truncates large arrays, and returns a compact JSON string.
-        """
-        try:
-            size = log_path.stat().st_size
-            tail_size = min(size, 1_048_576)  # read last 1MB
-            with open(log_path, "rb") as f:
-                if size > tail_size:
-                    f.seek(size - tail_size)
-                data = f.read().decode("utf-8", errors="replace")
-
-            last_state = None
-            for line in data.splitlines():
-                if "\"active_quests\"" in line and "\"pos\"" in line:
-                    state_text = self._extract_state_text_from_line(line)
-                    if state_text:
-                        last_state = state_text
-
-            if not last_state:
-                return None
-
-            d = json.loads(last_state)
-            nearby = d.get("nearby")
-            if isinstance(nearby, dict):
-                for k in ("npcs", "mobs", "resources", "ground_items"):
-                    if isinstance(nearby.get(k), list):
-                        nearby[k] = nearby[k][:10]
-            d["inventory"] = d.get("inventory", [])[:15]
-            d["active_quests"] = d.get("active_quests", [])[:10]
-            d["finished_quests"] = d.get("finished_quests", [])[:10]
-            return json.dumps(d, separators=(",", ":"))
-        except (OSError, json.JSONDecodeError):
-            return None
-
-    @abstractmethod
-    def _extract_state_text_from_line(self, line: str) -> str | None:
-        """Extract game state JSON string from a single log line.
-
-        Each CLI produces different JSON wrappers around tool results.
-        Subclasses implement format-specific extraction.
-        """
-
-
 class ClaudeAdapter(CLIAdapter):
     """Adapter for Claude Code CLI (claude -p)."""
 
@@ -232,18 +184,6 @@ class ClaudeAdapter(CLIAdapter):
             "CLAUDECODE": "",
             "MCP_TIMEOUT": "60000",  # 60s timeout for MCP server startup (3 concurrent browser launches)
         }
-
-    def _extract_state_text_from_line(self, line: str) -> str | None:
-        """Claude stream-json: state is in message.content[].text."""
-        try:
-            obj = json.loads(line)
-            for block in obj.get("message", {}).get("content", []):
-                text = block.get("text", "") if isinstance(block, dict) else ""
-                if "player_position" in text and "nearby_entities" in text:
-                    return text
-        except (json.JSONDecodeError, AttributeError):
-            pass
-        return None
 
 
 class CodexAdapter(CLIAdapter):
@@ -370,71 +310,6 @@ trust_level = "trusted"
             env["CODEX_MAX_TURNS"] = "150"
         return env
 
-    def _extract_state_text_from_line(self, line: str) -> str | None:
-        """Codex --json: search for game state in various event structures.
-
-        Codex emits item.started/item.completed events with mcp_tool_call items.
-        Game state appears in item.result.content[].text on item.completed events.
-        """
-        try:
-            obj = json.loads(line)
-
-            # Primary: item.completed with result.content[].text
-            if obj.get("type") == "item.completed":
-                item = obj.get("item", {})
-                result = item.get("result", {})
-                if isinstance(result, dict):
-                    for block in result.get("content", []):
-                        text = block.get("text", "") if isinstance(block, dict) else ""
-                        if "player_position" in text and "nearby_entities" in text:
-                            return text
-
-            # Fallback: message.content[] (older format)
-            for block in obj.get("message", {}).get("content", []):
-                text = block.get("text", "") if isinstance(block, dict) else ""
-                if "player_position" in text and "nearby_entities" in text:
-                    return text
-
-            # Fallback: top-level output/result string
-            output = obj.get("output", "") or obj.get("result", "")
-            if isinstance(output, str) and "player_position" in output and "nearby_entities" in output:
-                return output
-
-        except (json.JSONDecodeError, AttributeError, TypeError):
-            pass
-
-        # Last resort: raw substring extraction
-        if "player_position" not in line or "nearby_entities" not in line:
-            return None
-        try:
-            start = line.find('{"player_position"')
-            if start == -1:
-                start = line.find('"player_position"')
-                if start > 0:
-                    brace = line.rfind("{", 0, start)
-                    if brace != -1:
-                        start = brace
-                    else:
-                        return None
-
-            if start != -1:
-                depth = 0
-                for i in range(start, len(line)):
-                    if line[i] == "{":
-                        depth += 1
-                    elif line[i] == "}":
-                        depth -= 1
-                        if depth == 0:
-                            candidate = line[start : i + 1]
-                            parsed = json.loads(candidate)
-                            if "player_position" in parsed and "nearby_entities" in parsed:
-                                return candidate
-                            break
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-        return None
-
 
 class GeminiAdapter(CLIAdapter):
     """Adapter for Google Gemini CLI (gemini -p).
@@ -503,19 +378,6 @@ class GeminiAdapter(CLIAdapter):
         if api_key:
             env["GEMINI_API_KEY"] = api_key
         return env
-
-    def _extract_state_text_from_line(self, line: str) -> str | None:
-        """Gemini stream-json: state is in tool_result.output (flat events)."""
-        try:
-            obj = json.loads(line)
-            # Gemini tool_result: {"type": "tool_result", "output": "...game state..."}
-            if obj.get("type") == "tool_result":
-                output = obj.get("output", "")
-                if isinstance(output, str) and "player_position" in output and "nearby_entities" in output:
-                    return output
-        except (json.JSONDecodeError, AttributeError):
-            pass
-        return None
 
 
 class OpenCodeAdapter(CLIAdapter):
@@ -605,28 +467,6 @@ class OpenCodeAdapter(CLIAdapter):
         # opencode reads auth per-provider from the opencode.json (Ollama
         # needs no auth; Modal/OpenAI pick up their keys from env automatically).
         return {}
-
-    def _extract_state_text_from_line(self, line: str) -> str | None:
-        """opencode --format json: each line is a JSON event. Tool results
-        land in `part.state.output` as a JSON string containing the raw
-        MCP tool response. We look for observe output with the game state
-        signature."""
-        try:
-            obj = json.loads(line)
-            part = obj.get("part", {})
-            if obj.get("type") == "tool_use":
-                state = part.get("state", {})
-                output = state.get("output")
-                if isinstance(output, str) and "player_position" in output and "nearby_entities" in output:
-                    return output
-            # Some opencode builds emit assistant-authored state echoes in text events
-            for block in obj.get("message", {}).get("content", []):
-                text = block.get("text", "") if isinstance(block, dict) else ""
-                if "player_position" in text and "nearby_entities" in text:
-                    return text
-        except (json.JSONDecodeError, AttributeError):
-            pass
-        return None
 
 
 def get_adapter(harness: str = "claude", model: str | None = None) -> CLIAdapter:

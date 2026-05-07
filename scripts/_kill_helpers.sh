@@ -106,14 +106,10 @@ kill_scoped() {
 }
 
 # Wipe transient sandbox state for an agent's fresh-start orchestration.
-# Single source of truth so reset paths can't drift apart — the failure mode
-# this prevents is a stale resume snapshot from a prior run surviving the
-# Mongo wipe and contradicting the freshly reset character in session 1's
-# prompt.
+# Single source of truth so reset paths can't drift apart.
 #
 # Removes (transient state):
 #   state/game_state.json    — last observe snapshot for dashboard
-#   state/quest_resume.json  — cross-session quest STATE memory (orchestrate.py:549)
 #   state/.session_counter   — session number; absent → next session = #1
 #
 # Preserves (config + debugging):
@@ -126,7 +122,6 @@ clear_sandbox_state_reset() {
   local sandbox="/tmp/kaetram_agent_${agent_id}"
   [ -d "$sandbox/state" ] || return 0
   rm -f "$sandbox/state/game_state.json" \
-        "$sandbox/state/quest_resume.json" \
         "$sandbox/state/.session_counter"
 }
 

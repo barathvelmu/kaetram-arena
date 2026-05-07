@@ -826,8 +826,7 @@ class RunSessionsView:
     # ── Observe snapshots ──
     def first_observe_in_run(self) -> dict | None:
         """First non-error observe payload across all sessions in chronological
-        order. Reflects what the agent first SAW this run (not necessarily
-        what state was injected via quest_resume)."""
+        order. Reflects what the agent first SAW this run."""
         for sv in self.sessions:
             ob = first_observe(sv)
             if ob is not None:

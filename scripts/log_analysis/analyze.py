@@ -360,8 +360,7 @@ def cmd_metrics(rvs: list[RunSessionsView]) -> None:
         # 4. Core 3 STAGE completion across the run. Compute first-of-run
         # and last-of-run state for each Core 3 quest (active stage if
         # active, full stage_count if finished, 0 otherwise) and sum the
-        # delta. Subtracting the first observe's state defends against
-        # quest_resume.json replaying prior-run completions into session 1.
+        # delta — only stages genuinely reached this run count.
         def _stage_state_at(observe_payload: dict) -> dict[str, int]:
             out: dict[str, int] = {n: 0 for n in core3_set}
             for q in (observe_payload.get("finished_quests") or []):

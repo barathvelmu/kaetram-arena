@@ -126,32 +126,9 @@ sys.stdout.write(s)
   # Read previous progress and include in prompt
   PROGRESS=$(cat "$STATE_FILE" 2>/dev/null || echo '{}')
 
-  # Read game state if available (written by the observe step's page.evaluate() call)
-  GAME_STATE=""
-  if [ -f "$PROJECT_DIR/state/game_state.json" ]; then
-    GAME_STATE=$(python3 -c "
-import json, sys
-d = json.load(open('$PROJECT_DIR/state/game_state.json'))
-d['nearby_entities'] = d.get('nearby_entities', [])[:15]
-d['inventory'] = d.get('inventory', [])[:15]
-d['quests'] = d.get('quests', [])[:10]
-d['achievements'] = d.get('achievements', [])[:10]
-print(json.dumps(d, separators=(',',':')))
-" 2>/dev/null || echo "")
-  fi
-
-  GAME_STATE_BLOCK=""
-  if [ -n "$GAME_STATE" ]; then
-    GAME_STATE_BLOCK="
-Previous game state (from last observe step):
-${GAME_STATE}
-Use nearest_mob.click_x/click_y to click on targets. Use player_position for spatial awareness."
-  fi
-
   PROMPT="IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. Your ONLY job is to play the game via the MCP tools. The MCP server auto-connects to the game. Start IMMEDIATELY by calling observe.
 
 Session #${SESSION}. Your previous progress: ${PROGRESS}
-${GAME_STATE_BLOCK}
 Follow your system instructions exactly. Call observe, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore."
 
   # Codex exec is one-shot — needs explicit instruction to keep looping
@@ -377,19 +354,6 @@ GEMINIJSON
   esac
 
   rm -rf "$SANDBOX"
-
-  # Auto-extract last game state from session log using the CLI adapter
-  python3 -c "
-import sys
-sys.path.insert(0, '$PROJECT_DIR')
-from cli_adapter import get_adapter
-adapter = get_adapter(harness='$HARNESS')
-state = adapter.parse_game_state_from_log(__import__('pathlib').Path('$LOG_FILE'))
-if state:
-    import json
-    with open('$PROJECT_DIR/state/game_state.json', 'w') as f:
-        f.write(state)
-" 2>/dev/null || true
 
   echo "=== Session $SESSION ended at $(date) ==="
   echo "Pausing ${PAUSE_BETWEEN}s before next session..."

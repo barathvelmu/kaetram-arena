@@ -172,8 +172,6 @@ Full reference: `dashboard/DASHBOARD.md`.
 | `state_extractor.js` | Browser-side helpers exposed via `window.__extractGameState()` etc. Called by `mcp_server` only — never by the agent. |
 | `mcp_server/resource_gates.py` | Loads resource→skill+level requirements from Kaetram-Open data files at MCP startup. `gather()` uses it to surface a structured `gate` block when "no items collected" is actually a skill-level gate. Override the data dir via `KAETRAM_DATA_DIR`. |
 | `mcp_server/mob_stats.py` | Same pattern for mobs.json. `observe()` enriches each `nearby.mobs[]` entry with `level` + `aggressive` so the agent doesn't have to recall the MOB PROGRESSION table by name. |
-| `state/quest_resume.json` (per-sandbox) | Written on every `observe()` by `mcp_server/tools/observe.py`. Read by `orchestrate.py` at session start and prepended to the agent prompt as a "Resume from last session" block — closes the per-session amnesia gap so multi-stage Core 3 quests can complete across sessions. |
-| `orchestrate.py:_recent_failures_from_prev_session()` | Scans the previous session's log on each new session start, buckets distinct tool errors (BFS-fail × N, NPC arrived: false × N, etc.), and injects a `recent_failures (don't repeat)` block into the resume prompt. Carries cross-session FAILURE memory — agents stop re-trying the same dead-ends across sessions. Distinct from quest_resume's STATE memory. |
 | `extract_turns.py` | JSONL log → OODA turn extraction. |
 | `convert_to_qwen.py` | Turns → Qwen3.5 9B SFT/GRPO format. |
 | `prompts/system.md` | Agent system prompt (~100 lines, XML-tagged). |

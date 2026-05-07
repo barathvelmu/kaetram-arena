@@ -442,89 +442,6 @@ class AgentInstance:
 
         return prompt
 
-    def _extract_game_state_from_log(self) -> str | None:
-        """Extract the last game state JSON from the most recent session log."""
-        try:
-            logs = sorted(self.log_dir.glob("session_*.log"),
-                          key=lambda p: p.stat().st_mtime, reverse=True)
-            if not logs:
-                return None
-            return self.adapter.parse_game_state_from_log(logs[0])
-        except OSError:
-            return None
-
-    def _recent_failures_from_prev_session(self, max_unique: int = 5) -> list[str]:
-        """Scan the previous session's log for distinct tool errors so the
-        next session can avoid repeating them.
-
-        Buckets by (tool_name, error-prefix) and keeps a count. Returns short
-        human-readable strings like "navigate(379,388) BFS-fail × 12" or
-        "interact_npc(Rick) arrived: false × 3". Best-effort: silently
-        returns empty list on any parse error.
-        """
-        try:
-            logs = sorted(self.log_dir.glob("session_*.log"),
-                          key=lambda p: p.stat().st_mtime, reverse=True)
-            if not logs:
-                return []
-            prev_log = logs[0]
-            from collections import Counter
-            buckets: Counter = Counter()
-            samples: dict = {}
-            with prev_log.open() as fh:
-                for line in fh:
-                    try:
-                        rec = json.loads(line)
-                    except (ValueError, TypeError):
-                        continue
-                    if rec.get("type") != "user":
-                        continue
-                    content = (rec.get("message") or {}).get("content") or []
-                    if not isinstance(content, list):
-                        continue
-                    for blk in content:
-                        if not isinstance(blk, dict) or blk.get("type") != "tool_result":
-                            continue
-                        raw = blk.get("content")
-                        if isinstance(raw, list):
-                            raw = "".join(x.get("text", "") for x in raw if isinstance(x, dict))
-                        if not isinstance(raw, str):
-                            continue
-                        # Decode wrapped tool result.
-                        try:
-                            wrapper = json.loads(raw)
-                            inner = wrapper.get("result") if isinstance(wrapper, dict) else None
-                            if isinstance(inner, str):
-                                try:
-                                    payload = json.loads(inner.split("\n\nASCII_MAP:")[0])
-                                except (ValueError, TypeError):
-                                    payload = {"error": inner[:120]} if "error" in inner.lower() else None
-                            else:
-                                payload = wrapper
-                        except (ValueError, TypeError):
-                            continue
-                        if not isinstance(payload, dict):
-                            continue
-                        err = payload.get("error")
-                        if not err:
-                            continue
-                        # Categorize: short prefix that groups same failure.
-                        err_str = str(err)[:80]
-                        # Pull tool name from the prior assistant tool_use; not
-                        # tracked here for simplicity. Use error prefix as key.
-                        key = err_str.split(".")[0].split(":")[0][:60].strip()
-                        buckets[key] += 1
-                        samples.setdefault(key, err_str)
-            # Format top-N most-frequent unique failures.
-            out = []
-            for key, count in buckets.most_common(max_unique):
-                if count < 2:
-                    continue  # one-offs aren't worth carrying forward
-                out.append(f"{samples[key]} × {count}")
-            return out
-        except (OSError, ValueError):
-            return []
-
     def _build_user_prompt(self) -> str:
         """Build the user prompt for a session."""
         playstyle_hint = {
@@ -533,79 +450,12 @@ class AgentInstance:
             "explorer_tinkerer":  "You play EXPLORER/TINKERER — world + systems coverage: navigate everywhere, warp to new zones, try unusual NPCs and novel crafts.",
         }.get(self.personality, "")
 
-        game_state_block = ""
-        game_state = self._extract_game_state_from_log()
-        if game_state:
-            game_state_block = (
-                "\nPrevious game state (from last observe step):\n"
-                f"{game_state}\n"
-                "Use player_position for spatial awareness."
-            )
-
-        # Cross-session quest resume — written by mcp_server/tools/observe.py
-        # on every observe. Tells the next session "you were L33 at (190,158),
-        # mid-Rick's Roll stage 2/4, last chat said X" so multi-stage quests
-        # survive the per-session context reset.
-        resume_block = ""
-        try:
-            resume_path = self.sandbox_dir / "state" / "quest_resume.json"
-            if resume_path.is_file():
-                resume = json.loads(resume_path.read_text())
-                active = resume.get("active_quests") or []
-                finished = resume.get("finished_quests") or []
-                if active or finished or resume.get("level") is not None:
-                    parts = ["\nResume from last session:"]
-                    if resume.get("level") is not None:
-                        parts.append(f"  level={resume['level']}  pos={resume.get('pos')}")
-                    if finished:
-                        parts.append(f"  finished_quests: {finished}")
-                    if active:
-                        active_summary = [
-                            f"{q.get('name')} stage {q.get('stage')}/{q.get('stage_count')}"
-                            f" — {(q.get('description') or '')[:80]}"
-                            for q in active if isinstance(q, dict)
-                        ]
-                        parts.append("  active_quests:")
-                        for line in active_summary:
-                            parts.append(f"    - {line}")
-                    inv_sum = resume.get("inventory_summary") or {}
-                    if inv_sum:
-                        parts.append(
-                            f"  inventory: {inv_sum.get('slots_used','?')}/"
-                            f"{inv_sum.get('slots_max','?')} slots"
-                            f"{'  (FULL)' if inv_sum.get('full') else ''}"
-                        )
-                    if resume.get("recent_chat"):
-                        parts.append(
-                            f"  recent_chat: {resume['recent_chat']}"
-                        )
-                    # Cross-session failure memory — extract distinct tool errors
-                    # from the previous session's log so the agent doesn't waste
-                    # turns repeating the same dead-end (e.g. "navigate(379,388)
-                    # BFS-fails 12x last session, don't try again, use a different
-                    # route or quest").
-                    failures = self._recent_failures_from_prev_session()
-                    if failures:
-                        parts.append("  recent_failures (don't repeat — try a different approach):")
-                        for f in failures:
-                            parts.append(f"    - {f}")
-                    parts.append(
-                        "Continue your active quest from this state — do NOT "
-                        "re-accept quests already in active_quests. Call observe "
-                        "first to confirm freshness."
-                    )
-                    resume_block = "\n".join(parts) + "\n"
-        except (OSError, ValueError):
-            pass
-
         base_prompt = (
             f"{playstyle_hint}\n\n"
             "IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. "
             "Your ONLY job is to play the game via the MCP tools. "
             "Start IMMEDIATELY by calling observe — the MCP server auto-logs in on first connect.\n\n"
             f"Session #{self.session}.\n"
-            f"{resume_block}"
-            f"{game_state_block}\n"
             "Follow your system instructions exactly. Call observe first, "
             "then run the OBSERVE-ACT loop."
         )
@@ -1167,9 +1017,9 @@ class AgentInstance:
     def maybe_restart_if_disconnected(self) -> bool:
         """Kill and restart if the agent appears disconnected (position 0,0 repeatedly).
 
-        Checks the last 20 lines of the latest log for player_position (0,0) or
-        state extractor errors, which indicate a server disconnect. If found in 3+
-        of the last 20 state reads, the session is likely stuck reconnecting.
+        Checks the last 20 lines of the latest log for pos (0,0) or state
+        extractor errors, which indicate a server disconnect. If found in 3+ of
+        the last 20 state reads, the session is likely stuck reconnecting.
         Returns True if restarted.
         """
         if not self.is_alive():
@@ -1200,9 +1050,9 @@ class AgentInstance:
             for line in reversed(lines[-40:]):
                 if checked >= 20:
                     break
-                if '"player_position"' in line:
+                if '\\"pos\\"' in line:
                     checked += 1
-                    if '"x":0,"y":0' in line or '"x": 0, "y": 0' in line:
+                    if '\\"x\\": 0, \\"y\\": 0' in line or '\\"x\\":0,\\"y\\":0' in line:
                         disconnect_count += 1
                 elif 'State extractor not loaded' in line or 'Game not loaded' in line:
                     checked += 1

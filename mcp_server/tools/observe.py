@@ -76,41 +76,12 @@ async def observe(ctx: Context) -> str:
     except (ValueError, TypeError):
         pass
 
-    # Write game_state.json for dashboard (live state, no log parsing needed)
-    # AND a compact quest_resume.json that the orchestrator injects into the
-    # next session's prompt — gives the next session a "where I was" anchor
-    # so multi-stage quests (Rick's Roll, Herbalist's Desperation) can
-    # survive the per-session context reset.
+    # Write game_state.json for the dashboard (live state, no log parsing).
     try:
         gs_json = result.split("\n\nASCII_MAP:")[0] if "\n\nASCII_MAP:" in result else result
         if not gs_json.startswith("ERROR"):
-            gs_path = os.path.join(state_dir, "game_state.json")
-            with open(gs_path, "w") as f:
+            with open(os.path.join(state_dir, "game_state.json"), "w") as f:
                 f.write(gs_json)
-            try:
-                gs_obj = _json.loads(gs_json)  # already enriched above
-
-                resume = {
-                    "level": (gs_obj.get("stats") or {}).get("level"),
-                    "pos":   gs_obj.get("pos"),
-                    "active_quests":   gs_obj.get("active_quests")   or [],
-                    "finished_quests": [
-                        q.get("name") for q in (gs_obj.get("finished_quests") or [])
-                        if isinstance(q, dict)
-                    ],
-                    "inventory_summary": gs_obj.get("inventory_summary"),
-                    # Last few in-game chat events — surfaces things like
-                    # "no space in inventory", "wait N seconds", quest
-                    # acknowledgements that the agent may have missed.
-                    "recent_chat": [
-                        e.get("msg") for e in (gs_obj.get("events") or [])
-                        if isinstance(e, dict) and e.get("type") == "chat" and e.get("msg")
-                    ][-6:],
-                }
-                with open(os.path.join(state_dir, "quest_resume.json"), "w") as f:
-                    _json.dump(resume, f, indent=2)
-            except (ValueError, TypeError):
-                pass
     except Exception:
         pass
 

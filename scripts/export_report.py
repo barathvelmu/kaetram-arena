@@ -70,7 +70,7 @@ def _session_stats(sv: SessionView) -> dict:
     npc_interactions: list[dict] = []
     for tc in sv.tool_calls:
         tool_counter[tc.short_name] += 1
-        if tc.short_name in ("interact_npc", "talk_npc"):
+        if tc.short_name == "interact_npc":
             inp = tc.input or {}
             npc_interactions.append({
                 "tool": tc.short_name,

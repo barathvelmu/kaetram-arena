@@ -5,12 +5,12 @@ under `dataset/raw/agent_*/runs/run_*/` (Claude *and* OpenCode/DeepSeek/Qwen/
 Grok shapes via auto-detect) and reports per-agent status, quest progression,
 tool-call distribution, errors, recent activity, and reasoning.
 
-**Active corpus only.** As of 2026-05-06, pre-Core-3-refactor runs and every
-non-Claude harness run live under `dataset/raw/_archive/<harness>/agent_N/run_*`.
-`list_runs()` globs `agent_*/runs/run_*` and does not recurse into `_archive/`,
-so this analyzer only sees the post-Core-3 Claude corpus that's eligible for r10.
-To inspect an archived run, point at the path explicitly via custom code that
-imports from `parse.py` rather than `--run <id>`.
+**Active corpus only.** Out-of-corpus runs and every non-Claude harness run
+live under `dataset/raw/_archive/<harness>/agent_N/run_*`. `list_runs()` globs
+`agent_*/runs/run_*` and does not recurse into `_archive/`, so this analyzer
+only sees the live Claude corpus eligible for training. To inspect an archived
+run, point at the path explicitly via custom code that imports from `parse.py`
+rather than `--run <id>`.
 
 **Default scope:** the **latest run per agent**, aggregating every session
 in that run dir. Pass `--run <id>` to scope to a past run, or `--session N`

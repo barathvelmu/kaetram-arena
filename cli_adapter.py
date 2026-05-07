@@ -130,11 +130,12 @@ class CLIAdapter(ABC):
         """Extra environment variables for the subprocess."""
 
     def parse_game_state_from_log(self, log_path: Path) -> str | None:
-        """Extract the last game state JSON from a session log file.
+        """Extract the last observe game-state JSON from a session log file.
 
-        Searches for lines containing both 'player_position' and
-        'nearby_entities', extracts the game state, and truncates large arrays.
-        Returns a compact JSON string or None.
+        Used by orchestrate.py to seed a "resume from last session" block in
+        the next session's prompt. Searches the tail of the log for an
+        observe payload (identified by `active_quests` + `pos` markers),
+        truncates large arrays, and returns a compact JSON string.
         """
         try:
             size = log_path.stat().st_size
@@ -146,7 +147,7 @@ class CLIAdapter(ABC):
 
             last_state = None
             for line in data.splitlines():
-                if "player_position" in line and "nearby_entities" in line:
+                if "\"active_quests\"" in line and "\"pos\"" in line:
                     state_text = self._extract_state_text_from_line(line)
                     if state_text:
                         last_state = state_text
@@ -155,10 +156,14 @@ class CLIAdapter(ABC):
                 return None
 
             d = json.loads(last_state)
-            d["nearby_entities"] = d.get("nearby_entities", [])[:15]
+            nearby = d.get("nearby")
+            if isinstance(nearby, dict):
+                for k in ("npcs", "mobs", "resources", "ground_items"):
+                    if isinstance(nearby.get(k), list):
+                        nearby[k] = nearby[k][:10]
             d["inventory"] = d.get("inventory", [])[:15]
-            d["quests"] = d.get("quests", [])[:10]
-            d["achievements"] = d.get("achievements", [])[:10]
+            d["active_quests"] = d.get("active_quests", [])[:10]
+            d["finished_quests"] = d.get("finished_quests", [])[:10]
             return json.dumps(d, separators=(",", ":"))
         except (OSError, json.JSONDecodeError):
             return None

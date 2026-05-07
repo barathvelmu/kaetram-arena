@@ -1,8 +1,8 @@
 """
 Modal KTO training script for Kaetram agent preference optimization.
 
-Runs Kahneman-Tversky Optimization on top of an SFT checkpoint (typically r6)
-using binary desirable/undesirable labels derived from Claude trajectories.
+Runs Kahneman-Tversky Optimization on top of an SFT checkpoint using binary
+desirable/undesirable labels derived from Claude trajectories.
 
 Usage:
     python3 score_sessions.py --input dataset/extracted/ --output dataset/qwen_kto/session_scores.json
@@ -52,12 +52,11 @@ with train_image.imports():
 
 
 MODEL_ID = "unsloth/Qwen3.5-9B"
-# Use the canonical HF tokenizer for chat template formatting — NOT the Unsloth-merged
-# r6 tokenizer. Unsloth's save_pretrained_merged modifies the chat_template Jinja to
-# inject a tool-system-doc block when tool_calls appear in the full conversation, but
-# not in prompt-only renders. This causes _split_completion to fail for every record.
-# The canonical tokenizer has the same vocab so tokenization is identical; only the
-# template rendering differs.
+# Use the canonical HF tokenizer for chat-template rendering. The Unsloth-merged
+# tokenizer modifies chat_template to inject a tool-system-doc block when
+# tool_calls appear in the full conversation but not in prompt-only renders,
+# which breaks _split_completion. Vocab is identical, so only template rendering
+# differs.
 TEMPLATE_TOKENIZER_ID = "Qwen/Qwen3.5-9B"
 BASE_SFT_EXPERIMENT = "kaetram-qwen3.5-9b-r6-optimized"
 EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r7-kto"
@@ -84,10 +83,10 @@ EVAL_STEPS = 50
 BETA = 0.1
 
 # ---------------------------------------------------------------------------
-# Paraphrase augmentation (ORAK ICLR 2026, Consistency Alignment arxiv 2403.14221)
+# System-prompt paraphrase augmentation
 # ---------------------------------------------------------------------------
-# Mirrors the variants in train_modal.py. KTO records have the system prompt
-# baked into prompt_messages[0]["content"], so we replace it at training time.
+# Mirrors the variants in train_modal.py. KTO records bake the system prompt
+# into prompt_messages[0]["content"], so we replace it at training time.
 
 import random as _random
 
@@ -102,11 +101,9 @@ SYSTEM_PROMPT_INTRO_VARIANTS = [
     "You are an automated player in Kaetram (2D MMORPG). Observe the game through structured state and ASCII map data, then decide and act.",
 ]
 
-# r10: personality paraphrasing removed. Pre-r10 KTO paraphrased personalities via a
-# hardcoded short-string dict (PERSONALITY_INSTRUCTION_VARIANTS), which drifted from
-# the eval-time prompt (full prompts/personalities/*.md files). Substitution now
-# happens at the __PERSONALITY_BLOCK__ placeholder in convert_to_qwen; KTO just
-# preserves whatever the baked prompt contains and only paraphrases the intro.
+# Personality is already substituted at the __PERSONALITY_BLOCK__ placeholder
+# upstream (in convert_to_qwen / build_kto_dataset). KTO preserves the baked
+# prompt and only paraphrases the intro.
 
 _BODY_SPLIT_MARKER = "\n\n<game_knowledge>"
 
@@ -118,15 +115,13 @@ def _build_system_prompt_kto(
 ) -> str:
     """Replace system prompt in KTO record with a paraphrased-intro variant.
 
-    KTO records have the system prompt (with personality already substituted at the
-    __PERSONALITY_BLOCK__ location) baked into prompt_messages[0]["content"]. This
-    function rebuilds it with a variant intro while keeping the body identical.
+    KTO records have the (personality-substituted) system prompt baked into
+    prompt_messages[0]["content"]. We rebuild it with a variant intro and keep
+    the body — including the personality block — byte-identical.
     """
     if rng is None:
         return original_sys
 
-    # Paraphrase intro, keep body identical (body includes the already-substituted
-    # personality block — no further personality manipulation here).
     intro = rng.choice(SYSTEM_PROMPT_INTRO_VARIANTS)
     try:
         body_start = original_sys.index(_BODY_SPLIT_MARKER)
@@ -154,8 +149,7 @@ def _patch_qwen_chat_template(tokenizer):
     """Patch the Qwen 3.5 chat template to preserve <think> in all turns.
 
     Stock template drops reasoning_content from assistant messages before
-    last_query_index (QwenLM/Qwen3#1831). Fix: always emit <think> when
-    reasoning_content is present.
+    last_query_index. Always emit <think> when reasoning_content is present.
     """
     template = tokenizer.chat_template
     if template is None:
@@ -191,11 +185,7 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
     tool_definitions = metadata["tools"]
     base_system_prompt = metadata.get("system_prompt", "")
 
-    # Load the canonical HF tokenizer for chat template formatting only.
-    # The Unsloth-merged r6 tokenizer has a modified chat_template that injects
-    # tool-system-doc tokens when tool_calls appear in the full conversation but
-    # not in prompt-only renders — causing _split_completion to fail for all records.
-    # The canonical tokenizer has the same vocabulary so tokenization is identical.
+    # See TEMPLATE_TOKENIZER_ID definition for why we don't reuse the trained tokenizer here.
     print(f"Loading template tokenizer ({TEMPLATE_TOKENIZER_ID}) for consistent chat template rendering...")
     fmt_tok = AutoTokenizer.from_pretrained(TEMPLATE_TOKENIZER_ID, trust_remote_code=True)
     _patch_qwen_chat_template(fmt_tok)
@@ -218,34 +208,20 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
                 )
                 prompt_messages = [{"role": "system", "content": new_sys}] + prompt_messages[1:]
 
-            try:
-                prompt_text = fmt_tok.apply_chat_template(
-                    prompt_messages,
-                    tools=tool_definitions,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-            except TypeError:
-                prompt_text = fmt_tok.apply_chat_template(
-                    prompt_messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
+            prompt_text = fmt_tok.apply_chat_template(
+                prompt_messages,
+                tools=tool_definitions,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
 
             full_messages = prompt_messages + [completion_message]
-            try:
-                full_text = fmt_tok.apply_chat_template(
-                    full_messages,
-                    tools=tool_definitions,
-                    tokenize=False,
-                    add_generation_prompt=False,
-                )
-            except TypeError:
-                full_text = fmt_tok.apply_chat_template(
-                    full_messages,
-                    tokenize=False,
-                    add_generation_prompt=False,
-                )
+            full_text = fmt_tok.apply_chat_template(
+                full_messages,
+                tools=tool_definitions,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
 
             completion_text = _split_completion(prompt_text, full_text)
             if completion_text is None:
@@ -407,7 +383,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes, smoke_test: bool 
         args=kto_config,
         train_dataset=train_ds,
         eval_dataset=val_ds,
-        processing_class=fmt_tok,  # base tokenizer — Unsloth-merged r6 tokenizer routes through Qwen3-VL processor
+        processing_class=fmt_tok,  # canonical tokenizer; the merged tokenizer routes through Qwen3-VL processor
     )
 
     subject, body = format_notification(

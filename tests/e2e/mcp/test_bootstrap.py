@@ -7,7 +7,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from tool_surface import LEGACY_HIDDEN_TOOL_NAMES, MODEL_VISIBLE_TOOL_NAMES
+from tool_surface import MODEL_VISIBLE_TOOL_NAMES
 
 from tests.e2e.helpers.mcp_client import mcp_session
 
@@ -53,8 +53,7 @@ async def test_rest_helper_round_trip(isolated_lane, unique_username):
 async def test_live_mcp_tool_surface_matches_curated_surface(
     isolated_lane, unique_username
 ):
-    """The live stdio server should export the exact model-visible tool set and
-    keep legacy helpers hidden from agent-facing sessions."""
+    """The live stdio server should export exactly the curated model-visible tool set."""
     async with mcp_session(
         username=unique_username,
         client_url=isolated_lane.client_url,
@@ -63,4 +62,3 @@ async def test_live_mcp_tool_surface_matches_curated_surface(
 
     assert set(live_tools) == set(MODEL_VISIBLE_TOOL_NAMES)
     assert len(live_tools) == len(MODEL_VISIBLE_TOOL_NAMES)
-    assert not (set(live_tools) & set(LEGACY_HIDDEN_TOOL_NAMES))

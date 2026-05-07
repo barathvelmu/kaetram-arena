@@ -42,6 +42,9 @@ status summary that used to live here drifted in days.
 - **Eval harness.** `eval_harness.py` runs side-by-side episodes on
   dedicated ports (9061 r9-sft, 9071 base). Live dashboard tab.
 - **World model.** WIP concept in [`world/`](world/). Not prioritized.
+- **Iteration history.** r1-r9 were rapid exploratory cycles; r10 onward is the
+  deliberate phase — see [`research/INDEX.md`](research/INDEX.md) for the
+  methodological turn.
 
 ## Architecture
 
@@ -145,7 +148,7 @@ Teacher and student call the same surface. Categories:
 - **Economy / inventory:** `buy_item(npc_name, item_index, count)` (auto-walks to NPC + opens shop), `equip_item(slot)`, `drop_item(slot)`
 - **Production:** `gather(resource_name)`, `craft_item(skill, recipe_key, count)` (auto-walks to nearest station on the current map)
 
-The live MCP export matches this surface exactly — deprecated wrappers (`login`, `move`, `talk_npc`, `accept_quest`, `clear_combat`, `click_tile`) were removed in PR #29 to avoid tool-bloat regression. Per-tool reference: [`mcp_server/README.md`](mcp_server/README.md).
+The live MCP export matches this surface exactly — deprecated wrappers were removed in PR #29 to avoid tool-bloat regression. Per-tool reference: [`mcp_server/README.md`](mcp_server/README.md).
 
 ## Project structure
 

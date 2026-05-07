@@ -58,7 +58,6 @@ TIER2_METRICS = [
     ("level_delta", "Level Delta", "higher"),
     ("action_entropy", "Action Entropy", "higher"),
     ("stuck_resets", "Stuck Resets", "lower"),
-    ("click_tiles", "Click Tiles", "lower"),
     ("success_rate", "Scenario Success Rate", "higher"),
 ]
 

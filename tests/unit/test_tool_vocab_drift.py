@@ -10,10 +10,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from convert_to_qwen import TOOL_DEFINITIONS  # noqa: E402
-from tool_surface import (  # noqa: E402
-    LEGACY_HIDDEN_TOOL_NAMES,
-    MODEL_VISIBLE_TOOL_NAMES,
-)
+from tool_surface import MODEL_VISIBLE_TOOL_NAMES  # noqa: E402
 
 SYSTEM_PROMPT = REPO_ROOT / "prompts" / "system.md"
 # mcp_game_server.py is now a 19-line stub; @mcp.tool() decorators live inside
@@ -75,5 +72,3 @@ def test_play_qwen_filters_to_curated_surface():
 def test_live_mcp_server_exports_exact_curated_surface():
     exported = _exported_mcp_tool_names()
     assert set(exported) == set(MODEL_VISIBLE_TOOL_NAMES)
-    for hidden in LEGACY_HIDDEN_TOOL_NAMES:
-        assert hidden not in exported

@@ -1,8 +1,7 @@
 """Shared model-visible tool surface for Kaetram agents.
 
-The MCP server still carries a few legacy fallback tools for backwards
-compatibility and local debugging, but the student model should only see this
-smaller, curated action space.
+The MCP server exposes exactly this curated set; the training data and the
+student model only ever see these names.
 """
 
 MODEL_VISIBLE_TOOL_NAMES = (
@@ -25,21 +24,12 @@ MODEL_VISIBLE_TOOL_NAMES = (
     "craft_item",
 )
 
-LEGACY_HIDDEN_TOOL_NAMES = (
-    "login",
-    "move",
-    "talk_npc",
-    "accept_quest",
-    "clear_combat",
-    "click_tile",
-)
-
 MODEL_VISIBLE_TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
             "name": "observe",
-            "description": "Observe the current game state. Returns player stats, nearby entities, quests, inventory, and ASCII map.",
+            "description": "Observe the current game state. Returns pos, stats (hp/max_hp/level/xp), equipment, skills, status, nearby (npcs/mobs/resources/ground_items), inventory, active_quests, finished_quests, events, plus an ASCII map.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },

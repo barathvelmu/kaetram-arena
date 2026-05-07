@@ -1,8 +1,8 @@
 """
 Modal serving endpoint for BASE (unfinetuned) Qwen3.5-9B.
 
-Used as the baseline comparison against finetuned r7-SFT and r7-KTO models.
-Same architecture as serve_modal.py but always loads the base model.
+Used as the baseline comparison against finetuned models. Same architecture
+as serve_modal.py but always loads the base model.
 
 Usage:
     modal deploy finetune/serve_modal_base.py

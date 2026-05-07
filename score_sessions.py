@@ -39,41 +39,28 @@ def _percentile(sorted_vals: list[float], pct: float) -> float:
 
 
 def _player_stats(turn: dict) -> dict:
-    gs = turn.get("game_state", {}) or {}
-    ps = gs.get("player_stats", {}) or {}
-    if isinstance(ps, str):
-        try:
-            ps = json.loads(ps)
-        except (json.JSONDecodeError, ValueError):
-            ps = {}
-    if not isinstance(ps, dict):
-        ps = {}
-    return ps
+    ps = (turn.get("game_state") or {}).get("stats") or {}
+    return ps if isinstance(ps, dict) else {}
 
 
 def _xp_of(turn: dict) -> int:
-    ps = _player_stats(turn)
-    return int(ps.get("experience", 0) or 0)
+    return int(_player_stats(turn).get("xp", 0) or 0)
 
 
 def _level_of(turn: dict) -> int:
-    ps = _player_stats(turn)
-    return int(ps.get("level", 1) or 1)
+    return int(_player_stats(turn).get("level", 1) or 1)
 
 
 def _pos_of(turn: dict) -> tuple[int, int] | None:
-    gs = turn.get("game_state", {}) or {}
-    pp = gs.get("player_position", {}) or {}
+    pp = (turn.get("game_state") or {}).get("pos") or {}
     if isinstance(pp, dict) and "x" in pp and "y" in pp:
         return int(pp["x"]), int(pp["y"])
     return None
 
 
 def score_session(session: str, turns: list[dict]) -> dict:
-    # r10: filter out observe turns from session scoring. Observe is a preparatory
-    # action (refresh state) that doesn't reflect gameplay quality, and its
-    # interleaving would halve rate metrics (attack_rate, click_tile_rate, etc.)
-    # vs pre-r10 scoring. Action turns are what KTO preference learning judges.
+    # Drop observe turns — they're state refreshes, not gameplay decisions,
+    # and KTO preference learning is judged on action turns only.
     turns = [t for t in turns if t.get("action_type") != "observe"]
     actions = [t.get("action_type", "") for t in turns]
     n_turns = len(turns)
@@ -88,16 +75,14 @@ def score_session(session: str, turns: list[dict]) -> dict:
     level_delta = max(0, level_end - level_start)
 
     respawn_count = sum(1 for a in actions if a == "respawn")
-    click_tile_count = sum(1 for a in actions if a == "click_tile")
     quest_action_count = sum(
-        1 for a in actions if a in {"interact_npc", "talk_npc", "quest_accept", "query_quest"}
+        1 for a in actions if a in {"interact_npc", "query_quest"}
     )
-    stuck_action_count = sum(1 for a in actions if a in {"stuck_reset", "nav_cancel"})
+    stuck_action_count = sum(1 for a in actions if a in {"stuck_reset", "cancel_nav"})
     attack_count = sum(1 for a in actions if a == "attack")
     gather_count = sum(1 for a in actions if a == "gather")
     loot_count = sum(1 for a in actions if a == "loot")
     buy_count = sum(1 for a in actions if a == "buy_item")
-    clear_combat_count = sum(1 for a in actions if a == "clear_combat")
 
     repetitive_triples = 0
     for i in range(max(0, len(actions) - 2)):
@@ -126,7 +111,6 @@ def score_session(session: str, turns: list[dict]) -> dict:
         quests_completed += delta.get("quest_completions", 0)
         quests_accepted += len(delta.get("new_quests", []))
 
-    click_tile_rate = click_tile_count / max(1, n_turns)
     stuck_rate = stuck_action_count / max(1, n_turns)
     repetitive_ratio = repetitive_triples / max(1, n_turns - 2)
     attack_rate = attack_count / max(1, n_turns)
@@ -154,7 +138,6 @@ def score_session(session: str, turns: list[dict]) -> dict:
 
     negative = 0.0
     negative += 0.20 * _clamp(respawn_count / 2.0)
-    negative += 0.25 * _clamp(click_tile_rate / 0.35)
     negative += 0.20 * _clamp(repetitive_ratio / 0.15)
     negative += 0.10 * _clamp(stuck_rate / 0.20)
     negative += 0.10 * _clamp(death_flags / 2.0)
@@ -174,8 +157,6 @@ def score_session(session: str, turns: list[dict]) -> dict:
         "avg_turn_score": round(avg_turn_score, 4),
         "respawn_count": respawn_count,
         "death_flags": death_flags,
-        "click_tile_count": click_tile_count,
-        "click_tile_rate": round(click_tile_rate, 4),
         "quest_action_count": quest_action_count,
         "quest_stages_advanced": quest_stages_advanced,
         "quests_completed": quests_completed,
@@ -188,7 +169,6 @@ def score_session(session: str, turns: list[dict]) -> dict:
         "gather_count": gather_count,
         "loot_count": loot_count,
         "buy_count": buy_count,
-        "clear_combat_count": clear_combat_count,
         "economy_score": round(economy_score, 4),
         "repetitive_triples": repetitive_triples,
         "repetitive_ratio": round(repetitive_ratio, 4),

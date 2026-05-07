@@ -17,7 +17,6 @@ import random
 from pathlib import Path
 
 from convert_to_qwen import (
-    DEFAULT_MEMORY,
     PERSONALITY_SUFFIXES,
     SYSTEM_PROMPT,
     TOOL_DEFINITIONS,
@@ -25,8 +24,6 @@ from convert_to_qwen import (
     build_tool_result_message,
     build_user_message,
     detect_personality,
-    find_latest_memory,
-    is_desert_quest_waste,
     load_turns_by_session,
     score_turn,
 )
@@ -39,7 +36,6 @@ def _window_score(turns: list[dict]) -> float:
     mean_turn_score = sum(turn_scores) / len(turn_scores)
 
     actions = [t.get("action_type", "") for t in turns]
-    click_tile_frac = sum(1 for a in actions if a == "click_tile") / max(1, len(actions))
     repetitive = False
     for i in range(max(0, len(actions) - 2)):
         if actions[i] and actions[i] == actions[i + 1] == actions[i + 2]:
@@ -48,7 +44,6 @@ def _window_score(turns: list[dict]) -> float:
 
     last_turn = turns[-1]
     last_action = last_turn.get("action_type", "")
-    last_reasoning = (last_turn.get("reasoning") or "").strip()
 
     score = mean_turn_score
     # Forward-momentum actions: combat, navigation, quest dialogue, resource
@@ -58,17 +53,12 @@ def _window_score(turns: list[dict]) -> float:
         "attack",
         "navigate",
         "interact_npc",
-        "talk_npc",
-        "quest_accept",
         "query_quest",
         "gather",
         "loot",
         "buy_item",
     }:
         score += 0.05
-    if last_action == "click_tile" and len(last_reasoning) < 30:
-        score -= 0.20
-    score -= 0.20 * click_tile_frac
     if repetitive:
         score -= 0.25
 
@@ -87,8 +77,8 @@ def _build_window_examples(
     positive_window_floor: float,
     negative_window_ceiling: float,
 ) -> list[dict]:
-    # r10: substitute personality into __PERSONALITY_BLOCK__ placeholder instead
-    # of appending (byte-parity with eval_harness / convert_to_qwen).
+    # Substitute personality into __PERSONALITY_BLOCK__ for byte-parity with
+    # eval_harness and convert_to_qwen.
     personality_block = PERSONALITY_SUFFIXES.get(personality or "", "") if keep_personality else ""
     sys_prompt = SYSTEM_PROMPT.replace("__PERSONALITY_BLOCK__", personality_block)
 
@@ -105,13 +95,9 @@ def _build_window_examples(
         window = []
         for t in raw_window:
             gs = t.get("game_state", {}) or {}
-            if not gs.get("player_position"):
+            if not gs.get("pos"):
                 continue
             if not t.get("action_structured"):
-                continue
-            if is_desert_quest_waste(t):
-                continue
-            if t.get("action_type") == "update_memory":
                 continue
             window.append(t)
 
@@ -124,18 +110,16 @@ def _build_window_examples(
         if (not session_label) and local_score > negative_window_ceiling:
             continue
 
-        memory = find_latest_memory(session_turns, start) or DEFAULT_MEMORY
         messages = [{"role": "system", "content": sys_prompt}]
 
         for i, turn in enumerate(window):
             prev = window[i - 1] if i > 0 else None
-            mem = memory if i == 0 else None
 
             is_last = i == len(window) - 1
-            asst_msg = build_assistant_message(turn, include_thinking=is_last)
+            asst_msg = build_assistant_message(turn)
             if asst_msg is None:
                 continue
-            messages.append({"role": "user", "content": build_user_message(turn, prev_turn=prev, memory=mem)})
+            messages.append({"role": "user", "content": build_user_message(prev, turn)})
             messages.append(asst_msg)
 
             if not is_last:

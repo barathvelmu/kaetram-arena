@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-orchestrate.py — Multi-agent launcher and monitor for Kaetram SFT data collection.
+orchestrate.py — Multi-agent launcher and monitor for Kaetram agent runs.
 
 Launches N independent (Kaetram server + AI agent) pairs, monitors health,
-auto-restarts on crash, and collects logs for post-processing.
+auto-restarts on crash, and collects logs for post-processing. Only Claude
+runs feed the SFT training pipeline (extract_turns.py); the other harnesses
+(Codex / Gemini / OpenCode) are for live observation and ad-hoc evaluation.
 
 Usage:
     python3 orchestrate.py --agents 4                     # 4 Claude agents (default)
     python3 orchestrate.py --agents 2 --hours 8           # auto-stop after 8h
-    python3 orchestrate.py --codex                        # all agents use Codex
+    python3 orchestrate.py --codex                        # all agents use Codex (not for training)
     python3 orchestrate.py --claude 2 --codex 2           # mixed: 2 Claude + 2 Codex
     python3 orchestrate.py --claude 2 --codex 2 --grinder 2 --explorer 2
 """

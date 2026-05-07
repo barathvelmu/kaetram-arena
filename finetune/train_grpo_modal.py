@@ -140,16 +140,15 @@ def reward_valid_action(completions: list[str], **kwargs) -> list[float]:
     rewards = []
     valid_actions = {
         # Movement / navigation
-        "navigate", "move", "warp", "click_tile", "click_entity", "click",
-        "stuck_reset", "nav_cancel",
+        "navigate", "warp", "stuck_reset", "nav_cancel",
         # Combat
-        "attack", "set_style", "clear_combat", "respawn",
+        "attack", "set_style", "respawn",
         # NPC + quests
-        "interact_npc", "talk_npc", "quest_accept", "query_quest",
+        "interact_npc", "query_quest",
         # Inventory / economy
         "equip", "heal", "drop_item", "buy_item", "gather", "loot",
         # Infrastructure
-        "wait", "reconnect", "login", "update_memory",
+        "wait", "reconnect", "update_memory",
     }
     for text in completions:
         action_type, _ = _parse_action(text)
@@ -227,7 +226,7 @@ def reward_combat_awareness(completions: list[str], prompts: list[str], **kwargs
                 rewards.append(-0.3)
         elif has_mobs and action_type == "attack":
             rewards.append(0.2)
-        elif has_quest and action_type in ("navigate", "interact_npc", "quest_accept"):
+        elif has_quest and action_type in ("navigate", "interact_npc"):
             rewards.append(0.3)
         elif action_type == "wait":
             rewards.append(-0.1)  # Light penalty for waiting

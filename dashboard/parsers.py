@@ -30,30 +30,18 @@ def _kaetram_tool_summary(tool: str, inp: dict) -> str:
         return f"Attack {inp.get('mob_name', '?')}"
     if action == "navigate":
         return f"Navigate to ({inp.get('x', '?')}, {inp.get('y', '?')})"
-    if action == "move":
-        return f"Move to ({inp.get('x', '?')}, {inp.get('y', '?')})"
     if action == "warp":
         return f"Warp to {inp.get('location', 'mudwich').title()}"
     if action == "interact_npc":
         return f"Talk to {inp.get('npc_name', '?')}"
-    if action == "talk_npc":
-        return f"Advance dialogue ({inp.get('instance_id', '?')[:12]})"
-    if action == "accept_quest":
-        return "Accept quest"
     if action == "eat_food":
         return f"Eat food (slot {inp.get('slot', '?')})"
     if action == "equip_item":
         return f"Equip (slot {inp.get('slot', '?')})"
     if action == "set_attack_style":
         return f"Style: {inp.get('style', 'hack')}"
-    if action == "click_tile":
-        return f"Click tile ({inp.get('x', '?')}, {inp.get('y', '?')})"
     if action == "observe":
         return "Read game state"
-    if action == "login":
-        return "Login to Kaetram"
-    if action == "clear_combat":
-        return "Clear combat state"
     if action == "stuck_reset":
         return "Reset stuck detection"
     if action == "cancel_nav":

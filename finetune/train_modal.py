@@ -74,41 +74,39 @@ with train_image.imports():
 # ---------------------------------------------------------------------------
 
 MODEL_ID = "unsloth/Qwen3.5-9B"  # Unsloth-optimized, Apache 2.0
-MAX_SEQ_LEN = 16384  # r9: restored from 8k. New system prompt (~3.8k tokens) + tools (~1.2k) + 5-turn windows need headroom. H100 80GB handles this.
-LORA_R = 64       # Round 2: 4x more capacity (was 16)
-LORA_ALPHA = 64   # alpha = r recommended for Qwen3.5
+MAX_SEQ_LEN = 16384  # System prompt (~3.8k) + tools (~1.2k) + multi-turn windows need headroom; fits on H100 80GB.
+LORA_R = 64
+LORA_ALPHA = 64  # alpha = r recommended for Qwen3.5
 LORA_TARGETS = [
     "q_proj", "k_proj", "v_proj", "o_proj",
     "gate_proj", "up_proj", "down_proj",
 ]
 
 # Training
-BATCH_SIZE = 2    # Round 6: doubled (8k context fits batch=2 on H100 80GB)
-GRAD_ACCUM = 8    # effective batch = 16 (2 * 8)
+BATCH_SIZE = 2
+GRAD_ACCUM = 8  # effective batch = 16
 LR = 1e-4
 WARMUP_RATIO = 0.05
 WEIGHT_DECAY = 0.01
 MAX_STEPS = -1  # -1 = use num_train_epochs
-EPOCHS = 1      # Round 6: 1 epoch — standard SFT, loss converges within epoch 1
+EPOCHS = 1
 SAVE_STEPS = 50
 EVAL_STEPS = 50
 LOGGING_STEPS = 10
 
-# Loss masking: zero loss on input tokens (Structured Agent Distillation, arxiv 2505.13820)
-# Only trains on assistant responses (<think> reasoning + tool calls)
+# Mask user/system/tool tokens — train loss only on assistant responses.
 MASK_INPUT_TOKENS = True
 
-# Output
 EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r10"
 
 
 # ---------------------------------------------------------------------------
-# Paraphrase augmentation (ORAK ICLR 2026, Consistency Alignment arxiv 2403.14221)
+# System-prompt paraphrase augmentation
 # ---------------------------------------------------------------------------
-# Only the intro sentence is paraphrased. The body (entity types, actions, priority
-# system, combat, navigation, key info) stays identical — it contains exact type
-# numbers, tool signatures, and coordinates that game state JSON references.
-# Validation records always use the original prompt for stable measurement.
+# Only the intro sentence is paraphrased on training rows. The body stays
+# byte-identical because it contains exact type numbers, tool signatures, and
+# coordinates that game-state JSON references. Validation always uses the
+# original prompt.
 
 import random as _random
 
@@ -121,14 +119,13 @@ SYSTEM_PROMPT_INTRO_VARIANTS = [
     "# Kaetram Game Agent\n\nAs KaetramAgent, you play Kaetram (a 2D pixel MMORPG) autonomously.\n\nFocus on quest completion above all else. Every action should push quest progress forward. Combat and exploration serve quest goals.\n\nContinue playing the entire session without interruption.",
 ]
 
-# Body split marker — everything from this point onward in the system prompt is
-# kept identical (game knowledge, tool table, decision tree, rules).
-# r9: updated from "\n\n## Entity Types" (old condensed prompt) to match
-# prompts/system.md which uses <game_knowledge> as the first structural block.
+# Body split marker — everything from this point on stays byte-identical so
+# tools, entity types, and coordinates remain stable across paraphrases.
 _BODY_SPLIT_MARKER = "\n\n<game_knowledge>"
 
-# r10: __PERSONALITY_BLOCK__ placeholder location in system.md. Substituted with
-# the full personality .md file content (matches eval_harness.resolve_system_prompt).
+# Personality placeholder location in system.md. Filled per-record from
+# metadata.personality_suffixes (full personality .md content) — matches
+# eval_harness.resolve_system_prompt byte-for-byte.
 _PERSONALITY_PLACEHOLDER = "__PERSONALITY_BLOCK__"
 
 
@@ -140,45 +137,35 @@ def _build_system_prompt(
 ) -> str:
     """Build system prompt, optionally with paraphrased intro.
 
-    Personality is substituted at the __PERSONALITY_BLOCK__ placeholder location
-    (matching eval_harness.resolve_system_prompt byte-for-byte). Pre-r10 this path
-    overrode personality_suffixes with a hardcoded short paraphrase — that was the
-    personality train/eval mismatch. r10 trusts metadata.personality_suffixes (full
-    .md contents loaded by convert_to_qwen._load_personality_block).
-
-    When rng is provided (training), randomly selects from intro variants.
-    When rng is None (validation), uses the original prompt unchanged.
+    rng provided → training, randomly selects an intro variant.
+    rng None → validation, uses the original prompt unchanged.
     """
-    # Substitute personality at placeholder location — same mechanism as eval_harness.
     personality_block = ""
     if personality and personality in personality_suffixes:
         personality_block = personality_suffixes[personality]
     sys_content = base_system_prompt.replace(_PERSONALITY_PLACEHOLDER, personality_block)
 
     if rng is None:
-        # Validation: no intro paraphrasing, return as-is.
         return sys_content
 
-    # Training: paraphrase only the intro; body (including the now-substituted
-    # personality block) stays identical.
     intro = rng.choice(SYSTEM_PROMPT_INTRO_VARIANTS)
     try:
         body_start = sys_content.index(_BODY_SPLIT_MARKER)
         body = sys_content[body_start:]
         sys_content = intro + body
     except ValueError:
-        # Marker not found — keep prompt as-is (no paraphrasing).
+        # Marker missing — fall back to the unparaphrased prompt.
         pass
 
     return sys_content
 
 
 # ---------------------------------------------------------------------------
-# Chat template fix (QwenLM/Qwen3#1831)
+# Chat template patch
 # ---------------------------------------------------------------------------
-# Stock Qwen 3.5 template drops <think> reasoning from all assistant messages
-# before last_query_index. This silently strips CoT from multi-turn training
-# data. Fix: always emit <think> when reasoning_content is present.
+# Stock Qwen3.5 template drops <think> from assistant messages before
+# last_query_index, which silently strips CoT from multi-turn training data.
+# Patch: always emit <think> when reasoning_content is present.
 
 def _patch_qwen_chat_template(tokenizer):
     """Patch the Qwen 3.5 chat template to preserve <think> in all turns."""
@@ -186,7 +173,6 @@ def _patch_qwen_chat_template(tokenizer):
     if template is None:
         return
 
-    # The bug: reasoning_content is only emitted for turns after last_query_index
     old = (
         "{%- if loop.index0 > ns.last_query_index %}\n"
         "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
@@ -194,7 +180,6 @@ def _patch_qwen_chat_template(tokenizer):
         "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
         "        {%- endif %}"
     )
-    # Fix: if reasoning_content exists, always emit it with <think> tags
     new = (
         "{%- if reasoning_content %}\n"
         "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
@@ -279,24 +264,14 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
 
                 messages.append(m)
 
-            # Apply chat template WITHOUT tools= parameter.
-            # r9 fix: the system prompt (from metadata.json) already contains the
-            # <tools> markdown table from prompts/system.md. Passing tools= here
-            # would inject a SECOND native tool block (1,725 extra tokens) in a
-            # different format, creating double definitions. At inference,
-            # play_qwen.py also doesn't pass tools= to the API.
-            try:
-                formatted = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=False,
-                )
-            except TypeError:
-                formatted = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=False,
-                )
+            # No tools= here — the system prompt already embeds the tool
+            # markdown table from prompts/system.md, and inference doesn't pass
+            # tools= either, so passing it would create a second tool block.
+            formatted = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
             rows.append({"text": formatted})
         return datasets.Dataset.from_list(rows)
 
@@ -313,7 +288,7 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
 @app.function(
     image=train_image,
     gpu="H100",  # 80GB VRAM — bf16 LoRA on 9B fits easily
-    timeout=30 * 3600,  # r9 hit the 18h cap before completion; keep headroom for full runs
+    timeout=24 * 3600,  # Modal hard cap; one-epoch SFT typically completes in 5–10h on H100.
     volumes={
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,
@@ -329,7 +304,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
     print(f"Validation data: {len(val_data):,} bytes")
     print(f"Metadata: {len(metadata):,} bytes")
 
-    # Load model with Unsloth — bf16, NOT 4-bit (QLoRA not recommended for Qwen3.5)
+    # bf16, not 4-bit — QLoRA is not recommended for Qwen3.5.
     print(f"Loading {MODEL_ID}...")
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name=MODEL_ID,
@@ -347,8 +322,8 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         lora_alpha=LORA_ALPHA,
         lora_dropout=0,
         bias="none",
-        use_rslora=False,  # rsLoRA diverged at r=64/alpha=64 (8x effective LR)
-        use_gradient_checkpointing="unsloth",  # Unsloth optimized — lower VRAM
+        use_rslora=False,  # diverges at r=64/alpha=64 due to 8x effective LR
+        use_gradient_checkpointing="unsloth",
         random_state=42,
     )
 
@@ -357,11 +332,9 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
     train_ds, val_ds = load_kaetram_dataset(train_data, val_data, metadata, tokenizer)
     print(f"Train: {len(train_ds)} records, Val: {len(val_ds)} records")
 
-    # SFTConfig — loss masking applied via train_on_responses_only (see below).
-    # completion_only_loss=True was broken here: it only works with prompt+completion fields,
-    # not with dataset_text_field="text" (no response_template → silently no-ops).
-    # Fix: use Unsloth's train_on_responses_only after trainer init (r8, KAE-25).
-    # Ref: Structured Agent Distillation arxiv 2505.13820
+    # Loss masking is applied via train_on_responses_only after trainer init
+    # (SFTConfig.completion_only_loss does not work with dataset_text_field="text"
+    # — without a response_template it silently no-ops).
     output_dir = f"/checkpoints/{EXPERIMENT_NAME}"
     print(f"Loss masking: train_on_responses_only={MASK_INPUT_TOKENS}")
     sft_config = SFTConfig(
@@ -400,9 +373,8 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         args=sft_config,
     )
 
-    # Apply response-only loss masking: mask user/system/tool tokens, train on assistant turns only.
+    # Mask user/system/tool tokens — train loss on assistant turns only.
     # Qwen3.5 chat format: <|im_start|>user\n ... <|im_end|>\n<|im_start|>assistant\n ...
-    # This is the correct fix for completion_only_loss being broken with dataset_text_field="text".
     if MASK_INPUT_TOKENS:
         print("Applying train_on_responses_only (assistant turns only)")
         trainer = train_on_responses_only(

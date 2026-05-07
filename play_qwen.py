@@ -170,8 +170,8 @@ def parse_tool_calls_from_text(text: str) -> list[dict]:
 
 def log_turn(log_file, turn: int, role: str, content: str, tool_calls=None, usage=None):
     """Append a turn record to the session log."""
-    # Tool results need full content — observe returns player_stats, quests, entities
-    # which are critical for eval metrics. No truncation on tool results.
+    # Tool results need full content — observe returns stats, active_quests,
+    # finished_quests, nearby — all critical for eval metrics. No truncation on tool results.
     max_len = 500 if role == "assistant" else 0
     record = {
         "turn": turn,

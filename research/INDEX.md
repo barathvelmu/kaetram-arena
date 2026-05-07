@@ -14,6 +14,12 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 ---
 
+## Methodology shift at r10
+
+**r1-r9 were largely vibe-coded** — fast exploratory cycles with minimal formal process. Real wins landed (loss masking, observe supervision, prompt parity), but decisions, data choices, and patch motivations were rarely written down. r10 marks the methodological shift: tool surface centralized in `tool_surface.py`, decisions logged in `research/decisions/`, data filters justified empirically against the live corpus, no iteration-history comments left in code, and the pipeline (`extract_turns.py` + `convert_to_qwen.py`) was rewritten without fossils.
+
+---
+
 ## Experiments
 
 - [training-runs.md](experiments/training-runs.md) — r1 through r9-SFT (+ r6-KTO smoke test): hyperparams, results, failures, what improved

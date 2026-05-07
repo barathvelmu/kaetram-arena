@@ -89,7 +89,7 @@ Coords are first valid placement in `world.json` — useful as a `navigate(x,y)`
 
 **Mining is not part of the agent playthrough.** Copper/tin/coal/iron/gold ores are all sold by the Miner shop (see Stores section). Do not attempt to mine — Miner's Quest I/II are off-limits.
 
-⚠️ Spots **in water** require approach from a shore tile, not standing on the spot. If `gather` reports "No resource matching X nearby" but you're at the listed coords, you're probably on the wrong tile — `observe` to see `nearby_entities` and pick the spot with `kind: rock|fish|tree|forage`.
+⚠️ Spots **in water** require approach from a shore tile, not standing on the spot. If `gather` reports "No resource matching X nearby" but you're at the listed coords, you're probably on the wrong tile — `observe` to see `nearby.resources[]` and pick the spot with `kind: rock|fish|tree|forage`.
 
 ## SKILL PROGRESSION STRATEGY
 

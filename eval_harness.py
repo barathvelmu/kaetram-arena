@@ -57,7 +57,7 @@ DEFAULT_MODELS = {
     },
 }
 
-# Evaluation scenarios from KAE-34 / reference/EVALS.md
+# Evaluation scenarios — see reference/EVALS.md
 SCENARIOS = {
     "A": {
         "name": "Rat Grind",
@@ -519,7 +519,6 @@ def compute_episode_metrics(
     action_counts = Counter()
     deaths = 0
     stuck_resets = 0
-    click_tiles = 0
 
     # Log-derived metrics
     kills = 0
@@ -547,8 +546,6 @@ def compute_episode_metrics(
                         deaths += 1
                     elif name == "stuck_reset":
                         stuck_resets += 1
-                    elif name == "click_tile":
-                        click_tiles += 1
 
         elif role == "tool":
             parsed = _parse_tool_json(content)
@@ -573,37 +570,29 @@ def compute_episode_metrics(
 
             # --- Observe results: level, quests, position ---
             if content.startswith("observe:"):
-                ps = parsed.get("player_stats", {})
+                ps = parsed.get("stats") or {}
                 if isinstance(ps, dict):
                     lvl = int(ps.get("level", 1) or 1)
                     if lvl > max_level:
                         max_level = lvl
-                pp = parsed.get("player_position", {})
+                pp = parsed.get("pos") or {}
                 if pp.get("x") and pp.get("y"):
                     positions.add((pp["x"], pp["y"]))
-                # Quest tracking from observe
-                obs_quests = parsed.get("quests", [])
-                if isinstance(obs_quests, list):
-                    for q in obs_quests:
-                        if isinstance(q, dict):
-                            qkey = q.get("key", q.get("name", ""))
-                            stage = q.get("stage", 0)
-                            if stage > 0 and qkey:
-                                quests_accepted_set.add(qkey)
-                            if stage == 9999 or q.get("finished") or q.get("completed"):
-                                if qkey:
-                                    quests_completed_set.add(qkey)
-                elif isinstance(obs_quests, dict):
-                    for qkey, qdata in obs_quests.items():
-                        if isinstance(qdata, dict):
-                            stage = qdata.get("stage", 0)
-                            if stage > 0:
-                                quests_accepted_set.add(qkey)
-                            if stage == 9999 or qdata.get("finished") or qdata.get("completed"):
-                                quests_completed_set.add(qkey)
+                # Quest tracking from observe — active_quests + finished_quests.
+                obs_quests = (parsed.get("active_quests") or []) + (parsed.get("finished_quests") or [])
+                for q in obs_quests:
+                    if not isinstance(q, dict):
+                        continue
+                    qkey = q.get("key", q.get("name", ""))
+                    stage = q.get("stage", 0)
+                    if stage > 0 and qkey:
+                        quests_accepted_set.add(qkey)
+                    if stage == 9999 or q.get("finished") or q.get("completed"):
+                        if qkey:
+                            quests_completed_set.add(qkey)
 
-            # --- Navigate / move results: position ---
-            if content.startswith("navigate:") or content.startswith("move:"):
+            # --- Navigate results: position ---
+            if content.startswith("navigate:"):
                 ppos = parsed.get("player_pos", {})
                 if ppos.get("x") and ppos.get("y"):
                     positions.add((ppos["x"], ppos["y"]))
@@ -639,7 +628,6 @@ def compute_episode_metrics(
         "action_counts": dict(action_counts),
         "action_entropy": round(_entropy(action_counts), 4),
         "stuck_resets": stuck_resets,
-        "click_tiles": click_tiles,
     }
     metrics.update(_diff_player_db_metrics(db_before, db_after))
     metrics.update(_diff_quest_achievement_metrics(qa_before, qa_after))
@@ -930,7 +918,6 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "achievement_stages_advanced": [e.get("achievement_stages_advanced", 0) for e in ok_episodes],
             "action_entropy": [e.get("action_entropy", 0) for e in ok_episodes],
             "stuck_resets": [e.get("stuck_resets", 0) for e in ok_episodes],
-            "click_tiles": [e.get("click_tiles", 0) for e in ok_episodes],
             "success_rate": [1 if e.get("success", False) else 0 for e in ok_episodes],
         }
 

@@ -264,15 +264,13 @@ trajectories collapse we drop to two policies. Legacy vibe flags
 ### SFT pipeline
 
 `logs/session_*.log → extract_turns.py → convert_to_qwen.py →
-dataset/qwen_sft/{train,val,metadata}.json`. Active corpus is **post-Core-3
-Claude only** — pre-Core-3 raw runs and every non-Claude harness run live
-under `dataset/raw/_archive/`; superseded SFT/extracted builds live under
-`dataset/_archive/`. Neither is visible to the live pipeline.
+dataset/qwen_sft/{train,val,metadata}.json`. Active corpus is **Claude only**.
+Out-of-corpus raw runs and superseded builds live under `dataset/raw/_archive/`
+and `dataset/_archive/` respectively — invisible to the live pipeline.
 `metadata.json` carries provenance (`version`, `built_at`, `prompt_commit`,
-`source_runs[]`, `core3_only`, record counts) — see `dataset/qwen_sft/README.md`
-for build/inspect/rebuild commands. Full action vocabulary, modes, and
-historical lessons (r4–r9 in `_archive/`): `dataset/DATA.md` and
-`research/experiments/training-runs.md`.
+`source_runs[]`, record counts) — see `dataset/qwen_sft/README.md` for
+build/inspect/rebuild commands. Full action vocabulary, modes, and historical
+lessons: `dataset/DATA.md` and `research/experiments/training-runs.md`.
 
 ---
 
@@ -287,7 +285,8 @@ historical lessons (r4–r9 in `_archive/`): `dataset/DATA.md` and
 - **rsLoRA + `alpha=r` is an 8x LR trap.** rsLoRA scales `1/sqrt(r)` not `1/r`. With `r=alpha=64`, effective LR is 8x. r7 diverged. Keep `use_rslora=False` (the comment on `train_modal.py:359` is load-bearing).
 - **Counting running agents.** `pgrep -fa "claude -p"` self-matches the shell that ran it (the pattern appears in its own cmdline). Count unique bot IDs from the output (`ClaudeBot[0-9]+`, `CodexBot[0-9]+`, `GeminiBot[0-9]+`, or for opencode: `BigQwenBot[0-9]+` / `GrokBot[0-9]+` / `DeepSeekBot[0-9]+` / `OpenCodeBot[0-9]+` depending on `--opencode-model`), or cross-check against listening game-server ports (`9001 + N×10`) — those are authoritative.
 - **OpenCode bot username depends on the model.** The opencode harness splits its in-game username + Mongo player row by model family so dashboard / log analysis can distinguish runs: `*qwen*` → `BigQwenBot` (separate from the local-eval `QwenBot`), `*grok*` → `GrokBot`, `*deepseek*` → `DeepSeekBot`, otherwise `OpenCodeBot`. Logic lives in `cli_adapter.opencode_bot_prefix()` and is mirrored in `restart-single-agent.sh` + `play.sh`.
-- **Qwen3 chat template drops `<think>` on intermediate turns** (QwenLM/Qwen3 #1831). Pre-r10 multi-turn records trained action-only on follow-ups. If you touch the tokenizer, re-run `tests/unit/test_think_roundtrip.py` to verify CoT survives `apply_chat_template`.
+- **Qwen3 chat template drops `<think>` on intermediate turns** (QwenLM/Qwen3 #1831). The `_patch_qwen_chat_template` patch in `finetune/train_modal.py` keeps reasoning on every assistant turn. If you touch the tokenizer, re-run `tests/unit/test_think_roundtrip.py` to verify CoT survives `apply_chat_template`.
+- **`world/` is paused.** The forward-dynamics model (`world/extract_transitions.py`, `world/schema.py`, `world/mcts.py`, `world/train_modal.py`) targets the older `browser_run_code` log shape and is not maintained against the current MCP harness. `world/extract_transitions.classify_action` greps for `__attackmob` / `__interactnpc` JS calls that current logs no longer contain; running it on the live corpus would emit zero transitions. Don't update these files when refactoring the SFT pipeline — leave them as-is until the world model is reactivated against the native MCP log shape.
 
 ---
 
@@ -307,10 +306,9 @@ tool surface in the high teens.
 Primary tool for "how are the agents doing" — parses session JSONL logs
 under `dataset/raw/agent_*/runs/run_*/` (with `logs/` symlink to the latest
 run) and reports per-agent status, quests, tool distribution, categorized
-errors, rule-adoption signals, and reasoning. The active corpus is **post-Core-3
-Claude only** — pre-Core-3 + non-Claude runs were moved to
-`dataset/raw/_archive/<harness>/agent_N/run_*` on 2026-05-06 and are invisible
-to `analyze.py` (the parser's `list_runs()` does not recurse into `_archive/`).
+errors, rule-adoption signals, and reasoning. The active corpus is **Claude only**
+— out-of-corpus and non-Claude runs live under `dataset/raw/_archive/<harness>/agent_N/run_*`
+and are invisible to `analyze.py` (the parser's `list_runs()` does not recurse into `_archive/`).
 **Prefer this over LLM subagents for live status / behavioral audit** — it parses fields directly (`active_quests`,
 `live_gate_status.gated`, `inventory_summary.full`, mob `level`, etc.), so the
 answer is ground truth not an inference, and it doesn't burn tokens.

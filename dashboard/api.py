@@ -687,7 +687,6 @@ class APIMixin:
                     "duration_seconds": ep.get("duration_seconds", 0),
                     "action_entropy": ep.get("action_entropy", 0),
                     "tool_parse_rate": ep.get("tool_parse_rate", 0),
-                    "click_tiles": ep.get("click_tiles", 0),
                     "stuck_resets": ep.get("stuck_resets", 0),
                 })
 
@@ -710,7 +709,7 @@ class APIMixin:
                 "level_reached", "level_delta", "level_reached_db", "level_delta_db",
                 "quests_completed_delta", "quest_stages_advanced",
                 "achievements_completed_delta", "achievement_stages_advanced",
-                "action_entropy", "success_rate", "stuck_resets", "click_tiles",
+                "action_entropy", "success_rate", "stuck_resets",
             ]
             for key in all_metric_keys:
                 vals = metrics.get(key, [])

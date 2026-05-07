@@ -258,6 +258,7 @@ def _make_action_turn():
         "action_code": "",
         "action_type": "attack",
         "action_structured": "attack(Rat)",
+        "action_input": {"mob_name": "Rat"},
         "action_target": "Rat",
         "action_result_raw": json.dumps({"result": json.dumps({"killed": False, "damage_dealt": 3})}),
         "player_stats": _GAME_STATE["player_stats"],
@@ -268,7 +269,7 @@ def _make_action_turn():
 def test_observe_turn_becomes_observe_tool_call():
     from convert_to_qwen import build_assistant_message
 
-    msg = build_assistant_message(_make_observe_turn(), include_thinking=True)
+    msg = build_assistant_message(_make_observe_turn())
     assert msg is not None
     assert msg["role"] == "assistant"
     assert len(msg["tool_calls"]) == 1
@@ -294,7 +295,7 @@ def test_build_user_message_does_not_inject_game_state():
     """The core r10 fix: user messages no longer hand game_state to the model."""
     from convert_to_qwen import build_user_message
 
-    user_text = build_user_message(_make_action_turn(), prev_turn=None)
+    user_text = build_user_message(None, _make_action_turn())
     assert "<game_state>" not in user_text, (
         "user message still injects <game_state> — pre-r10 bug not fixed"
     )
@@ -310,7 +311,7 @@ def test_build_user_message_keeps_state_delta_when_prev_turn_exists():
     curr = _make_action_turn()
     # Mutate curr state slightly so delta has content.
     curr = {**curr, "game_state": {**_GAME_STATE, "player_stats": {**_GAME_STATE["player_stats"], "hp": 30}}}
-    user_text = build_user_message(curr, prev_turn=prev)
+    user_text = build_user_message(prev, curr)
     # state_delta may or may not appear depending on compute_state_delta's output;
     # what we care about is no full <game_state> block.
     assert "<game_state>" not in user_text
@@ -323,7 +324,7 @@ def test_multi_turn_window_has_observe_tool_call():
 
     session = [_make_observe_turn(), _make_action_turn()]
     records = build_multi_turn_records(
-        session, personality="curious", min_score=0.0, window_size=2
+        session, personality="curious", window_size=2
     )
     assert len(records) >= 1
     msgs = records[0]["messages"]
@@ -343,25 +344,14 @@ def test_multi_turn_window_has_observe_tool_call():
     assert second_asst["tool_calls"][0]["function"]["name"] == "attack"
 
 
-def test_observe_is_in_mcp_action_tool_mapping():
-    """_structured_action_to_tool_call must map observe()."""
-    from convert_to_qwen import _structured_action_to_tool_call
+def test_observe_action_emits_observe_tool_call_with_empty_args():
+    """A turn whose action_type is 'observe' must produce a tool_call named
+    'observe' with an empty arguments dict."""
+    from convert_to_qwen import build_assistant_message
 
-    result = _structured_action_to_tool_call("observe()", "observe")
-    assert result is not None
-    assert result == ("observe", {})
+    msg = build_assistant_message(_make_observe_turn())
+    assert msg is not None
+    assert msg["tool_calls"][0]["function"]["name"] == "observe"
+    assert msg["tool_calls"][0]["function"]["arguments"] == {}
 
 
-def test_reasoningless_observe_turn_is_not_dropped():
-    """Observe turns without pre-observe reasoning (e.g. session start) must
-    survive the reasoningless-tool-turn filter. Other actions without reasoning
-    should still be dropped."""
-    from convert_to_qwen import _is_reasoningless_tool_turn
-
-    obs = _make_observe_turn()
-    obs["reasoning"] = ""
-    assert not _is_reasoningless_tool_turn(obs), "empty-reasoning observe should NOT be dropped"
-
-    act = _make_action_turn()
-    act["reasoning"] = ""
-    assert _is_reasoningless_tool_turn(act), "empty-reasoning action should still be dropped"

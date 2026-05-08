@@ -19,7 +19,7 @@ before citing in the paper, because some are ratchets (e.g. r9 → r10).
 | Inter-session pause | 10 s | `play.sh:30` | 0 / 30+ | Affects log freshness vs throughput. |
 | Reset semantics | full Mongo wipe (restart) vs preserve (resume) | `restart-agent.sh` / `resume-agent.sh` | always-reset, always-resume | Level-1 vs continued progression is a confound across sessions. |
 | Per-harness session timeout | Claude unbounded; Codex `MAX_TURNS*30+300s`; OpenCode `MAX_TURNS*45s`; OpenCode rotates at 250k ctx | `cli_adapter.py:295`, `play.sh:271`, `play.sh:288` | unified timeout | "Session" doesn't mean the same thing across harnesses. |
-| `quest_resume.json` injection | enabled; prepended on session start | `mcp_server/tools/observe.py`, `orchestrate.py` | disabled (true amnesia) | Sessions are not i.i.d.; carryover state is implicit memory. |
+| `quest_resume.json` injection | **removed** (commit `09e611d`, May 7) | was `mcp_server/tools/observe.py`, `orchestrate.py` | n/a | Was implicit cross-session memory the model didn't earn. Dropped entirely — sessions are now amnesic by default. |
 
 ## 2. Harness layer (`cli_adapter.py`)
 
@@ -55,7 +55,7 @@ same-model-different-harness or same-harness-different-model runs.
 - `prompts/system.md` ~3.5k tokens (2,731 words), XML-tagged.
 - `prompts/game_knowledge.md` pre-bakes NPC coords / quest guides → benchmarks plan-following, not exploration. Reviewers will ask for the no-knowledge baseline.
 - Three personality archetypes (`grinder.md`, `completionist.md`, `explorer_tinkerer.md`) injected via `__PERSONALITY_BLOCK__`. Used as a *data factory*, not a research claim.
-- `quest_resume.json` prepended on session start — long-term memory the model didn't earn.
+- `quest_resume.json` **removed** (commit `09e611d`, May 7) — was implicit cross-session memory. Sessions are now fully amnesic.
 - Personality substitution is replayed at training time for byte-parity with inference (`convert_to_qwen.py:98-102`).
 
 ## 5. Game / environment
@@ -125,10 +125,11 @@ same-model-different-harness or same-harness-different-model runs.
 
 1. **Harness × model conflation.** Cannot separate harness quality from base
    model quality without controlled cross-conditions.
-2. **`game_knowledge.md` + `quest_resume.json`.** Quest completion is measured
-   on an agent that's told where NPCs are and resumes from saved state. Pick
+2. **`game_knowledge.md` bakes in procedural knowledge.** Quest completion is measured
+   on an agent that's told where NPCs are and given walkthroughs. Pick
    the framing: "learned to play Kaetram" is a much weaker claim than "learned
-   to follow procedural plans given knowledge + memory."
+   to follow procedural plans given knowledge." (`quest_resume.json` was a
+   second axis here but was removed May 7 — sessions are now amnesic.)
 3. **Episode-boundary definition.** 150-turn sessions with carryover state →
    sessions aren't episodes, runs aren't trials. Statistical claims need a
    clear unit-of-analysis.
@@ -139,7 +140,7 @@ same-model-different-harness or same-harness-different-model runs.
 
 - [ ] Decide unit-of-analysis (session vs run vs trajectory) and back-fill it in `extract_turns.py` metadata.
 - [ ] Add `harness` + `model` + `archetype` + `resume_used` flags to per-record metadata so any subset is filterable at training time.
-- [ ] **Add no-knowledge ablation flag to `eval_harness.py:resolve_system_prompt()`** — strip `__GAME_KNOWLEDGE_BLOCK__` and skip `quest_resume.json` injection on `--no-knowledge`. Until shipped, the paper cannot make a "learned to play" claim, only a "plan-execution distillation" claim. See `contribution.md` §Limitations.
+- [ ] **Add no-knowledge ablation flag to `eval_harness.py:resolve_system_prompt()`** — strip `__GAME_KNOWLEDGE_BLOCK__` on `--no-knowledge`. Until shipped, the paper cannot make a "learned to play" claim, only a "plan-execution distillation" claim. See `contribution.md` §Limitations. (`quest_resume.json` injection already removed, May 7.)
 - [ ] Decide r9-only vs r1-r10 progression framing for the paper.
 - [ ] Write up the rsLoRA r7 divergence as a methodological lesson.
 

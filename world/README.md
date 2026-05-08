@@ -1,6 +1,6 @@
 # Kaetram World Model
 
-> **Status: WIP / Experimental.** This is a concept prototype — not prioritized for current training runs. The code works but is not integrated into the active agent pipeline.
+> **Status: PAUSED — incompatible with current log shape.** `extract_transitions.py` greps for `browser_run_code` tool calls and `__extractGameState` / `__attackMob` JS snippets that the pre-MCP harness produced. The live agent harness (since PR #29, 2026-04-25) emits MCP tool calls (`call_tool("observe", …)`, `call_tool("attack", …)`, …) with no JS payloads, so running this pipeline against current `dataset/raw/` will yield **zero transitions**. Do not update these files when refactoring the SFT pipeline — leave as-is until the world model is reactivated against the native MCP log shape.
 
 A lean Transformer forward dynamics model that predicts combat outcomes in Kaetram. Given a game state + action, it predicts HP changes, XP gains, entity interactions, and death risk.
 

@@ -90,17 +90,7 @@ def parse_session(log_path: Path) -> list[dict]:
                 })
             elif bt == "tool_result":
                 content = block.get("content")
-                if isinstance(content, str):
-                    raw_text = content
-                elif isinstance(content, list):
-                    # Defensive: harness today emits string, but spec allows list.
-                    raw_text = "".join(
-                        item.get("text", "")
-                        for item in content
-                        if isinstance(item, dict)
-                    )
-                else:
-                    raw_text = ""
+                raw_text = content if isinstance(content, str) else ""
                 events.append({
                     "kind": "tool_result",
                     "tool_use_id": block.get("tool_use_id", "") or "",

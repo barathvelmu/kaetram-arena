@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run eval harness for base + r9-sft in parallel.
+# Run eval harness for base + r10-sft in parallel.
 # Each model gets its own game server, username, and sandbox.
 #
 # Usage:
@@ -71,12 +71,12 @@ print('  Eval player data cleared')
 "
 
 # ── Ensure game servers ──
-# Port 9061 (r9-sft eval — distinct from agent_0-5 ports).
+# Port 9061 (r10-sft eval — distinct from agent_0-5 ports).
 # NODE_ENV=eval pins MONGODB_DATABASE=kaetram_eval (see Kaetram-Open/.env.eval)
 # so eval rows don't interleave with the data-collection ClaudeBot* rows in
 # kaetram_devlopment. dotenv-extended layers .env.{NODE_ENV} on top of .env.
 if ! ss -tlnp 2>/dev/null | grep -q ":9061 "; then
-  echo "Starting game server on port 9061 (r9-sft eval, db=kaetram_eval)..."
+  echo "Starting game server on port 9061 (r10-sft eval, db=kaetram_eval)..."
   (source "$HOME/.nvm/nvm.sh" && nvm use 20 --silent && cd ~/projects/Kaetram-Open/packages/server && \
    NODE_ENV=eval ACCEPT_LICENSE=true SKIP_DATABASE=false exec node --enable-source-maps dist/main.js --port 9061) &
   for i in $(seq 1 30); do ss -tlnp 2>/dev/null | grep -q ":9061 " && break; sleep 1; done
@@ -108,7 +108,7 @@ echo "  Run dir: $RUN_DIR"
 echo ""
 
 PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/eval_harness.py" \
-  --models "r9-sft=https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1" \
+  --models "r10-sft=https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1" \
   --episodes "$EPISODES" --scenario "$SCENARIO" \
   --username evalbotSFT --server-port 9061 --output-dir "$RUN_DIR" $PERS_FLAG \
   > /tmp/eval_r9sft.log 2>&1 &
@@ -128,7 +128,7 @@ PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/scripts/eval_watchdog.py" \
   --run-dir "$RUN_DIR" \
   --episodes "$EPISODES" \
   --kill-on-failure \
-  --model "r9-sft=https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1,/tmp/kaetram_eval_r9-sft,9061" \
+  --model "r10-sft=https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1,/tmp/kaetram_eval_r10-sft,9061" \
   --model "base=https://workspace--kaetram-qwen-base-inference-serve.modal.run/v1,/tmp/kaetram_eval_base,9071" \
   > "/tmp/eval_watchdog_${RUN_TAG}.log" 2>&1 &
 WATCHDOG_PID=$!
@@ -155,10 +155,10 @@ while kill -0 $SFT_PID 2>/dev/null || kill -0 $BASE_PID 2>/dev/null; do
   kill -0 $BASE_PID 2>/dev/null || BASE_STATUS="done (rc=$(wait $BASE_PID 2>/dev/null; echo $?))"
 
   SFT_EP=0; BASE_EP=0
-  [ -f "$RUN_DIR/r9-sft/results.json" ] && SFT_EP=$(python3 -c "import json; print(len([e for e in json.load(open('$RUN_DIR/r9-sft/results.json'))['episodes'] if e.get('status')=='ok']))" 2>/dev/null || echo 0)
+  [ -f "$RUN_DIR/r10-sft/results.json" ] && SFT_EP=$(python3 -c "import json; print(len([e for e in json.load(open('$RUN_DIR/r10-sft/results.json'))['episodes'] if e.get('status')=='ok']))" 2>/dev/null || echo 0)
   [ -f "$RUN_DIR/base/results.json" ] && BASE_EP=$(python3 -c "import json; print(len([e for e in json.load(open('$RUN_DIR/base/results.json'))['episodes'] if e.get('status')=='ok']))" 2>/dev/null || echo 0)
 
-  echo "[$(date +%H:%M)] r9-sft: $SFT_STATUS ($SFT_EP/$EPISODES eps) | base: $BASE_STATUS ($BASE_EP/$EPISODES eps)"
+  echo "[$(date +%H:%M)] r10-sft: $SFT_STATUS ($SFT_EP/$EPISODES eps) | base: $BASE_STATUS ($BASE_EP/$EPISODES eps)"
 done
 
 # ── Cleanup eval game servers ──
@@ -170,9 +170,9 @@ done
 echo ""
 echo "EVAL COMPLETE"
 echo "  Run dir: $RUN_DIR"
-echo "  Results: $RUN_DIR/r9-sft/results.json"
+echo "  Results: $RUN_DIR/r10-sft/results.json"
 echo "           $RUN_DIR/base/results.json"
 echo "  Symlink: dataset/eval/latest → $RUN_DIR"
 echo ""
-echo "Compare: python3 eval_compare.py $RUN_DIR/base/results.json $RUN_DIR/r9-sft/results.json"
+echo "Compare: python3 eval_compare.py $RUN_DIR/base/results.json $RUN_DIR/r10-sft/results.json"
 echo "History: ls dataset/eval/runs/"

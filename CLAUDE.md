@@ -178,7 +178,7 @@ Full reference: `dashboard/DASHBOARD.md`.
 | `prompts/game_knowledge.md` | Quest guides, NPC coords, mob stats. |
 | `prompts/personalities/*.md` | Archetype overrides (`grinder.md`, `completionist.md`, `explorer_tinkerer.md`). |
 | `dashboard/server.py` | Dashboard entry point (HTTP :8080 + WS :8081). Full reference: `dashboard/DASHBOARD.md`. |
-| `eval_harness.py` + `scripts/run-eval.sh` | Eval orchestrator: r9-sft vs base on dedicated ports 9061 / 9071. |
+| `eval_harness.py` + `scripts/run-eval.sh` | Eval orchestrator: r10-sft vs base on dedicated ports 9061 / 9071. |
 | `play_qwen.py` / `play_qwen.sh` | Finetuned-model harness — calls Modal SGLang endpoint, spawns the same MCP server. |
 | `tests/e2e/quests/` | Reachability tier — per-step playthrough tests for Core 3 (Herbalist's Desperation, Rick's Roll). Foresting is exercised under `tests/e2e/game/`. Each step seeds the cumulative state an agent has at that point per game_knowledge.md. |
 
@@ -193,8 +193,7 @@ Game-server port `P` reserves `P+1` for `apiPort` (currently dormant; matches
 | 9000 | Kaetram client (HTTP, shared) |
 | 9001 + N×10, N ∈ [0,8] | Multi-agent game-server WS. **Standard run is 3 agents — one per archetype** (grinder + completionist + explorer-tinkerer): 9001 / 9011 / 9021. |
 | 9191 | Test-lane Kaetram (db `kaetram_e2e`, `TEST_AGENT_ID=99`, Xvfb `:198`) — isolated from data-collection lanes; dashboard Tests tab runs headed pytest against it |
-| 9061, 9071 | Eval game servers (r9-sft, base) |
-| 9191 | E2E test-lane game server (`scripts/start-test-kaetram.sh`, db `kaetram_e2e`) |
+| 9061, 9071 | Eval game servers (r10-sft, base) |
 | 27017 | MongoDB (`kaetram-mongo`); per-lane isolation by db name |
 | 8080 | Dashboard HTTP (UI + `/hls/agent_N/*` + `/ingest/{state,activity}`) |
 | 8081 | Dashboard WebSocket relay (state, activity, heartbeat) |

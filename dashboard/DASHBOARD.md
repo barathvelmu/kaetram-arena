@@ -251,7 +251,7 @@ The orchestrator (`orchestrate.py`) auto-starts the dashboard if not running. Ma
 | 8081 | Dashboard WebSocket | permessage-deflate. State, activity, heartbeat, restart, test_event broadcast (typed messages) |
 | 9000 | Kaetram game client | Static files (shared by all lanes) |
 | 9001 + N×10 | Data-collection game-server WS | Per-agent (agent 0–8); db `kaetram_devlopment` |
-| 9061, 9071 | Eval game servers | r9-sft / base |
+| 9061, 9071 | Eval game servers | r10-sft / base |
 | 9191 | Test-lane game server | db `kaetram_e2e`. Required by the Tests tab. Start with `scripts/start-test-kaetram.sh` |
 | 27017 | MongoDB | `kaetram-mongo` Docker container; per-lane isolation by db name |
 

@@ -24,15 +24,24 @@ sys.path.insert(0, str(REPO_ROOT))
 # ---------------------------------------------------------------------------
 
 _GAME_STATE = {
-    "timestamp": 1712345678,
-    "player_position": {"x": 188, "y": 157},
-    "player_stats": {"hp": 40, "max_hp": 50, "level": 5, "experience": 300},
-    "nearby_entities": [{"name": "Rat", "distance": 4, "reachable": True}],
+    "pos": {"x": 188, "y": 157},
+    "stats": {"hp": 40, "max_hp": 50, "level": 5, "xp": 300},
+    "equipment": {},
+    "skills": {},
+    "status": {"dead": False, "stuck": False, "nav": "idle", "indoors": False, "combat": None},
+    "nearby": {
+        "npcs": [],
+        "mobs": [{"name": "Rat", "x": 192, "y": 157, "dist": 4, "dir": "E", "level": 1, "aggressive": False}],
+        "resources": [],
+        "ground_items": [],
+    },
     "inventory": [{"slot": 0, "name": "Bronze Axe", "count": 1}],
-    "ui_state": {"is_dead": False},
+    "active_quests": [],
+    "finished_quests": [],
+    "events": [],
 }
 
-_OBSERVE_RESULT_TEXT = json.dumps(_GAME_STATE) + "\n\nASCII_MAP:\n....R...\n...@....\n........\n\nSTUCK_CHECK: stuck: false"
+_OBSERVE_RESULT_TEXT = json.dumps(_GAME_STATE) + "\n\nASCII_MAP:\n....R...\n...@....\n........"
 
 
 def _make_observe_event(idx: int, tool_id: str):
@@ -115,7 +124,7 @@ def _write_synthetic_claude_log(path: Path, events: list[dict]) -> None:
                     "message": {"content": [{
                         "type": "tool_result",
                         "tool_use_id": ev["tool_use_id"],
-                        "content": [{"type": "text", "text": ev["text"]}],
+                        "content": ev["text"],
                     }]},
                     "timestamp": ev.get("timestamp"),
                 }
@@ -151,15 +160,7 @@ def test_extract_emits_observe_then_action_turn(tmp_path):
     log_path = tmp_path / "synth.log"
     _write_synthetic_claude_log(log_path, events)
 
-    # Stub cli_adapter.detect_log_format to return "claude" for our synthetic file.
-    import cli_adapter
-
-    original = cli_adapter.detect_log_format
-    cli_adapter.detect_log_format = lambda p: "claude"
-    try:
-        turns = extract_turns(log_path)
-    finally:
-        cli_adapter.detect_log_format = original
+    turns = extract_turns(log_path)
 
     assert len(turns) == 2, f"expected observe + action = 2 turns, got {len(turns)}: {[t['action_type'] for t in turns]}"
     obs, act = turns
@@ -189,8 +190,6 @@ def test_extract_emits_observe_only_tail(tmp_path):
     log_path = tmp_path / "synth_tail.log"
     _write_synthetic_claude_log(log_path, events)
 
-    import cli_adapter
-    cli_adapter.detect_log_format = lambda p: "claude"
     turns = extract_turns(log_path)
 
     assert len(turns) == 1
@@ -216,8 +215,6 @@ def test_extract_preserves_observe_action_ratio(tmp_path):
     log_path = tmp_path / "synth_ratio.log"
     _write_synthetic_claude_log(log_path, events)
 
-    import cli_adapter
-    cli_adapter.detect_log_format = lambda p: "claude"
     turns = extract_turns(log_path)
 
     observes = [t for t in turns if t["action_type"] == "observe"]
@@ -234,35 +231,26 @@ def test_extract_preserves_observe_action_ratio(tmp_path):
 def _make_observe_turn():
     return {
         "turn_id": "sess_t000",
-        "timestamp": 1712345678,
         "game_state": _GAME_STATE,
         "ascii_map": "....R...\n...@....\n........",
         "reasoning": "Checking surroundings for threats.",
-        "action_code": "",
         "action_type": "observe",
         "action_structured": "observe()",
-        "action_target": "",
+        "action_input": {},
         "action_result_raw": _OBSERVE_RESULT_TEXT,
-        "player_stats": _GAME_STATE["player_stats"],
-        "player_position": _GAME_STATE["player_position"],
     }
 
 
 def _make_action_turn():
     return {
         "turn_id": "sess_t001",
-        "timestamp": 1712345679,
         "game_state": _GAME_STATE,
         "ascii_map": "",
         "reasoning": "A rat is next to me, I'll hit it.",
-        "action_code": "",
         "action_type": "attack",
         "action_structured": "attack(Rat)",
         "action_input": {"mob_name": "Rat"},
-        "action_target": "Rat",
         "action_result_raw": json.dumps({"result": json.dumps({"killed": False, "damage_dealt": 3})}),
-        "player_stats": _GAME_STATE["player_stats"],
-        "player_position": _GAME_STATE["player_position"],
     }
 
 
@@ -279,6 +267,31 @@ def test_observe_turn_becomes_observe_tool_call():
     assert "<think>" in msg["content"]
 
 
+def test_empty_reasoning_emits_no_think_block():
+    """Mixed-mode SFT: a turn with empty teacher reasoning must produce a
+    non-thinking assistant message (no <think> wrapper, no synthetic filler).
+
+    Pre-r10 fabricated `<think>Assessing situation.</think>` for 47% of turns,
+    training the model to emit no-op CoT. Post-fix: those turns render as a
+    clean Qwen3.5 non-thinking turn — empty content + tool_call.
+    """
+    from convert_to_qwen import build_assistant_message
+
+    turn = _make_action_turn()
+    turn["reasoning"] = ""  # the case Sonnet hits ~47% of the time
+    msg = build_assistant_message(turn)
+
+    assert msg is not None
+    assert msg["role"] == "assistant"
+    assert msg["content"] == "", (
+        f"empty-reasoning turn must have empty content (got {msg['content']!r})"
+    )
+    assert "<think>" not in msg["content"]
+    assert "Assessing" not in msg["content"]
+    assert len(msg["tool_calls"]) == 1
+    assert msg["tool_calls"][0]["function"]["name"] == "attack"
+
+
 def test_observe_turn_tool_result_is_raw_observe_text():
     from convert_to_qwen import build_tool_result_message
 
@@ -288,7 +301,7 @@ def test_observe_turn_tool_result_is_raw_observe_text():
     assert msg["name"] == "observe"
     # The full raw observe text (state JSON + ASCII_MAP) must be in the tool_result.
     assert "ASCII_MAP" in msg["content"]
-    assert "player_position" in msg["content"]
+    assert '"pos"' in msg["content"]
 
 
 def test_build_user_message_does_not_inject_game_state():
@@ -310,7 +323,7 @@ def test_build_user_message_keeps_state_delta_when_prev_turn_exists():
     prev = _make_observe_turn()
     curr = _make_action_turn()
     # Mutate curr state slightly so delta has content.
-    curr = {**curr, "game_state": {**_GAME_STATE, "player_stats": {**_GAME_STATE["player_stats"], "hp": 30}}}
+    curr = {**curr, "game_state": {**_GAME_STATE, "stats": {**_GAME_STATE["stats"], "hp": 30}}}
     user_text = build_user_message(prev, curr)
     # state_delta may or may not appear depending on compute_state_delta's output;
     # what we care about is no full <game_state> block.
@@ -324,7 +337,7 @@ def test_multi_turn_window_has_observe_tool_call():
 
     session = [_make_observe_turn(), _make_action_turn()]
     records = build_multi_turn_records(
-        session, personality="curious", window_size=2
+        session, personality="completionist", window_size=2
     )
     assert len(records) >= 1
     msgs = records[0]["messages"]
@@ -338,7 +351,7 @@ def test_multi_turn_window_has_observe_tool_call():
     assert first_asst["tool_calls"][0]["function"]["name"] == "observe"
     # First tool result must contain the raw state text.
     first_tool = msgs[2]
-    assert "ASCII_MAP" in first_tool["content"] or "player_position" in first_tool["content"]
+    assert "ASCII_MAP" in first_tool["content"] or '"pos"' in first_tool["content"]
     # Second assistant msg must be the attack call.
     second_asst = msgs[4]
     assert second_asst["tool_calls"][0]["function"]["name"] == "attack"

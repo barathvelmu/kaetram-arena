@@ -162,8 +162,6 @@ class GameServer:
 # Both are best-effort: if either tool is missing or fails to start, the agent
 # continues in headless mode and the dashboard falls back to the JPEG path.
 
-import shutil
-
 HLS_BASE_DIR = Path("/tmp/hls")
 HLS_DISPLAY_BASE = 99   # display = HLS_DISPLAY_BASE + agent_id
 XVFB_AVAILABLE = shutil.which("Xvfb") is not None

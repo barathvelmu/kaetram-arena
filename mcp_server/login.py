@@ -67,23 +67,11 @@ async def login_impl(ctx: Context, page) -> str:
     await page.locator("#login-password-input").fill(password)
     await page.locator("#login").click()
 
-    # Login retry + fallback-register loop.
-    #
-    # We auto-register ONLY on explicit "account not found" style errors.
-    # Historically we also fired register on any 6-second silence, which
-    # collided with two common states:
-    #   (1) the game server is still hydrating regions after a restart, so
-    #       the login form stays visible without an error — in which case
-    #       register would fire and collide with a seed that IS in Mongo;
-    #   (2) Kaetram returned "already logged in" (the server still holds a
-    #       ghost session from the previous agent) — register would fire
-    #       and get rejected with "userexists".
-    # Both failure modes look like "account already exists" in the UI.
-    #
-    # The new policy is: recognize every documented error code explicitly,
-    # retry idle states patiently, and only fall back to register when the
-    # login form is still visible AND the last known error was actually a
-    # "not found" style code (not silence, not "already logged in").
+    # Login retry + fallback-register loop. Auto-register only on explicit
+    # "account not found" style errors — silence and "already logged in" both
+    # used to trigger a speculative register that collided with seeded rows
+    # ("userexists"), so retry idle states patiently and let documented errors
+    # drive the next action.
     game_ready = False
     login_error: str | None = None
     tried_register = False

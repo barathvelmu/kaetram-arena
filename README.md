@@ -40,7 +40,7 @@ status summary that used to live here drifted in days.
   orchestrator/dashboard/log paths but are excluded from training.
 - **Training.** Dataset stats: [`dataset/DATA.md`](dataset/DATA.md).
 - **Eval harness.** `eval_harness.py` runs side-by-side episodes on
-  dedicated ports (9061 r9-sft, 9071 base). Live dashboard tab.
+  dedicated ports (9061 r10-sft, 9071 base). Live dashboard tab.
 - **World model.** WIP concept in [`world/`](world/). Not prioritized.
 - **Iteration history.** r1-r9 were rapid exploratory cycles; r10 onward is the
   deliberate phase — see [`research/INDEX.md`](research/INDEX.md) for the
@@ -161,7 +161,7 @@ kaetram-agent/
 ├── orchestrate.py           # Multi-agent launcher: game servers, Xvfb, ffmpeg, MCP, harness
 ├── extract_turns.py, convert_to_qwen.py  # SFT data pipeline (logs → Qwen records)
 ├── score_sessions.py, build_kto_dataset.py, inspect_kto_dataset.py  # KTO data pipeline
-├── eval_harness.py          # Side-by-side episode runner (r9-sft vs base)
+├── eval_harness.py          # Side-by-side episode runner (r10-sft vs base)
 ├── state_extractor.js       # Injected browser helpers (called by MCP server)
 ├── dashboard/               # Live web dashboard + Tests tab (DB-first game state, MJPEG video)
 ├── finetune/                # SFT / KTO / GRPO training on Modal + serving endpoints
@@ -184,7 +184,7 @@ kaetram-agent/
 | 8080 | Dashboard |
 | 8081 | Dashboard WebSocket relay (state, activity, heartbeat) |
 | 27017 | MongoDB (`kaetram-mongo` Docker container, db `kaetram_devlopment`) |
-| 9061, 9071 | Eval game servers (r9-sft, base) |
+| 9061, 9071 | Eval game servers (r10-sft, base) |
 | 9191 | E2E test-lane game server (db `kaetram_e2e`) |
 
 ## Tests tab (dashboard)
@@ -225,7 +225,7 @@ The finetuned Qwen3.5-9B model is served from a Modal SGLang endpoint
 # Direct mode — play_qwen.py drives the browser, calls the Modal endpoint, uses the same mcp_server
 ./play_qwen.sh
 
-# Side-by-side eval (r9-sft vs base) — see scripts/run-eval.sh
+# Side-by-side eval (r10-sft vs base) — see scripts/run-eval.sh
 ./scripts/run-eval.sh
 ```
 

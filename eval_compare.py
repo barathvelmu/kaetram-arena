@@ -7,15 +7,7 @@ Welch's t-test, Glass's delta, and Bonferroni correction. Outputs a
 paper-ready markdown comparison table.
 
 Usage:
-    # Compare two models
-    python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json
-
-    # Compare three models (base vs SFT vs KTO)
-    python3 eval_compare.py dataset/eval/base/results.json \
-        dataset/eval/r9-sft/results.json \
-        dataset/eval/r8-kto/results.json
-
-    # Save to file
+    python3 eval_compare.py dataset/eval/base/results.json dataset/eval/<model>/results.json
     python3 eval_compare.py *.json --output eval_table.md
 
 Statistical methodology (from reference/EVALS.md):
@@ -359,9 +351,9 @@ def compare_n_models(models: dict[str, dict]) -> dict:
     written by eval_harness.py). Returns a flat dict with one entry per
     ordered pair `"<base>_vs_<treatment>"` plus a `_pairs` index list.
 
-    With 3 models there are 3 pairs (e.g. base vs r9, base vs r10, r9 vs r10);
-    each compare_models() call gets n_model_pairs=3 so the per-test α is
-    FWER_ALPHA / (n_metrics × 3) — the correct family-wise threshold.
+    With N models there are C(N,2) ordered pairs; each compare_models() call
+    gets n_model_pairs=C(N,2) so the per-test α is FWER_ALPHA / (n_metrics ×
+    n_model_pairs) — the correct family-wise threshold.
     """
     names = list(models.keys())
     n = len(names)
@@ -490,9 +482,8 @@ Bonferroni correction is applied across (n_metrics × n_model_pairs):
   - --all-pairs: n_model_pairs = C(n_results, 2)   [every pair, both directions excluded]
 
 Examples:
-  python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json
-  python3 eval_compare.py base.json sft.json kto.json --output comparison.md
-  python3 eval_compare.py base.json r9-sft.json r10-sft.json --all-pairs
+  python3 eval_compare.py dataset/eval/base/results.json dataset/eval/<model>/results.json
+  python3 eval_compare.py base.json a.json b.json --all-pairs --output comparison.md
         """,
     )
     parser.add_argument(

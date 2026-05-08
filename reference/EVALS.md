@@ -461,7 +461,7 @@ Run on 50 samples per model. Report mean + distribution.
 | Agent harness | `play_qwen.py` | Runs episodes, produces JSONL logs |
 | Base model endpoint | `finetune/serve_modal_base.py` | Unfinetuned Qwen3.5-9B on Modal A100 |
 | Finetuned endpoint | `finetune/serve_modal.py` | r8-SFT model on Modal A100 |
-| Eval launcher | `scripts/run-eval.sh` | Starts game servers (9061/9071), runs r9-sft vs base in parallel |
+| Eval launcher | `scripts/run-eval.sh` | Starts game servers (9061/9071), runs r10-sft vs base in parallel |
 | Turn extraction | `extract_turns.py` | Parses JSONL logs into OODA cycles |
 | Session scoring | `score_sessions.py` | 21-metric session quality score |
 | Turn scoring | `convert_to_qwen.py:score_turn()` | Per-turn quality (state completeness, action quality, reasoning) |

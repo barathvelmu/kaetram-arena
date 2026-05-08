@@ -381,20 +381,28 @@ def _turn_call_id(turn: dict) -> str:
 
 
 def build_assistant_message(turn: dict) -> dict | None:
-    """Emit assistant message: <think>...</think> + native MCP tool_call.
+    """Emit assistant message: optional <think>...</think> + native MCP tool_call.
 
-    Reasoning is inlined as `<think>...</think>` in `content`. The chat-template
-    patch in train_modal extracts it into reasoning_content at training time so
-    it is preserved on every assistant turn (the stock Qwen3.5 template would
-    otherwise drop it from non-final turns).
+    Mixed-mode SFT (Qwen3.5 Thinking Mode Fusion): turns with captured teacher
+    reasoning render `<think>...</think>` + tool_call; turns where Sonnet fired
+    a tool without writing CoT (common for grinding loops — attack/gather/drop)
+    render as a non-thinking turn (empty content + tool_call). The patched
+    chat template in `train_modal._patch_qwen_chat_template` handles both
+    correctly: `reasoning_content` truthy → full think block; falsy + non-final
+    → no think wrapper; falsy + final → empty `<think>\\n\\n</think>`.
+
+    No filler placeholder. An empty source CoT is a real signal — teach the
+    model that some actions don't need reasoning, don't fabricate one.
     """
     action_type = turn.get("action_type", "")
     if action_type not in VALID_ACTION_TYPES:
         return None  # off-surface tool — skip
 
     reasoning = (turn.get("reasoning") or "").strip()
-    inner = format_reasoning(reasoning) if reasoning else "Assessing situation."
-    content = f"<think>\n{inner}\n</think>"
+    if reasoning:
+        content = f"<think>\n{format_reasoning(reasoning)}\n</think>"
+    else:
+        content = ""
 
     tool_calls = [{
         "id": _turn_call_id(turn),
@@ -530,6 +538,73 @@ def build_single_turn_records(
 
 # ── Post-build gates (intentionally minimal) ────────────────────────────────
 
+def _count_thinking(record: dict) -> tuple[int, int]:
+    """Return (n_thinking_assistant, n_no_thinking_assistant) for a record."""
+    n_think = 0
+    n_nothink = 0
+    for m in record["messages"]:
+        if m.get("role") != "assistant":
+            continue
+        if "<think>" in (m.get("content") or ""):
+            n_think += 1
+        else:
+            n_nothink += 1
+    return n_think, n_nothink
+
+
+def _enforce_thinking_ratio(
+    records: list[dict],
+    max_no_think_ratio: float,
+    seed: int,
+) -> tuple[list[dict], int]:
+    """Downsample records so non-thinking assistant turns are ≤ max ratio.
+
+    Per Qwen Team's Thinking Mode Fusion guidance for Qwen3.5 SFT: keep at
+    least 75% of assistant turns reasoning-supervised; below that, reasoning
+    capability degrades. Sonnet emits no-CoT tool calls ~47% of the time on
+    repetitive actions (attack/gather/drop), so without this gate the corpus
+    is dominated by non-thinking turns and the model unlearns CoT.
+
+    Strategy: rank records by descending no-think share, drop them in that
+    order (so pure-grind-loop records go first; mixed-mode records are
+    preserved) until the global no-think share is within budget.
+    """
+    if not records:
+        return records, 0
+    annotated = [(r, *_count_thinking(r)) for r in records]
+    total_think = sum(t for _, t, _ in annotated)
+    total_nothink = sum(nt for _, _, nt in annotated)
+    if total_think + total_nothink == 0:
+        return records, 0
+
+    current_ratio = total_nothink / (total_think + total_nothink)
+    if current_ratio <= max_no_think_ratio:
+        return records, 0
+
+    # Sort by no-think share descending. Use record id as deterministic
+    # tiebreaker so the seed shuffle below produces stable runs.
+    rng = random.Random(seed)
+    indexed = list(enumerate(annotated))
+    rng.shuffle(indexed)
+    indexed.sort(
+        key=lambda x: (-(x[1][2] / max(1, x[1][1] + x[1][2])), x[0])
+    )
+
+    kept_think = total_think
+    kept_nothink = total_nothink
+    drop_set: set[int] = set()
+    for idx, (_, t, nt) in indexed:
+        ratio = kept_nothink / max(1, kept_think + kept_nothink)
+        if ratio <= max_no_think_ratio:
+            break
+        drop_set.add(idx)
+        kept_think -= t
+        kept_nothink -= nt
+
+    kept = [r for i, (r, _, _) in enumerate(annotated) if i not in drop_set]
+    return kept, len(records) - len(kept)
+
+
 def _drop_no_assistant(records: list[dict]) -> tuple[list[dict], int]:
     """Defensive sanity check — should never fire on healthy data."""
     kept = [r for r in records if any(
@@ -541,9 +616,18 @@ def _drop_no_assistant(records: list[dict]) -> tuple[list[dict], int]:
 def _drop_truncated(records: list[dict]) -> tuple[list[dict], int]:
     """Reject records that would silently truncate at training time.
 
-    TRL/Unsloth drop tokens past max_seq_length without raising. Pre-tokenize
-    each record with the same chat template + system prompt to surface the
-    gate here. Skips entirely if the tokenizer can't load.
+    TRL/Unsloth drop tokens past max_seq_length without raising. We need to
+    surface the gate here. Two-stage filter for speed:
+
+    1. **Char-length pre-filter** — Qwen3.5 tokenizes at ~3 chars/token on
+       English+code. We render each record to text via `apply_chat_template`
+       (cheap, no tokenization), then skip the real tokenizer entirely for
+       records whose char count is comfortably under or over the limit. Only
+       borderline records pay for tokenization. This typically removes 90%+
+       of tokenizer calls.
+    2. **Real tokenizer** — only for borderline records. Authoritative.
+
+    Skips entirely if the tokenizer can't load.
     """
     try:
         from transformers import AutoTokenizer
@@ -553,23 +637,63 @@ def _drop_truncated(records: list[dict]) -> tuple[list[dict], int]:
         return records, 0
 
     gate = MAX_SEQ_LEN - TRUNCATION_MARGIN
-    kept = []
-    rejected = 0
+    # Conservative chars-per-token bounds for Qwen3.5 BPE on this corpus
+    # (English prose + JSON tool calls/results). Calibrated to never reject
+    # a record the real tokenizer would accept and never accept one it would
+    # reject — borderline goes to stage 2.
+    CHARS_PER_TOKEN_MIN = 1.8   # if char/min > gate → definitely too long
+    CHARS_PER_TOKEN_MAX = 5.5   # if char/max < gate → definitely fits
+    SAFE_UPPER = int(gate * CHARS_PER_TOKEN_MAX)  # below this → keep without tokenizing
+    HARD_LOWER = int(gate * CHARS_PER_TOKEN_MIN)  # above this → reject without tokenizing
+
+    # Pre-render each record to a string. apply_chat_template(tokenize=False)
+    # is a Jinja render — much cheaper than tokenizing.
+    rendered = []
     for r in records:
         block = PERSONALITY_SUFFIXES.get(r.get("personality") or "", "")
         sys_prompt = SYSTEM_PROMPT.replace("__PERSONALITY_BLOCK__", block)
         full = [{"role": "system", "content": sys_prompt}] + r["messages"]
         try:
-            ids = tok.apply_chat_template(
-                full, tools=TOOL_DEFINITIONS, tokenize=True, add_generation_prompt=False,
+            text = tok.apply_chat_template(
+                full, tools=TOOL_DEFINITIONS, tokenize=False, add_generation_prompt=False,
             )
         except Exception:
-            kept.append(r)  # let real training surface the error
+            text = None
+        rendered.append(text)
+
+    kept: list[dict] = []
+    rejected = 0
+    n_borderline = 0
+    n_skipped = 0
+    for r, text in zip(records, rendered):
+        if text is None:
+            kept.append(r)  # render failed — let real training surface it
+            continue
+        n = len(text)
+        if n <= SAFE_UPPER:
+            kept.append(r)
+            n_skipped += 1
+            continue
+        if n >= HARD_LOWER:
+            rejected += 1
+            n_skipped += 1
+            continue
+        # Borderline — pay for the real tokenizer.
+        n_borderline += 1
+        try:
+            ids = tok(text, add_special_tokens=False)["input_ids"]
+        except Exception:
+            kept.append(r)
             continue
         if len(ids) > gate:
             rejected += 1
-            continue
-        kept.append(r)
+        else:
+            kept.append(r)
+
+    print(
+        f"  [trunc-gate] Fast path skipped {n_skipped}/{len(records)} via char-length, "
+        f"tokenized {n_borderline} borderline records"
+    )
     return kept, rejected
 
 
@@ -624,6 +748,11 @@ def main():
     )
     parser.add_argument("--window-size", type=int, default=3)
     parser.add_argument("--stride", type=int, default=None)
+    parser.add_argument(
+        "--max-no-think-ratio", type=float, default=0.25,
+        help="Max share of assistant turns without <think>. Per Qwen3.5 SFT "
+             "guidance: ≤25% non-thinking preserves reasoning capability.",
+    )
     args = parser.parse_args()
 
     args.output.mkdir(parents=True, exist_ok=True)
@@ -678,6 +807,28 @@ def main():
         print("No records survived sanity filter.", file=sys.stderr)
         sys.exit(1)
 
+    # Mixed-mode SFT ratio enforcement: keep ≥75% thinking turns.
+    pre = len(records)
+    pre_think = sum(_count_thinking(r)[0] for r in records)
+    pre_nothink = sum(_count_thinking(r)[1] for r in records)
+    pre_ratio = pre_nothink / max(1, pre_think + pre_nothink)
+    records, n_dropped_ratio = _enforce_thinking_ratio(
+        records, args.max_no_think_ratio, args.seed
+    )
+    post_think = sum(_count_thinking(r)[0] for r in records)
+    post_nothink = sum(_count_thinking(r)[1] for r in records)
+    post_ratio = post_nothink / max(1, post_think + post_nothink)
+    print(
+        f"  Thinking-ratio gate: pre={pre_ratio:.1%} no-think "
+        f"({pre_think} think, {pre_nothink} no-think) → "
+        f"post={post_ratio:.1%} ({post_think} think, {post_nothink} no-think); "
+        f"dropped {n_dropped_ratio}/{pre} records"
+    )
+
+    if not records:
+        print("No records survived thinking-ratio gate.", file=sys.stderr)
+        sys.exit(1)
+
     pre = len(records)
     records, n_trunc = _drop_truncated(records)
     print(f"  Truncation gate: rejected {n_trunc}/{pre} records ({100*n_trunc/max(1, pre):.2f}%)")
@@ -698,6 +849,12 @@ def main():
         "session_count": sess_count,
         "raw_turns": raw_turns,
         "record_counts": {"train": len(train), "val": len(val), "total": len(train) + len(val)},
+        "thinking_ratio": {
+            "max_no_think_ratio": args.max_no_think_ratio,
+            "thinking_assistant_turns": post_think,
+            "no_thinking_assistant_turns": post_nothink,
+            "no_thinking_share": round(post_ratio, 4),
+        },
         "personality_labels": list(PERSONALITY_SUFFIXES.keys()),
         "system_prompt": SYSTEM_PROMPT,
         "tools": TOOL_DEFINITIONS,

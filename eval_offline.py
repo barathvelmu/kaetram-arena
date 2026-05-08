@@ -24,7 +24,7 @@ Usage:
 
     # Compare base vs finetuned
     python3 eval_offline.py --data dataset/qwen_sft/val.json \
-        --endpoints base=https://...base.../v1 r9-sft=https://...serve.../v1
+        --endpoints base=https://...base.../v1 r10-sft=https://...serve.../v1
 
     # Limit to N records (for testing)
     python3 eval_offline.py --data dataset/qwen_sft/val.json \
@@ -49,7 +49,7 @@ from openai import OpenAI
 
 DEFAULT_ENDPOINTS = {
     "base": "https://workspace--kaetram-qwen-base-inference-serve.modal.run/v1",
-    "r9-sft": "https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1",
+    "r10-sft": "https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1",
 }
 
 
@@ -430,11 +430,11 @@ def main():
     )
     parser.add_argument(
         "--endpoints", nargs="*",
-        help="Model endpoints as name=url pairs (default: base + r9-sft)",
+        help="Model endpoints as name=url pairs (default: base + r10-sft)",
     )
     parser.add_argument(
         "--endpoint", type=str, default=None,
-        help="Single endpoint URL (shorthand for --endpoints r9-sft=URL)",
+        help="Single endpoint URL (shorthand for --endpoints r10-sft=URL)",
     )
     parser.add_argument(
         "--metadata", type=str, default="dataset/qwen_sft/metadata.json",
@@ -461,7 +461,7 @@ def main():
     # Parse endpoints
     endpoints = {}
     if args.endpoint:
-        endpoints["r9-sft"] = args.endpoint
+        endpoints["r10-sft"] = args.endpoint
     elif args.endpoints:
         for e in args.endpoints:
             if "=" in e:

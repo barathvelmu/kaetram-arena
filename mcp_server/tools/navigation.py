@@ -87,21 +87,6 @@ async def navigate(ctx: Context, x: int, y: int) -> str:
     return result
 
 
-async def move(ctx: Context, x: int, y: int) -> str:
-    """Move to a nearby tile (< 15 tiles). For longer distances use navigate().
-
-    Args:
-        x: Target grid X
-        y: Target grid Y
-    """
-    page = await get_page(ctx)
-    result = await page.evaluate(
-        "([x,y]) => JSON.stringify(window.__moveTo(x, y))", [x, y]
-    )
-    await page.wait_for_timeout(2000)
-    return result
-
-
 @mcp.tool()
 async def warp(ctx: Context, location: str = "mudwich") -> str:
     """Fast travel to a town. Auto-waits up to 25s if combat cooldown is active.

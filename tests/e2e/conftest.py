@@ -66,12 +66,8 @@ def _tcp_open(host: str, port: int, timeout: float = 1.0) -> bool:
 
 @dataclass
 class AmbientKaetram:
-    """Back-compat shim — existing arena tests read `.client_url` and
-    `.db_helper_url` off this. `db_helper_url` is now empty (pymongo-direct
-    seed ignores it)."""
     client_url: str = f"http://{KAETRAM_HOST}:{KAETRAM_CLIENT_PORT}"
     server_ws_url: str = f"ws://{KAETRAM_HOST}:{KAETRAM_WS_PORT}"
-    db_helper_url: str = ""
 
 
 @pytest.fixture(scope="session")

@@ -1,11 +1,12 @@
 """
 Verify that train_on_responses_only masking works on our Qwen3.5 chat format.
 
-CPU-only test — no GPU, no Unsloth, no training. Just tokenizer + token scanning.
-Reproduces the exact logic from unsloth_zoo/dataset_utils.py to confirm which tokens
-get masked (label=-100) vs trained on.
+CPU-only diagnostic — no GPU, no Unsloth, no training. Just tokenizer + token
+scanning. Reproduces the exact logic from unsloth_zoo/dataset_utils.py to confirm
+which tokens get masked (label=-100) vs trained on. Standalone script (not a
+pytest); run when investigating masking behavior changes.
 
-Usage: python tests/test_loss_masking.py
+Usage: python scripts/check_loss_masking.py
 """
 
 from transformers import AutoTokenizer
@@ -67,7 +68,7 @@ def main():
     # Sample multi-turn conversation matching our training format
     messages = [
         {"role": "system", "content": "You are an AI agent playing Kaetram, a 2D pixel MMORPG."},
-        {"role": "user", "content": '{"player_position":{"x":188,"y":157},"player_stats":{"hp":100,"max_hp":100}}\n\nASCII_MAP:\n..P..'},
+        {"role": "user", "content": '{"pos":{"x":188,"y":157},"stats":{"hp":100,"max_hp":100,"level":1,"xp":0}}\n\nASCII_MAP:\n..P..'},
         {"role": "assistant", "content": "<think>\nI see I'm at the village center. I should look for an NPC to get a quest.\n</think>"},
         # Tool call would go here in real data, simplified for test
         {"role": "user", "content": '{"result": "Navigated to Rick at (190, 155)"}'},
@@ -155,9 +156,9 @@ def main():
     print(f"  System/user tokens masked: {'YES ✓' if masked > trained else 'CHECK'}")
 
     if assistant_turns_found == 3 and masked > trained:
-        print(f"\n  ✓ MASKING IS CORRECT — ready for r8")
+        print(f"\n  ✓ MASKING IS CORRECT")
     else:
-        print(f"\n  ✗ MASKING HAS ISSUES — investigate before r8")
+        print(f"\n  ✗ MASKING HAS ISSUES — investigate launching the next training run")
 
 
 if __name__ == "__main__":

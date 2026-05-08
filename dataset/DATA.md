@@ -55,7 +55,7 @@ dataset/
 └── _archive/                 ← Frozen out-of-corpus dataset builds; ignored by every active pipeline
     ├── qwen_sft_pre_core3_apr18/                      ← Apr-18 r10 build (pre-Core-3, 25,972 records)
     ├── qwen_sft_backup_*/                             ← timestamped predecessor builds
-    ├── qwen_sft_pre_r10_*/                            ← r9-era and observe-fix snapshots
+    ├── qwen_sft_pre_r10_*/                            ← pre-Core-3 / r9-era / observe-fix snapshots (archived 2026-05-06)
     ├── qwen_sft_r8_backup/
     ├── extracted_pre_core3/                           ← OODA turns extracted from pre-Core-3 logs
     ├── extracted_pre_r10_*/
@@ -86,7 +86,7 @@ Example metadata:
 ```json
 {
   "agent_id": 0,
-  "personality": "aggressive",
+  "personality": "completionist",
   "harness": "claude",
   "model": "claude-sonnet-4-6",
   "username": "ClaudeBot0",
@@ -110,7 +110,7 @@ To inspect the cutoff, read `dataset/qwen_sft/metadata.json` — every build sta
 
 ---
 
-## Current Dataset Stats (as of 2026-05-06)
+## Current Dataset Stats
 
 | | Value |
 |---|---|
@@ -120,8 +120,8 @@ To inspect the cutoff, read `dataset/qwen_sft/metadata.json` — every build sta
 | Raw OODA turns extracted | 9,766 |
 | SFT training records | **r10: 9,352 train / 934 val = 10,286 total** (`dataset/qwen_sft/`, Claude-only, post-Core-3) |
 | Architecture | Modular MCP package (`mcp_server/{core,tools/...}`, entry point `mcp_game_server.py` is a 19-line stub), 17 model-visible typed tools |
-| Active SFT focus | r10 dataset built; LoRA training planned. Agent-side unblock pass shipped (`live_gate_status`, `quest_resume.json`, `recent_failures` injection, `mob_stats`, `station_locations`). |
-| Latest completed SFT | r9 (Apr 16-17, archived dataset). r10 launches against the rebuilt corpus. |
+| Active SFT focus | r10 dataset built; LoRA training planned. Agent-side unblocks shipped: `live_gate_status`, `mob_stats`, `station_locations` (cross-session memory `quest_resume.json` + `recent_failures` injection were removed in commit `09e611d`). |
+| Latest completed SFT | r10 (built 2026-05-06, 9,352 train / 934 val on the post-Core-3 Claude corpus). r9 archived. |
 
 Rebuild with `scripts/collect_sft_data.sh` or manually:
 ```bash

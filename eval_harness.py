@@ -9,21 +9,11 @@ Runs N episodes per model with controlled conditions:
 4. Outputs aggregated results JSON for eval_compare.py
 
 Usage:
-    # Default: 30 episodes, scenario D (open play), both models
-    python3 eval_harness.py --episodes 30
+    python3 eval_harness.py --episodes 30 --scenario D
+    python3 eval_harness.py --models name=https://endpoint/v1 --episodes 10
 
-    # Specific scenario
-    python3 eval_harness.py --episodes 50 --scenario A
-
-    # Custom endpoints
-    python3 eval_harness.py \
-        --models base=https://...base.../v1 r9-sft=https://...serve.../v1 \
-        --episodes 30 --scenario D
-
-    # Single model
-    python3 eval_harness.py --models r9-sft=https://...serve.../v1 --episodes 10
-
-Requires: game server running on --server-port, MongoDB in Docker (kaetram-mongo).
+Configure endpoints via --models or DEFAULT_MODELS. Requires: game server
+running on --server-port, MongoDB in Docker (kaetram-mongo).
 """
 
 import argparse
@@ -50,9 +40,10 @@ DEFAULT_MODELS = {
         "username": "evalbotBase",
         "server_port": "9071",
     },
-    "r9-sft": {
-        "endpoint": "https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1",
-        "username": "evalbotR9",
+    "r10-sft": {
+        # Endpoint placeholder — fill in after the r10 SFT serve is deployed.
+        "endpoint": "",
+        "username": "evalbotR10",
         "server_port": "9061",
     },
 }
@@ -964,14 +955,13 @@ def main():
         epilog="""
 Examples:
   python3 eval_harness.py --episodes 30
-  python3 eval_harness.py --episodes 50 --scenario A
-  python3 eval_harness.py --models r9-sft=https://your-endpoint/v1 --episodes 10
+  python3 eval_harness.py --models r10-sft=https://your-endpoint/v1 --episodes 10
         """,
     )
     parser.add_argument(
         "--models", nargs="*",
         help="Model definitions as name=endpoint pairs. "
-             "Default: base + r9-sft with standard Modal endpoints",
+             "Default: DEFAULT_MODELS (see top of file).",
     )
     parser.add_argument(
         "--episodes", type=int, default=50,
@@ -1199,7 +1189,7 @@ Examples:
         print(f"    Scenario Success:     {_mean(metrics.get('success_rate', [])):.3f}")
 
     print(f"\nResults saved to: {args.output_dir}/")
-    print("Next: python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json")
+    print(f"Next: python3 eval_compare.py {args.output_dir}/<model_a>/results.json {args.output_dir}/<model_b>/results.json")
 
     if watchdog_proc and watchdog_log:
         watchdog_log.close()

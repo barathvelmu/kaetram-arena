@@ -14,10 +14,10 @@ matching eval processes to stop cost bleed.
 
 Example:
   python3 scripts/eval_watchdog.py \
-    --run-dir dataset/eval/runs/20260416_190942_curious_n10_recover \
+    --run-dir dataset/eval/runs/<run_id> \
     --episodes 10 \
     --model base=https://.../v1,/tmp/kaetram_eval_base,9052 \
-    --model r9-sft=https://.../v1,/tmp/kaetram_eval_r9-sft,9051 \
+    --model <model>=https://.../v1,/tmp/kaetram_eval_<model>,9051 \
     --kill-on-failure
 """
 

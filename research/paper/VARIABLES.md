@@ -46,7 +46,7 @@ same-model-different-harness or same-harness-different-model runs.
 
 - Tool count (17 vs minimal vs maximal)
 - `observe()` enrichment: mob `level` + `aggressive` injected from `mob_stats.py`; resource gates surfaced from `resource_gates.py`. Reduces hallucination but bakes ground-truth into observations.
-- Truncation caps: inventory ≤15, nearby_entities ≤15, quests ≤10, achievements ≤10 (`play.sh:122-126`).
+- Truncation caps: each `nearby.{npcs,mobs,resources,ground_items}` list ≤10, `inventory` first 25 slots, `active_quests` / `finished_quests` lists ≤10 each (enforced in `mcp_server/tools/observe.py`).
 - ASCII map included in every observe — spatial-reasoning prior baked in.
 - `observe()` is on-demand (agent-driven) but `state_heartbeat` polls every 300 ms — two observability channels with different cadences.
 

@@ -58,6 +58,11 @@ understanding what diverged.
 cd /path/to/kaetram-agent && git fetch origin && git pull --ff-only && git status
 ```
 
+**Identify which machine you're on before pushing.** Check `hostname` /
+internal IP — the GCP VM is `gcp-vm` / `10.0.0.10` / external `vm.example.com`.
+Don't `ssh user@vm.example.com` from the VM itself to "sync" — you're already
+there; the push IS the sync. Only ssh-pull the *other* machine (laptop).
+
 ### 2. NEVER `scp` / `rsync` files between laptop and VM
 
 The 2026-04-28 incident: testing a fix locally, `scp`'d the modified file

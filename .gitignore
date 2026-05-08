@@ -25,8 +25,10 @@ world/checkpoints/
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
 tests/state/
 logs/
+artifacts/
 
 # Training data (generated, stays on VM — do not commit)
 dataset/extracted*/

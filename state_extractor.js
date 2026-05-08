@@ -91,12 +91,6 @@
   };
 
   // ── Observe counter + rules reminder ──
-  // Incremented each time __extractGameState is called (every 500ms via auto-cache).
-  // Every ~90 seconds, a rules reminder is appended to the game state to survive
-  // context compaction (the system prompt gets compressed, but fresh tool results don't).
-  window.__observeTick = 0;
-  window.__lastReminderTick = 0;
-
   // ── Entity name resolution with fallbacks ──
   // Some entities (e.g., Cactus, certain mobs) have empty ent.name.
   // Fall back to ent.data, ent.key, or instance string to resolve the display name.
@@ -406,13 +400,6 @@
       } : null,
     };
 
-    // Inject rules reminder every ~180 ticks (~90 seconds at 500ms interval)
-    window.__observeTick++;
-    if (window.__observeTick - window.__lastReminderTick >= 180) {
-      window.__lastReminderTick = window.__observeTick;
-      result._rules_reminder = '⚠️ RULES REMINDER: (1) Use the EXACT locked OBSERVE template from your system prompt — do NOT write custom state extraction or return summary strings. (2) OBSERVE and ACT are SEPARATE browser_run_code calls — never combine them. (3) ONE action per browser_run_code call — no loops. (4) Max waitForTimeout is 8000ms. (5) If Bronze Axe + Strength>=10, get Iron Axe from Foresting quest ASAP.';
-    }
-
     return result;
   };
 
@@ -426,49 +413,6 @@
     // Packets.Target = 14 (enum index in packets.ts), Opcodes.Target.Talk = 0
     game.socket.send(14, [0, instanceId, entity.gridX, entity.gridY]);
     return { sent: true, npc: entity.name, instance: instanceId };
-  };
-
-  // Accept a quest after dialogue is complete and quest panel is visible.
-  // Verifies panel state before sending and checks if quest actually started.
-  window.__acceptQuest = function(questKey) {
-    var game = window.game;
-    if (!game || !game.socket) return { error: 'Game not loaded' };
-
-    // Check if quest panel is actually visible (required for server to accept)
-    var questPanel = document.getElementById('quest');
-    var panelVisible = false;
-    if (questPanel) {
-      var style = window.getComputedStyle(questPanel);
-      panelVisible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
-    }
-
-    if (!panelVisible) {
-      // Try clicking the quest button if it's visible
-      var btn = document.getElementById('quest-button');
-      if (btn && btn.offsetParent !== null) {
-        btn.click();
-        return { sent: false, quest: questKey, warning: 'Quest panel was not visible. Clicked quest-button — observe next turn to check if quest started.' };
-      }
-      return { sent: false, quest: questKey, error: 'Quest panel not visible — talk to NPC more times to trigger the quest dialogue, or this quest may not be available.' };
-    }
-
-    // Panel is visible — click the quest button (this is how the game normally accepts)
-    var btn = document.getElementById('quest-button');
-    if (btn) btn.click();
-
-    // Also send the raw packet as backup
-    // Packets.Quest = 23 (enum index in packets.ts)
-    game.socket.send(23, { key: questKey });
-
-    // Check if quest appeared in player's quest list
-    var accepted = false;
-    if (game.player && game.player.quests && game.player.quests[questKey]) {
-      var q = game.player.quests[questKey];
-      accepted = (q.stage || 0) > 0;
-    }
-
-    return { sent: true, quest: questKey, panel_visible: true, accepted: accepted,
-             hint: accepted ? 'Quest accepted!' : 'Packet sent — observe next turn to confirm quest started' };
   };
 
   // ── Eat food by inventory slot (reliable replacement for selectEdible) ──
@@ -1076,67 +1020,6 @@
     };
   };
 
-  // ── Move to tile using game's built-in pathfinder (works off-screen) ──
-  // NOTE: The game's A* has a 100-node open list limit. For long/complex paths,
-  // it silently returns [] and followPath does nothing. Use __navigateTo for >15 tiles.
-  window.__moveTo = function (gridX, gridY) {
-    var game = window.game;
-    if (!game || !game.player) return { error: 'Game not loaded' };
-    var p = game.player;
-    var map = game.map;
-    var startX = p.gridX, startY = p.gridY;
-    if (map.isOutOfBounds(gridX, gridY))
-      return { error: 'Out of bounds', target: { x: gridX, y: gridY } };
-    var targetIsDoor = _isDoor(gridX, gridY);
-    if (map.isColliding(gridX, gridY) && !targetIsDoor)
-      return { error: 'Target is a wall', target: { x: gridX, y: gridY }, player_pos: { x: startX, y: startY } };
-    var distance = Math.abs(gridX - startX) + Math.abs(gridY - startY);
-    p.disableAction = false;
-    // Door tiles are flagged colliding in map.grid, so handleRequestPath returns []
-    // before pathfinding runs. Temporarily mark the door tile walkable, request the
-    // path, then restore. Mirrors how Kaetram's own pathfinder.handleIgnore works.
-    var doorPatched = false;
-    var prevGridVal, prevDataVal, dataIdx;
-    if (targetIsDoor) {
-      if (map.grid && map.grid[gridY] && map.grid[gridY][gridX] === 1) {
-        prevGridVal = map.grid[gridY][gridX];
-        map.grid[gridY][gridX] = 0;
-        doorPatched = true;
-      }
-      if (map.data && typeof map.coordToIndex === 'function') {
-        dataIdx = map.coordToIndex(gridX, gridY);
-        var dv = map.data[dataIdx];
-        if (typeof dv === 'number' && dv < 1) {
-          prevDataVal = dv;
-          map.data[dataIdx] = 1;
-          doorPatched = true;
-        }
-      }
-    }
-    try {
-      p.go(gridX, gridY);
-    } finally {
-      if (doorPatched) {
-        if (prevGridVal !== undefined) map.grid[gridY][gridX] = prevGridVal;
-        if (prevDataVal !== undefined && dataIdx !== undefined) map.data[dataIdx] = prevDataVal;
-      }
-    }
-    // Verify a path was actually generated (A* returns [] for complex/long paths)
-    if (!p.hasPath() && !p.moving) {
-      return {
-        error: 'No path found (too far or terrain too complex). Use __navigateTo() for long distances.',
-        target: { x: gridX, y: gridY }, player_pos: { x: startX, y: startY },
-        distance: distance, door: targetIsDoor,
-      };
-    }
-    return {
-      success: true,
-      player_pos: { x: startX, y: startY },
-      target: { x: gridX, y: gridY },
-      distance: distance,
-    };
-  };
-
   // ── Reliable long-distance navigation with auto-waypointing ──
   // Breaks long paths into ~15-tile hops to work around the A* 100-node limit.
   // Returns immediately; the 500ms interval auto-advances waypoints.
@@ -1282,8 +1165,8 @@
     if (totalDist <= 15) {
       p.disableAction = false;
       // Door tiles are flagged colliding in map.grid, so the game's A* won't
-      // plan into them without a hint. Mirror __moveTo's grid/data patch so
-      // a short navigate onto a door tile actually triggers the teleport.
+      // plan into them without a hint. Patch map.grid/map.data for the door
+      // tile so a short navigate onto it actually triggers the teleport.
       var targetIsDoor = _isDoor(targetX, targetY);
       var doorPatched = false;
       var prevGridVal, prevDataVal, dataIdx;
@@ -1395,24 +1278,6 @@
     };
   };
 
-  window.__navStatus = function () {
-    var nav = window.__navState;
-    if (!nav.active && nav.status === 'idle') return { status: 'idle' };
-    var game = window.game;
-    var pos = (game && game.player) ? { x: game.player.gridX, y: game.player.gridY } : null;
-    return {
-      status: nav.status,
-      player_pos: pos,
-      target: { x: nav.targetX, y: nav.targetY },
-      current_waypoint: nav.currentWP,
-      total_waypoints: nav.waypoints.length,
-      next_waypoint: nav.waypoints[nav.currentWP] || null,
-      distance_to_target: pos ? Math.abs(pos.x - nav.targetX) + Math.abs(pos.y - nav.targetY) : null,
-      stuck_count: nav.stuckCount,
-      elapsed_ms: Date.now() - nav.startTime,
-    };
-  };
-
   window.__navCancel = function () {
     var nav = window.__navState;
     nav.active = false;
@@ -1440,7 +1305,7 @@
       var rect = bg.getBoundingClientRect();
       if (coords.click_x < rect.left || coords.click_x > rect.right ||
           coords.click_y < rect.top || coords.click_y > rect.bottom)
-        return { error: 'Mob "' + entity.name + '" not on screen (dist=' + entity.distance + '). Use __moveTo(' + entity.gridX + ',' + entity.gridY + ') first.' };
+        return { error: 'Mob "' + entity.name + '" not on screen (dist=' + entity.distance + '). Navigate closer to (' + entity.gridX + ',' + entity.gridY + ') first.' };
     }
     game.player.disableAction = false;
     document.getElementById('canvas').dispatchEvent(new MouseEvent('click', {

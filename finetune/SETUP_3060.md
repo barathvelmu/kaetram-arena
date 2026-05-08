@@ -1,5 +1,7 @@
 # Setup: Kaetram Agent on RTX 3060 with Finetuned Qwen3.5-9B
 
+> **DEPRECATED (2026-05-08).** Local RTX 3060 / Ollama inference is no longer the active serving path. Production serving runs on Modal H100 via `finetune/serve_modal.py` and is consumed by `eval_harness.py` / `play_qwen.py`. This document is kept for historical reference only — do not follow it for current r10 work.
+
 You are setting up an autonomous game-playing AI agent on this machine. The agent plays Kaetram (a 2D pixel MMORPG) using a finetuned Qwen3.5-9B model running locally on the RTX 3060, with OpenCode as the agent harness and Playwright MCP for browser automation.
 
 ## What already exists on this machine

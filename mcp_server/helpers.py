@@ -56,14 +56,6 @@ async def inventory_count(page) -> int:
     }""")
 
 
-async def get_player_pos(page) -> dict:
-    """Return {x, y} grid position of the player."""
-    return await page.evaluate("""() => {
-        const p = window.game && window.game.player;
-        return p ? { x: p.gridX, y: p.gridY } : {};
-    }""")
-
-
 def mid_navigation(pos_check: dict) -> bool:
     """True if the player is still in motion toward something after an
     adjacency timeout. Used to distinguish "wall between us" from "agent

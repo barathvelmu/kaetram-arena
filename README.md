@@ -229,9 +229,7 @@ The finetuned Qwen3.5-9B model is served from a Modal SGLang endpoint
 ./scripts/run-eval.sh
 ```
 
-**Dual-VM architecture:**
-- **GCP VM** (`vm.example.com`): Kaetram game server + client, data collection, training pipeline.
-- **GPU VM** (`73.173.11.56:1738`, RTX 3060 12GB): Local-inference experiments + agent harness via Playwright. Connects back to the GCP VM for the game world. See `finetune/SETUP_3060.md`.
+**Architecture:** GCP VM (`vm.example.com`) hosts the Kaetram game server + client, data collection, and training pipeline. Training and serving both run on Modal (H100); the r10 model is exposed via `finetune/serve_modal.py` and consumed by `eval_harness.py` / `play_qwen.py`.
 
 ## World model (WIP)
 

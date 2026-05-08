@@ -125,7 +125,7 @@ the adjacent walkable tile.
 The game's A* refuses to plan onto doors. The agent's `move`/`navigate`
 pathing patches `map.grid[y][x]` and `map.data[idx]` for door targets
 before calling `p.go()`, then restores them. This is in
-`state_extractor.js` (`__moveTo`, `__navigateTo` short-path branch).
+`state_extractor.js` (`__navigateTo` short-path branch).
 
 If a `traverse_door` call lands `move(doorX, doorY)` with `No path found,
 distance: 1`, that patch regressed.

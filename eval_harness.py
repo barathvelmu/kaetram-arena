@@ -590,7 +590,7 @@ def compute_episode_metrics(
 
             # --- Interact NPC: quest acceptance from dialogue ---
             if content.startswith("interact_npc:"):
-                if parsed.get("quest_opened") or parsed.get("quest_started"):
+                if parsed.get("quest_accepted"):
                     qname = parsed.get("quest_name", parsed.get("npc", ""))
                     if qname:
                         quests_accepted_set.add(qname)

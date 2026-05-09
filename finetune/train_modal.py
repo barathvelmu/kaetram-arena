@@ -59,6 +59,7 @@ train_image = (
     .run_commands("pip install flash-attn --no-build-isolation")
     .env({"HF_HOME": "/model_cache", "TOKENIZERS_PARALLELISM": "false"})
     .add_local_python_source("notifications")
+    .add_local_python_source("render")
 )
 
 with train_image.imports():
@@ -101,100 +102,18 @@ EXPERIMENT_NAME = "kaetram-qwen3.5-9b-r10"
 
 
 # ---------------------------------------------------------------------------
-# System-prompt paraphrase augmentation
+# Render path (system-prompt build, chat-template patch, per-record render).
+# Single source of truth lives in `finetune/render.py` so the conversion gate
+# (convert_to_qwen.py), trainer (here), serve, and KTO all agree byte-for-byte.
 # ---------------------------------------------------------------------------
-# Only the intro sentence is paraphrased on training rows. The body stays
-# byte-identical because it contains exact type numbers, tool signatures, and
-# coordinates that game-state JSON references. Validation always uses the
-# original prompt.
 
 import random as _random
 
-SYSTEM_PROMPT_INTRO_VARIANTS = [
-    # Original (matches prompts/system.md opening)
-    "# Kaetram Game Agent\n\nYou are KaetramAgent, an autonomous agent playing Kaetram (2D pixel MMORPG).\n\nYour goal: complete all quests. Every decision should advance quest progress. Grinding, exploring, and gathering exist only to serve quest completion.\n\nYou play continuously for the entire session. Do not stop, ask for help, or wait for input.",
-    # Paraphrases (same structure: title + identity + goal + continuity)
-    "# Kaetram Game Agent\n\nYou control KaetramAgent in Kaetram, an online 2D pixel RPG.\n\nYour objective: finish every quest. All actions should move toward quest completion. Combat and exploration only matter when they serve that goal.\n\nKeep playing non-stop for the whole session. Never pause or ask for guidance.",
-    "# Kaetram Game Agent\n\nYou are KaetramAgent, an AI playing the Kaetram MMORPG.\n\nYour primary goal: complete all available quests. Prioritize quest progress over everything else. Grind, gather, and explore only to advance quests.\n\nPlay autonomously for the entire session without stopping.",
-    "# Kaetram Game Agent\n\nAs KaetramAgent, you play Kaetram (a 2D pixel MMORPG) autonomously.\n\nFocus on quest completion above all else. Every action should push quest progress forward. Combat and exploration serve quest goals.\n\nContinue playing the entire session without interruption.",
-]
-
-# Body split marker — everything from this point on stays byte-identical so
-# tools, entity types, and coordinates remain stable across paraphrases.
-_BODY_SPLIT_MARKER = "\n\n<game_knowledge>"
-
-# Personality placeholder location in system.md. Filled per-record from
-# metadata.personality_suffixes (full personality .md content) — matches
-# eval_harness.resolve_system_prompt byte-for-byte.
-_PERSONALITY_PLACEHOLDER = "__PERSONALITY_BLOCK__"
-
-
-def _build_system_prompt(
-    base_system_prompt: str,
-    personality: str | None,
-    personality_suffixes: dict,
-    rng: _random.Random | None,
-) -> str:
-    """Build system prompt, optionally with paraphrased intro.
-
-    rng provided → training, randomly selects an intro variant.
-    rng None → validation, uses the original prompt unchanged.
-    """
-    personality_block = ""
-    if personality and personality in personality_suffixes:
-        personality_block = personality_suffixes[personality]
-    sys_content = base_system_prompt.replace(_PERSONALITY_PLACEHOLDER, personality_block)
-
-    if rng is None:
-        return sys_content
-
-    intro = rng.choice(SYSTEM_PROMPT_INTRO_VARIANTS)
-    try:
-        body_start = sys_content.index(_BODY_SPLIT_MARKER)
-        body = sys_content[body_start:]
-        sys_content = intro + body
-    except ValueError:
-        # Marker missing — fall back to the unparaphrased prompt.
-        pass
-
-    return sys_content
-
-
-# ---------------------------------------------------------------------------
-# Chat template patch
-# ---------------------------------------------------------------------------
-# Stock Qwen3.5 template drops <think> from assistant messages before
-# last_query_index, which silently strips CoT from multi-turn training data.
-# Patch: always emit <think> when reasoning_content is present.
-
-def _patch_qwen_chat_template(tokenizer):
-    """Patch the Qwen 3.5 chat template to preserve <think> in all turns."""
-    template = tokenizer.chat_template
-    if template is None:
-        return
-
-    old = (
-        "{%- if loop.index0 > ns.last_query_index %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
-        "        {%- else %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
-        "        {%- endif %}"
-    )
-    new = (
-        "{%- if reasoning_content %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
-        "        {%- elif loop.index0 > ns.last_query_index %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n\\n</think>\\n\\n' + content }}\n"
-        "        {%- else %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
-        "        {%- endif %}"
-    )
-
-    if old in template:
-        tokenizer.chat_template = template.replace(old, new)
-        print("  Patched Qwen 3.5 chat template: <think> now preserved in all turns")
-    else:
-        print("  WARNING: chat template patch target not found — template may have changed")
+from render import (
+    build_system_prompt,
+    patch_qwen_chat_template,
+    render_record,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -202,77 +121,28 @@ def _patch_qwen_chat_template(tokenizer):
 # ---------------------------------------------------------------------------
 
 def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes, tokenizer):
-    """Load Kaetram SFT data and format with the chat template.
+    """Load Kaetram SFT data and render it via the shared render path.
 
-    Records contain only gameplay messages (no system prompt or tools).
-    System prompt and tool definitions are injected from metadata.
+    Records on disk contain only gameplay messages (no system prompt). The
+    system prompt + personality + (training-only) intro paraphrase are
+    re-applied per record via `render_record` from `finetune/render.py` —
+    same code path the conversion gate (convert_to_qwen._drop_overlong) uses
+    to measure tokens, so the trainer cannot disagree with the gate.
     """
     import json
 
-    _patch_qwen_chat_template(tokenizer)
+    patch_qwen_chat_template(tokenizer)
 
     metadata = json.loads(metadata_bytes)
     system_prompt = metadata["system_prompt"]
-    tool_definitions = metadata["tools"]
     personality_suffixes = metadata.get("personality_suffixes", {})
 
     def parse_and_format(raw_bytes, augment_rng=None):
         records = json.loads(raw_bytes)
-        rows = []
-        for rec in records:
-            # Reconstruct system message with personality (+ paraphrase for training)
-            personality = rec.get("personality")
-            sys_content = _build_system_prompt(
-                system_prompt, personality, personality_suffixes, augment_rng
-            )
-
-            messages = [{"role": "system", "content": sys_content}]
-
-            for msg in rec["messages"]:
-                m = {"role": msg["role"]}
-
-                # Handle content (may be string, list, or absent for tool-call-only)
-                content = msg.get("content")
-                if isinstance(content, list):
-                    m["content"] = "\n".join(
-                        b.get("text", "") for b in content if isinstance(b, dict)
-                    )
-                elif isinstance(content, str):
-                    m["content"] = content
-                elif content is None and "tool_calls" not in msg:
-                    m["content"] = ""
-
-                # Handle tool_calls (assistant messages calling MCP tools)
-                if "tool_calls" in msg:
-                    tool_calls = []
-                    for tc in msg["tool_calls"]:
-                        tc = dict(tc)
-                        if "function" in tc:
-                            func = dict(tc["function"])
-                            args = func.get("arguments", {})
-                            if isinstance(args, str):
-                                func["arguments"] = json.loads(args)
-                            tc["function"] = func
-                        tool_calls.append(tc)
-                    m["tool_calls"] = tool_calls
-
-                # Handle tool results
-                if "tool_call_id" in msg:
-                    m["tool_call_id"] = msg["tool_call_id"]
-                if "name" in msg and msg["role"] == "tool":
-                    m["name"] = msg["name"]
-
-                messages.append(m)
-
-            # No tools= here — the system prompt already embeds the tool
-            # markdown table from prompts/system.md, and inference doesn't pass
-            # tools= either, so passing it would create a second tool block.
-            formatted = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=False,
-            )
-            rows.append({"text": formatted})
+        rows = [
+            {"text": render_record(rec, system_prompt, personality_suffixes, tokenizer, rng=augment_rng)}
+            for rec in records
+        ]
         return datasets.Dataset.from_list(rows)
 
     train_rng = _random.Random(42)  # reproducible variant selection
@@ -288,7 +158,7 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
 @app.function(
     image=train_image,
     gpu="H100",  # 80GB VRAM — bf16 LoRA on 9B fits easily
-    timeout=24 * 3600,  # Modal hard cap; one-epoch SFT typically completes in 5–10h on H100.
+    timeout=72 * 3600,  # Modal hard cap; r10's 25k records × 16k seq need >24h.
     volumes={
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,
@@ -359,7 +229,9 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         report_to="none",
         seed=42,
         dataset_text_field="text",
-        max_seq_length=MAX_SEQ_LEN,
+        # TRL >=0.20 renamed SFTConfig.max_seq_length -> max_length and silently
+        # ignores the old name. https://github.com/huggingface/trl/issues/3910
+        max_length=MAX_SEQ_LEN,
         packing=False,
     )
 
@@ -382,6 +254,32 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
             instruction_part="<|im_start|>user\n",
             response_part="<|im_start|>assistant\n",
         )
+
+        # TRL #3927 (still open as of May 2026): when truncation eats every
+        # assistant token of a record, all labels become -100 and per-record
+        # loss is silently 0, no error. _drop_overlong should prevent this
+        # upstream, but render parity drift would re-open the hole. Wrap the
+        # collator so any all-masked record aborts the run loud and early.
+        # https://github.com/huggingface/trl/issues/3927
+        import torch as _torch
+        _inner_collator = trainer.data_collator
+
+        def _checked_collator(features):
+            batch = _inner_collator(features)
+            labels = batch.get("labels")
+            if labels is not None and isinstance(labels, _torch.Tensor):
+                unmasked_per_row = (labels != -100).any(dim=-1)
+                if not bool(unmasked_per_row.all().item()):
+                    bad = (~unmasked_per_row).nonzero(as_tuple=True)[0].tolist()
+                    raise RuntimeError(
+                        f"TRL #3927 guard: {len(bad)}/{labels.shape[0]} records "
+                        f"in this batch have ALL labels masked to -100; loss "
+                        f"would be silently zero. _drop_overlong gate is broken "
+                        f"or render parity has drifted. Bad row indices: {bad}"
+                    )
+            return batch
+
+        trainer.data_collator = _checked_collator
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -550,9 +448,11 @@ def merge_checkpoint(checkpoint_name: str):
 # ---------------------------------------------------------------------------
 
 @app.local_entrypoint()
-def main():
+def main(skip_preflight: bool = False):
     """Upload training data and launch the finetune job."""
     import os
+    import subprocess
+    import sys
     from notifications import send_email_notification
 
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -567,6 +467,33 @@ def main():
             f"Metadata not found: {metadata_path}\n"
             "Run: python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/"
         )
+
+    # Preflight: run the four dataset-shape suites that gate r10. A 24-72h H100
+    # run is too expensive to launch on a dataset that fails the cheap checks.
+    # Bypass with `modal run finetune/train_modal.py --skip-preflight` only if
+    # the suites are known-good for this exact dataset build.
+    if not skip_preflight:
+        preflight_targets = [
+            "tests/unit/test_dataset_filters.py",
+            "tests/unit/test_observe_supervision.py",
+            "tests/unit/test_truncation.py",
+            "tests/unit/test_think_roundtrip.py",
+            "tests/unit/test_prompt_parity.py",
+            "tests/unit/test_tool_vocab_drift.py",
+        ]
+        print("=" * 60)
+        print("Preflight: running dataset-shape gate suites...")
+        print("=" * 60)
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-x", "-q", *preflight_targets],
+            cwd=project_dir,
+        )
+        if result.returncode != 0:
+            raise SystemExit(
+                f"Preflight tests failed (exit {result.returncode}). "
+                f"Fix the dataset or pass --skip-preflight to bypass."
+            )
+        print("Preflight passed.\n")
 
     print(f"Uploading training data...")
     with open(train_path, "rb") as f:

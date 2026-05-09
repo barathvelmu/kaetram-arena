@@ -112,58 +112,6 @@ class MCPClient:
 
 
 # ---------------------------------------------------------------------------
-# Tool call parsing (handles Qwen3.5 Coder XML format + JSON fallback)
-# ---------------------------------------------------------------------------
-
-def parse_tool_calls_from_text(text: str) -> list[dict]:
-    """Parse tool calls from model text output.
-
-    Handles multiple formats:
-    1. Qwen3.5 Coder XML: <tool_call><function=name><parameter=key>value</parameter></function></tool_call>
-    2. JSON in <tool_call> tags: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
-    3. ✿TOOL_CALL✿ format
-    """
-    calls = []
-
-    # Pattern 1: Qwen3.5 Coder XML format
-    for m in re.finditer(r"<tool_call>\s*<function=(\w+)>(.*?)</function>\s*</tool_call>", text, re.DOTALL):
-        fn_name = m.group(1)
-        params_text = m.group(2)
-        args = {}
-        for pm in re.finditer(r"<parameter=(\w+)>\s*(.*?)\s*</parameter>", params_text, re.DOTALL):
-            key = pm.group(1)
-            val = pm.group(2).strip()
-            # Try to parse as number
-            try:
-                args[key] = int(val)
-            except ValueError:
-                try:
-                    args[key] = float(val)
-                except ValueError:
-                    args[key] = val
-        calls.append({"name": fn_name, "arguments": args})
-
-    # Pattern 2: JSON inside <tool_call> tags
-    if not calls:
-        for m in re.finditer(r"<tool_call>\s*(.*?)\s*</tool_call>", text, re.DOTALL):
-            try:
-                tc = json.loads(m.group(1))
-                calls.append(tc)
-            except json.JSONDecodeError:
-                pass
-
-    # Pattern 3: ✿TOOL_CALL✿ format
-    if not calls:
-        for m in re.finditer(r"✿TOOL_CALL✿\s*(.*?)(?=✿|$)", text, re.DOTALL):
-            try:
-                tc = json.loads(m.group(1).strip())
-                calls.append(tc)
-            except json.JSONDecodeError:
-                pass
-
-    return calls
-
-
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -237,14 +185,15 @@ async def run_agent(args):
         system_prompt = args.system_prompt
 
     # Build initial messages
+    # Bootstrap user message must match training (build_user_message in
+    # convert_to_qwen.py emits exactly "What should you do?"). Any divergence
+    # here is train/eval drift — the model never sees a different bootstrap
+    # at training time.
     messages = [{"role": "system", "content": system_prompt}]
     if args.user_prompt:
         messages.append({"role": "user", "content": args.user_prompt})
     else:
-        messages.append({
-            "role": "user",
-            "content": "The MCP server auto-connects to the game. Start playing now. Call observe() first to see the game state.",
-        })
+        messages.append({"role": "user", "content": "What should you do?"})
 
     print(f"Harness started: {args.max_turns} max turns, endpoint={args.endpoint}")
     print(f"Log: {log_file}")
@@ -321,50 +270,19 @@ async def run_agent(args):
                     except Exception:
                         pass
 
-        # Route 2: Text-based tool calls (model emitted XML/JSON in content)
+        # No structured tool_calls: log the assistant text and continue.
+        # We do NOT manually parse tool-call XML out of content — the model
+        # is trained to emit structured tool_calls (the format the chat
+        # template renders from training records). Any divergence is a
+        # serving-side bug (SGLang's tool-call parser misconfigured) and
+        # should be fixed at the server, not papered over here with a
+        # divergent tool-result format.
         elif content:
-            text_calls = parse_tool_calls_from_text(content)
-            if text_calls:
-                messages.append({"role": "assistant", "content": content})
-                normalized_calls = []
-                for tc_dict in text_calls:
-                    fn_name = tc_dict.get("name", "")
-                    fn_args = tc_dict.get("arguments", {})
-                    if isinstance(fn_args, str):
-                        try:
-                            fn_args = json.loads(fn_args)
-                        except json.JSONDecodeError:
-                            fn_args = {}
-                    normalized_calls.append({"name": fn_name, "args": fn_args})
-
-                log_turn(log_file, turn, "assistant", content, normalized_calls, usage=usage)
-
-                for normalized in normalized_calls:
-                    fn_name = normalized["name"]
-                    fn_args = normalized["args"]
-                    print(f"  [{turn}] → {fn_name}({fn_args}) [text-parsed]")
-                    try:
-                        result = await mcp.call_tool(fn_name, fn_args)
-                    except Exception as e:
-                        result = f"Error: {e}"
-                    print(f"  [{turn}] ← {result[:120]}...")
-
-                    messages.append({"role": "user", "content": f"Tool result ({fn_name}):\n{result}"})
-                    log_turn(log_file, turn, "tool", f"{fn_name}: {result}")
-
-                    # Save game state for dashboard when model calls observe
-                    if fn_name == "observe" and "\n\nASCII_MAP:" in result:
-                        try:
-                            (state_dir / "game_state.json").write_text(result.split("\n\nASCII_MAP:")[0])
-                        except Exception:
-                            pass
-            else:
-                # Pure text, no tool calls
-                messages.append({"role": "assistant", "content": content})
-                log_turn(log_file, turn, "assistant", content, usage=usage)
-                if choice.finish_reason == "stop":
-                    print(f"  [{turn}] Model stopped (no tool call). Continuing...")
-                    time.sleep(2)
+            messages.append({"role": "assistant", "content": content})
+            log_turn(log_file, turn, "assistant", content, usage=usage)
+            if choice.finish_reason == "stop":
+                print(f"  [{turn}] Model stopped (no tool call). Continuing...")
+                time.sleep(2)
 
         # Game state is saved to dashboard when the model calls observe()
         # (see _save_game_state helper called from tool dispatch above)

@@ -304,35 +304,28 @@ def test_observe_turn_tool_result_is_raw_observe_text():
     assert '"pos"' in msg["content"]
 
 
-def test_build_user_message_does_not_inject_game_state():
-    """The core r10 fix: user messages no longer hand game_state to the model."""
+def test_build_user_message_is_exactly_the_inference_prompt():
+    """Train/eval parity: user messages must be exactly the same `What should
+    you do?` string the inference harnesses (eval_harness, play_qwen) emit.
+    No <game_state>, no <state_delta>, no other injected blocks — state
+    arrives only via the observe tool_result. Anything in the user message
+    that doesn't appear at inference is train/eval drift.
+    """
     from convert_to_qwen import build_user_message
 
-    user_text = build_user_message(None, _make_action_turn())
-    assert "<game_state>" not in user_text, (
-        "user message still injects <game_state> — pre-r10 bug not fixed"
-    )
-    # But "What should you do?" prompt still present.
-    assert "What should you do?" in user_text
+    assert build_user_message() == "What should you do?"
 
 
-def test_build_user_message_keeps_state_delta_when_prev_turn_exists():
-    """State delta is a legit momentum signal; keep it for multi-turn windows."""
-    from convert_to_qwen import build_user_message
-
-    prev = _make_observe_turn()
-    curr = _make_action_turn()
-    # Mutate curr state slightly so delta has content.
-    curr = {**curr, "game_state": {**_GAME_STATE, "stats": {**_GAME_STATE["stats"], "hp": 30}}}
-    user_text = build_user_message(prev, curr)
-    # state_delta may or may not appear depending on compute_state_delta's output;
-    # what we care about is no full <game_state> block.
-    assert "<game_state>" not in user_text
-
-
-def test_multi_turn_window_has_observe_tool_call():
+def test_multi_turn_window_matches_inference_structure():
     """End-to-end: build a 2-turn window (observe + action) and verify the
-    resulting messages list has the expected roles and tool_calls."""
+    role sequence matches what the inference harness produces.
+
+    Train and inference both use: user → asst → tool → asst → tool → ...
+    Only the FIRST turn carries a `What should you do?` user message; the
+    prior tool message acts as the user-side boundary for subsequent
+    assistant turns (Qwen's chat template renders tool messages as
+    user-wrapped `<tool_response>`, same as inference's manual wrap).
+    """
     from convert_to_qwen import build_multi_turn_records
 
     session = [_make_observe_turn(), _make_action_turn()]
@@ -342,19 +335,17 @@ def test_multi_turn_window_has_observe_tool_call():
     assert len(records) >= 1
     msgs = records[0]["messages"]
     roles = [m["role"] for m in msgs]
-    # Expect user, assistant(observe tool_call), tool(state), user, assistant(attack tool_call), tool(attack result)
-    assert roles == ["user", "assistant", "tool", "user", "assistant", "tool"], (
+    # Single bootstrap user message; subsequent assistant turns flow directly
+    # from the prior tool result (matches inference).
+    assert roles == ["user", "assistant", "tool", "assistant", "tool"], (
         f"unexpected role sequence: {roles}"
     )
-    # First assistant msg must be the observe call.
-    first_asst = msgs[1]
-    assert first_asst["tool_calls"][0]["function"]["name"] == "observe"
-    # First tool result must contain the raw state text.
-    first_tool = msgs[2]
-    assert "ASCII_MAP" in first_tool["content"] or '"pos"' in first_tool["content"]
-    # Second assistant msg must be the attack call.
-    second_asst = msgs[4]
-    assert second_asst["tool_calls"][0]["function"]["name"] == "attack"
+    # First assistant must be the observe call.
+    assert msgs[1]["tool_calls"][0]["function"]["name"] == "observe"
+    # First tool result must carry the raw state text.
+    assert "ASCII_MAP" in msgs[2]["content"] or '"pos"' in msgs[2]["content"]
+    # Second assistant (no intervening user message) must be the attack call.
+    assert msgs[3]["tool_calls"][0]["function"]["name"] == "attack"
 
 
 def test_observe_action_emits_observe_tool_call_with_empty_args():

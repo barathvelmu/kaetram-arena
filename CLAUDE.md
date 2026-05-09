@@ -260,8 +260,7 @@ Three orthogonal axes injected into `system.md` via `__PERSONALITY_BLOCK__`:
 `--grinder` (combat/leveling), `--completionist` (progression), and
 `--explorer-tinkerer` / `--explorer` (world + systems coverage). They're a
 *data-factory* mechanism for trajectory diversity, not a paper claim — if
-trajectories collapse we drop to two policies. Legacy vibe flags
-(`--aggressive / --methodical / --curious`) are removed.
+trajectories collapse we drop to two policies.
 
 ### SFT pipeline
 
@@ -287,7 +286,7 @@ lessons: `dataset/DATA.md` and `research/experiments/training-runs.md`.
 - **rsLoRA + `alpha=r` is an 8x LR trap.** rsLoRA scales `1/sqrt(r)` not `1/r`. With `r=alpha=64`, effective LR is 8x. r7 diverged. Keep `use_rslora=False` (the comment on `train_modal.py:359` is load-bearing).
 - **Counting running agents.** `pgrep -fa "claude -p"` self-matches the shell that ran it (the pattern appears in its own cmdline). Count unique bot IDs from the output (`ClaudeBot[0-9]+`, `CodexBot[0-9]+`, `GeminiBot[0-9]+`, or for opencode: `BigQwenBot[0-9]+` / `GrokBot[0-9]+` / `DeepSeekBot[0-9]+` / `OpenCodeBot[0-9]+` depending on `--opencode-model`), or cross-check against listening game-server ports (`9001 + N×10`) — those are authoritative.
 - **OpenCode bot username depends on the model.** The opencode harness splits its in-game username + Mongo player row by model family so dashboard / log analysis can distinguish runs: `*qwen*` → `BigQwenBot` (separate from the local-eval `QwenBot`), `*grok*` → `GrokBot`, `*deepseek*` → `DeepSeekBot`, otherwise `OpenCodeBot`. Logic lives in `cli_adapter.opencode_bot_prefix()` and is mirrored in `restart-single-agent.sh` + `play.sh`.
-- **Qwen3 chat template drops `<think>` on intermediate turns** (QwenLM/Qwen3 #1831). The `_patch_qwen_chat_template` patch in `finetune/train_modal.py` keeps reasoning on every assistant turn. If you touch the tokenizer, re-run `tests/unit/test_think_roundtrip.py` to verify CoT survives `apply_chat_template`.
+- **Qwen3.5 chat template drops `<think>` on intermediate turns** (QwenLM/Qwen3 #1831, still open against Qwen3.5 as of May 2026). `patch_qwen_chat_template` in `finetune/render.py` is the single source of truth — imported by `convert_to_qwen.py` (truncation gate), `train_modal.py`, `serve_modal.py`, `serve_modal_base.py`, `train_kto_modal.py`. If you touch the tokenizer, re-run `tests/unit/test_think_roundtrip.py` to verify CoT survives `apply_chat_template` on every assistant turn.
 - **`world/` is paused.** The forward-dynamics model (`world/extract_transitions.py`, `world/schema.py`, `world/mcts.py`, `world/train_modal.py`) targets the older `browser_run_code` log shape and is not maintained against the current MCP harness. `world/extract_transitions.classify_action` greps for `__attackmob` / `__interactnpc` JS calls that current logs no longer contain; running it on the live corpus would emit zero transitions. Don't update these files when refactoring the SFT pipeline — leave them as-is until the world model is reactivated against the native MCP log shape.
 
 ---

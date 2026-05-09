@@ -1,6 +1,15 @@
 """
 Modal KTO training script for Kaetram agent preference optimization.
 
+DEFERRED — render path drifts from SFT/serve in two places:
+    1. apply_chat_template is called with `tools=tool_definitions` (lines
+       ~188 + ~196). SFT (`finetune/render.render_record`) and serve do NOT
+       pass `tools=`; tools are embedded in `prompts/system.md` markdown.
+       Passing `tools=` here emits a duplicate JSON-schema tool block.
+    2. No `(labels != -100).any()` guard for TRL #3927.
+Reactivating KTO requires removing the `tools=` kwarg in both calls and
+adding the labels guard, mirroring train_modal.py.
+
 Runs Kahneman-Tversky Optimization on top of an SFT checkpoint using binary
 desirable/undesirable labels derived from Claude trajectories.
 
@@ -42,6 +51,7 @@ train_image = (
     .run_commands("pip install flash-attn --no-build-isolation")
     .env({"HF_HOME": "/model_cache", "TOKENIZERS_PARALLELISM": "false", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
     .add_local_python_source("notifications")
+    .add_local_python_source("render")
 )
 
 with train_image.imports():
@@ -145,36 +155,10 @@ def _split_completion(prompt_text: str, full_text: str) -> str | None:
     return None
 
 
-def _patch_qwen_chat_template(tokenizer):
-    """Patch the Qwen 3.5 chat template to preserve <think> in all turns.
-
-    Stock template drops reasoning_content from assistant messages before
-    last_query_index. Always emit <think> when reasoning_content is present.
-    """
-    template = tokenizer.chat_template
-    if template is None:
-        return
-    old = (
-        "{%- if loop.index0 > ns.last_query_index %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
-        "        {%- else %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
-        "        {%- endif %}"
-    )
-    new = (
-        "{%- if reasoning_content %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
-        "        {%- elif loop.index0 > ns.last_query_index %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n\\n</think>\\n\\n' + content }}\n"
-        "        {%- else %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
-        "        {%- endif %}"
-    )
-    if old in template:
-        tokenizer.chat_template = template.replace(old, new)
-        print("  Patched Qwen 3.5 chat template: <think> now preserved in all turns")
-    else:
-        print("  WARNING: chat template patch target not found — template may have changed")
+# Chat template patch (QwenLM/Qwen3 #1831) lives in finetune/render.py — single
+# source of truth shared with train_modal.py, serve_modal*.py, and the
+# convert_to_qwen.py truncation gate.
+from render import patch_qwen_chat_template
 
 
 def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes, tokenizer):
@@ -188,7 +172,7 @@ def load_kto_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: bytes
     # See TEMPLATE_TOKENIZER_ID definition for why we don't reuse the trained tokenizer here.
     print(f"Loading template tokenizer ({TEMPLATE_TOKENIZER_ID}) for consistent chat template rendering...")
     fmt_tok = AutoTokenizer.from_pretrained(TEMPLATE_TOKENIZER_ID, trust_remote_code=True)
-    _patch_qwen_chat_template(fmt_tok)
+    patch_qwen_chat_template(fmt_tok)
 
     def parse_and_format(raw_bytes, split_name: str, augment_rng=None):
         records = json.loads(raw_bytes)

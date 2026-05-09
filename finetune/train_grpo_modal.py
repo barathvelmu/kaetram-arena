@@ -1,6 +1,17 @@
 """
 Modal GRPO (Group Relative Policy Optimization) script for Kaetram agent.
 
+DEFERRED — does NOT import `finetune/render.patch_qwen_chat_template`. Without
+the patch, Qwen3.5's chat template silently strips `<think>` from intermediate
+assistant turns (QwenLM/Qwen3 #1831 — still open against Qwen3.5 as of May
+2026). Reactivating this script requires:
+    1. Importing `patch_qwen_chat_template` from `finetune/render.py` and
+       calling it on the tokenizer immediately after `AutoTokenizer.from_pretrained`.
+    2. Aligning the render path (no `tools=` kwarg if you keep the markdown
+       table embedded in `prompts/system.md`).
+    3. Adding `(labels != -100).any()` per-batch guard for TRL #3927 parity
+       with `train_modal.py`.
+
 Uses the SFT-finetuned Qwen3.5-9B as starting policy, then applies GRPO with
 game-derived reward functions. The model generates completions (actions + reasoning)
 and gets scored on gameplay quality — learning *what works*, not just *what was

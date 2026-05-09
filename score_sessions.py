@@ -15,7 +15,163 @@ import json
 import math
 from pathlib import Path
 
-from convert_to_qwen import compute_state_delta, load_turns_by_session, score_turn
+from convert_to_qwen import load_turns_by_session
+
+
+# ---------------------------------------------------------------------------
+# KTO-only signals (score_turn + compute_state_delta). Lived in
+# convert_to_qwen.py until May 2026; moved here because SFT does not gate on
+# them and the SFT converter shouldn't be importing KTO heuristics. The
+# state_delta block in user messages was also removed at the same time
+# (train/eval parity — inference never injects this).
+# ---------------------------------------------------------------------------
+
+def _to_int(v) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def compute_state_delta(prev_state: dict, curr_state: dict) -> dict:
+    """Compute observable changes between two consecutive game_states.
+
+    Schema fields: stats.{hp,xp,level}, pos.{x,y}, active_quests,
+    finished_quests, status.dead. Used by KTO scoring; not part of the SFT
+    pipeline.
+    """
+    delta: dict = {}
+    if not isinstance(prev_state, dict) or not isinstance(curr_state, dict):
+        return delta
+
+    ps = prev_state.get("stats") or {}
+    cs = curr_state.get("stats") or {}
+    if isinstance(ps, dict) and isinstance(cs, dict):
+        hp_delta = _to_int(cs.get("hp")) - _to_int(ps.get("hp"))
+        xp_delta = _to_int(cs.get("xp")) - _to_int(ps.get("xp"))
+        lvl_delta = _to_int(cs.get("level")) - _to_int(ps.get("level"))
+        if hp_delta:
+            delta["hp_delta"] = hp_delta
+        if xp_delta:
+            delta["xp_delta"] = xp_delta
+        if lvl_delta:
+            delta["level_delta"] = lvl_delta
+
+    pp = prev_state.get("pos")
+    cp = curr_state.get("pos")
+    if isinstance(pp, dict) and isinstance(cp, dict):
+        if pp.get("x") != cp.get("x") or pp.get("y") != cp.get("y"):
+            delta["moved_from"] = pp
+
+    prev_q = {q.get("key"): q for q in (prev_state.get("active_quests") or []) if isinstance(q, dict)}
+    curr_q = {q.get("key"): q for q in (curr_state.get("active_quests") or []) if isinstance(q, dict)}
+    new_quests = [k for k in curr_q if k and k not in prev_q]
+    stage_advances = sum(
+        1 for k, cq in curr_q.items()
+        if k in prev_q and (cq.get("stage", 0) or 0) > (prev_q[k].get("stage", 0) or 0)
+    )
+    if new_quests:
+        delta["new_quests"] = new_quests
+    if stage_advances:
+        delta["quest_stage_advances"] = stage_advances
+
+    prev_done = {q.get("key") for q in (prev_state.get("finished_quests") or []) if isinstance(q, dict)}
+    curr_done = {q.get("key") for q in (curr_state.get("finished_quests") or []) if isinstance(q, dict)}
+    completions = (curr_done - prev_done) - {None}
+    if completions:
+        delta["quest_completions"] = sorted(completions)
+
+    if (curr_state.get("status") or {}).get("dead") and not (prev_state.get("status") or {}).get("dead"):
+        delta["died"] = True
+
+    return delta
+
+
+def score_turn(turn: dict) -> float:
+    """Heuristic 0.0–1.0 quality score over a single turn.
+
+    Used by score_sessions.py and build_kto_dataset.py to rank turns.
+    Reads the live observe schema (pos / stats / nearby).
+    """
+    score = 0.0
+    gs = turn.get("game_state") or {}
+    stats = gs.get("stats") or {}
+    nearby = gs.get("nearby") or {}
+
+    # State completeness (0.0 – 0.4)
+    if _to_int(stats.get("hp")) > 0:
+        score += 0.1
+    if _to_int(stats.get("max_hp")) > 0:
+        score += 0.05
+    if any(nearby.get(k) for k in ("npcs", "mobs", "resources", "ground_items")):
+        score += 0.1
+    if gs.get("inventory"):
+        score += 0.05
+    if gs.get("active_quests"):
+        score += 0.05
+    if gs.get("equipment"):
+        score += 0.05
+
+    # Action quality (0.0 – 0.2)
+    action_type = turn.get("action_type", "")
+    high_value = (
+        "observe", "attack", "interact_npc", "navigate",
+        "gather", "loot", "buy_item", "query_quest", "craft_item",
+    )
+    medium_value = (
+        "eat_food", "equip_item", "warp", "set_attack_style",
+        "stuck_reset", "cancel_nav", "drop_item",
+    )
+    if action_type in high_value:
+        score += 0.2
+    elif action_type in medium_value:
+        score += 0.15
+    elif action_type == "respawn":
+        score += 0.1
+
+    # Reasoning quality (0.0 – 0.25)
+    reasoning = turn.get("reasoning", "") or ""
+    rl = reasoning.lower()
+    if 30 < len(reasoning) < 1500:
+        score += 0.1
+    if len(reasoning) > 80:
+        score += 0.05
+    keywords = ("quest", "kill", "heal", "navigate", "explore", "attack",
+                "npc", "equip", "hp", "level", "mob", "warp", "food", "inventory", "craft")
+    hits = sum(1 for kw in keywords if kw in rl)
+    if hits >= 2:
+        score += 0.1
+    elif hits >= 1:
+        score += 0.05
+
+    # Reasoning–action alignment bonus (0.0 – 0.05)
+    alignment = {
+        "attack": ("attack", "kill", "fight", "mob", "combat", "damage"),
+        "eat_food": ("heal", "food", "hp", "health", "eat", "low hp"),
+        "navigate": ("navigate", "walk", "go to", "head to", "move to"),
+        "warp": ("warp", "teleport", "fast travel", "mudwich", "aynor", "lakesworld",
+                 "crullfield", "patsow", "undersea"),
+        "interact_npc": ("npc", "talk", "quest", "interact", "dialogue"),
+        "equip_item": ("equip", "weapon", "armor", "gear", "sword", "axe"),
+        "respawn": ("dead", "died", "respawn", "death"),
+        "gather": ("gather", "chop", "mine", "forage", "tree", "rock", "resource", "log"),
+        "loot": ("loot", "pick up", "drop", "lootbag", "item"),
+        "buy_item": ("buy", "purchase", "shop", "store", "gold"),
+        "drop_item": ("drop", "discard", "inventory full", "free space"),
+        "query_quest": ("quest", "walkthrough", "steps", "objective"),
+        "craft_item": ("craft", "smith", "smelt", "cook", "forge", "recipe"),
+    }
+    if action_type in alignment and any(k in rl for k in alignment[action_type]):
+        score += 0.05
+
+    # Penalties
+    pos = gs.get("pos") or {}
+    if pos.get("x", 0) == 0 and pos.get("y", 0) == 0:
+        score -= 0.5  # login screen
+    if len(reasoning.strip()) < 10:
+        score -= 0.15
+
+    return max(0.0, min(1.0, score))
 
 
 def _clamp(val: float, lo: float = 0.0, hi: float = 1.0) -> float:

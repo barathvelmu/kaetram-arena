@@ -51,6 +51,7 @@ serve_image = (
         "HF_HUB_ENABLE_HF_TRANSFER": "1",
         "SGLANG_DISABLE_CUDNN_CHECK": "1",
     })
+    .add_local_python_source("render")
 )
 
 # ---------------------------------------------------------------------------
@@ -79,39 +80,10 @@ QWEN_THINK_PRESENCE_PENALTY = 1.5
 QWEN_DECODE_MODE = "thinking_general"
 
 
-# ---------------------------------------------------------------------------
-# Chat template fix (QwenLM/Qwen3#1831)
-# ---------------------------------------------------------------------------
-
-def _patch_qwen_chat_template(tokenizer):
-    """Patch Qwen 3.5 chat template to preserve <think> in all turns."""
-    template = tokenizer.chat_template
-    if template is None:
-        return
-    old = (
-        "{%- if loop.index0 > ns.last_query_index %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
-        "        {%- else %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
-        "        {%- endif %}"
-    )
-    new = (
-        "{%- if reasoning_content %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content + '\\n</think>\\n\\n' + content }}\n"
-        "        {%- elif loop.index0 > ns.last_query_index %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n<think>\\n\\n</think>\\n\\n' + content }}\n"
-        "        {%- else %}\n"
-        "            {{- '<|im_start|>' + message.role + '\\n' + content }}\n"
-        "        {%- endif %}"
-    )
-    if old not in template:
-        raise RuntimeError(
-            "Qwen 3.5 chat template patch target not found — tokenizer revision has changed "
-            "the reasoning_content stripping block. Inspect tokenizer.chat_template, update the "
-            "`old` pattern, and re-verify <think> survives in multi-turn apply_chat_template output."
-        )
-    tokenizer.chat_template = template.replace(old, new)
-    print("  Patched Qwen 3.5 chat template: <think> now preserved in all turns")
+# Chat template patch (QwenLM/Qwen3 #1831) lives in finetune/render.py — single
+# source of truth shared with train_modal.py, serve_modal_base.py, and the
+# convert_to_qwen.py truncation gate.
+from render import patch_qwen_chat_template
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +181,7 @@ class Inference:
         )
         from transformers import AutoTokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID, trust_remote_code=True)
-        _patch_qwen_chat_template(self.tokenizer)
+        patch_qwen_chat_template(self.tokenizer)
         print("SGLang engine ready.")
 
     @modal.asgi_app()
@@ -249,7 +221,6 @@ class Inference:
             import re as _re
             body = await request.json()
             messages = body.get("messages", [])
-            tools = body.get("tools")
             # Qwen3.5-9B thinking-general defaults per model card; caller may override.
             temperature = body.get("temperature", QWEN_THINK_TEMP)
             max_tokens = body.get("max_tokens", 512)
@@ -257,9 +228,12 @@ class Inference:
             top_k = body.get("top_k", QWEN_THINK_TOP_K)
             presence_penalty = body.get("presence_penalty", QWEN_THINK_PRESENCE_PENALTY)
 
+            # No tools= kwarg — train and serve both embed the tool table in
+            # the system prompt (markdown). Passing tools= here would emit a
+            # second JSON-schema tool block the model was never trained on.
+            # Source of truth: finetune/render.render_record.
             prompt = self.tokenizer.apply_chat_template(
                 messages,
-                tools=tools,
                 tokenize=False,
                 add_generation_prompt=True,
             )

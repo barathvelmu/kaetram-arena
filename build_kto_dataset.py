@@ -25,8 +25,8 @@ from convert_to_qwen import (
     build_user_message,
     detect_personality,
     load_turns_by_session,
-    score_turn,
 )
+from score_sessions import score_turn
 
 
 def _window_score(turns: list[dict]) -> float:
@@ -113,13 +113,11 @@ def _build_window_examples(
         messages = [{"role": "system", "content": sys_prompt}]
 
         for i, turn in enumerate(window):
-            prev = window[i - 1] if i > 0 else None
-
             is_last = i == len(window) - 1
             asst_msg = build_assistant_message(turn)
             if asst_msg is None:
                 continue
-            messages.append({"role": "user", "content": build_user_message(prev, turn)})
+            messages.append({"role": "user", "content": build_user_message()})
             messages.append(asst_msg)
 
             if not is_last:

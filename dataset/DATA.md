@@ -104,9 +104,9 @@ Written automatically by `orchestrate.py` at session start. The `harness` field 
 
 ## Eligibility Rule
 
-**The active SFT corpus is post-Core-3 Claude only.** Pre-Core-3 sessions and every non-Claude harness run live under `dataset/raw/_archive/` and `dataset/_archive/` — the live build pipeline does not see them. This guarantees every record in `dataset/qwen_sft/` is on-policy with the live world contract (Core 3 quests, no Sea Activities or Arts and Crafts trajectories, current grinder/completionist/explorer_tinkerer personalities).
+**The active SFT corpus is Claude only.** Every non-Claude harness run and any deprecated trajectory lives under `dataset/raw/_archive/` and `dataset/_archive/` — the live build pipeline does not see them. Every record in `dataset/qwen_sft/` is on-policy with the live world contract (current quest set, current `grinder` / `completionist` / `explorer_tinkerer` archetypes).
 
-To inspect the cutoff, read `dataset/qwen_sft/metadata.json` — every build stamps `version`, `built_at`, `prompt_commit`, `source_runs[]`, `core3_only: true`.
+`dataset/qwen_sft/metadata.json` stamps the per-build provenance: `version`, `built_at`, `prompt_commit`, `source_runs[]`, `harness`, `session_count`, `raw_turns`, `record_counts`, plus the `thinking_ratio` and `truncation_gate` blocks.
 
 ---
 
@@ -116,18 +116,19 @@ To inspect the cutoff, read `dataset/qwen_sft/metadata.json` — every build sta
 |---|---|
 | Active agents | 3 — grinder / completionist / explorer_tinkerer capability archetypes (`prompts/personalities/*.md`) |
 | Supported harnesses | Claude (sole training-data source); Codex, Gemini, OpenCode (experimental smoke tests, archived under `dataset/raw/_archive/`); xAI/Grok wired through OpenCode |
-| Active session logs | 135 (45 / 39 / 51 for agents 0/1/2) across 5 post-Core-3 Claude runs |
-| Raw OODA turns extracted | 9,766 |
-| SFT training records | **r10: 9,352 train / 934 val = 10,286 total** (`dataset/qwen_sft/`, Claude-only, post-Core-3) |
+| Active session logs | live count in `metadata.json::session_count` + `source_runs[]` |
+| Raw OODA turns extracted | live count in `metadata.json::raw_turns` |
+| SFT training records | live count in `metadata.json::record_counts` (after thinking-ratio gate ≤25% no-think + truncation gate ≤16,384 tokens) |
 | Architecture | Modular MCP package (`mcp_server/{core,tools/...}`, entry point `mcp_game_server.py` is a 19-line stub), 17 model-visible typed tools |
-| Active SFT focus | r10 dataset built; LoRA training planned. Agent-side unblocks shipped: `live_gate_status`, `mob_stats`, `station_locations` (cross-session memory `quest_resume.json` + `recent_failures` injection were removed in commit `09e611d`). |
-| Latest completed SFT | r10 (built 2026-05-06, 9,352 train / 934 val on the post-Core-3 Claude corpus). r9 archived. |
+| Active SFT focus | r10 LoRA training. Agent-side unblocks shipped: `live_gate_status`, `mob_stats`, `station_locations`. |
+| Latest completed SFT | r10. r9 archived. |
 
 Rebuild with `scripts/collect_sft_data.sh` or manually:
 ```bash
 python3 extract_turns.py --log-dir dataset/raw/agent_N/runs/run_YYYYMMDD_HHMMSS/ --output-dir dataset/extracted/agent_N/
-python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/ --mode mixed --format sft
+python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 ```
+Mixed mode (window=3 multi-turn + ~30% single-turn observe→action) is the only mode.
 
 Only run extraction on agents 0-2. Sessions under `_archive/` are skipped automatically.
 

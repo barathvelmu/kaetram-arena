@@ -66,7 +66,7 @@ modal app list
 Volume structure:
 ```
 /checkpoints/
-  kaetram-qwen3.5-9b-r9/
+  kaetram-qwen3.5-9b-r10/
     adapter/              # LoRA adapter weights
     merged/               # Full merged safetensors (for SGLang serving)
     training_metrics.json # Loss curves, eval results
@@ -86,7 +86,7 @@ Volumes persist across container restarts. Checkpoints saved during training sur
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | Base model | `unsloth/Qwen3.5-9B` | Unsloth-optimized, Apache 2.0 |
-| MAX_SEQ_LEN | 16,384 | r9: bumped from 8192 to fit larger system prompt |
+| MAX_SEQ_LEN | 16,384 | Truncation gate (`convert_to_qwen._drop_overlong`) drops any record over this. |
 | LoRA rank (r) | 64 | Increased from 16 in round 2 |
 | LoRA alpha | 64 | alpha = r recommended for Qwen3.5 |
 | LoRA targets | q/k/v/o/gate/up/down_proj | All attention + MLP projections |
@@ -118,13 +118,13 @@ Uses Unsloth's `train_on_responses_only()`:
 
 ### Chat Template Patch
 
-Qwen3.5's stock template strips `<think>` reasoning from intermediate assistant turns (only keeps it on the last turn). `_patch_qwen_chat_template()` fixes this to preserve reasoning on all turns. Verified working with `unsloth/Qwen3.5-9B` tokenizer (transformers 5.5.3).
+Qwen3.5's stock template strips `<think>` reasoning from intermediate assistant turns (only keeps it on the last turn — QwenLM/Qwen3 #1831, still open against Qwen3.5 as of May 2026). `patch_qwen_chat_template()` in `finetune/render.py` fixes this to preserve reasoning on every turn. Single source of truth — imported by `convert_to_qwen.py` (truncation gate), `train_modal.py`, `serve_modal.py`, `serve_modal_base.py`, `train_kto_modal.py`. Verified by `tests/unit/test_think_roundtrip.py` against `unsloth/Qwen3.5-9B`.
 
 ### Data Augmentation
 
-- **System prompt intro**: 4 paraphrase variants (training only, validation uses original)
-- **Personality suffixes**: 3 types × 3 variants each (aggressive, methodical, curious)
-- **Body split**: `<game_knowledge>` marker — everything after is kept identical
+- **System prompt intro**: 4 paraphrase variants for training rows (`SYSTEM_PROMPT_INTRO_VARIANTS` in `finetune/render.py`); validation rows use the canonical intro from `prompts/system.md` unchanged.
+- **Personality suffixes**: 3 archetypes (`grinder` / `completionist` / `explorer_tinkerer`), one `.md` file each in `prompts/personalities/`. Substituted at `__PERSONALITY_BLOCK__` in the system prompt.
+- **Body split**: `\n\n<game_knowledge>` marker — everything after is byte-identical across variants.
 
 ### Container Image
 
@@ -139,12 +139,12 @@ flash-attn: compiled from source (needs nvcc from devel image)
 
 | Parameter | Value |
 |-----------|-------|
-| Timeout | 18 hours |
+| Timeout | 72 hours |
 | GPU | H100 80GB (~$3.95/hr) |
-| Typical duration | 12-18h for ~367 steps |
-| Typical cost | $50-70 |
+| Typical duration | scales with corpus size; multi-day at MAX_SEQ_LEN=16,384 |
+| Typical cost | $50-200 depending on corpus size and resume strategy |
 
-**Cost note**: r9 at MAX_SEQ_LEN=16384 runs ~5.5 min/step (vs r8 at 8192 = ~2 min/step) due to gradient offloading overhead. Budget accordingly.
+**Cost note**: at MAX_SEQ_LEN=16,384 a step runs ~5.5 min on H100 80GB due to gradient offloading. Step count = `(train_records / batch_size / grad_accum) * epochs`. Budget accordingly; use checkpoint-resume if a single window won't fit.
 
 ### Training Data Input
 
@@ -175,10 +175,10 @@ Sends email on start/finish/failure via Modal Secrets (`notification_env()`). In
 
 ### Model Loading Priority
 
-The serving endpoint checks these locations in order:
-1. Cached merged model at `/model_cache/kaetram-merged-r8/`
+The serving endpoint checks these locations in order (run name controlled by `SFT_EXPERIMENT` env, defaults to `kaetram-qwen3.5-9b-r10`):
+1. Cached merged model at `/model_cache/kaetram-merged-{SFT_EXPERIMENT}/`
 2. GRPO merged at `/checkpoints/kaetram-qwen3.5-9b-grpo/merged/`
-3. SFT merged at `/checkpoints/kaetram-qwen3.5-9b-r8/merged/`
+3. SFT merged at `/checkpoints/{SFT_EXPERIMENT}/merged/`
 4. Adapter-only (load base + merge adapter on startup)
 5. Base model fallback
 
@@ -226,8 +226,8 @@ Same as finetuned serving but:
 
 ```
 run-eval.sh
-  ├─ eval_harness.py --models r8-sft=<modal-url> (port 9001)
-  └─ eval_harness.py --models base=<modal-url>   (port 9041)
+  ├─ eval_harness.py --models r10-sft=<modal-url> (port 9061)
+  └─ eval_harness.py --models base=<modal-url>    (port 9071)
        ├─ Per episode: reset MongoDB → spawn play_qwen.py → collect logs
        ├─ Sub-session continuation (restart every ~30 turns, preserve DB)
        └─ Compute metrics from logs → results.json
@@ -238,8 +238,8 @@ run-eval.sh
 ```
 dataset/eval/runs/
   YYYYMMDD_HHMMSS_[personality]/
-    r8-sft/results.json
-    r8-sft/episode_001.jsonl
+    r10-sft/results.json
+    r10-sft/episode_001.jsonl
     base/results.json
     base/episode_001.jsonl
   latest → (symlink)
@@ -264,7 +264,7 @@ If training times out, merge an intermediate checkpoint:
 
 ```bash
 # List what's on the volume
-modal volume ls kaetram-model-vol /checkpoints/kaetram-qwen3.5-9b-r9/
+modal volume ls kaetram-model-vol /checkpoints/kaetram-qwen3.5-9b-r10/
 
 # Merge checkpoint-150 into full model
 modal run finetune/train_modal.py::merge_checkpoint --checkpoint-name checkpoint-150
@@ -295,9 +295,9 @@ Not built in currently. To resume from a checkpoint:
 
 | Operation | GPU | Duration | Cost |
 |-----------|-----|----------|------|
-| SFT training (r9) | H100 | 18h (timeout) | ~$70 |
-| GRPO training | H100 | 6h | ~$24 |
-| KTO training | H100 | 8h | ~$32 |
+| SFT training | H100 | scales with corpus; multi-day at 16k seq | $50-200 |
+| GRPO training | H100 | ~6h (deferred) | ~$24 |
+| KTO training | H100 | ~8h (deferred) | ~$32 |
 | Checkpoint merge | H100 | 30 min | ~$2 |
 | Finetuned serving (warm) | A100 | per hour | ~$1.10/hr |
 | Base serving (idle) | A100 | 0 when idle | $0 idle, ~$1.10/hr active |
@@ -307,34 +307,12 @@ Not built in currently. To resume from a checkpoint:
 
 ---
 
-## Experiment History
-
-| Experiment | Key Change | Dataset | Result |
-|------------|-----------|---------|--------|
-| r4 | First working LoRA | ~2K records | Baseline |
-| r5-r7 | Broken loss masking (`completion_only_loss` silently ignored) | 6,423 | Trained on ALL tokens |
-| r8 | Fixed loss masking (`train_on_responses_only`) but wrong system prompt | 6,380 | Worse than base |
-| **r9** | Correct system prompt, 100% reasoning, filtered data, no double tool defs | 5,871 | In progress |
-
-### r8 → r9 Fixes
-
-| Issue | r8 | r9 |
-|-------|----|----|
-| System prompt | Wrong 50-line condensed prompt with fake tool names | Correct `system.md` + `game_knowledge.md` (11K chars) |
-| Reasoning | 31% of turns had `<think>` | 100% |
-| Tool definitions | Double (markdown table + `tools=` kwarg) | Single (markdown table only) |
-| `<memory>` blocks | Present (mismatched inference) | Removed |
-| Degenerate data | 255 click_tile spam + 309 stuck loops | Filtered out |
-| MAX_SEQ_LEN | 8,192 (55% truncated) | 16,384 |
-| EXPERIMENT_NAME | r8 | r9 |
-
----
-
 ## Known Issues & Gotchas
 
-1. **rsLoRA trap**: `use_rslora=True` with `r=alpha=64` gives 8x effective LR. Keep `use_rslora=False`.
-2. **Qwen3.5 chat template `<think>` stripping**: Stock template drops intermediate-turn reasoning. Must patch via `_patch_qwen_chat_template()`. Verified against `unsloth/Qwen3.5-9B` tokenizer.
-3. **MAX_SEQ_LEN=16384 is slow**: ~5.5 min/step on H100 due to gradient offloading. 8192 was ~2 min/step. Consider batch_size=1 + grad_accum=16 for future runs.
-4. **5 tools have zero training examples**: `gather`, `loot`, `buy_item`, `drop_item`, `query_quest` — added to MCP after bulk data collection. Need new collection runs to cover these.
-5. **`tools=` removed from `apply_chat_template`**: r9 intentionally does NOT pass `tools=` to avoid double tool definitions. Tools are defined only in the markdown `<tools>` table in the system prompt.
-6. **Modal volume commit**: `checkpoint_vol.commit()` is called after training completes. If container is killed mid-save, the latest checkpoint may be incomplete — previous checkpoints are safe.
+1. **rsLoRA trap**: `use_rslora=True` with `r=alpha=64` gives 8x effective LR (rsLoRA scales `1/sqrt(r)` not `1/r`). Keep `use_rslora=False`.
+2. **Qwen3.5 chat template `<think>` stripping**: Stock template drops intermediate-turn reasoning. Patched at runtime via `finetune/render.patch_qwen_chat_template()`. Verified against `unsloth/Qwen3.5-9B`.
+3. **MAX_SEQ_LEN=16,384 is slow**: ~5.5 min/step on H100 due to gradient offloading. Step count = `(train_records / batch_size / grad_accum) * epochs`; budget for multi-day runs.
+4. **`tools=` kwarg deliberately omitted**: training and serving both pass conversation messages to `apply_chat_template` without `tools=`. The tool table is embedded in `prompts/system.md` as markdown. Passing `tools=` would emit a second JSON-schema block the model was never trained on. Source of truth: `finetune/render.render_record`.
+5. **TRL `SFTConfig.max_seq_length` was renamed to `max_length`** in TRL ≥0.20 (TRL #3910); the old name is silently ignored. `train_modal.py` already uses `max_length`.
+6. **TRL `train_on_responses_only` + truncation can silently zero per-record loss** (TRL #3927, still open as of May 2026). Defenses: (a) `_drop_overlong` truncation gate in `convert_to_qwen.py` keeps every record under MAX_SEQ_LEN; (b) `train_modal.py` wraps the data collator with a `(labels != -100).any(dim=-1).all()` per-batch assert that aborts on any all-masked record.
+7. **Modal volume commit**: `checkpoint_vol.commit()` is called after training completes. If container is killed mid-save, the latest checkpoint may be incomplete — previous checkpoints are safe.

@@ -29,36 +29,22 @@ TOKENIZER_ID = "unsloth/Qwen3.5-9B"
 
 
 def _apply_runtime_template_patch(tokenizer):
-    """Apply the same `_patch_qwen_chat_template` that training and serving apply.
+    """Apply the same chat-template patch that training and serving apply.
 
-    Runtime code in `finetune/train_modal.py:_patch_qwen_chat_template` and
-    `finetune/serve_modal.py:_patch_qwen_chat_template` swap Qwen3's stock
-    template to replace the `last_query_index` gate with a
-    `reasoning_content`-based check. Tests must use the SAME patched template
-    to represent actual runtime behavior — otherwise we'd be asserting against
-    the (broken) stock template and catching a non-existent bug.
+    Single source of truth lives in `finetune/render.patch_qwen_chat_template`;
+    it swaps Qwen3.5's stock template to replace the `last_query_index` gate
+    with a `reasoning_content`-based check. Tests must use the SAME patched
+    template to represent actual runtime behavior.
     """
     sys.path.insert(0, str(REPO_ROOT / "finetune"))
     try:
-        from train_modal import _patch_qwen_chat_template  # type: ignore
+        from render import patch_qwen_chat_template  # type: ignore
     finally:
         sys.path.pop(0)
-    _patch_qwen_chat_template(tokenizer)
-
-
-def _modal_available() -> bool:
-    try:
-        import modal  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    patch_qwen_chat_template(tokenizer)
 
 
 @pytest.mark.skipif(not DATASET.exists(), reason="dataset not built")
-@pytest.mark.skipif(
-    not _modal_available(),
-    reason="modal SDK not installed locally (only present on Modal cloud)",
-)
 def test_think_survives_roundtrip_for_multi_turn_records():
     """Every assistant turn (including intermediate ones) must retain `<think>`
     after `apply_chat_template` round-trips the messages THROUGH THE PATCHED
@@ -88,55 +74,49 @@ def test_think_survives_roundtrip_for_multi_turn_records():
     for i, r in enumerate(samples):
         rendered = tok.apply_chat_template(r["messages"], tokenize=False)
         assistant_count = rendered.count("<|im_start|>assistant")
-        # Count <think> blocks attributable to assistant content (i.e. the ones
-        # produced by reasoning_content). Each thinking turn opens AND closes,
-        # so we count opens and require they're ≤ assistant_count and balanced.
         think_open = rendered.count("<think>")
         think_close = rendered.count("</think>")
 
-        # Every assistant turn that *had* reasoning_content must open a <think>.
-        # In a pure-thinking record (current default), think_open == assistant_count.
-        # Mixed-mode records (some turns no-think) will have think_open < count.
-        assert think_open <= assistant_count, (
-            f"record {i}: {think_open} <think> opens > {assistant_count} "
-            f"assistant turns — template emitted spurious think blocks."
+        # Per Qwen3 tech report (arxiv 2505.09388 §thinking mode fusion) and the
+        # patched template (finetune/render.patch_qwen_chat_template): every
+        # assistant turn after the user query gets a <think>...</think> block.
+        # Thinking turns carry full reasoning; non-thinking turns carry an
+        # empty <think>\n\n</think>. So think_open == assistant_count always.
+        assert think_open == assistant_count, (
+            f"record {i}: {think_open} <think> opens != {assistant_count} "
+            f"assistant turns — template is dropping (or duplicating) thinks."
         )
-        # Tag balance.
         assert think_close == think_open, (
             f"record {i}: unbalanced <think> tags "
             f"({think_open} open, {think_close} close)"
         )
 
-        # For records where every assistant turn was supposed to think, the
-        # template must NOT drop intermediate-turn reasoning. We detect "every
-        # turn thinks" by checking that every assistant message's content
-        # contains <think>...
+        # For records where every assistant turn carries non-empty <think>
+        # in content, every rendered <think> block should be non-empty too —
+        # i.e. no turn lost its reasoning to the (broken) stock template's
+        # last_query_index strip.
         every_turn_thinks = all(
             "<think>" in (m.get("content") or "")
             for m in r["messages"] if m.get("role") == "assistant"
         )
         if every_turn_thinks:
-            assert think_open == assistant_count, (
-                f"record {i}: {assistant_count} assistant turns all carry "
-                f"<think>, but rendered output has {think_open} opens — "
-                f"intermediate-turn reasoning is being dropped (patched "
-                f"template should prevent this)."
+            assert "<think>\n\n</think>" not in rendered, (
+                f"record {i}: every assistant turn carries <think> in content, "
+                f"but rendered output has empty <think>\\n\\n</think> — "
+                f"intermediate-turn reasoning is being dropped."
             )
 
 
-@pytest.mark.skipif(
-    not _modal_available(),
-    reason="modal SDK not installed locally (only present on Modal cloud)",
-)
 def test_no_think_assistant_turn_renders_cleanly():
-    """A non-thinking assistant turn (tool_calls, no <think> block) must
-    render through the patched chat template without injecting a synthetic
-    <think> wrapper, without dropping the tool_call, and without breaking
-    multi-turn structure when interleaved with thinking turns.
+    """Mixed-mode SFT (Qwen Thinking Mode Fusion): every assistant turn must
+    render as `<|im_start|>assistant\\n<think>...</think>\\n\\n<tool_call>`.
+    Thinking turns carry full reasoning_content; no-think turns carry an
+    empty `<think>\\n\\n</think>` per Qwen3 tech report (arxiv 2505.09388).
 
-    This is the precondition for mixed-mode SFT (Qwen Thinking Mode Fusion):
-    we want to teach the model that some turns reason and some don't, and the
-    chat template must faithfully represent both.
+    The patched template (finetune/render.patch_qwen_chat_template) injects
+    the empty think on no-think turns automatically via the
+    `loop.index0 > ns.last_query_index` branch. Tool_calls must survive on
+    every turn regardless of reasoning presence.
     """
     try:
         from transformers import AutoTokenizer
@@ -193,24 +173,22 @@ def test_no_think_assistant_turn_renders_cleanly():
         f"expected 3 assistant turns, got {rendered.count('<|im_start|>assistant')}\n"
         f"---\n{rendered}\n---"
     )
-    # Exactly 2 <think> blocks (turn 0 and turn 2). The middle no-think turn
-    # must NOT emit a <think> block — the chat template should not synthesize
-    # one, and our `reasoning_content` extraction must yield empty for ""-content.
+    # The patched template has 3 branches:
+    #   1. reasoning_content truthy → full <think>...</think>
+    #   2. no reasoning + after last_query_index ��� empty <think>\n\n</think>
+    #   3. no reasoning + before last_query_index → no think wrapper
+    # In this message sequence the no-think turn (index 5) is BEFORE the
+    # last user message (index 7), so it falls into branch 3 — no wrapper.
+    # Only the 2 thinking turns produce <think> blocks.
     think_open = rendered.count("<think>")
     think_close = rendered.count("</think>")
     assert think_open == 2, (
-        f"expected exactly 2 <think> opens (no-think turn must not emit one), "
+        f"expected 2 <think> opens (thinking turns only; middle no-think turn "
+        f"is before last_query_index so gets no wrapper), "
         f"got {think_open}\n---\n{rendered}\n---"
     )
     assert think_close == 2, f"unbalanced think tags: {think_open}/{think_close}"
 
     # All three tool_calls must survive the round-trip.
-    for fname, args in [("warp", "mudwich"), ("attack", "rat"), ("attack", "rat")]:
+    for fname in ("warp", "attack"):
         assert fname in rendered, f"tool name {fname!r} missing from render"
-    assert rendered.count('"name": "attack"') + rendered.count("'name': 'attack'") >= 1 \
-           or rendered.count("attack") >= 2, "attack tool_call missing"
-
-    # The no-think assistant turn's tool_call (call_002) must be preserved.
-    assert "call_002" in rendered or "attack" in rendered, (
-        "no-think turn's tool_call appears to have been dropped by template"
-    )

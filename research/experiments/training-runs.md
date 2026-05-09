@@ -16,7 +16,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
 | r8 | Apr 13-14 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | COMPLETE. Deployed on Modal. Eval harness set up (base vs r8-SFT). |
 | r9 | Apr 15-16 | SFT | 5,871 train / 575 val | Train/inference alignment fix (system prompt, reasoning, seq length) + degenerate filtering | COMPLETE Apr 16. Deployed via `serve_modal.py`. In early curious eval lost to base (1.5 quests / 28.5 kills / L24 vs base 2.5 / 26.5 / L20). Root cause → r10 P0 fixes. |
-| r10 | May 7–8 | SFT (dataset) | 14,346 train / 1,398 val | Post-Core-3 Claude corpus only: 5 runs × 3 agents = 135 sessions, 19,152 raw OODA turns. Mixed-mode thinking ratio gate (≤25% non-thinking) applied May 8. | Dataset rebuilt 2026-05-08. Training ETA reduced (~38h estimate, still vs Modal 24h cap). |
+| r10 | May 7-9 | SFT (dataset) | live counts in `dataset/qwen_sft/metadata.json::record_counts` | Claude corpus only, 3 agents (grinder / completionist / explorer_tinkerer). Mixed-mode thinking-ratio gate (≤25% no-think) + strict-16,384 truncation gate. Reasoning rendered verbatim; `_drop_overlong` is the only length authority. | Dataset rebuilt 2026-05-09. Training timeout 72h. |
 | r9-KTO | DEFERRED | KTO | TBD | Preference learning on r9 merged weights | Deferred indefinitely — pipeline focuses on the quest-completion benchmark over preference-RL. |
 
 ---
@@ -154,31 +154,28 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 ---
 
-## r10 — Post-Core-3 Claude Corpus (dataset rebuilt May 7, training pending)
+## r10 — Claude Corpus, Mixed-Mode Thinking Ratio + Strict 16,384 Truncation Gate
 
-**Source.** Active raw corpus only: 5 Claude Sonnet runs × 3 agents = **135 sessions** spanning May 4 – May 6, 2026. All sessions ran on the Core 3 prompt (commit `c4dcf8b` or later) under the current grinder / completionist / explorer_tinkerer archetypes. Pre-Core-3 raw runs and every non-Claude harness run live under `dataset/raw/_archive/` and are invisible to the build pipeline. Source runs: `run_20260504_140418`, `run_20260504_172157`, `run_20260504_221206`, `run_20260505_150033`, `run_20260505_214542`.
+**Source.** Live Claude Sonnet runs × 3 agents (grinder / completionist / explorer_tinkerer). Source runs and counts are stamped per build in `dataset/qwen_sft/metadata.json::source_runs[]` and `session_count`. Every non-Claude harness run lives under `dataset/raw/_archive/` and is invisible to the build pipeline.
 
 **Pipeline stages:**
-1. **Raw OODA extraction** (`extract_turns.py`): 135 session_*.log → **19,152 raw turns**. Observe emitted as first-class turn; standalone post-observe action emitted as second turn. (May 7 pipeline cleanup — `ad66cca` — simplified the extraction chain and removed dead state-extract code, increasing usable turn yield.)
-2. **Conversion** (`convert_to_qwen.py`): mixed mode, window=3. Degenerate and observe→observe bigram filters applied. Pre-gate yield: ~25,489 SFT records.
-3. **Mixed-mode thinking ratio gate** (added May 8, `6601b3c`): enforces ≤25% non-thinking assistant turns (`max_no_think_ratio=0.25`). Sonnet emits no-CoT tool calls ~47% of the time on repetitive actions (attack/gather/drop); without this gate the corpus is dominated by non-thinking turns and the model unlearns CoT. Records ranked by non-thinking share; pure-grind-loop records dropped first. **Final yield: 15,744 records (14,346 train + 1,398 val).**
-4. **Provenance metadata** stamped at build time: `version`, `built_at`, `prompt_commit`, `core3_only`, `harness`, `source_runs[]`, `session_count`, `raw_turns`, `record_counts`, `thinking_ratio`, `personality_labels`.
+1. **Raw OODA extraction** (`extract_turns.py`): each session log → ordered observe / action turns with reasoning attribution. Observe is a first-class turn; the immediately-following action is a second turn that inherits the observe's `game_state`.
+2. **Conversion** (`convert_to_qwen.py`): mixed mode, window=3 multi-turn records plus ≈30% single-turn observe→action records. System prompt is NOT embedded in records — `train_modal.py` injects it from `metadata.json` at training time so render parity with eval is structural.
+3. **Thinking-ratio gate** (`_enforce_thinking_ratio`): enforces ≤25% non-thinking assistant turns (`max_no_think_ratio=0.25`). Sonnet emits no-CoT tool calls ~47% of the time on repetitive actions (attack/gather/drop); without this gate the corpus is dominated by no-think turns and the model unlearns CoT. Records ranked by descending no-think share; pure-grind-loop records dropped first.
+4. **Truncation gate** (`_drop_overlong`): renders each record through `finetune/render.render_record(rng=None)` — same path the trainer uses — and drops any record exceeding `MAX_SEQ_LEN=16,384`. Load-bearing safety net for TRL #3927: with `train_on_responses_only` masking, truncation that eats every assistant token of a record silently zeros per-record loss. Strict drop, no inner truncation.
+5. **Provenance metadata.** `metadata.json` stamps `version`, `built_at`, `prompt_commit`, `harness`, `source_runs[]`, `session_count`, `raw_turns`, `record_counts`, `thinking_ratio` (counts + share), `truncation_gate` (max/p99/p50 token counts of kept records), `personality_labels`, plus the full `system_prompt` and `personality_suffixes` for trainer-side substitution.
 
-**Count progression.** Initial May 6 build: 10,286 (9,352/934). May 7 pipeline cleanup + 5th run: 25,489 (23,225/2,264). May 8 thinking-ratio gate: **15,744 (14,346/1,398)**. The ~38% reduction is intentional quality-over-quantity: per Qwen Team's Thinking Mode Fusion guidance, below 75% thinking-supervised turns, reasoning capability degrades.
+**Auto-test gate (run pre-train):**
+- `test_dataset_filters` — observe present in training data; metadata `personality_suffixes` byte-match `prompts/personalities/*.md`; `__PERSONALITY_BLOCK__` placeholder preserved; no `<game_state>` injection in user messages.
+- `test_observe_supervision` — observe is at least 30% of tool calls; user message is exactly `"What should you do?"`; multi-turn role sequence matches inference.
+- `test_truncation` — no record exceeds `MAX_SEQ_LEN=16,384` post-tokenize, measured via `finetune/render.render_record` with the patched chat template.
+- `test_think_roundtrip` — `<think>` blocks survive `apply_chat_template` on multi-turn records under the patched template; no-think turns render the canonical empty `<think>\n\n</think>` wrapper per Qwen3 Thinking Mode Fusion.
+- `test_prompt_parity` — train-time `SYSTEM_PROMPT` and eval-time `eval_harness.resolve_system_prompt` produce byte-identical output for every personality; intro paraphrase variants share the same body as `prompts/system.md` after `\n\n<game_knowledge>`.
+- `test_chat_template` — single-source-of-truth check: `patch_qwen_chat_template` lives only in `finetune/render.py` and is imported (not duplicated) by every Modal entry point.
 
-**Auto-test gate (4 suites, all green on rebuild; `test_loop_noise` removed May 7):**
-- `test_dataset_filters` — observe present in training data; metadata personality_suffixes byte-match `prompts/personalities/*.md`; `__PERSONALITY_BLOCK__` placeholder preserved.
-- `test_observe_supervision` — observe is at least 30% of tool calls.
-- `test_truncation` — no record exceeds `MAX_SEQ_LEN=16384` post-tokenize.
-- `test_think_roundtrip` — `<think>` blocks survive `apply_chat_template` on multi-turn records.
+**Config.** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16,384`, `packing=False`, `dataset_text_field="text"`, `max_length=MAX_SEQ_LEN` (TRL #3910 — `max_seq_length` was the old name, silently ignored). Loss masking via Unsloth's `train_on_responses_only` with `<|im_start|>user\n` / `<|im_start|>assistant\n` markers. Data collator wrapped with a `(labels != -100).any(dim=-1).all()` per-batch assert to abort on any all-masked record (TRL #3927 guard). Experiment: `kaetram-qwen3.5-9b-r10`. Modal timeout: 72h.
 
-**`quest_resume.json` removed.** Commit `09e611d` (May 7) dropped cross-session memory injection entirely. Training data collected before this includes resume blocks in some sessions; post-removal sessions are fully amnesic. This resolves the train/eval scaffolding asymmetry documented in `contribution.md` §Limitations.
-
-**Config (planned).** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16384`. Experiment: `kaetram-qwen3.5-9b-r10`. Qwen3.5-9B thinking-general decode params wired into `serve_modal*.py`. Mixed-mode fusion: model sees both `<think>` and non-thinking turns; chat template handles both.
-
-**Training ETA (revised May 8).** With the thinking-ratio gate reducing the corpus from 25,489 to 15,744 records, estimated ETA drops from ~62h to ~38h on H100 80GB — still exceeds Modal's 24h cap but within range of a 2-checkpoint resume strategy or a `MAX_SEQ_LEN` trim. `packing=True` remains a fallback (cross-contamination risk — see `r7-hyperparameters.md`). Decision pending.
-
-**Status.** Dataset rebuilt 2026-05-08 (post-thinking-ratio-gate, 15,744 records). LoRA training blocked on ETA/packing decision. Once kicked off, `r10-sft` deploys via `serve_modal.py` (env-overridable `SFT_EXPERIMENT`, defaults to `kaetram-qwen3.5-9b-r10`) and is evaluated against `r9-sft` + base on the Core 3 quest benchmark using the N-model Bonferroni eval pipeline.
+**Status.** Dataset rebuilt 2026-05-09. Reasoning rendered verbatim; `_drop_overlong` is the only length authority. LoRA training blocked on ETA/packing decision. Once kicked off, `r10-sft` deploys via `serve_modal.py` (env-overridable `SFT_EXPERIMENT`, defaults to `kaetram-qwen3.5-9b-r10`) and is evaluated against base on the live quest benchmark via the N-model Bonferroni eval pipeline.
 
 ---
 

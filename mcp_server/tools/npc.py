@@ -61,8 +61,9 @@ async def _run_dialogue_loop(page, instance_id: str, accept_quest_offer: bool = 
       - False: dismiss the panel via Escape; return quest_offered=<btn_text>
                so the caller knows a quest was available without committing.
 
-    Returns a dict with dialogue_lines, dialogue_complete, quest_opened,
-    quest_accepted, quest_offered, last_dialogue.
+    Returns a dict with dialogue_lines, dialogue, dialogue_complete,
+    quest_opened, quest_accepted, quest_offered, last_dialogue (last_dialogue
+    is omitted on the early quest-panel return path; callers should use .get()).
     """
     quest_opened = False
     dialogue_lines: list[str] = []

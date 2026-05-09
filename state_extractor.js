@@ -983,27 +983,6 @@
     };
   };
 
-  // ── Click an entity by ASCII map label (e.g. "E0") ──
-  window.__clickEntity = function (entityLabel) {
-    const mapData = window.__generateAsciiMap();
-    if (mapData.error) return { error: mapData.error };
-    const entity = mapData.legend.find(function (e) { return e.label === entityLabel; });
-    if (!entity) return { error: 'Entity not found: ' + entityLabel };
-    const coords = window.__tileToScreenCoords(entity.gridX, entity.gridY);
-    if (coords.error) return coords;
-    if (window.game && window.game.player) window.game.player.disableAction = false;
-    document.getElementById('canvas').dispatchEvent(new MouseEvent('click', {
-      clientX: coords.click_x, clientY: coords.click_y, bubbles: true, ctrlKey: false,
-    }));
-    const p = window.game.player;
-    return {
-      clicked: entityLabel, name: entity.name,
-      click_x: coords.click_x, click_y: coords.click_y,
-      gridX: entity.gridX, gridY: entity.gridY,
-      player_pos: { x: p.gridX, y: p.gridY },
-    };
-  };
-
   // ── Click a tile by absolute grid coords (walk there) ──
   window.__clickTile = function (absGridX, absGridY) {
     const coords = window.__tileToScreenCoords(absGridX, absGridY);

@@ -101,22 +101,30 @@ def test_personality_block_is_full_md_file():
         )
 
 
-def test_train_modal_source_substitutes_at_placeholder():
-    """Static check: finetune/train_modal.py._build_system_prompt must substitute
-    personality at __PERSONALITY_BLOCK__, not append. Pre-r10 code used `+=` which
-    was the bug.
+def test_render_substitutes_at_placeholder():
+    """Static check: finetune/render.build_system_prompt must substitute
+    personality at __PERSONALITY_BLOCK__, not append. Substitution lives in
+    `finetune/render.py` (single source of truth); train_modal.py imports it
+    from there. Append-style substitution was the r9 bug — guard against
+    accidental regression.
     """
-    src = (REPO_ROOT / "finetune" / "train_modal.py").read_text()
-    # The current (r10) implementation must reference the placeholder.
-    assert "__PERSONALITY_BLOCK__" in src, (
-        "train_modal.py no longer references __PERSONALITY_BLOCK__ placeholder — "
+    render_src = (REPO_ROOT / "finetune" / "render.py").read_text()
+    assert "__PERSONALITY_BLOCK__" in render_src, (
+        "finetune/render.py no longer references __PERSONALITY_BLOCK__ placeholder — "
         "personality substitution path has drifted."
     )
-    # Stale paraphrase dict must not be defined.
-    assert "PERSONALITY_INSTRUCTION_VARIANTS = {" not in src, (
-        "train_modal.py still defines PERSONALITY_INSTRUCTION_VARIANTS — this was "
-        "the source of the r9 train/eval personality mismatch."
+    train_src = (REPO_ROOT / "finetune" / "train_modal.py").read_text()
+    # train_modal must import the builder, not redefine it.
+    assert "from render import" in train_src and "build_system_prompt" in train_src, (
+        "train_modal.py should import build_system_prompt from finetune/render.py"
     )
+    # Stale paraphrase dict must not be defined anywhere.
+    for path in ("finetune/train_modal.py", "finetune/render.py"):
+        src = (REPO_ROOT / path).read_text()
+        assert "PERSONALITY_INSTRUCTION_VARIANTS = {" not in src, (
+            f"{path} still defines PERSONALITY_INSTRUCTION_VARIANTS — this was "
+            f"the source of the r9 train/eval personality mismatch."
+        )
 
 
 def test_train_kto_source_has_no_stale_personality_variants():
@@ -132,3 +140,91 @@ def _first_diff(a: str, b: str) -> int:
         if a[i] != b[i]:
             return i
     return n
+
+
+# ── rng-paraphrase path: covers BUG-3 (stale variants) ───────────────────────
+
+_BODY_SPLIT_MARKER = "\n\n<game_knowledge>"
+
+
+def test_paraphrase_variant_zero_matches_system_md_intro():
+    """Variant 0 must be byte-identical to system.md lines 1-9 (the intro
+    before `<game_knowledge>`) after `__USERNAME__` substitution.
+
+    This is the "canonical" variant — `build_system_prompt(rng=None)` skips
+    paraphrase entirely and uses the loaded system.md, but training rows can
+    also land variant 0 under rng. They must produce the same intro.
+    """
+    from convert_to_qwen import SYSTEM_PROMPT
+    from finetune.render import SYSTEM_PROMPT_INTRO_VARIANTS
+
+    body_idx = SYSTEM_PROMPT.index(_BODY_SPLIT_MARKER)
+    expected_intro = SYSTEM_PROMPT[:body_idx]
+    actual_intro = SYSTEM_PROMPT_INTRO_VARIANTS[0]
+    assert actual_intro == expected_intro, (
+        f"Variant 0 drifts from system.md intro: "
+        f"variant_len={len(actual_intro)}B, system_md_intro_len={len(expected_intro)}B; "
+        f"first diff at byte {_first_diff(actual_intro, expected_intro)}. "
+        f"Regenerate variant 0 from prompts/system.md lines 1-9 (after __USERNAME__ sub)."
+    )
+
+
+def test_paraphrase_variants_share_body_with_system_md():
+    """Every variant in SYSTEM_PROMPT_INTRO_VARIANTS, when used to build a
+    paraphrased system prompt, must produce a body byte-identical to the
+    canonical (system.md) body. Only the intro before `<game_knowledge>`
+    paraphrases — load-bearing rules in the body must stay byte-stable.
+    """
+    import random as _random
+
+    from convert_to_qwen import SYSTEM_PROMPT, PERSONALITY_SUFFIXES
+    from finetune.render import SYSTEM_PROMPT_INTRO_VARIANTS, build_system_prompt
+
+    canonical = build_system_prompt(SYSTEM_PROMPT, None, PERSONALITY_SUFFIXES, rng=None)
+    canonical_body = canonical[canonical.index(_BODY_SPLIT_MARKER):]
+
+    for i, variant in enumerate(SYSTEM_PROMPT_INTRO_VARIANTS):
+        # Build a Random whose first .choice() yields this variant
+        # deterministically by seeding and then verifying the pick.
+        for seed in range(64):
+            rng = _random.Random(seed)
+            if rng.choice(SYSTEM_PROMPT_INTRO_VARIANTS) is variant:
+                break
+        else:
+            # Fallback: seed-search failed (shouldn't with 4 variants and 64 seeds)
+            continue
+        # Re-seed because the previous .choice() consumed state.
+        rng = _random.Random(seed)
+        rendered = build_system_prompt(SYSTEM_PROMPT, None, PERSONALITY_SUFFIXES, rng=rng)
+        assert _BODY_SPLIT_MARKER in rendered, (
+            f"variant {i}: rendered prompt missing {_BODY_SPLIT_MARKER!r} marker"
+        )
+        rendered_body = rendered[rendered.index(_BODY_SPLIT_MARKER):]
+        assert rendered_body == canonical_body, (
+            f"variant {i} body drifts from system.md body "
+            f"({len(rendered_body)}B vs canonical {len(canonical_body)}B); "
+            f"first diff at byte {_first_diff(rendered_body, canonical_body)}. "
+            f"Variants must only paraphrase the intro before <game_knowledge>."
+        )
+
+
+def test_paraphrase_variants_all_mention_core_3():
+    """Defense against stale variants: every variant must mention the Core 3
+    benchmark + interact_npc opt-in clause. The pre-r10 variants used the
+    older 'complete all quests' framing without these — that drift was BUG-3.
+    """
+    from finetune.render import SYSTEM_PROMPT_INTRO_VARIANTS
+
+    for i, variant in enumerate(SYSTEM_PROMPT_INTRO_VARIANTS):
+        assert "CORE" in variant or "Core 3" in variant, (
+            f"variant {i} missing Core/CORE 3 framing — likely drifted from "
+            f"current system.md. Regenerate from prompts/system.md."
+        )
+        assert "interact_npc" in variant, (
+            f"variant {i} missing interact_npc opt-in clause — likely drifted "
+            f"from current system.md (line 7)."
+        )
+        assert "accept_quest_offer" in variant, (
+            f"variant {i} missing accept_quest_offer reference — likely drifted "
+            f"from current system.md."
+        )

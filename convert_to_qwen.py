@@ -11,25 +11,22 @@ the multi-turn chat format that mirrors the live MCP harness loop:
 The system prompt is NOT embedded in records — train_modal injects it from
 metadata.json at training time so byte-parity with eval_harness is preserved.
 
-Modes:
-  --mode single  : One observe + one action per record
-  --mode multi   : Sliding-window of consecutive turns (default 3)
-  --mode mixed   : 70% multi-turn + 30% single-turn (default)
+Mode is always mixed: window-3 multi-turn records plus a 30%-of-total sample
+of single-turn observe→action pairs.
 
-Filtering policy: minimal. Only EXCLUDED_AGENTS (path), a cheap "has-assistant"
-sanity check, and the pre-tokenize truncation gate are applied. No content-based
-filtering — the model sees every Claude teacher pattern, including double-observes
-and repetitive action chains. Behavior is analyzed post-hoc.
+Filtering policy: EXCLUDED_AGENTS (path) + thinking-ratio cap (≤25% no-think,
+per Qwen3 tech report §thinking mode fusion + Unsloth Qwen3.5 fine-tune guide)
++ pre-render truncation gate (load-bearing for TRL #3927). No content-based
+filtering — the model sees every Claude teacher pattern, including double-
+observes and repetitive action chains. Behavior is analyzed post-hoc.
 
 Usage:
-    python3 convert_to_qwen.py
-    python3 convert_to_qwen.py --mode multi --window-size 4
+    python3 convert_to_qwen.py --input dataset/extracted/ --output dataset/qwen_sft/
 """
 
 import argparse
 import json
 import random
-import re
 import subprocess
 import sys
 from collections import Counter
@@ -38,6 +35,11 @@ from pathlib import Path
 
 from tool_surface import MODEL_VISIBLE_TOOL_DEFINITIONS as TOOL_DEFINITIONS
 
+# Render path is shared with the trainer + serve so the gate measures exactly
+# what the trainer renders. See finetune/render.py for issue refs.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "finetune"))
+from render import patch_qwen_chat_template, render_record  # noqa: E402
+
 REPO_ROOT = Path(__file__).resolve().parent
 
 # Action types that should appear as tool calls in training records. Mirrors
@@ -45,15 +47,21 @@ REPO_ROOT = Path(__file__).resolve().parent
 # from the same source. "other" turns (off-surface tool calls) are skipped.
 VALID_ACTION_TYPES = {d["function"]["name"] for d in TOOL_DEFINITIONS}
 
-# agent_4 / agent_5 are Qwen rollout logs, not teacher data. Path-segment match
-# avoids false positives like "agent_40".
+# Defensive — these agent IDs have historically been used for non-Claude
+# rollouts (Qwen self-play, eval). Path-segment match prevents accidental
+# inclusion if a legacy run is re-extracted. Currently no such directories
+# exist under dataset/raw/ or dataset/extracted/; kept as belt-and-braces.
 EXCLUDED_AGENTS = {"agent_3", "agent_4", "agent_5"}
 
-# Qwen3.5 9B context limit. TRL/Unsloth silently drop tokens past max_seq_length;
-# the truncation gate rejects records that would hit this. Margin reserves room
-# for the assistant generation prefix.
+# Qwen3.5 9B context limit. TRL/Unsloth silently drop tokens past max_seq_length
+# (TRL #3927: with assistant-only loss masking, this can zero per-record loss
+# without warning). The truncation gate is the load-bearing safety net.
 MAX_SEQ_LEN = 16384
-TRUNCATION_MARGIN = 256
+# Tokenizer used by the gate — must match finetune/train_modal.MODEL_ID exactly
+# so the gate measures the same render the trainer produces. Vocab/BPE merges
+# are identical to upstream Qwen/Qwen3.5-9B; Unsloth ships a slightly different
+# tool-calling template fragment, which matters when records carry tool_calls.
+GATE_TOKENIZER_ID = "unsloth/Qwen3.5-9B"
 
 
 # ── Provenance ──────────────────────────────────────────────────────────────
@@ -135,27 +143,7 @@ PERSONALITY_SUFFIXES = {
 }
 
 
-# ── Reasoning + tool-result helpers ─────────────────────────────────────────
-
-def format_reasoning(reasoning: str, max_chars: int = 500) -> str:
-    """Trim assistant reasoning, keeping the last sentences (the decision).
-
-    Sonnet teacher reasoning often runs long; the cap keeps records under the
-    seq-len budget without losing the final commit-to-action sentences.
-    """
-    text = " ".join(l.strip() for l in reasoning.split("\n") if l.strip())
-    if len(text) <= max_chars:
-        return text
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    kept: list[str] = []
-    char_count = 0
-    for s in reversed(sentences):
-        if char_count + len(s) > max_chars and kept:
-            break
-        kept.insert(0, s)
-        char_count += len(s) + 1
-    return " ".join(kept)
-
+# ── Tool-result helpers ─────────────────────────────────────────────────────
 
 def _prefer_real_tool_result(raw: str | None) -> str | None:
     """Unwrap the `{"result": "<string>"}` envelope used by MCP tool_result blocks.
@@ -172,157 +160,6 @@ def _prefer_real_tool_result(raw: str | None) -> str | None:
     if isinstance(outer, dict) and set(outer.keys()) == {"result"} and isinstance(outer["result"], str):
         return outer["result"]
     return raw
-
-
-# ── State delta (cheap "what changed" signal in user messages) ─────────────
-
-def _to_int(v) -> int:
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        return 0
-
-
-def compute_state_delta(prev_state: dict, curr_state: dict) -> dict:
-    """Compute observable changes between two consecutive game_states.
-
-    Schema fields: stats.{hp,xp,level}, pos.{x,y}, active_quests, finished_quests,
-    status.dead.
-    """
-    delta: dict = {}
-    if not isinstance(prev_state, dict) or not isinstance(curr_state, dict):
-        return delta
-
-    ps = prev_state.get("stats") or {}
-    cs = curr_state.get("stats") or {}
-    if isinstance(ps, dict) and isinstance(cs, dict):
-        hp_delta = _to_int(cs.get("hp")) - _to_int(ps.get("hp"))
-        xp_delta = _to_int(cs.get("xp")) - _to_int(ps.get("xp"))
-        lvl_delta = _to_int(cs.get("level")) - _to_int(ps.get("level"))
-        if hp_delta:
-            delta["hp_delta"] = hp_delta
-        if xp_delta:
-            delta["xp_delta"] = xp_delta
-        if lvl_delta:
-            delta["level_delta"] = lvl_delta
-
-    pp = prev_state.get("pos")
-    cp = curr_state.get("pos")
-    if isinstance(pp, dict) and isinstance(cp, dict):
-        if pp.get("x") != cp.get("x") or pp.get("y") != cp.get("y"):
-            delta["moved_from"] = pp
-
-    prev_q = {q.get("key"): q for q in (prev_state.get("active_quests") or []) if isinstance(q, dict)}
-    curr_q = {q.get("key"): q for q in (curr_state.get("active_quests") or []) if isinstance(q, dict)}
-    new_quests = [k for k in curr_q if k and k not in prev_q]
-    stage_advances = sum(
-        1 for k, cq in curr_q.items()
-        if k in prev_q and (cq.get("stage", 0) or 0) > (prev_q[k].get("stage", 0) or 0)
-    )
-    if new_quests:
-        delta["new_quests"] = new_quests
-    if stage_advances:
-        delta["quest_stage_advances"] = stage_advances
-
-    prev_done = {q.get("key") for q in (prev_state.get("finished_quests") or []) if isinstance(q, dict)}
-    curr_done = {q.get("key") for q in (curr_state.get("finished_quests") or []) if isinstance(q, dict)}
-    completions = (curr_done - prev_done) - {None}
-    if completions:
-        delta["quest_completions"] = sorted(completions)
-
-    if (curr_state.get("status") or {}).get("dead") and not (prev_state.get("status") or {}).get("dead"):
-        delta["died"] = True
-
-    return delta
-
-
-# ── Quality score (KTO consumer signal) ─────────────────────────────────────
-
-def score_turn(turn: dict) -> float:
-    """Heuristic 0.0–1.0 quality score over a single turn.
-
-    Used by score_sessions.py and build_kto_dataset.py to rank turns; SFT does
-    not gate on this. Reads the live observe schema (pos / stats / nearby).
-    """
-    score = 0.0
-    gs = turn.get("game_state") or {}
-    stats = gs.get("stats") or {}
-    nearby = gs.get("nearby") or {}
-
-    # State completeness (0.0 – 0.4)
-    if _to_int(stats.get("hp")) > 0:
-        score += 0.1
-    if _to_int(stats.get("max_hp")) > 0:
-        score += 0.05
-    if any(nearby.get(k) for k in ("npcs", "mobs", "resources", "ground_items")):
-        score += 0.1
-    if gs.get("inventory"):
-        score += 0.05
-    if gs.get("active_quests"):
-        score += 0.05
-    if gs.get("equipment"):
-        score += 0.05
-
-    # Action quality (0.0 – 0.2)
-    action_type = turn.get("action_type", "")
-    high_value = (
-        "observe", "attack", "interact_npc", "navigate",
-        "gather", "loot", "buy_item", "query_quest", "craft_item",
-    )
-    medium_value = (
-        "eat_food", "equip_item", "warp", "set_attack_style",
-        "stuck_reset", "cancel_nav", "drop_item",
-    )
-    if action_type in high_value:
-        score += 0.2
-    elif action_type in medium_value:
-        score += 0.15
-    elif action_type == "respawn":
-        score += 0.1
-
-    # Reasoning quality (0.0 – 0.25)
-    reasoning = turn.get("reasoning", "") or ""
-    rl = reasoning.lower()
-    if 30 < len(reasoning) < 1500:
-        score += 0.1
-    if len(reasoning) > 80:
-        score += 0.05
-    keywords = ("quest", "kill", "heal", "navigate", "explore", "attack",
-                "npc", "equip", "hp", "level", "mob", "warp", "food", "inventory", "craft")
-    hits = sum(1 for kw in keywords if kw in rl)
-    if hits >= 2:
-        score += 0.1
-    elif hits >= 1:
-        score += 0.05
-
-    # Reasoning–action alignment bonus (0.0 – 0.05)
-    alignment = {
-        "attack": ("attack", "kill", "fight", "mob", "combat", "damage"),
-        "eat_food": ("heal", "food", "hp", "health", "eat", "low hp"),
-        "navigate": ("navigate", "walk", "go to", "head to", "move to"),
-        "warp": ("warp", "teleport", "fast travel", "mudwich", "aynor", "lakesworld",
-                 "crullfield", "patsow", "undersea"),
-        "interact_npc": ("npc", "talk", "quest", "interact", "dialogue"),
-        "equip_item": ("equip", "weapon", "armor", "gear", "sword", "axe"),
-        "respawn": ("dead", "died", "respawn", "death"),
-        "gather": ("gather", "chop", "mine", "forage", "tree", "rock", "resource", "log"),
-        "loot": ("loot", "pick up", "drop", "lootbag", "item"),
-        "buy_item": ("buy", "purchase", "shop", "store", "gold"),
-        "drop_item": ("drop", "discard", "inventory full", "free space"),
-        "query_quest": ("quest", "walkthrough", "steps", "objective"),
-        "craft_item": ("craft", "smith", "smelt", "cook", "forge", "recipe"),
-    }
-    if action_type in alignment and any(k in rl for k in alignment[action_type]):
-        score += 0.05
-
-    # Penalties
-    pos = gs.get("pos") or {}
-    if pos.get("x", 0) == 0 and pos.get("y", 0) == 0:
-        score -= 0.5  # login screen
-    if len(reasoning.strip()) < 10:
-        score -= 0.15
-
-    return max(0.0, min(1.0, score))
 
 
 # ── Personality detection ──────────────────────────────────────────────────
@@ -386,10 +223,12 @@ def build_assistant_message(turn: dict) -> dict | None:
     Mixed-mode SFT (Qwen3.5 Thinking Mode Fusion): turns with captured teacher
     reasoning render `<think>...</think>` + tool_call; turns where Sonnet fired
     a tool without writing CoT (common for grinding loops — attack/gather/drop)
-    render as a non-thinking turn (empty content + tool_call). The patched
-    chat template in `train_modal._patch_qwen_chat_template` handles both
-    correctly: `reasoning_content` truthy → full think block; falsy + non-final
-    → no think wrapper; falsy + final → empty `<think>\\n\\n</think>`.
+    render with empty content + tool_call. The patched chat template
+    (`finetune/render.patch_qwen_chat_template`) handles both: when content
+    contains `<think>...</think>` the template auto-extracts it into
+    `reasoning_content`; when content is empty, the elif branch
+    (`loop.index0 > ns.last_query_index`) injects an empty
+    `<think>\\n\\n</think>` per Qwen3 canonical no-think format.
 
     No filler placeholder. An empty source CoT is a real signal — teach the
     model that some actions don't need reasoning, don't fabricate one.
@@ -398,9 +237,13 @@ def build_assistant_message(turn: dict) -> dict | None:
     if action_type not in VALID_ACTION_TYPES:
         return None  # off-surface tool — skip
 
+    # Render reasoning verbatim (no length cap). _drop_overlong is the only
+    # length authority — overlong records get dropped, never inner-truncated.
+    # Tail-keep truncation on CoT is known to destroy reasoning structure
+    # (arxiv 2512.21002, 2502.18001) since planning lives at the start.
     reasoning = (turn.get("reasoning") or "").strip()
     if reasoning:
-        content = f"<think>\n{format_reasoning(reasoning)}\n</think>"
+        content = f"<think>\n{reasoning}\n</think>"
     else:
         content = ""
 
@@ -435,23 +278,15 @@ def build_tool_result_message(turn: dict) -> dict | None:
     }
 
 
-def build_user_message(prev_turn: dict | None, curr_turn: dict) -> str:
-    """Build the user prompt that precedes an assistant turn.
+def build_user_message() -> str:
+    """User prompt preceding an assistant turn.
 
-    Includes a `<state_delta>` block when a previous turn exists and the state
-    actually changed. Inference never injects game_state into user messages —
-    state arrives only via observe tool_result.
+    Always exactly `"What should you do?"` to match inference (eval_harness +
+    play_qwen.py). State arrives via the `observe` tool_result, never via the
+    user message — invariant guarded by test_dataset_filters.
+    test_training_records_do_not_inject_game_state_in_user_messages.
     """
-    parts: list[str] = []
-    if prev_turn is not None:
-        delta = compute_state_delta(
-            prev_turn.get("game_state") or {},
-            curr_turn.get("game_state") or {},
-        )
-        if delta:
-            parts.append(f"<state_delta>\n{json.dumps(delta, separators=(',', ':'))}\n</state_delta>")
-    parts.append("What should you do?")
-    return "\n\n".join(parts)
+    return "What should you do?"
 
 
 # ── Record builders ─────────────────────────────────────────────────────────
@@ -459,16 +294,27 @@ def build_user_message(prev_turn: dict | None, curr_turn: dict) -> str:
 def _build_messages(turns: list[dict]) -> list[dict] | None:
     """Convert a sequence of turns into the messages list of one record.
 
-    Each turn becomes user → assistant → tool. Returns None if any turn cannot
-    be rendered (off-surface action).
+    First turn: user → assistant → tool. Subsequent turns: assistant → tool
+    (the prior tool message acts as the user-side boundary, since Qwen's
+    chat template renders tool messages as user-wrapped `<tool_response>` —
+    same shape inference produces). Returns None if any turn cannot be
+    rendered (off-surface action).
+
+    Edge case: if a prior turn's tool_result was missing, the previous
+    message is an assistant turn and we must inject a user message to keep
+    the role sequence valid. This is rare (tool_result is captured for all
+    valid action_types in practice).
     """
     messages: list[dict] = []
-    for i, turn in enumerate(turns):
-        prev = turns[i - 1] if i > 0 else None
+    for turn in turns:
         asst = build_assistant_message(turn)
         if asst is None:
             return None
-        messages.append({"role": "user", "content": build_user_message(prev, turn)})
+        # Emit a user prompt only when the previous message isn't already
+        # a user-wrapped tool response. Matches the inference structure
+        # produced by play_qwen.py / eval_harness.
+        if not messages or messages[-1]["role"] != "tool":
+            messages.append({"role": "user", "content": build_user_message()})
         messages.append(asst)
         tool_msg = build_tool_result_message(turn)
         if tool_msg is not None:
@@ -605,96 +451,44 @@ def _enforce_thinking_ratio(
     return kept, len(records) - len(kept)
 
 
-def _drop_no_assistant(records: list[dict]) -> tuple[list[dict], int]:
-    """Defensive sanity check — should never fire on healthy data."""
-    kept = [r for r in records if any(
-        m.get("role") == "assistant" and m.get("tool_calls") for m in r["messages"]
-    )]
-    return kept, len(records) - len(kept)
+def _drop_overlong(records: list[dict], tokenizer) -> tuple[list[dict], int, list[int]]:
+    """Drop records whose train-time token count exceeds MAX_SEQ_LEN.
 
+    Render path matches finetune/train_modal.load_kaetram_dataset exactly:
+    same tokenizer (unsloth/Qwen3.5-9B), patched chat template, no tools=
+    kwarg, system prompt prepended via render_record with rng=None
+    (canonical intro, validation path).
 
-def _drop_truncated(records: list[dict]) -> tuple[list[dict], int]:
-    """Reject records that would silently truncate at training time.
+    Records over MAX_SEQ_LEN are dropped wholesale; no inner truncation.
+    This is the load-bearing safety net for TRL #3927:
+    https://github.com/huggingface/trl/issues/3927 — with
+    train_on_responses_only, a truncated record loses all assistant
+    tokens to -100 masking and contributes zero gradient with no error.
 
-    TRL/Unsloth drop tokens past max_seq_length without raising. We need to
-    surface the gate here. Two-stage filter for speed:
+    Gate uses rng=None canonical intro. Training paraphrases the intro
+    per record from SYSTEM_PROMPT_INTRO_VARIANTS (~30-50 token variance);
+    a borderline record at exactly MAX_SEQ_LEN with the canonical intro
+    could overrun by 5-20 tokens under a different variant. Accepted
+    risk; check all variants only if eval surfaces post-build truncation.
 
-    1. **Char-length pre-filter** — Qwen3.5 tokenizes at ~3 chars/token on
-       English+code. We render each record to text via `apply_chat_template`
-       (cheap, no tokenization), then skip the real tokenizer entirely for
-       records whose char count is comfortably under or over the limit. Only
-       borderline records pay for tokenization. This typically removes 90%+
-       of tokenizer calls.
-    2. **Real tokenizer** — only for borderline records. Authoritative.
-
-    Skips entirely if the tokenizer can't load.
+    Returns (kept_records, dropped_count, kept_token_counts_in_kept_order).
     """
-    try:
-        from transformers import AutoTokenizer
-        tok = AutoTokenizer.from_pretrained("Qwen/Qwen3.5-9B")
-    except Exception as e:
-        print(f"  [trunc-gate] Skipping pre-tokenize gate — tokenizer load failed: {e}")
-        return records, 0
-
-    gate = MAX_SEQ_LEN - TRUNCATION_MARGIN
-    # Conservative chars-per-token bounds for Qwen3.5 BPE on this corpus
-    # (English prose + JSON tool calls/results). Calibrated to never reject
-    # a record the real tokenizer would accept and never accept one it would
-    # reject — borderline goes to stage 2.
-    CHARS_PER_TOKEN_MIN = 1.8   # if char/min > gate → definitely too long
-    CHARS_PER_TOKEN_MAX = 5.5   # if char/max < gate → definitely fits
-    SAFE_UPPER = int(gate * CHARS_PER_TOKEN_MAX)  # below this → keep without tokenizing
-    HARD_LOWER = int(gate * CHARS_PER_TOKEN_MIN)  # above this → reject without tokenizing
-
-    # Pre-render each record to a string. apply_chat_template(tokenize=False)
-    # is a Jinja render — much cheaper than tokenizing.
-    rendered = []
-    for r in records:
-        block = PERSONALITY_SUFFIXES.get(r.get("personality") or "", "")
-        sys_prompt = SYSTEM_PROMPT.replace("__PERSONALITY_BLOCK__", block)
-        full = [{"role": "system", "content": sys_prompt}] + r["messages"]
-        try:
-            text = tok.apply_chat_template(
-                full, tools=TOOL_DEFINITIONS, tokenize=False, add_generation_prompt=False,
-            )
-        except Exception:
-            text = None
-        rendered.append(text)
-
     kept: list[dict] = []
-    rejected = 0
-    n_borderline = 0
-    n_skipped = 0
-    for r, text in zip(records, rendered):
-        if text is None:
-            kept.append(r)  # render failed — let real training surface it
-            continue
-        n = len(text)
-        if n <= SAFE_UPPER:
-            kept.append(r)
-            n_skipped += 1
-            continue
-        if n >= HARD_LOWER:
-            rejected += 1
-            n_skipped += 1
-            continue
-        # Borderline — pay for the real tokenizer.
-        n_borderline += 1
-        try:
-            ids = tok(text, add_special_tokens=False)["input_ids"]
-        except Exception:
-            kept.append(r)
-            continue
-        if len(ids) > gate:
-            rejected += 1
+    dropped = 0
+    kept_counts: list[int] = []
+    for r in records:
+        text = render_record(r, SYSTEM_PROMPT, PERSONALITY_SUFFIXES, tokenizer, rng=None)
+        # tokenize=False + tok.encode() separately. transformers V5 changed
+        # apply_chat_template(tokenize=True) to return BatchEncoding (a dict),
+        # so len() of that gives 2, not the token count.
+        # https://github.com/huggingface/transformers/blob/main/MIGRATION_GUIDE_V5.md
+        n = len(tokenizer.encode(text, add_special_tokens=False))
+        if n > MAX_SEQ_LEN:
+            dropped += 1
         else:
             kept.append(r)
-
-    print(
-        f"  [trunc-gate] Fast path skipped {n_skipped}/{len(records)} via char-length, "
-        f"tokenized {n_borderline} borderline records"
-    )
-    return kept, rejected
+            kept_counts.append(n)
+    return kept, dropped, kept_counts
 
 
 # ── Train/val split ─────────────────────────────────────────────────────────
@@ -740,18 +534,12 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("dataset/qwen_sft"))
     parser.add_argument("--val-ratio", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument(
-        "--mode",
-        choices=["single", "multi", "mixed"],
-        default="mixed",
-        help="single = one observe+action pair; multi = window of turns; mixed = 70/30",
-    )
     parser.add_argument("--window-size", type=int, default=3)
     parser.add_argument("--stride", type=int, default=None)
     parser.add_argument(
         "--max-no-think-ratio", type=float, default=0.25,
-        help="Max share of assistant turns without <think>. Per Qwen3.5 SFT "
-             "guidance: ≤25% non-thinking preserves reasoning capability.",
+        help="Max share of assistant turns without <think>. See Qwen3 tech "
+             "report (arxiv 2505.09388) §thinking mode fusion.",
     )
     args = parser.parse_args()
 
@@ -767,47 +555,33 @@ def main():
             return None
         return detect_personality(Path(session_turns[0].get("_session_path", "")))
 
+    # Mixed mode: window=3 multi-turn records, plus a 30% sample of single-turn
+    # observe→action pairs.
     multi_records: list[dict] = []
     single_records: list[dict] = []
-    if args.mode in ("multi", "mixed"):
-        for sess, turns in sessions.items():
-            for r in build_multi_turn_records(
-                turns, _personality(turns), args.window_size, args.stride,
-            ):
-                r["_session"] = sess
-                multi_records.append(r)
-    if args.mode in ("single", "mixed"):
-        for sess, turns in sessions.items():
-            for r in build_single_turn_records(turns, _personality(turns)):
-                r["_session"] = sess
-                single_records.append(r)
+    for sess, turns in sessions.items():
+        for r in build_multi_turn_records(
+            turns, _personality(turns), args.window_size, args.stride,
+        ):
+            r["_session"] = sess
+            multi_records.append(r)
+    for sess, turns in sessions.items():
+        for r in build_single_turn_records(turns, _personality(turns)):
+            r["_session"] = sess
+            single_records.append(r)
 
-    if args.mode == "multi":
-        records = multi_records
-    elif args.mode == "single":
-        records = single_records
-    else:
-        # 30% of total ≈ 43% of multi count
-        n_single = max(1, int(len(multi_records) * 0.43))
-        rng = random.Random(args.seed + 1)
-        sample = single_records if len(single_records) <= n_single else rng.sample(single_records, n_single)
-        records = multi_records + sample
-        print(f"  Mixed mode: {len(multi_records)} multi-turn + {len(sample)} single-turn")
+    # 30% of total ≈ 43% of multi count
+    n_single = max(1, int(len(multi_records) * 0.43))
+    rng = random.Random(args.seed + 1)
+    sample = single_records if len(single_records) <= n_single else rng.sample(single_records, n_single)
+    records = multi_records + sample
+    print(f"  Mixed mode: {len(multi_records)} multi-turn + {len(sample)} single-turn")
 
     if not records:
         print("No records produced.", file=sys.stderr)
         sys.exit(1)
 
-    pre = len(records)
-    records, n_no_asst = _drop_no_assistant(records)
-    if n_no_asst:
-        print(f"  Sanity filter: removed {n_no_asst}/{pre} records with no assistant turn")
-
-    if not records:
-        print("No records survived sanity filter.", file=sys.stderr)
-        sys.exit(1)
-
-    # Mixed-mode SFT ratio enforcement: keep ≥75% thinking turns.
+    # Thinking-ratio gate: keep ≥(1 - max_no_think_ratio) thinking turns.
     pre = len(records)
     pre_think = sum(_count_thinking(r)[0] for r in records)
     pre_nothink = sum(_count_thinking(r)[1] for r in records)
@@ -829,15 +603,40 @@ def main():
         print("No records survived thinking-ratio gate.", file=sys.stderr)
         sys.exit(1)
 
+    # Truncation gate (load-bearing safety net for TRL #3927). Loads the
+    # tokenizer once with the chat-template patch applied so the gate measures
+    # exactly what the trainer renders.
+    print(f"  Loading {GATE_TOKENIZER_ID} for truncation gate...")
+    from transformers import AutoTokenizer
+    gate_tokenizer = AutoTokenizer.from_pretrained(GATE_TOKENIZER_ID)
+    patch_qwen_chat_template(gate_tokenizer)
+
     pre = len(records)
-    records, n_trunc = _drop_truncated(records)
-    print(f"  Truncation gate: rejected {n_trunc}/{pre} records ({100*n_trunc/max(1, pre):.2f}%)")
+    records, n_trunc, kept_token_counts = _drop_overlong(records, gate_tokenizer)
+    print(
+        f"  Truncation gate: dropped {n_trunc}/{pre} records "
+        f"({100*n_trunc/max(1, pre):.2f}%) over {MAX_SEQ_LEN} tokens"
+    )
 
     if not records:
         print("No records survived truncation gate.", file=sys.stderr)
         sys.exit(1)
 
     train, val = _split_train_val(records, args.val_ratio, args.seed)
+
+    sorted_kept = sorted(kept_token_counts)
+    n_kept = len(sorted_kept)
+    truncation_gate_meta = {
+        "max_seq_len": MAX_SEQ_LEN,
+        "tokenizer_id": GATE_TOKENIZER_ID,
+        "patch_reference": "https://github.com/QwenLM/Qwen3/issues/1831",
+        "checked": pre,
+        "dropped": n_trunc,
+        "kept": n_kept,
+        "kept_max_tokens": sorted_kept[-1] if sorted_kept else 0,
+        "kept_p99_tokens": sorted_kept[int(n_kept * 0.99)] if n_kept else 0,
+        "kept_p50_tokens": sorted_kept[n_kept // 2] if n_kept else 0,
+    }
 
     sess_count, raw_turns = _count_extracted(args.input)
     metadata = {
@@ -855,6 +654,7 @@ def main():
             "no_thinking_assistant_turns": post_nothink,
             "no_thinking_share": round(post_ratio, 4),
         },
+        "truncation_gate": truncation_gate_meta,
         "personality_labels": list(PERSONALITY_SUFFIXES.keys()),
         "system_prompt": SYSTEM_PROMPT,
         "tools": TOOL_DEFINITIONS,
@@ -868,7 +668,7 @@ def main():
     val_path.write_text(json.dumps(val, indent=2))
 
     msg_counts = [len(r["messages"]) for r in train + val]
-    print(f"\nConverted {len(records)} records ({args.mode} mode, window_size={args.window_size})")
+    print(f"\nConverted {len(records)} records (mixed mode, window_size={args.window_size})")
     print(f"  Messages/record: avg={sum(msg_counts)/max(1,len(msg_counts)):.1f}, max={max(msg_counts) if msg_counts else 0}")
     print(f"  Train: {len(train)} → {train_path}")
     print(f"  Val:   {len(val)} → {val_path}")

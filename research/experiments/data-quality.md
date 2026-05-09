@@ -11,7 +11,8 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
   Layout: dataset/raw/agent_*/runs/run_<TS>/  (parser globs runs/run_*; never recurses into _archive/)
   → extract_turns.py (OODA turn extraction; observe is a first-class turn, not consumed for game_state)
     → convert_to_qwen.py (quality scoring + format + observe-bigram dedup + window=3)
-      → r10 dataset: 23,225 train / 2,264 val = 25,489 records (rebuilt May 7 after pipeline cleanup)
+      → thinking ratio gate (≤25% non-thinking assistant turns; Qwen3.5 Thinking Mode Fusion)
+        → r10 dataset: 14,346 train / 1,398 val = 15,744 records (rebuilt May 8 after thinking-ratio gate)
 ```
 
 **Pipeline timeline:**
@@ -19,7 +20,8 @@ How raw Claude gameplay sessions became clean SFT training data. Documents every
 - April 9 (r7): 618 raw → 575 sessions → 14,091 turns → 6,423/646 (7,069 total)
 - April 16 (r9): 675 raw → 650 extracted → 5,871/575 (6,446 — degenerate filtering removed 623)
 - May 6 (r10 initial): post-Core-3 Claude corpus only — 135 sessions × 4 runs, 9,766 raw turns → 9,352 train / 934 val = 10,286 records.
-- May 7 (r10 rebuilt): pipeline cleanup (`ad66cca` + `09e611d`) + 5th source run → 19,152 raw turns → **23,225 train / 2,264 val = 25,489 records**. metadata.json carries provenance (source_runs, prompt_commit, core3_only, record_counts).
+- May 7 (r10 pre-gate): pipeline cleanup (`ad66cca` + `09e611d`) + 5th source run → 19,152 raw turns → 25,489 pre-gate records.
+- May 8 (r10 final): mixed-mode thinking ratio gate (`6601b3c`) → **14,346 train / 1,398 val = 15,744 records**. metadata.json carries provenance (source_runs, prompt_commit, thinking_ratio, record_counts).
 
 **Run-directory layout.** `dataset/raw/agent_*/runs/run_<TS>/` is the canonical home for per-orchestrator-launch session bundles. The parser globs `agent_*/runs/run_*` — pre-Core-3 runs and every non-Claude harness run live under `dataset/raw/_archive/<harness>/agent_N/run_*` and are skipped automatically.
 
@@ -132,7 +134,8 @@ Only Claude logs feed into training. Gemini/Codex are collected for comparison b
 | r7 (Apr 9) | 6,423 | 646 | 7,069 | +62% data, chat template fix, personality labels |
 | r9 (Apr 15) | 5,871 | 575 | 6,446 | Degenerate filtering (-623), 100% reasoning, real system prompt |
 | r10 initial (May 6) | 9,352 | 934 | 10,286 | Post-Core-3 Claude only, 4 runs × 3 agents = 135 sessions, 9,766 raw turns. |
-| r10 rebuilt (May 7, current) | 23,225 | 2,264 | 25,489 | Pipeline cleanup + 5th source run. 19,152 raw turns. Provenance in metadata.json. |
+| r10 pre-gate (May 7) | 23,225 | 2,264 | 25,489 | Pipeline cleanup + 5th source run. 19,152 raw turns. |
+| r10 final (May 8, current) | 14,346 | 1,398 | 15,744 | Thinking ratio gate (≤25% non-thinking). Provenance in metadata.json. |
 
 **r7-specific improvements:**
 - Chat template fix (QwenLM/Qwen3#1831): `<think>` reasoning preserved in all assistant turns, not just the last
@@ -147,7 +150,7 @@ Only Claude logs feed into training. Gemini/Codex are collected for comparison b
 2. **Archetype imbalance:** grinder produces more combat turns, explorer_tinkerer more NPC interactions. Stratified split by session helps but doesn't guarantee action-type balance.
 3. **Session length bias:** Long sessions (100+ turns) dominate the dataset. Short sessions (< 20 turns) are often crashes or rate-limit kills.
 4. **Qwen tokenizer mismatch:** Qwen3.5 and Qwen3-VL share a base but have different special tokens. Training uses Qwen3.5 tokenizer; must match at inference.
-5. **Corpus size for r10.** 25,489 records (rebuilt May 7) is comfortably above the LoRA SFT floor (~1-5k) and within the full-fine-tune sweet spot (~10-30k). However, training ETA at `MAX_SEQ_LEN=16384` without packing is ~62h, exceeding Modal's 24h cap — packing or sequence-length filtering may be needed.
+5. **Corpus size for r10.** 15,744 records (rebuilt May 8, post-thinking-ratio-gate) is comfortably above the LoRA SFT floor (~1-5k). Training ETA at `MAX_SEQ_LEN=16384` without packing is ~38h, still exceeding Modal's 24h cap — checkpoint-resume or packing may be needed.
 6. **accept_quest underrepresented:** Only 8 `accept_quest` actions in the full 7,069-record dataset despite active questing in logs. Likely a conversion/filter issue — `interact_npc` auto-accepts most quests, so explicit `accept_quest` calls are rare. May not be a bug.
 7. **Multi-harness data exclusion:** Codex and Gemini harness logs are collected but excluded from Qwen SFT training via `INCLUDED_HARNESSES` filter in `convert_to_qwen.py`. Only Claude data trains the student model.
 

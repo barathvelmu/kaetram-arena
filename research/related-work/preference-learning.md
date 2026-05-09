@@ -113,8 +113,8 @@ r8 SFT (DONE Apr 14 — correct loss masking, but train/inference mismatch cause
       → Eval: base vs r9-sft, curious personality (DONE Apr 16-17 — base beat r9 in early eval:
         2.5 vs 1.5 quests, 26.5 vs 28.5 kills, L20 vs L24, higher combat churn on r9-sft)
         → Root cause: zero observe supervision + personality-prompt mismatch in training
-          → r10 dataset rebuilt May 7 (post-Core-3 Claude only; 23,225 / 2,264 records)
-            → r10 SFT launch: blocked on packing/ETA (~62h vs Modal 24h cap)
+          → r10 dataset rebuilt May 8 (post-Core-3 Claude only; 14,346 / 1,398 records after thinking-ratio gate)
+            → r10 SFT launch: blocked on ETA (~38h vs Modal 24h cap)
               → r9-KTO / Dr. GRPO+DAPO / self-play / Tree-GRPO: ALL DEFERRED
 ```
 

@@ -16,7 +16,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
 | r8 | Apr 13-14 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | COMPLETE. Deployed on Modal. Eval harness set up (base vs r8-SFT). |
 | r9 | Apr 15-16 | SFT | 5,871 train / 575 val | Train/inference alignment fix (system prompt, reasoning, seq length) + degenerate filtering | COMPLETE Apr 16. Deployed via `serve_modal.py`. In early curious eval lost to base (1.5 quests / 28.5 kills / L24 vs base 2.5 / 26.5 / L20). Root cause → r10 P0 fixes. |
-| r10 | May 7 | SFT (dataset) | 23,225 train / 2,264 val | Post-Core-3 Claude corpus only: 5 runs × 3 agents = 135 sessions, 19,152 raw OODA turns. Rebuilt May 7 after pipeline cleanup. | Dataset rebuilt 2026-05-07. Training blocked on packing/ETA (~62h vs Modal 24h cap). |
+| r10 | May 7–8 | SFT (dataset) | 14,346 train / 1,398 val | Post-Core-3 Claude corpus only: 5 runs × 3 agents = 135 sessions, 19,152 raw OODA turns. Mixed-mode thinking ratio gate (≤25% non-thinking) applied May 8. | Dataset rebuilt 2026-05-08. Training ETA reduced (~38h estimate, still vs Modal 24h cap). |
 | r9-KTO | DEFERRED | KTO | TBD | Preference learning on r9 merged weights | Deferred indefinitely — pipeline focuses on the quest-completion benchmark over preference-RL. |
 
 ---
@@ -160,10 +160,11 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **Pipeline stages:**
 1. **Raw OODA extraction** (`extract_turns.py`): 135 session_*.log → **19,152 raw turns**. Observe emitted as first-class turn; standalone post-observe action emitted as second turn. (May 7 pipeline cleanup — `ad66cca` — simplified the extraction chain and removed dead state-extract code, increasing usable turn yield.)
-2. **Conversion** (`convert_to_qwen.py`): mixed mode, window=3. **25,489 SFT records** (23,225 train + 2,264 val). Degenerate and observe→observe bigram filters applied.
-3. **Provenance metadata** stamped at build time: `version`, `built_at`, `prompt_commit`, `core3_only`, `harness`, `source_runs[]`, `session_count`, `raw_turns`, `record_counts`, `personality_labels`. Closes the discoverability gap that made "what's in r10?" require grepping research docs.
+2. **Conversion** (`convert_to_qwen.py`): mixed mode, window=3. Degenerate and observe→observe bigram filters applied. Pre-gate yield: ~25,489 SFT records.
+3. **Mixed-mode thinking ratio gate** (added May 8, `6601b3c`): enforces ≤25% non-thinking assistant turns (`max_no_think_ratio=0.25`). Sonnet emits no-CoT tool calls ~47% of the time on repetitive actions (attack/gather/drop); without this gate the corpus is dominated by non-thinking turns and the model unlearns CoT. Records ranked by non-thinking share; pure-grind-loop records dropped first. **Final yield: 15,744 records (14,346 train + 1,398 val).**
+4. **Provenance metadata** stamped at build time: `version`, `built_at`, `prompt_commit`, `core3_only`, `harness`, `source_runs[]`, `session_count`, `raw_turns`, `record_counts`, `thinking_ratio`, `personality_labels`.
 
-**Note on count change.** The initial May 6 build yielded 10,286 records (9,352/934). The May 7 pipeline cleanup (`ad66cca` + `09e611d`) simplified extraction and conversion, removed dead code paths, and included a 5th source run (`run_20260505_214542`), bringing the corpus to 25,489 records from the same 135 sessions + additional raw turns.
+**Count progression.** Initial May 6 build: 10,286 (9,352/934). May 7 pipeline cleanup + 5th run: 25,489 (23,225/2,264). May 8 thinking-ratio gate: **15,744 (14,346/1,398)**. The ~38% reduction is intentional quality-over-quantity: per Qwen Team's Thinking Mode Fusion guidance, below 75% thinking-supervised turns, reasoning capability degrades.
 
 **Auto-test gate (4 suites, all green on rebuild; `test_loop_noise` removed May 7):**
 - `test_dataset_filters` — observe present in training data; metadata personality_suffixes byte-match `prompts/personalities/*.md`; `__PERSONALITY_BLOCK__` placeholder preserved.
@@ -173,11 +174,11 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **`quest_resume.json` removed.** Commit `09e611d` (May 7) dropped cross-session memory injection entirely. Training data collected before this includes resume blocks in some sessions; post-removal sessions are fully amnesic. This resolves the train/eval scaffolding asymmetry documented in `contribution.md` §Limitations.
 
-**Config (planned).** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16384`. Experiment: `kaetram-qwen3.5-9b-r10`. Qwen3.5-9B thinking-general decode params wired into `serve_modal*.py`.
+**Config (planned).** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16384`. Experiment: `kaetram-qwen3.5-9b-r10`. Qwen3.5-9B thinking-general decode params wired into `serve_modal*.py`. Mixed-mode fusion: model sees both `<think>` and non-thinking turns; chat template handles both.
 
-**Training crisis (flagged May 7).** Live ETA estimate is ~62h on H100 80GB vs Modal's 24h cap. Root cause: 25,489 records at `MAX_SEQ_LEN=16384` without packing. Mitigation options: enable `packing=True` (with cross-contamination risk — see `r7-hyperparameters.md` rationale), bump `MAX_SEQ_LEN` to 18-20K, or filter to shorter records. Decision pending.
+**Training ETA (revised May 8).** With the thinking-ratio gate reducing the corpus from 25,489 to 15,744 records, estimated ETA drops from ~62h to ~38h on H100 80GB — still exceeds Modal's 24h cap but within range of a 2-checkpoint resume strategy or a `MAX_SEQ_LEN` trim. `packing=True` remains a fallback (cross-contamination risk — see `r7-hyperparameters.md`). Decision pending.
 
-**Status.** Dataset rebuilt 2026-05-07. LoRA training blocked on the ETA/packing decision. Once kicked off, `r10-sft` deploys via `serve_modal.py` (env-overridable `SFT_EXPERIMENT`, defaults to `kaetram-qwen3.5-9b-r10`) and is evaluated against `r9-sft` + base on the Core 3 quest benchmark using the N-model Bonferroni eval pipeline.
+**Status.** Dataset rebuilt 2026-05-08 (post-thinking-ratio-gate, 15,744 records). LoRA training blocked on ETA/packing decision. Once kicked off, `r10-sft` deploys via `serve_modal.py` (env-overridable `SFT_EXPERIMENT`, defaults to `kaetram-qwen3.5-9b-r10`) and is evaluated against `r9-sft` + base on the Core 3 quest benchmark using the N-model Bonferroni eval pipeline.
 
 ---
 

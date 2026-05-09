@@ -195,7 +195,7 @@ Applied in r9+ via `convert_to_qwen.py` and `tests/test_dataset_filters.py`:
 - **Drop turns where observe-result was used to fabricate `<game_state>` injection** (r10 routes observe through tool_result; see CURRENT STATUS in CLAUDE.md).
 - **Personality label parity:** every record must resolve to a real `prompts/personalities/<name>.md` file (no `None`, no 2-sentence `PERSONALITY_SUFFIXES` dict). Regression-tested in `tests/test_prompt_parity.py`.
 
-These thresholds shrink raw turn counts but raise quality density — r10 (23,382 train / 2,590 val) embeds 61,412 tool calls vs r7's 21,976 on a comparable raw log corpus, with `observe` now first-class (54% of calls).
+These thresholds shrink raw turn counts but raise quality density — r10 final (14,346 train / 1,398 val, post-thinking-ratio-gate) embeds mixed-mode tool calls vs r7's 21,976 on a comparable raw log corpus, with `observe` now first-class. The thinking-ratio gate (≤25% non-thinking, added May 8) further trims pure-grind-loop records to preserve CoT learning signal.
 
 ---
 

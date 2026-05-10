@@ -84,6 +84,51 @@ class Inference:
         patch_qwen_chat_template(self.tokenizer)
         print("SGLang engine ready (BASE model).")
 
+    @staticmethod
+    def _adapt_messages_for_qwen_template(messages, tools):
+        """Make OpenAI-style messages safe for Qwen3.5's chat template.
+
+        Two adjustments needed only when tools= is in play:
+        - assistant.tool_calls[*].function.arguments: parse JSON string → dict
+          (Qwen template does `arguments | items`).
+        - assistant.content: strip rendered `<tool_call>...</tool_call>` XML,
+          since the template re-emits it from the structured tool_calls field.
+        """
+        import json
+        import re as _re
+        if not tools:
+            return messages
+        out = []
+        for m in messages:
+            if m.get("role") != "assistant":
+                out.append(m)
+                continue
+            new_m = dict(m)
+            tcs = new_m.get("tool_calls") or []
+            if tcs:
+                fixed = []
+                for tc in tcs:
+                    fn = (tc.get("function") or {})
+                    args = fn.get("arguments")
+                    if isinstance(args, str):
+                        try:
+                            args_obj = json.loads(args) if args.strip() else {}
+                        except json.JSONDecodeError:
+                            args_obj = {}
+                    else:
+                        args_obj = args or {}
+                    fixed.append({
+                        **tc,
+                        "function": {**fn, "arguments": args_obj},
+                    })
+                new_m["tool_calls"] = fixed
+                content = new_m.get("content") or ""
+                if isinstance(content, str) and "<tool_call>" in content:
+                    # Keep only the reasoning prefix before the XML.
+                    new_m["content"] = _re.split(r"<tool_call>", content, maxsplit=1)[0].rstrip()
+            out.append(new_m)
+        return out
+
     @modal.asgi_app()
     def serve(self):
         from fastapi import FastAPI, Request
@@ -137,6 +182,19 @@ class Inference:
             # training/serve parity — it learned the format from training,
             # not from the chat template.
             tools = body.get("tools") or None
+            # Adapt OpenAI-style messages to what Qwen's chat template
+            # expects when tools= is set:
+            #
+            #   1. assistant.tool_calls[*].function.arguments is a JSON
+            #      STRING in OpenAI's spec, but Qwen's template iterates
+            #      it with `.items()` and crashes ("Can only get item pairs
+            #      from a mapping") if it's a string. Parse to dict.
+            #   2. assistant.content from a tool-calling turn already
+            #      contains the rendered `<tool_call>...</tool_call>` XML.
+            #      Qwen's template renders tool_calls separately, so leaving
+            #      the XML inline would double-emit it. Strip the XML from
+            #      content, keep only the reasoning prefix.
+            messages = self._adapt_messages_for_qwen_template(messages, tools)
             prompt = self.tokenizer.apply_chat_template(
                 messages,
                 tools=tools,

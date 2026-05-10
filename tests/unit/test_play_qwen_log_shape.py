@@ -1,18 +1,19 @@
-"""play_qwen.py emits Claude-shaped stream-json.
+"""play_qwen.py emits Claude-shaped stream-json into per-session log files.
 
 Locks the on-disk log shape so dashboard heartbeat, log_analysis/parse.py,
 extract_turns.py, and dashboard/parsers.py all read Qwen runs through the
 existing Claude-branch parsers (no Qwen-specific code paths).
+
+The emitters now take a SessionLogger and write to file (not stdout). Tests
+build a logger pointed at a tmp_path and read records back.
 
 If this test changes, you've changed the log contract and downstream tooling
 will need a matching update.
 """
 from __future__ import annotations
 
-import io
 import json
 import sys
-from contextlib import redirect_stdout
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -23,39 +24,69 @@ from cli_adapter import detect_log_format
 from scripts.log_analysis.parse import parse_session
 
 
-def _capture(fn, *args, **kwargs) -> list[dict]:
-    """Run an emitter, return the list of records it printed to stdout."""
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        fn(*args, **kwargs)
-    return [json.loads(line) for line in buf.getvalue().splitlines() if line.strip()]
+def _make_logger(tmp_path: Path) -> play_qwen.SessionLogger:
+    sandbox = tmp_path / "sandbox"
+    run_dir = tmp_path / "run"
+    sandbox.mkdir()
+    run_dir.mkdir()
+    return play_qwen.SessionLogger(
+        run_dir=run_dir,
+        sandbox_dir=sandbox,
+        harness_meta={
+            "agent_id": 0, "personality": "grinder", "harness": "qwen",
+            "model": "r10-sft", "username": "QwenGrinder",
+            "auth_mode": "subscription", "max_budget_usd": None,
+        },
+    )
 
 
-def test_log_system_init_is_claude_shaped():
-    recs = _capture(
-        play_qwen.log_system_init,
-        personality="grinder", session_n=2,
+def _read_records(logger: play_qwen.SessionLogger) -> list[dict]:
+    """Read JSONL records from the logger's current session log file."""
+    path = logger.session_log_path
+    assert path is not None and path.is_file()
+    out: list[dict] = []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        out.append(json.loads(line))
+    return out
+
+
+def test_log_system_init_is_claude_shaped(tmp_path: Path) -> None:
+    logger = _make_logger(tmp_path)
+    logger.open_next_session()
+    play_qwen.log_system_init(
+        logger,
+        personality="grinder",
         model="r10-sft",
         endpoint="https://example.modal.run/v1",
         tools=["observe", "attack"],
     )
+    logger.close()
+    recs = _read_records(logger)
     assert len(recs) == 1
     r = recs[0]
     assert r["type"] == "system" and r["subtype"] == "init"
     assert r["model"] == "r10-sft"
     assert r["harness"] == "qwen"
     assert r["tools"] == ["observe", "attack"]
+    assert r["session_n"] == 1
 
 
-def test_log_assistant_splits_thinking_text_and_tool_use():
+def test_log_assistant_splits_thinking_text_and_tool_use(tmp_path: Path) -> None:
+    logger = _make_logger(tmp_path)
+    logger.open_next_session()
     parsed_calls = [{"id": "tu_1", "name": "observe", "args": {"radius": 5}}]
-    recs = _capture(
-        play_qwen.log_assistant,
+    play_qwen.log_assistant(
+        logger,
         turn=3,
         content="<think>plan to observe</think>I will look around now.",
         parsed_calls=parsed_calls,
         usage={"prompt_tokens": 1200, "completion_tokens": 80},
     )
+    logger.close()
+    recs = _read_records(logger)
     # One record per content block (thinking, text, tool_use), Claude-shape.
     assert [r["type"] for r in recs] == ["assistant", "assistant", "assistant"]
     blocks = [r["message"]["content"][0] for r in recs]
@@ -75,11 +106,14 @@ def test_log_assistant_splits_thinking_text_and_tool_use():
     }
 
 
-def test_log_assistant_text_only_emits_one_record():
-    recs = _capture(
-        play_qwen.log_assistant,
-        turn=1, content="hello world", parsed_calls=None, usage=None,
+def test_log_assistant_text_only_emits_one_record(tmp_path: Path) -> None:
+    logger = _make_logger(tmp_path)
+    logger.open_next_session()
+    play_qwen.log_assistant(
+        logger, turn=1, content="hello world", parsed_calls=None, usage=None,
     )
+    logger.close()
+    recs = _read_records(logger)
     assert len(recs) == 1
     assert recs[0]["type"] == "assistant"
     assert recs[0]["message"]["content"] == [
@@ -87,18 +121,24 @@ def test_log_assistant_text_only_emits_one_record():
     ]
 
 
-def test_log_assistant_skips_when_nothing_to_emit():
-    assert _capture(
-        play_qwen.log_assistant,
-        turn=1, content="", parsed_calls=None, usage=None,
-    ) == []
-
-
-def test_log_tool_result_pairs_via_tool_use_id():
-    recs = _capture(
-        play_qwen.log_tool_result,
-        turn=3, tool_use_id="tu_1", name="observe", result="HP=42 LV=5",
+def test_log_assistant_skips_when_nothing_to_emit(tmp_path: Path) -> None:
+    logger = _make_logger(tmp_path)
+    logger.open_next_session()
+    play_qwen.log_assistant(
+        logger, turn=1, content="", parsed_calls=None, usage=None,
     )
+    logger.close()
+    assert _read_records(logger) == []
+
+
+def test_log_tool_result_pairs_via_tool_use_id(tmp_path: Path) -> None:
+    logger = _make_logger(tmp_path)
+    logger.open_next_session()
+    play_qwen.log_tool_result(
+        logger, turn=3, tool_use_id="tu_1", name="observe", result="HP=42 LV=5",
+    )
+    logger.close()
+    recs = _read_records(logger)
     assert len(recs) == 1
     r = recs[0]
     assert r["type"] == "user"
@@ -108,8 +148,12 @@ def test_log_tool_result_pairs_via_tool_use_id():
     assert blk["content"] == "HP=42 LV=5"
 
 
-def test_log_session_end_is_claude_result_record():
-    recs = _capture(play_qwen.log_session_end, turn=42, reason="context_overflow")
+def test_log_session_end_is_claude_result_record(tmp_path: Path) -> None:
+    logger = _make_logger(tmp_path)
+    logger.open_next_session()
+    play_qwen.log_session_end(logger, turn=42, reason="context_overflow")
+    logger.close()
+    recs = _read_records(logger)
     assert len(recs) == 1
     r = recs[0]
     assert r["type"] == "result"
@@ -119,29 +163,34 @@ def test_log_session_end_is_claude_result_record():
 
 
 def test_full_log_round_trips_through_claude_parser(tmp_path: Path) -> None:
-    """End-to-end: a synthetic Qwen log writes via the new emitters, is
-    detected as 'claude' by cli_adapter.detect_log_format, and parses cleanly
-    via scripts/log_analysis/parse.parse_session — including tool_use →
-    tool_result pairing."""
-    log_path = tmp_path / "session_001.log"
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        play_qwen.log_system_init(
-            personality="grinder", session_n=1, model="r10-sft",
-            endpoint="https://example/v1", tools=["observe", "attack"],
-        )
-        play_qwen.log_assistant(
-            turn=1,
-            content="<think>scan the area</think>Calling observe.",
-            parsed_calls=[{"id": "tu_1", "name": "observe", "args": {}}],
-            usage={"prompt_tokens": 100, "completion_tokens": 10},
-        )
-        play_qwen.log_tool_result(
-            turn=1, tool_use_id="tu_1", name="observe", result="player at (10,10)",
-        )
-        play_qwen.log_session_end(turn=1, reason="context_overflow")
-    log_path.write_text(buf.getvalue())
+    """End-to-end: a synthetic Qwen session log writes via the new emitters,
+    is detected as 'claude' by cli_adapter.detect_log_format, and parses
+    cleanly via scripts/log_analysis/parse.parse_session — including
+    tool_use → tool_result pairing."""
+    logger = _make_logger(tmp_path)
+    logger.open_next_session()
+    play_qwen.log_system_init(
+        logger,
+        personality="grinder",
+        model="r10-sft",
+        endpoint="https://example/v1",
+        tools=["observe", "attack"],
+    )
+    play_qwen.log_assistant(
+        logger,
+        turn=1,
+        content="<think>scan the area</think>Calling observe.",
+        parsed_calls=[{"id": "tu_1", "name": "observe", "args": {}}],
+        usage={"prompt_tokens": 100, "completion_tokens": 10},
+    )
+    play_qwen.log_tool_result(
+        logger, turn=1, tool_use_id="tu_1", name="observe",
+        result="player at (10,10)",
+    )
+    play_qwen.log_session_end(logger, turn=1, reason="context_overflow")
+    logger.close()
 
+    log_path = logger.session_log_path
     assert detect_log_format(log_path) == "claude"
 
     sv = parse_session(log_path)

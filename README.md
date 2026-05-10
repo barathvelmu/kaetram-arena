@@ -228,9 +228,10 @@ The finetuned Qwen3.5-9B model is served from a Modal SGLang endpoint
 # Multi-agent run (3 personalities in parallel via orchestrate, like Claude)
 ./scripts/restart-agent.sh --qwen-sft 3 --grinder 1 --completionist 1 --explorer 1 --hours 3
 
-# Solo dev — direct invocation
+# Solo dev — direct invocation (warm-session loop: MCP + browser persist
+# across context rollovers; --max-duration-seconds 0 = unbounded)
 python3 play_qwen.py --endpoint <modal-url> --personality completionist \
-  --session-n 1 --system-prompt prompts/system.md --sandbox /tmp/qwen_dev
+  --system-prompt prompts/system.md --sandbox /tmp/qwen_dev
 
 # Side-by-side eval (r10-sft vs base) — see scripts/run-eval.sh
 ./scripts/run-eval.sh

@@ -381,6 +381,21 @@ class AgentInstance:
     _opencode_log_path: "Path | None" = None
     _opencode_log_mtime: float = 0.0
 
+    def _refresh_session_from_disk(self) -> None:
+        """Sync ``self.session`` with ``.session_counter`` on disk.
+
+        For Qwen warm-session agents, play_qwen owns the counter; orchestrate
+        reads it whenever status display needs the current session number.
+        Idempotent + safe on missing/corrupt counter file.
+        """
+        counter_file = self.sandbox_dir / "state" / ".session_counter"
+        try:
+            n = int(counter_file.read_text().strip())
+            if n > self.session:
+                self.session = n
+        except (OSError, ValueError):
+            pass
+
     def setup(self):
         """Create sandbox directory with CLI config and state/."""
         self.sandbox_dir.mkdir(parents=True, exist_ok=True)
@@ -469,45 +484,61 @@ class AgentInstance:
         return base_prompt
 
     def start_session(self):
-        """Launch a new agent session (Claude or Codex, depending on adapter)."""
-        self.session += 1
-        # Persist session counter to disk for resume support
-        counter_file = self.sandbox_dir / "state" / ".session_counter"
-        counter_file.write_text(str(self.session))
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        log_file = self.log_dir / f"session_{self.session}_{timestamp}.log"
+        """Launch a new agent session (Claude or Codex, depending on adapter).
 
-        # Keep run.meta.json's session_count in sync with the actual
-        # number of sessions in this run dir. self.log_dir IS the run
-        # dir under the new layout (set in the spawn loop). Best-effort
-        # — silently skip if the file is missing or malformed.
-        try:
-            run_meta_path = self.log_dir / "run.meta.json"
-            if run_meta_path.is_file():
-                run_meta = json.loads(run_meta_path.read_text())
-                run_meta["session_count"] = self.session
-                run_meta_path.write_text(json.dumps(run_meta, indent=2))
-        except (OSError, ValueError):
-            pass
+        For Qwen specifically this is a long-lived warm-session loop process
+        — play_qwen handles its own per-session log files + .session_counter
+        + sidecar meta. We only spawn it once per AgentInstance lifetime
+        (and once again on hard crash recovery). For all other harnesses,
+        each call writes a new session log file and sidecar.
+        """
+        is_qwen_warm = self.adapter.name == "qwen"
 
-        # Write sidecar metadata alongside the session log for auditing/filtering
-        sidecar = self.log_dir / f"session_{self.session}_{timestamp}.meta.json"
-        sidecar.write_text(json.dumps({
-            "agent_id": self.agent_id,
-            "personality": self.personality,
-            "harness": self.adapter.name,
-            "model": self.adapter.model,
-            "username": self.username,
-            "session": self.session,
-            "timestamp": timestamp,
-            "log_file": log_file.name,
-            "auth_mode": self.auth_mode,
-            "max_budget_usd": self.max_budget_usd,
-        }, indent=2))
+        if is_qwen_warm:
+            # play_qwen owns the counter — refresh self.session for status.
+            self._refresh_session_from_disk()
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            # Singleton stderr-style log for the whole warm-loop process life.
+            # Per-session JSONL records go directly into session_<N>_<TS>.log
+            # files written by play_qwen's SessionLogger.
+            log_file = self.log_dir / "harness_stdout.log"
+        else:
+            self.session += 1
+            counter_file = self.sandbox_dir / "state" / ".session_counter"
+            counter_file.write_text(str(self.session))
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            log_file = self.log_dir / f"session_{self.session}_{timestamp}.log"
+
+            # Keep run.meta.json's session_count in sync.
+            try:
+                run_meta_path = self.log_dir / "run.meta.json"
+                if run_meta_path.is_file():
+                    run_meta = json.loads(run_meta_path.read_text())
+                    run_meta["session_count"] = self.session
+                    run_meta_path.write_text(json.dumps(run_meta, indent=2))
+            except (OSError, ValueError):
+                pass
+
+            # Write sidecar metadata alongside the session log for auditing.
+            sidecar = self.log_dir / f"session_{self.session}_{timestamp}.meta.json"
+            sidecar.write_text(json.dumps({
+                "agent_id": self.agent_id,
+                "personality": self.personality,
+                "harness": self.adapter.name,
+                "model": self.adapter.model,
+                "username": self.username,
+                "session": self.session,
+                "timestamp": timestamp,
+                "log_file": log_file.name,
+                "auth_mode": self.auth_mode,
+                "max_budget_usd": self.max_budget_usd,
+            }, indent=2))
 
         # Bring up the per-agent livestream pipeline before the CLI starts so
         # Chromium can attach to a live X display. Failures here are
         # non-fatal: agent runs headless + dashboard falls back to JPEG.
+        # For Qwen this fires once per AgentInstance lifetime (and once on
+        # crash recovery) — Xvfb+ffmpeg stay up across all warm sessions.
         self._start_livestream_pipeline()
 
         # Reset Codex stop hook turn counter so each session starts fresh
@@ -522,6 +553,26 @@ class AgentInstance:
             self.sandbox_dir, system_prompt,
             port=str(self.server_port), username=self.username,
         )
+
+        if is_qwen_warm:
+            # Hand play_qwen the run_dir + harness_meta path; it'll write its
+            # own session_*.log + sidecar files there. harness_meta lets
+            # play_qwen reproduce the sidecar shape orchestrate writes for
+            # other harnesses.
+            harness_meta_path = self.log_dir / "harness_meta_template.json"
+            harness_meta_path.write_text(json.dumps({
+                "agent_id": self.agent_id,
+                "personality": self.personality,
+                "harness": self.adapter.name,
+                "model": self.adapter.model,
+                "username": self.username,
+                "auth_mode": self.auth_mode,
+                "max_budget_usd": self.max_budget_usd,
+            }))
+            self.adapter.run_dir = self.log_dir
+            self.adapter.harness_meta_path = harness_meta_path
+            # orchestrate doesn't bound by wall-clock — --hours triggers SIGTERM externally.
+            self.adapter.max_duration_seconds = 0
 
         cmd = self.adapter.build_command(
             user_prompt=user_prompt,
@@ -538,8 +589,13 @@ class AgentInstance:
         if self.xvfb is not None and self.xvfb.is_alive():
             env["DISPLAY"] = self.xvfb.display_str
             env["KAETRAM_HEADED"] = "1"
+        # AGENT_ID needed by play_qwen to populate harness_meta defaults.
+        env["AGENT_ID"] = str(self.agent_id)
 
-        log_fh = open(log_file, "w")
+        # Append for Qwen so successive crash-recovery spawns share the
+        # singleton harness_stdout.log; truncate for other harnesses (each
+        # call is a fresh session log file).
+        log_fh = open(log_file, "a" if is_qwen_warm else "w")
         self.process = subprocess.Popen(
             cmd,
             cwd=str(self.sandbox_dir),
@@ -1564,11 +1620,18 @@ class Orchestrator:
                     pass  # already printed inside the method
                 elif agent.maybe_restart_if_disconnected():
                     pass  # already printed inside the method
-                elif agent.maybe_restart_if_stale(threshold_seconds=900):
-                    print(
-                        f"  [!] Agent {agent.agent_id} ({agent.username}): "
-                        f"stale 15min, restarted → session #{agent.session}"
-                    )
+                else:
+                    # Tighter watchdog for Qwen warm-session agents: sessions
+                    # are short (~60s), so 5 min of log silence already means
+                    # a hung browser. Other harnesses keep the conservative
+                    # 15-min default.
+                    stale_threshold = 300 if agent.adapter.name == "qwen" else 900
+                    if agent.maybe_restart_if_stale(threshold_seconds=stale_threshold):
+                        mins = stale_threshold // 60
+                        print(
+                            f"  [!] Agent {agent.agent_id} ({agent.username}): "
+                            f"stale {mins}min, restarted → session #{agent.session}"
+                        )
 
                 # Independent of agent state: if ffmpeg died but Xvfb is still
                 # up, restart only the encoder so the dashboard tile recovers.
@@ -1615,6 +1678,11 @@ class Orchestrator:
                 agt_status = "running"
             else:
                 agt_status = "exited"
+            # Qwen warm-session agents have play_qwen rotate sessions
+            # internally; refresh from .session_counter so the table reflects
+            # the live count, not the value at start_session().
+            if agt.adapter.name == "qwen":
+                agt._refresh_session_from_disk()
             print(
                 f"{agt.username:>10} {agt.adapter.name:>8} {agt.personality:>12} :{srv.port:>5} {srv_health:>8} "
                 f"#{agt.session:>6} {agt_status:>12}"

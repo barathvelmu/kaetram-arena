@@ -49,26 +49,31 @@ DEFAULT_MODELS = {
 }
 
 # Evaluation scenarios — see reference/EVALS.md
+#
+# Time-based: each scenario specifies a wall-clock duration. play_qwen runs
+# its warm-session loop for `duration_minutes` minutes, rotating sessions
+# internally on context overflow. Same wall-clock budget for SFT and base →
+# fair A/B regardless of model speed.
 SCENARIOS = {
     "A": {
         "name": "Rat Grind",
-        "max_turns": 100,
+        "duration_minutes": 5,
         "description": "Kill 10 rats from Level 1 in Mudwich",
     },
     "B": {
         "name": "Snek Quest",
-        "max_turns": 200,
+        "duration_minutes": 20,
         "description": "Complete Bike Lyson snake quest",
     },
     "C": {
         "name": "Multi-Zone",
-        "max_turns": 150,
+        "duration_minutes": 15,
         "description": "Visit 3+ zones via warping",
     },
     "D": {
         "name": "Open Play",
-        "max_turns": 300,
-        "description": "300 turns open-ended from Level 1",
+        "duration_minutes": 30,
+        "description": "30 minutes open-ended from Level 1",
     },
 }
 
@@ -150,30 +155,44 @@ def run_episode(
     endpoint: str,
     model_api_name: str,
     sandbox: str,
-    max_turns: int,
+    duration_seconds: int,
     system_prompt_file: str,
     username: str,
+    run_dir: Path,
     server_port: str = "",
     personality: str = "",
-    session_n: int = 1,
 ) -> dict:
-    """Run one play_qwen.py episode as subprocess. Returns run metadata.
+    """Run one warm-session play_qwen.py episode. Returns run metadata.
 
-    play_qwen.py emits JSONL records to stdout (one per turn event) and
-    informational messages to stderr. We capture stdout and persist it as
-    `<sandbox>/logs/session_<ts>.log` so `find_newest_new_log` (and the
-    rest of the eval pipeline) can parse it the same way it parsed logs
-    under the old play_qwen design.
+    play_qwen runs its warm-session loop for `duration_seconds` and writes
+    `session_<N>_<TS>.log` files (Claude stream-json) directly into
+    `run_dir`. After exit, eval_harness aggregates across those files.
     """
+    run_dir.mkdir(parents=True, exist_ok=True)
+    # Sidecar template — play_qwen merges with per-session fields. Keeps
+    # session_*.meta.json shape consistent with orchestrate-driven runs.
+    harness_meta_path = run_dir / "harness_meta_template.json"
+    harness_meta_path.write_text(json.dumps({
+        "agent_id": -1,                # eval-only marker
+        "personality": personality or "completionist",
+        "harness": "qwen",
+        "model": model_api_name,
+        "username": username,
+        "auth_mode": "subscription",
+        "max_budget_usd": None,
+        "scenario_run_dir": str(run_dir),
+    }))
+
     cmd = [
         sys.executable, os.path.join(project_dir, "play_qwen.py"),
         "--endpoint", endpoint,
         "--model", model_api_name,
         "--sandbox", sandbox,
-        "--max-turns", str(max_turns),
+        "--run-dir", str(run_dir),
+        "--harness-meta", str(harness_meta_path),
+        "--max-duration-seconds", str(duration_seconds),
         "--system-prompt", system_prompt_file,
         "--project-dir", project_dir,
-        "--session-n", str(session_n),
     ]
     if server_port:
         cmd.extend(["--server-port", server_port])
@@ -186,7 +205,9 @@ def run_episode(
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True,
-            timeout=max(max_turns * 30, 3600),  # generous timeout
+            # Give play_qwen 10 minutes past its declared budget for
+            # graceful exit + Modal cold start.
+            timeout=duration_seconds + 600,
             env=env,
         )
         returncode = result.returncode
@@ -195,16 +216,7 @@ def run_episode(
         result = type("R", (), {"stdout": "", "stderr": "TIMEOUT"})()
     duration = time.time() - start
 
-    stdout = result.stdout or ""
     stderr = result.stderr or ""
-
-    # Persist play_qwen's JSONL stdout as a session log so find_latest_log /
-    # find_newest_new_log can pick it up. Also stash stderr for debugging.
-    log_dir = Path(sandbox) / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    if stdout.strip():
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        (log_dir / f"session_{ts}.log").write_text(stdout)
     if stderr:
         debug_dir = Path(sandbox) / "debug"
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -213,29 +225,8 @@ def run_episode(
     return {
         "returncode": returncode,
         "duration_seconds": round(duration, 1),
-        "stdout_tail": stdout[-1000:],
         "stderr_tail": stderr[-500:],
     }
-
-
-def find_latest_log(sandbox: str) -> Path | None:
-    """Find the most recently created session log in the sandbox."""
-    log_dir = Path(sandbox) / "logs"
-    if not log_dir.is_dir():
-        return None
-    logs = sorted(log_dir.glob("session_*.log"), key=lambda p: p.stat().st_mtime)
-    return logs[-1] if logs else None
-
-
-def find_newest_new_log(sandbox: str, known_logs: set[str]) -> Path | None:
-    """Find the newest session log created after a sub-session starts."""
-    log_dir = Path(sandbox) / "logs"
-    if not log_dir.is_dir():
-        return None
-    new_logs = [p for p in log_dir.glob("session_*.log") if p.name not in known_logs]
-    if not new_logs:
-        return None
-    return max(new_logs, key=lambda p: p.stat().st_mtime)
 
 
 def start_eval_watchdog(
@@ -282,17 +273,84 @@ def start_eval_watchdog(
 # ---------------------------------------------------------------------------
 
 def parse_log(log_path: Path) -> list[dict]:
-    """Parse play_qwen.py JSONL log into list of entries."""
-    entries = []
+    """Parse a play_qwen session log into legacy-shape entries.
+
+    play_qwen now emits Claude stream-json (one record per content block:
+    `{type: "assistant", message: {content: [{type: "thinking"|"text"|
+    "tool_use", ...}], usage: ...}}`, plus `{type: "user", message:
+    {content: [{type: "tool_result", ...}]}}`). The downstream metric
+    extractor in `compute_episode_metrics` keys on the older role/content
+    shape, so we flatten records here:
+
+      type:"assistant" + tool_use blocks
+        → {role: "assistant", content: <text>, tool_calls: [{name, args, id}]}
+      type:"assistant" + text/thinking only
+        → {role: "assistant", content: <text>}
+      type:"user" + tool_result
+        → {role: "tool", content: "<tool_name>: <result>"}   (matches the
+                                                              "observe:" /
+                                                              "navigate:"
+                                                              prefix the
+                                                              extractor
+                                                              expects)
+    Other types (system:init, result) are dropped — not used by metrics.
+    """
+    entries: list[dict] = []
     with open(log_path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
+        for raw in f:
+            raw = raw.strip()
+            if not raw or not raw.startswith("{"):
                 continue
             try:
-                entries.append(json.loads(line))
+                rec = json.loads(raw)
             except json.JSONDecodeError:
                 continue
+
+            t = rec.get("type")
+            if t == "assistant":
+                blocks = rec.get("message", {}).get("content", []) or []
+                texts: list[str] = []
+                tool_calls: list[dict] = []
+                for blk in blocks:
+                    btype = blk.get("type")
+                    if btype == "text":
+                        texts.append(blk.get("text", ""))
+                    elif btype == "thinking":
+                        # Discard for metrics — we don't analyze CoT here.
+                        pass
+                    elif btype == "tool_use":
+                        tool_calls.append({
+                            "name": blk.get("name", ""),
+                            "args": blk.get("input", {}) or {},
+                            "id": blk.get("id", ""),
+                        })
+                # Multiple `assistant` records for one logical turn (one block
+                # each) are collapsed by the extractor only via tool_calls
+                # presence. Emit one entry per record so per-block thinking/
+                # text records still count as turns; aggregate tool_use blocks.
+                # The extractor at line ~544 increments assistant_turns per
+                # record and reads tool_calls, which matches old behavior
+                # (one tool-call → one assistant record).
+                entry = {"role": "assistant", "content": " ".join(texts)}
+                if tool_calls:
+                    entry["tool_calls"] = tool_calls
+                entries.append(entry)
+            elif t == "user":
+                # Flatten each tool_result block into a "tool" entry so the
+                # extractor sees one entry per result (matches old shape).
+                tool_name = rec.get("tool_name", "")
+                for blk in rec.get("message", {}).get("content", []) or []:
+                    if blk.get("type") != "tool_result":
+                        continue
+                    raw_content = blk.get("content", "")
+                    if not isinstance(raw_content, str):
+                        raw_content = json.dumps(raw_content)
+                    prefix = f"{tool_name}: " if tool_name else ""
+                    entries.append({
+                        "role": "tool",
+                        "content": prefix + raw_content,
+                    })
+            # Drop type=="system"/"result" — not consumed by metrics.
     return entries
 
 
@@ -680,7 +738,8 @@ def run_model_eval(
 ) -> dict:
     """Run all episodes for one model. Returns full results dict."""
     scenario_cfg = SCENARIOS[scenario]
-    max_turns = scenario_cfg["max_turns"]
+    duration_minutes = scenario_cfg["duration_minutes"]
+    duration_seconds = duration_minutes * 60
     sandbox = f"/tmp/kaetram_eval_{model_name}"
     model_output_dir = output_dir / model_name
     model_output_dir.mkdir(parents=True, exist_ok=True)
@@ -696,7 +755,7 @@ def run_model_eval(
     print(f"\n{'='*60}")
     print(f"Evaluating: {model_name}")
     print(f"  Endpoint:  {endpoint}")
-    print(f"  Scenario:  {scenario} — {scenario_cfg['name']} ({max_turns} turns)")
+    print(f"  Scenario:  {scenario} — {scenario_cfg['name']} ({duration_minutes} min)")
     print(f"  Episodes:  {n_episodes} (resuming from {resume_from})")
     print(f"  Sandbox:   {sandbox}")
     print(f"  Username:  {username}")
@@ -752,75 +811,51 @@ def run_model_eval(
         db_before = _read_player_db_snapshot(username)
         qa_before = _read_quest_achievement_snapshot(username)
 
-        # Clear sandbox state (keep mcp_server.log for dashboard)
+        # Clear sandbox state (keep mcp_server.log for dashboard).
+        # Sandbox /state holds the live game-state JSON + .session_counter
+        # — both reset per episode so each starts at session #1.
         state_dir = Path(sandbox) / "state"
         state_dir.mkdir(parents=True, exist_ok=True)
         for f in state_dir.glob("*"):
             if f.is_file() and f.name != "mcp_server.log":
                 f.unlink()
 
-        # Clear sub-session logs from previous episode
-        log_dir = Path(sandbox) / "logs"
-        if log_dir.is_dir():
-            for f in log_dir.glob("session_*.log"):
-                f.unlink()
+        # 2. Run one warm-session play_qwen process for the scenario duration.
+        # Inside that process, sessions roll on context_overflow — Mongo state
+        # carries the character forward across rollovers. We aggregate metrics
+        # over all session_*.log files in the per-episode run dir.
+        episode_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = Path(sandbox) / "logs" / f"run_{episode_ts}_ep{ep_num:03d}"
 
-        # 2. Run episode with sub-session continuation
-        # The model's context window fills up after ~30 turns, so play_qwen.py
-        # exits. We restart it (same DB state, player continues) until we reach
-        # max_turns total across all sub-sessions.
-        all_log_entries = []
-        total_duration = 0.0
-        sub_session = 0
-        last_returncode = 0
+        run_info = run_episode(
+            project_dir=project_dir,
+            endpoint=endpoint,
+            model_api_name=api_name,
+            sandbox=sandbox,
+            duration_seconds=duration_seconds,
+            system_prompt_file=str(prompt_file),
+            username=username,
+            run_dir=run_dir,
+            server_port=server_port,
+            personality=personality,
+        )
+        total_duration = run_info["duration_seconds"]
+        last_returncode = run_info["returncode"]
 
-        while len([e for e in all_log_entries if e.get("role") == "assistant"]) < max_turns:
-            turns_so_far = len([e for e in all_log_entries if e.get("role") == "assistant"])
-            remaining = max_turns - turns_so_far
-            if remaining <= 0:
-                break
+        # Aggregate across all session logs play_qwen wrote during this episode.
+        session_logs = sorted(run_dir.glob("session_*.log"),
+                              key=lambda p: p.stat().st_mtime)
+        all_log_entries: list[dict] = []
+        for log_path in session_logs:
+            all_log_entries.extend(parse_log(log_path))
+        sub_session = len(session_logs)
+        print(f"  Episode {ep_num}: {sub_session} warm session(s), "
+              f"{run_info['duration_seconds']:.0f}s wall-clock")
 
-            sub_session += 1
-            print(f"  Sub-session {sub_session}: {turns_so_far}/{max_turns} turns so far, {remaining} remaining...")
-            known_logs = {p.name for p in log_dir.glob("session_*.log")} if log_dir.is_dir() else set()
-
-            run_info = run_episode(
-                project_dir=project_dir,
-                endpoint=endpoint,
-                model_api_name=api_name,
-                sandbox=sandbox,
-                max_turns=remaining,
-                system_prompt_file=str(prompt_file),
-                username=username,
-                server_port=server_port,
-                personality=personality,
-                session_n=sub_session,
-            )
-            total_duration += run_info["duration_seconds"]
-            last_returncode = run_info["returncode"]
-
-            # Only accept logs created by this sub-session. Reusing the previous
-            # session's log would fabricate progress after a failed restart.
-            log_path = find_newest_new_log(sandbox, known_logs)
-            if log_path is None:
-                print(f"  Sub-session {sub_session}: no log file — stopping")
-                break
-
-            sub_entries = parse_log(log_path)
-            sub_turns = len([e for e in sub_entries if e.get("role") == "assistant"])
-            print(f"  Sub-session {sub_session}: {sub_turns} turns ({run_info['duration_seconds']:.0f}s)")
-
-            if sub_turns == 0:
-                # Session failed to produce any turns — stop to avoid infinite loop
-                print(f"  Sub-session {sub_session}: 0 turns produced, stopping episode")
-                break
-
-            all_log_entries.extend(sub_entries)
-
-        # 3. Parse aggregated results from all sub-sessions
+        # 3. Parse aggregated results from all warm sessions
         total_turns = len([e for e in all_log_entries if e.get("role") == "assistant"])
         if total_turns == 0:
-            print(f"  No turns produced across {sub_session} sub-sessions — episode failed")
+            print(f"  No turns produced across {sub_session} warm sessions — episode failed")
             episode = {
                 "episode": ep_num,
                 "status": "no_log",
@@ -860,7 +895,7 @@ def run_model_eval(
         episodes.append(episode)
 
         # Progress summary
-        print(f"  Done: {metrics['turns_played']} turns ({sub_session} sub-sessions), "
+        print(f"  Done: {metrics['turns_played']} turns ({sub_session} warm sessions), "
               f"TPR={metrics['tool_parse_rate']:.2f}, "
               f"kills={metrics['kills']}, XP~{metrics['xp_estimated']}, "
               f"level={metrics['level_reached']}, "

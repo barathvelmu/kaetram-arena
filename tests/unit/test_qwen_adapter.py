@@ -1,9 +1,13 @@
 """QwenAdapter contract tests.
 
-Locks the argv shape and env vars QwenAdapter produces, so orchestrate.py
-spawns play_qwen.py with the right --personality / --session-n / --server-port
-on every session. If this test changes, you've changed the adapter surface
-and probably need to verify play_qwen.py still parses the new args.
+Locks the argv shape and env vars QwenAdapter produces. play_qwen runs as a
+long-lived warm-session subprocess: orchestrate spawns it once per
+AgentInstance and the SessionLogger inside play_qwen handles per-session
+files + .session_counter rotation. The adapter therefore does NOT pass
+--max-turns or --session-n (both ignored by play_qwen / never accepted in
+the new CLI). For warm-session-aware callers (orchestrate, eval_harness)
+the run-context attrs (run_dir / harness_meta_path / max_duration_seconds)
+are set on the adapter before build_command.
 """
 from __future__ import annotations
 
@@ -47,17 +51,52 @@ def test_build_command_includes_required_flags():
         cmd = a.build_command(
             user_prompt="ignored",  # play_qwen rebuilds via shared bootstrap
             system_prompt="ignored",
-            max_turns=200,
+            max_turns=200,            # accepted for polymorphism, dropped by Qwen
             personality="grinder",
-            session_n=5,
+            session_n=5,              # accepted for polymorphism, dropped by Qwen
         )
     assert cmd[1].endswith("play_qwen.py")
     assert "--endpoint" in cmd
     assert "--system-prompt" in cmd
-    assert "--max-turns" in cmd and "200" in cmd
-    assert "--session-n" in cmd and "5" in cmd
+    # play_qwen no longer accepts these; warm-session loop owns turn/session bookkeeping.
+    assert "--max-turns" not in cmd
+    assert "--session-n" not in cmd
     assert "--personality" in cmd and "grinder" in cmd
     assert "--server-port" in cmd and "9011" in cmd
+
+
+def test_build_command_threads_warm_session_context_when_set():
+    """orchestrate / eval_harness assign run_dir + harness_meta_path +
+    max_duration_seconds on the adapter before build_command. Verify those
+    flow through to argv."""
+    a = QwenAdapter()
+    a.run_dir = Path("/tmp/test_run_dir")
+    a.harness_meta_path = Path("/tmp/test_meta.json")
+    a.max_duration_seconds = 600
+    with tempfile.TemporaryDirectory() as td:
+        a.setup_sandbox(Path(td), system_prompt="x", port="9001", username="QwenGrinder")
+        cmd = a.build_command(
+            user_prompt="x", system_prompt="y", max_turns=0,
+            personality="grinder", session_n=1,
+        )
+    assert "--run-dir" in cmd and "/tmp/test_run_dir" in cmd
+    assert "--harness-meta" in cmd and "/tmp/test_meta.json" in cmd
+    assert "--max-duration-seconds" in cmd and "600" in cmd
+
+
+def test_build_command_omits_warm_context_when_unset():
+    """Solo-dev invocation leaves run_dir/harness_meta/max_duration unset.
+    play_qwen falls through to its own defaults."""
+    a = QwenAdapter()
+    with tempfile.TemporaryDirectory() as td:
+        a.setup_sandbox(Path(td), system_prompt="x", port="9001", username="QwenGrinder")
+        cmd = a.build_command(
+            user_prompt="x", system_prompt="y", max_turns=0,
+            personality="grinder", session_n=1,
+        )
+    assert "--run-dir" not in cmd
+    assert "--harness-meta" not in cmd
+    assert "--max-duration-seconds" not in cmd
 
 
 def test_build_command_omits_personality_when_none():

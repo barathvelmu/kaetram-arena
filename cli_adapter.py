@@ -493,19 +493,28 @@ QWEN_BASE_ENDPOINT = "https://workspace--kaetram-qwen-base-inference-serve.modal
 class QwenAdapter(CLIAdapter):
     """Adapter for the in-house Qwen3.5-9B model served on Modal SGLang.
 
-    Wraps `play_qwen.py` as a per-session subprocess — orchestrate.py spawns
-    one invocation per session, captures its stdout (JSONL log records) into
-    the session log file, and respawns with --session-n N+1 on exit.
-
-    play_qwen.py exits cleanly when next call would exceed Qwen's 16K
-    trained context budget; orchestrate respawns. No turn cap from the
-    adapter side — `max_turns` is a safety bound only.
+    Wraps `play_qwen.py` as a LONG-LIVED warm-session subprocess. The Python
+    process spans many sessions — MCPClient, Chromium browser, login, and
+    Xvfb/ffmpeg all persist across context-overflow rollovers. play_qwen
+    rotates `session_<N>_<TS>.log` files internally and writes
+    `<sandbox>/state/.session_counter` itself. orchestrate only respawns
+    play_qwen on hard process death (crash recovery), not on natural session
+    boundaries.
 
     Variant labels: `model="r10-sft"` for the finetuned endpoint,
     `model="kaetram-base"` for the unfinetuned endpoint. The Modal endpoint
     serves whichever model is baked into the deployment, so the model name
     is a metadata label — but we keep it in lockstep with the endpoint URL
     so dashboards and run.meta.json never misreport the variant.
+
+    Warm-session context (set by orchestrate / eval_harness before
+    `build_command`):
+        run_dir              : Path to write session_<N>_<TS>.log files
+        harness_meta_path    : JSON file with sidecar template (per-agent fields)
+        max_duration_seconds : Wall-clock cap (eval-only; 0 = unbounded)
+
+    Solo-dev invocation can leave these unset — play_qwen falls back to
+    `<sandbox>/logs` for the run_dir and runs unbounded.
     """
 
     def __init__(self, model: str = "r10-sft", endpoint: str | None = None):
@@ -519,6 +528,11 @@ class QwenAdapter(CLIAdapter):
         self.endpoint = endpoint
         self._port: str = ""
         self._username: str = "QwenCompletionist"
+        # Warm-session context — set by orchestrate / eval_harness before
+        # build_command. None / 0 means "use play_qwen defaults".
+        self.run_dir: Path | None = None
+        self.harness_meta_path: Path | None = None
+        self.max_duration_seconds: int = 0
 
     @property
     def name(self) -> str:
@@ -535,15 +549,18 @@ class QwenAdapter(CLIAdapter):
         self,
         user_prompt: str,
         system_prompt: str,
-        max_turns: int,
+        max_turns: int,           # accepted for polymorphism; ignored
         max_budget_usd: float | None = None,
         auth_mode: str = "subscription",
         personality: str | None = None,
-        session_n: int = 1,
+        session_n: int = 1,       # accepted for polymorphism; ignored
     ) -> list[str]:
-        # `user_prompt` is the orchestrate bootstrap. play_qwen.py rebuilds
-        # the same string from --personality + --session-n via the shared
-        # bootstrap module — byte-identical by construction.
+        # `user_prompt` and `session_n` are accepted to match the base-class
+        # signature but ignored: play_qwen rebuilds the bootstrap per warm
+        # session via the shared `bootstrap.build_orchestrate_bootstrap`,
+        # using its own `.session_counter`. `max_turns` is also ignored —
+        # warm-session lifetime is bounded by context-overflow rollovers and
+        # (eval only) `--max-duration-seconds`.
         cmd = [
             VENV_PYTHON,
             str(PROJECT_DIR / "play_qwen.py"),
@@ -551,10 +568,14 @@ class QwenAdapter(CLIAdapter):
             "--model", self.model,
             "--system-prompt", "system_prompt.md",  # cwd-relative (orchestrate sets cwd to sandbox)
             "--sandbox", ".",
-            "--max-turns", str(max_turns),
             "--project-dir", str(PROJECT_DIR),
-            "--session-n", str(session_n),
         ]
+        if self.run_dir is not None:
+            cmd.extend(["--run-dir", str(self.run_dir)])
+        if self.harness_meta_path is not None:
+            cmd.extend(["--harness-meta", str(self.harness_meta_path)])
+        if self.max_duration_seconds:
+            cmd.extend(["--max-duration-seconds", str(self.max_duration_seconds)])
         if self._port:
             cmd.extend(["--server-port", str(self._port)])
         if personality:

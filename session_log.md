@@ -5,7 +5,7 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ## 2026-05-09 — r10 SFT pipeline cleanup + dataset rebuild on full-length CoT
 
-End-to-end audit and fixes across the SFT pipeline. Test suite now 70 unit tests green (was failing 3). Truncation gate populates `metadata.json::truncation_gate`; rebuild lands at `kept_max_tokens=16,383` (right at the bound, 0 over).
+End-to-end audit and fixes across the SFT pipeline. Test suite now 70 unit tests green (was failing 3). Truncation gate populates `metadata.json::truncation_gate`; rebuild lands at `kept_max_tokens=16,382` (within the 16,384 bound).
 
 **Code fixes (no scope additions, drift removal only):**
 - `tests/unit/test_think_roundtrip.py` — broken import (`_patch_qwen_chat_template` from `train_modal`) → `patch_qwen_chat_template` from `finetune/render`. Mixed-mode assertion aligned with patched-template behavior (no-think turn renders empty `<think>\n\n</think>` per Qwen3 Thinking Mode Fusion).

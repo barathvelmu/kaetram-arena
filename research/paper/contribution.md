@@ -95,7 +95,7 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
    - 3.5 (if ready) World model reward shaping / GRPO
 
 4. **Experiments**
-   - 4.1 Setup: Qwen3.5-9B, Modal H100, dataset stats
+   - 4.1 Setup: Qwen3.5-9B, Modal H100, dataset stats (9,256 records from 135 Claude sessions)
    - 4.2 Main results: finetuned model gameplay vs baseline
    - 4.3 Ablations (see table above)
    - 4.4 Qualitative analysis: example game sessions, reasoning quality

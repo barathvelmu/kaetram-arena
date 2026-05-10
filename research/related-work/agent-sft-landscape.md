@@ -15,7 +15,7 @@ The paper that established agent SFT as a subfield. Fine-tuned Llama2-7B on 500 
 - Fine-tuned agents are dramatically more robust to noisy tools (ReAct EM drops 33.8% with noise vs 14.2% for FireAct)
 - Multi-method training data (ReAct + CoT + Reflexion) gives the model flexibility to choose the right approach
 
-**Our relevance:** Our 6.4k records are 12x above the emergence threshold. Fine-tuning will make Qwen 3.5 9B more robust than prompting for the noisy game environment.
+**Our relevance:** Our r10 dataset (9,256 records) is ~18x above the emergence threshold. Fine-tuning will make Qwen 3.5 9B more robust than prompting for the noisy game environment.
 
 ### Agent-FLAN (arXiv 2403.12881, ACL 2024 Findings)
 
@@ -154,7 +154,7 @@ Critical analysis of what SFT actually teaches.
 - Action space: 40 flat categorical labels vs. our 17 typed MCP tools with arguments (`navigate(x,y)`, `attack("goblin")`) — ours is compositionally richer
 - Teacher diversity: single DeepSeek-R1 policy vs. our 3 personality-distinct Claude agents
 - Post-SFT: GRPO (online, 32 × H20 GPUs, Tencent scale) vs. KTO (offline, composite 6-dimension reward, 1 H100)
-- Data: proprietary Tencent production replays (undisclosed scale) vs. our fully open 6.4k records
+- Data: proprietary Tencent production replays (undisclosed scale) vs. our fully open 9,256 records (r10)
 - Game: episodic MOBA (no persistence) vs. persistent MMORPG (quest state, inventory, XP accumulate across sessions)
 - Reproducibility: zero (proprietary game + data) vs. full (open-source game + public pipeline)
 
@@ -166,7 +166,7 @@ Critical analysis of what SFT actually teaches.
 
 ## Key Takeaways for Our Pipeline
 
-1. **500 trajectories is the floor, 6k is the sweet spot** — r10 sits at ~10k records (135 sessions, post-Core-3 Claude only); above the LoRA floor and within the multi-turn-tool-use sweet spot
+1. **500 trajectories is the floor, 6k is the sweet spot** — r10 sits at 9,256 records (135 sessions, post-Core-3 Claude only, after thinking-ratio + truncation gates); above the LoRA floor and within the multi-turn-tool-use sweet spot
 2. **Loss masking is consensus** — mask observations, train on reasoning + actions
 3. **CoT reasoning is essential** — never strip `<think>` blocks (our r7 template fix was critical)
 4. **SFT alone plateaus** — KTO/GRPO follow-ups are scaffolded but deferred (project pivoted to quest completion as the headline benchmark)

@@ -16,7 +16,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
 | r8 | Apr 13-14 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | COMPLETE. Deployed on Modal. Eval harness set up (base vs r8-SFT). |
 | r9 | Apr 15-16 | SFT | 5,871 train / 575 val | Train/inference alignment fix (system prompt, reasoning, seq length) + degenerate filtering | COMPLETE Apr 16. Deployed via `serve_modal.py`. In early curious eval lost to base (1.5 quests / 28.5 kills / L24 vs base 2.5 / 26.5 / L20). Root cause → r10 P0 fixes. |
-| r10 | May 7-9 | SFT (dataset) | live counts in `dataset/qwen_sft/metadata.json::record_counts` | Claude corpus only, 3 agents (grinder / completionist / explorer_tinkerer). Mixed-mode thinking-ratio gate (≤25% no-think) + strict-16,384 truncation gate. Reasoning rendered verbatim; `_drop_overlong` is the only length authority. | Dataset rebuilt 2026-05-09. Training timeout 72h. |
+| r10 | May 7-9 | SFT (dataset) | 8,405 train / 851 val (9,256 total) | Claude corpus only, 3 agents (grinder / completionist / explorer_tinkerer). Mixed-mode thinking-ratio gate (≤25% no-think) + strict-16,384 truncation gate (dropped 4,906 overlong). Reasoning rendered verbatim; `_drop_overlong` is the only length authority. | Dataset rebuilt 2026-05-09. ETA ~22h on H100 (fits Modal 24h). |
 | r9-KTO | DEFERRED | KTO | TBD | Preference learning on r9 merged weights | Deferred indefinitely — pipeline focuses on the quest-completion benchmark over preference-RL. |
 
 ---
@@ -175,7 +175,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **Config.** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16,384`, `packing=False`, `dataset_text_field="text"`, `max_length=MAX_SEQ_LEN` (TRL #3910 — `max_seq_length` was the old name, silently ignored). Loss masking via Unsloth's `train_on_responses_only` with `<|im_start|>user\n` / `<|im_start|>assistant\n` markers. Data collator wrapped with a `(labels != -100).any(dim=-1).all()` per-batch assert to abort on any all-masked record (TRL #3927 guard). Experiment: `kaetram-qwen3.5-9b-r10`. Modal timeout: 72h.
 
-**Status.** Dataset rebuilt 2026-05-09. Reasoning rendered verbatim; `_drop_overlong` is the only length authority. LoRA training blocked on ETA/packing decision. Once kicked off, `r10-sft` deploys via `serve_modal.py` (env-overridable `SFT_EXPERIMENT`, defaults to `kaetram-qwen3.5-9b-r10`) and is evaluated against base on the live quest benchmark via the N-model Bonferroni eval pipeline.
+**Status.** Dataset rebuilt 2026-05-09 (9,256 records after truncation gate dropped 4,906 overlong). Reasoning rendered verbatim; `_drop_overlong` is the only length authority. ETA ~22h on H100 — fits Modal's 24h timeout; packing decision no longer blocking. Once kicked off, `r10-sft` deploys via `serve_modal.py` (env-overridable `SFT_EXPERIMENT`, defaults to `kaetram-qwen3.5-9b-r10`) and is evaluated against base on the live quest benchmark via the N-model Bonferroni eval pipeline.
 
 ---
 

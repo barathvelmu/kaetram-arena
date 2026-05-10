@@ -127,7 +127,7 @@ Only Claude logs feed into training. Gemini/Codex are collected for comparison b
 | r5 (Apr 4) | 3,853 | 465 | 4,318 | First quality-filtered dataset |
 | r7 (Apr 9) | 6,423 | 646 | 7,069 | +62% data, chat template fix, personality labels |
 | r9 (Apr 15) | 5,871 | 575 | 6,446 | Degenerate filtering (-623), 100% reasoning, real system prompt |
-| r10 (current) | live | live | live | Mixed-mode thinking-ratio gate (≤25% no-think) + strict 16,384 truncation gate. Counts in `metadata.json::record_counts`. |
+| r10 (current, May 9) | 8,405 | 851 | 9,256 | Mixed-mode thinking-ratio gate (≤25% no-think) + strict 16,384 truncation gate (dropped 4,906 overlong from 14,162 checked). Live counts in `metadata.json::record_counts`. |
 
 **r7 chat-template fix** (QwenLM/Qwen3 #1831, still open against Qwen3.5 as of May 2026): `<think>` reasoning preserved in all assistant turns via `finetune/render.patch_qwen_chat_template`, not just the last. Verified by `tests/unit/test_think_roundtrip.py`.
 

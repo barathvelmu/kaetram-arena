@@ -29,7 +29,7 @@ import time
 
 # Force unbuffered output so tee/tmux see it immediately
 print = functools.partial(print, flush=True)
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from cli_adapter import CLIAdapter, get_adapter, opencode_bot_prefix
@@ -1479,10 +1479,18 @@ class Orchestrator:
         self._ensure_deepseek_proxy()
 
         harness_parts = []
-        for h, count in [("Claude", "claude"), ("Codex", "codex"), ("Gemini", "gemini"), ("OpenCode", "opencode")]:
-            n = self.harness_counts.get(count, 0)
+        for label, key in [("Claude", "claude"), ("Codex", "codex"), ("Gemini", "gemini"), ("OpenCode", "opencode")]:
+            n = self.harness_counts.get(key, 0)
             if n > 0:
-                harness_parts.append(f"{n} {h}")
+                harness_parts.append(f"{n} {label}")
+        # Qwen tracks variant (sft/base) per slot — count from qwen_variants
+        # so the banner reflects what was actually requested.
+        n_sft = self.qwen_variants.count("sft")
+        n_base = self.qwen_variants.count("base")
+        if n_sft:
+            harness_parts.append(f"{n_sft} Qwen-SFT")
+        if n_base:
+            harness_parts.append(f"{n_base} Qwen-Base")
         mix_label = " + ".join(harness_parts) if harness_parts else "Claude"
         print(f"Starting {self.n_agents} game servers ({mix_label})...")
         for server in self.servers:

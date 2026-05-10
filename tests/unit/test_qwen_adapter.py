@@ -14,7 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from cli_adapter import QwenAdapter, QWEN_DEFAULT_ENDPOINT, get_adapter
+from cli_adapter import QwenAdapter, QWEN_SFT_ENDPOINT, get_adapter
 
 
 def test_factory_returns_qwen_adapter():
@@ -22,7 +22,7 @@ def test_factory_returns_qwen_adapter():
     assert isinstance(a, QwenAdapter)
     assert a.name == "qwen"
     assert a.model == "r10-sft"
-    assert a.endpoint == QWEN_DEFAULT_ENDPOINT
+    assert a.endpoint == QWEN_SFT_ENDPOINT
 
 
 def test_factory_endpoint_override():

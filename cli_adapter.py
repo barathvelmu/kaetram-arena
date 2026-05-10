@@ -488,8 +488,6 @@ class OpenCodeAdapter(CLIAdapter):
 
 QWEN_SFT_ENDPOINT = "https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1"
 QWEN_BASE_ENDPOINT = "https://workspace--kaetram-qwen-base-inference-serve.modal.run/v1"
-# Back-compat alias — earlier callers imported QWEN_DEFAULT_ENDPOINT.
-QWEN_DEFAULT_ENDPOINT = QWEN_SFT_ENDPOINT
 
 
 class QwenAdapter(CLIAdapter):

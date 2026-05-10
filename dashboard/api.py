@@ -12,7 +12,7 @@ import time
 from datetime import datetime
 
 from dashboard.constants import (
-    PROJECT_DIR, STATE_DIR, LOG_DIR, DATASET_DIR,
+    PROJECT_DIR, LOG_DIR, DATASET_DIR,
     BASE_SERVER_PORT, PORT_STRIDE, MAX_AGENTS,
     AGENTS_CACHE_TTL, STATS_CACHE_TTL, EVAL_LIVE_CACHE_TTL,
     sanitize, get_ss_output, check_process_running,

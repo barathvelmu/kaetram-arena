@@ -51,7 +51,9 @@ N_CLAUDE=""
 N_CODEX=""
 N_GEMINI=""
 N_OPENCODE=""
+N_QWEN=""
 OPENCODE_MODEL=""
+QWEN_ENDPOINT=""
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -62,6 +64,7 @@ while [[ $# -gt 0 ]]; do
     --hours)       HOURS="$2"; shift 2;;
     --max-budget-usd) MAX_BUDGET="$2"; shift 2;;
     --opencode-model) OPENCODE_MODEL="$2"; shift 2;;
+    --qwen-endpoint) QWEN_ENDPOINT="$2"; shift 2;;
     --claude)
       if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
         N_CLAUDE="$2"; shift 2
@@ -88,6 +91,13 @@ while [[ $# -gt 0 ]]; do
         N_OPENCODE="$2"; shift 2
       else
         N_OPENCODE="-1"; shift  # bare --opencode = all agents
+      fi
+      ;;
+    --qwen)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_QWEN="$2"; shift 2
+      else
+        N_QWEN="-1"; shift  # bare --qwen = all agents
       fi
       ;;
     *)
@@ -137,12 +147,15 @@ HARNESS_DESC=""
 [ -n "$N_CODEX" ] && [ "$N_CODEX" != "-1" ] && [ "$N_CODEX" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_CODEX Codex"
 [ -n "$N_GEMINI" ] && [ "$N_GEMINI" != "-1" ] && [ "$N_GEMINI" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_GEMINI Gemini"
 [ -n "$N_OPENCODE" ] && [ "$N_OPENCODE" != "-1" ] && [ "$N_OPENCODE" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_OPENCODE OpenCode"
+[ -n "$N_QWEN" ] && [ "$N_QWEN" != "-1" ] && [ "$N_QWEN" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_QWEN Qwen"
 [ "$N_CODEX" = "-1" ] && HARNESS_DESC="all Codex"
 [ "$N_GEMINI" = "-1" ] && HARNESS_DESC="all Gemini"
 [ "$N_OPENCODE" = "-1" ] && HARNESS_DESC="all OpenCode"
+[ "$N_QWEN" = "-1" ] && HARNESS_DESC="all Qwen"
 [ -z "$HARNESS_DESC" ] && HARNESS_DESC="all Claude"
 echo "  Harness: $HARNESS_DESC"
 [ -n "$OPENCODE_MODEL" ] && echo "  OpenCode model: $OPENCODE_MODEL"
+[ -n "$QWEN_ENDPOINT" ] && echo "  Qwen endpoint: $QWEN_ENDPOINT"
 echo "  Hours:  ${HOURS}"
 echo ""
 
@@ -220,6 +233,10 @@ if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
     [ -n "$USER_JS_ARRAY" ] && USER_JS_ARRAY="${USER_JS_ARRAY},"
     USER_JS_ARRAY="${USER_JS_ARRAY}'claudebot${i}','codexbot${i}','geminibot${i}','opencodebot${i}','bigqwenbot${i}','grokbot${i}','deepseekbot${i}'"
   done
+  # Qwen personality-based usernames (not numeric — see orchestrate.py
+  # qwen_username_map). Always include all three so a Qwen run with any
+  # personality mix gets a clean Mongo state on restart.
+  USER_JS_ARRAY="${USER_JS_ARRAY},'qwengrinder','qwencompletionist','qwenexplorer'"
 
   echo "Resetting player data in MongoDB..."
   for coll in "${COLLECTIONS[@]}"; do
@@ -242,10 +259,14 @@ if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
 from tests.e2e.helpers.seed import seed_player
 PREFIXES = ("claudebot", "codexbot", "geminibot", "opencodebot",
             "bigqwenbot", "grokbot", "deepseekbot")
+QWEN_NAMES = ("qwengrinder", "qwencompletionist", "qwenexplorer")
+n = 0
 for i in range($TOTAL_AGENTS):
     for prefix in PREFIXES:
-        seed_player(f"{prefix}{i}")
-print(f"  Seeded {$TOTAL_AGENTS * len(PREFIXES)} bot rows.")
+        seed_player(f"{prefix}{i}"); n += 1
+for name in QWEN_NAMES:
+    seed_player(name); n += 1
+print(f"  Seeded {n} bot rows.")
 PYEOF
 else
   echo "WARNING: MongoDB container not running — skipping DB reset"
@@ -333,7 +354,9 @@ fi
 [ -n "$N_CODEX" ] && ORCH_CMD="$ORCH_CMD --codex $N_CODEX"
 [ -n "$N_GEMINI" ] && ORCH_CMD="$ORCH_CMD --gemini $N_GEMINI"
 [ -n "$N_OPENCODE" ] && ORCH_CMD="$ORCH_CMD --opencode $N_OPENCODE"
+[ -n "$N_QWEN" ] && ORCH_CMD="$ORCH_CMD --qwen $N_QWEN"
 [ -n "$OPENCODE_MODEL" ] && ORCH_CMD="$ORCH_CMD --opencode-model $OPENCODE_MODEL"
+[ -n "$QWEN_ENDPOINT" ] && ORCH_CMD="$ORCH_CMD --qwen-endpoint $QWEN_ENDPOINT"
 ORCH_CMD="$ORCH_CMD 2>&1 | tee /tmp/orchestrate.log"
 
 # Send to existing datacol session, or create one

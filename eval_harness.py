@@ -154,8 +154,17 @@ def run_episode(
     system_prompt_file: str,
     username: str,
     server_port: str = "",
+    personality: str = "",
+    session_n: int = 1,
 ) -> dict:
-    """Run one play_qwen.py episode as subprocess. Returns run metadata."""
+    """Run one play_qwen.py episode as subprocess. Returns run metadata.
+
+    play_qwen.py emits JSONL records to stdout (one per turn event) and
+    informational messages to stderr. We capture stdout and persist it as
+    `<sandbox>/logs/session_<ts>.log` so `find_newest_new_log` (and the
+    rest of the eval pipeline) can parse it the same way it parsed logs
+    under the old play_qwen design.
+    """
     cmd = [
         sys.executable, os.path.join(project_dir, "play_qwen.py"),
         "--endpoint", endpoint,
@@ -164,9 +173,12 @@ def run_episode(
         "--max-turns", str(max_turns),
         "--system-prompt", system_prompt_file,
         "--project-dir", project_dir,
+        "--session-n", str(session_n),
     ]
     if server_port:
         cmd.extend(["--server-port", server_port])
+    if personality:
+        cmd.extend(["--personality", personality])
 
     env = {**os.environ, "KAETRAM_USERNAME": username, "PYTHONUNBUFFERED": "1"}
 
@@ -183,16 +195,20 @@ def run_episode(
         result = type("R", (), {"stdout": "", "stderr": "TIMEOUT"})()
     duration = time.time() - start
 
-    # Save full stdout/stderr for debugging
     stdout = result.stdout or ""
     stderr = result.stderr or ""
-    if stdout or stderr:
+
+    # Persist play_qwen's JSONL stdout as a session log so find_latest_log /
+    # find_newest_new_log can pick it up. Also stash stderr for debugging.
+    log_dir = Path(sandbox) / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    if stdout.strip():
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        (log_dir / f"session_{ts}.log").write_text(stdout)
+    if stderr:
         debug_dir = Path(sandbox) / "debug"
         debug_dir.mkdir(parents=True, exist_ok=True)
-        if stdout:
-            (debug_dir / "stdout.log").write_text(stdout)
-        if stderr:
-            (debug_dir / "stderr.log").write_text(stderr)
+        (debug_dir / "stderr.log").write_text(stderr)
 
     return {
         "returncode": returncode,
@@ -688,7 +704,7 @@ def run_model_eval(
     print(f"{'='*60}\n")
 
     # Ensure game server is running on the required port
-    # Uses direct node command (same as orchestrate.py / start-qwen.sh)
+    # Uses direct node command (same as orchestrate.GameServer)
     _game_server_proc = None
     if server_port:
         import shutil
@@ -777,6 +793,8 @@ def run_model_eval(
                 system_prompt_file=str(prompt_file),
                 username=username,
                 server_port=server_port,
+                personality=personality,
+                session_n=sub_session,
             )
             total_duration += run_info["duration_seconds"]
             last_returncode = run_info["returncode"]

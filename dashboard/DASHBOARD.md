@@ -69,7 +69,7 @@ Python `http.server` with HTTP/1.1 keep-alive and threaded request handling. No 
 | Activity | `/api/activity` (initial + on agent-switch) + WS push | Full event log — tool calls, reasoning, results (expandable). WS push triggers a debounced re-fetch on each new event burst. |
 | Sessions | `/api/sessions`, `/api/dataset-stats`, `/api/sft-stats` | Session history, cost/turns/duration, SFT pipeline stats |
 | Prompt | `/api/prompt`, `/api/session-log` | System prompt viewer, personality grid, game knowledge, CLAUDE.md |
-| Eval | `/api/eval/latest`, `/api/eval/live` | Eval comparison: r9-sft vs base, live split-screen + results (Glass's delta, action distributions) |
+| Eval | `/api/eval/latest`, `/api/eval/live` | Eval comparison: r10-sft vs base, live split-screen + results (Glass's delta, action distributions) |
 | Tests | `/api/test/{tree,runs,run,current,cancel,reach_log}`, `/stream/test_run`, WS `{type:"test_event"}` | Pytest run launcher: collapsible suite tree, Run/Cancel/Headed toggle, live counts + per-test pills, streaming pytest stdout tail, run history with per-case status chips inline (slim cases preloaded with each run row), JSONL reach-log tail viewer on expand for reachability tests, MJPEG live video for headed runs. `KAETRAM_DEBUG=1` is the default for dashboard-launched runs (so the JSONL traces always exist). |
 
 ## API endpoints
@@ -77,7 +77,7 @@ Python `http.server` with HTTP/1.1 keep-alive and threaded request handling. No 
 | Endpoint | Method | Params | Returns |
 |----------|--------|--------|---------|
 | `/api/game-state` | GET | `?agent=N` | Merged MongoDB + live game state JSON |
-| `/api/agents` | GET | — | All active agents: harness, model, personality, HLS age, session stats. Username comes from `metadata.json` and varies by harness + (for opencode) model family — `ClaudeBot{N}` / `CodexBot{N}` / `GeminiBot{N}` / `BigQwenBot{N}` / `GrokBot{N}` / `DeepSeekBot{N}` / `OpenCodeBot{N}`. See `cli_adapter.opencode_bot_prefix`. |
+| `/api/agents` | GET | — | All active agents: harness, model, personality, HLS age, session stats. Username comes from `metadata.json` and varies by harness — `ClaudeBot{N}` / `CodexBot{N}` / `GeminiBot{N}`; the in-house Qwen harness uses personality-based names `QwenGrinder` / `QwenCompletionist` / `QwenExplorer`; opencode splits by model family — `BigQwenBot{N}` / `GrokBot{N}` / `DeepSeekBot{N}` / `OpenCodeBot{N}`. See `cli_adapter.opencode_bot_prefix` and `orchestrate.Orchestrator.setup` (qwen_username_map). |
 | `/api/activity` | GET | `?agent=N` | Latest session activity feed (incremental parser; `{events, turn, cost, tokens, model}`) |
 | `/api/sessions` | GET | `?agent=N` | Past session list with cost, turns, model, duration |
 | `/api/session-detail` | GET | `?name=X&log_dir=Y` | Full parsed session log (events, thinking, tool calls) |

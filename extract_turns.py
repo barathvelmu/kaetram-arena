@@ -68,13 +68,16 @@ def parse_session(log_path: Path) -> list[dict]:
                 continue
             bt = block.get("type")
 
-            if bt == "thinking":
+            # thinking + text are assistant-only — gating prevents user-side
+            # text (rare but possible, e.g. tool_result narrative) from
+            # leaking into the next turn's reasoning_buf.
+            if bt == "thinking" and t == "assistant":
                 events.append({
                     "kind": "thinking",
                     "text": block.get("thinking", "") or "",
                     "line": i,
                 })
-            elif bt == "text":
+            elif bt == "text" and t == "assistant":
                 events.append({
                     "kind": "text",
                     "text": block.get("text", "") or "",
@@ -344,6 +347,19 @@ def extract_turns(log_path: Path) -> list[dict]:
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────
+def _read_session_meta(log_path: Path) -> dict:
+    """Read the sibling .meta.json next to the .log file. Returns {} if
+    missing — convert_to_qwen falls back to path-segment personality
+    detection for legacy runs without sidecar metadata."""
+    meta_path = log_path.with_suffix(".meta.json")
+    if not meta_path.exists():
+        return {}
+    try:
+        return json.loads(meta_path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def process_log(log_path: Path, output_dir: Path) -> int:
     """Process a single log file. Returns number of turns extracted."""
     turns = extract_turns(log_path)
@@ -356,6 +372,17 @@ def process_log(log_path: Path, output_dir: Path) -> int:
     with open(jsonl_path, "w") as f:
         for turn in turns:
             f.write(json.dumps(turn, separators=(",", ":")) + "\n")
+
+    # Carry personality + session_n forward to convert_to_qwen so it can
+    # rebuild the orchestrate bootstrap (which never landed in source logs).
+    meta = _read_session_meta(log_path)
+    if meta:
+        keep = {k: meta[k] for k in ("personality", "session", "agent_id",
+                                       "harness", "model", "username",
+                                       "timestamp") if k in meta}
+        (session_dir / "session.meta.json").write_text(
+            json.dumps(keep, indent=2) + "\n"
+        )
     return len(turns)
 
 

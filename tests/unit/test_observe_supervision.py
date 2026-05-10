@@ -304,16 +304,24 @@ def test_observe_turn_tool_result_is_raw_observe_text():
     assert '"pos"' in msg["content"]
 
 
-def test_build_user_message_is_exactly_the_inference_prompt():
-    """Train/eval parity: user messages must be exactly the same `What should
-    you do?` string the inference harnesses (eval_harness, play_qwen) emit.
-    No <game_state>, no <state_delta>, no other injected blocks — state
-    arrives only via the observe tool_result. Anything in the user message
-    that doesn't appear at inference is train/eval drift.
+def test_user_message_is_orchestrate_bootstrap_for_each_personality():
+    """Train/eval parity: user messages must be exactly the orchestrate
+    bootstrap (build_orchestrate_bootstrap), byte-identical for each
+    personality + session_n. No <game_state>, no other injected blocks —
+    state arrives only via the observe tool_result.
     """
-    from convert_to_qwen import build_user_message
+    from bootstrap import build_orchestrate_bootstrap
+    from convert_to_qwen import build_multi_turn_records
 
-    assert build_user_message() == "What should you do?"
+    for personality in ("grinder", "completionist", "explorer_tinkerer"):
+        session = [_make_observe_turn(), _make_action_turn()]
+        recs = build_multi_turn_records(
+            session, personality=personality, session_n=1, window_size=2
+        )
+        assert recs, f"no records produced for {personality}"
+        user_msg = recs[0]["messages"][0]
+        assert user_msg["role"] == "user"
+        assert user_msg["content"] == build_orchestrate_bootstrap(personality, 1)
 
 
 def test_multi_turn_window_matches_inference_structure():
@@ -321,16 +329,14 @@ def test_multi_turn_window_matches_inference_structure():
     role sequence matches what the inference harness produces.
 
     Train and inference both use: user → asst → tool → asst → tool → ...
-    Only the FIRST turn carries a `What should you do?` user message; the
-    prior tool message acts as the user-side boundary for subsequent
-    assistant turns (Qwen's chat template renders tool messages as
-    user-wrapped `<tool_response>`, same as inference's manual wrap).
+    Only the FIRST turn carries a user (bootstrap) message; the prior tool
+    message acts as the user-side boundary for subsequent assistant turns.
     """
     from convert_to_qwen import build_multi_turn_records
 
     session = [_make_observe_turn(), _make_action_turn()]
     records = build_multi_turn_records(
-        session, personality="completionist", window_size=2
+        session, personality="completionist", session_n=1, window_size=2
     )
     assert len(records) >= 1
     msgs = records[0]["messages"]

@@ -111,9 +111,9 @@ PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/eval_harness.py" \
   --models "r10-sft=https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1" \
   --episodes "$EPISODES" --scenario "$SCENARIO" \
   --username evalbotSFT --server-port 9061 --output-dir "$RUN_DIR" $PERS_FLAG \
-  > /tmp/eval_r9sft.log 2>&1 &
+  > /tmp/eval_r10sft.log 2>&1 &
 SFT_PID=$!
-echo "  r9-SFT eval started (PID $SFT_PID, log: /tmp/eval_r9sft.log, personality: ${PERSONALITY:-none})"
+echo "  r10-SFT eval started (PID $SFT_PID, log: /tmp/eval_r10sft.log, personality: ${PERSONALITY:-none})"
 
 PYTHONUNBUFFERED=1 python3 "$PROJECT_DIR/eval_harness.py" \
   --models "base=https://workspace--kaetram-qwen-base-inference-serve.modal.run/v1" \
@@ -140,7 +140,7 @@ ln -sfn "$RUN_DIR" "$PROJECT_DIR/dataset/eval/latest"
 echo ""
 echo "Both evals running in parallel."
 echo "  Dashboard: http://localhost:8080 (Eval tab — live side-by-side + metrics)"
-echo "  Logs: tail -f /tmp/eval_r9sft.log"
+echo "  Logs: tail -f /tmp/eval_r10sft.log"
 echo "        tail -f /tmp/eval_base.log"
 echo "        tail -f /tmp/eval_watchdog_${RUN_TAG}.log"
 echo ""

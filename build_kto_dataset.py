@@ -16,14 +16,16 @@ import json
 import random
 from pathlib import Path
 
+from bootstrap import build_orchestrate_bootstrap
 from convert_to_qwen import (
     PERSONALITY_SUFFIXES,
     SYSTEM_PROMPT,
     TOOL_DEFINITIONS,
+    _session_n_from_dirname,
     build_assistant_message,
     build_tool_result_message,
-    build_user_message,
     detect_personality,
+    load_session_meta,
     load_turns_by_session,
 )
 from score_sessions import score_turn
@@ -71,6 +73,7 @@ def _build_window_examples(
     session_label: bool,
     session_score: float,
     personality: str | None,
+    session_n: int,
     window_size: int,
     stride: int,
     keep_personality: bool,
@@ -81,6 +84,7 @@ def _build_window_examples(
     # eval_harness and convert_to_qwen.
     personality_block = PERSONALITY_SUFFIXES.get(personality or "", "") if keep_personality else ""
     sys_prompt = SYSTEM_PROMPT.replace("__PERSONALITY_BLOCK__", personality_block)
+    bootstrap_text = build_orchestrate_bootstrap(personality if keep_personality else None, session_n)
 
     records = []
     n = len(session_turns)
@@ -117,7 +121,7 @@ def _build_window_examples(
             asst_msg = build_assistant_message(turn)
             if asst_msg is None:
                 continue
-            messages.append({"role": "user", "content": build_user_message()})
+            messages.append({"role": "user", "content": bootstrap_text})
             messages.append(asst_msg)
 
             if not is_last:
@@ -193,7 +197,12 @@ def main():
         label_row = session_labels.get(session)
         if not label_row:
             continue
-        personality = detect_personality(session, args.input)
+        # session.meta.json is authoritative; fall back to path-segment
+        # personality detection + dirname parsing for legacy runs.
+        sp = Path(turns[0].get("_session_path", "")) if turns else None
+        meta = load_session_meta(sp) if sp else {}
+        personality = meta.get("personality") or (detect_personality(sp) if sp else None)
+        session_n = meta.get("session") or _session_n_from_dirname(session)
         records.extend(
             _build_window_examples(
                 session=session,
@@ -201,6 +210,7 @@ def main():
                 session_label=bool(label_row["label"]),
                 session_score=float(label_row["score"]),
                 personality=personality,
+                session_n=session_n,
                 window_size=args.window_size,
                 stride=args.stride,
                 keep_personality=args.keep_personality,

@@ -110,7 +110,7 @@ Run N agents in parallel, each with its own Kaetram server instance. The preferr
 ./scripts/restart-single-agent.sh 2 --reset
 ```
 
-Each agent gets its own server port (9001, 9011, 9021), log directory, capability archetype, and an in-game username determined by harness + (for opencode) model family: `ClaudeBot{N}`, `CodexBot{N}`, `GeminiBot{N}`, or for opencode one of `BigQwenBot{N}` / `GrokBot{N}` / `DeepSeekBot{N}` / `OpenCodeBot{N}` (see `cli_adapter.opencode_bot_prefix`). All agents get `prompts/game_knowledge.md` (quest guides, NPC coords, mob stats). Resource budget for 3 agents on the active VM (`e2-standard-8`): ~2.5 GB RAM, well under 50% CPU.
+Each agent gets its own server port (9001, 9011, 9021), log directory, capability archetype, and an in-game username determined by harness: `ClaudeBot{N}`, `CodexBot{N}`, `GeminiBot{N}`, the in-house Qwen harness uses personality-based names `QwenGrinder` / `QwenCompletionist` / `QwenExplorer`, and opencode splits by model family — `BigQwenBot{N}` / `GrokBot{N}` / `DeepSeekBot{N}` / `OpenCodeBot{N}` (see `cli_adapter.opencode_bot_prefix`). All agents get `prompts/game_knowledge.md` (quest guides, NPC coords, mob stats). Resource budget for 3 agents on the active VM (`e2-standard-8`): ~2.5 GB RAM, well under 50% CPU.
 
 > **Default agent count is 3 — one per archetype** (grinder + completionist + explorer-tinkerer). Set in `scripts/restart-agent.sh` after the 2026-04-28 standardization. Pass an explicit count or per-archetype flags to deviate.
 
@@ -118,6 +118,7 @@ Each agent gets its own server port (9001, 9011, 9021), log directory, capabilit
 > - `--codex` — OpenAI Codex (GPT-5.4), Stop hook for turn continuation
 > - `--gemini` — Google Gemini 2.5 Flash, `maxSessionTurns` for turn limit
 > - `--opencode` — multi-model via `--opencode-model <alias>`. Aliases: `grok-4-1-fast`, `qwen3.5-35a3b`, `qwen3.5-397a17b`, `qwen3-80a3b`, `deepseek-v4-flash`, `deepseek-v4-pro` (or any fully-qualified `provider/model` ID). NIM-routed Qwen models need `scripts/start-nim-proxy.sh`; DeepSeek needs `DEEPSEEK_API_KEY`; xAI needs `XAI_API_KEY`.
+> - `--qwen` — in-house Qwen3.5-9B finetune served on Modal SGLang. Spawns `play_qwen.py` per session via `QwenAdapter`; sessions roll over when context approaches 16K. `--qwen-endpoint` overrides the default Modal URL.
 >
 > See [`CLAUDE.md`](CLAUDE.md) for full details on each harness.
 
@@ -156,8 +157,10 @@ The live MCP export matches this surface exactly — deprecated wrappers were re
 kaetram-agent/
 ├── mcp_server/              # Modular FastMCP package — 17 typed game tools (see mcp_server/README.md)
 ├── mcp_game_server.py       # 19-line stub entry point
-├── cli_adapter.py           # Harness abstraction (Claude / Codex / Gemini / OpenCode); opencode model aliases + bot-prefix helper
-├── play.sh, play_qwen.{py,sh}  # Single-agent loops (Claude teacher; finetuned Qwen student)
+├── cli_adapter.py           # Harness abstraction (Claude / Codex / Gemini / OpenCode / Qwen); opencode model aliases + bot-prefix helper
+├── bootstrap.py             # Single source of truth for the orchestrate user bootstrap
+├── play.sh                  # Single-agent dev loop (Claude / Codex / Gemini / OpenCode)
+├── play_qwen.py             # Per-session Qwen subprocess (spawned by orchestrate --qwen or solo dev)
 ├── orchestrate.py           # Multi-agent launcher: game servers, Xvfb, ffmpeg, MCP, harness
 ├── extract_turns.py, convert_to_qwen.py  # SFT data pipeline (logs → Qwen records)
 ├── score_sessions.py, build_kto_dataset.py, inspect_kto_dataset.py  # KTO data pipeline
@@ -222,8 +225,12 @@ The finetuned Qwen3.5-9B model is served from a Modal SGLang endpoint
 (`finetune/serve_modal.py`) and exercised by the eval harness:
 
 ```bash
-# Direct mode — play_qwen.py drives the browser, calls the Modal endpoint, uses the same mcp_server
-./play_qwen.sh
+# Multi-agent run (3 personalities in parallel via orchestrate, like Claude)
+./scripts/restart-agent.sh --qwen --grinder 1 --completionist 1 --explorer 1 --hours 3
+
+# Solo dev — direct invocation
+python3 play_qwen.py --endpoint <modal-url> --personality completionist \
+  --session-n 1 --system-prompt prompts/system.md --sandbox /tmp/qwen_dev
 
 # Side-by-side eval (r10-sft vs base) — see scripts/run-eval.sh
 ./scripts/run-eval.sh

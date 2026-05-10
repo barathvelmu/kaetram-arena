@@ -77,7 +77,8 @@ def opencode_bot_prefix(model_id: str | None) -> str:
     families. Splits opencode by family rather than lumping everything into
     a single 'OpenCodeBot' bucket.
 
-    - any "qwen"     → BigQwenBot   (separate from the local-eval QwenBot)
+    - any "qwen"     → BigQwenBot   (separate from the in-house Qwen harness,
+                                    which uses personality-based names)
     - any "grok"     → GrokBot
     - any "deepseek" → DeepSeekBot
     - fallback       → OpenCodeBot
@@ -122,8 +123,16 @@ class CLIAdapter(ABC):
         max_turns: int,
         max_budget_usd: float | None = None,
         auth_mode: str = "subscription",
+        personality: str | None = None,
+        session_n: int = 1,
     ) -> list[str]:
-        """Build the CLI command to launch an agent session."""
+        """Build the CLI command to launch an agent session.
+
+        `personality` and `session_n` are passed for adapters that need to
+        rebuild the orchestrate bootstrap on the subprocess side (e.g.
+        QwenAdapter). Other adapters ignore them — Claude/Codex/Gemini/
+        OpenCode receive the already-built `user_prompt` directly.
+        """
 
     @abstractmethod
     def get_env(self) -> dict[str, str]:
@@ -154,6 +163,8 @@ class ClaudeAdapter(CLIAdapter):
         max_turns: int,
         max_budget_usd: float | None = None,
         auth_mode: str = "subscription",
+        personality: str | None = None,
+        session_n: int = 1,
     ) -> list[str]:
         cmd = [
             "claude",
@@ -281,6 +292,8 @@ trust_level = "trusted"
         max_turns: int,
         max_budget_usd: float | None = None,
         auth_mode: str = "subscription",
+        personality: str | None = None,
+        session_n: int = 1,
     ) -> list[str]:
         # Stop hook forces continuation up to max_turns, but we still need a
         # timeout as a hard safety net. Add 5min buffer over the estimated time.
@@ -363,6 +376,8 @@ class GeminiAdapter(CLIAdapter):
         max_turns: int,
         max_budget_usd: float | None = None,
         auth_mode: str = "subscription",
+        personality: str | None = None,
+        session_n: int = 1,
     ) -> list[str]:
         return [
             "gemini",
@@ -447,6 +462,8 @@ class OpenCodeAdapter(CLIAdapter):
         max_turns: int,
         max_budget_usd: float | None = None,
         auth_mode: str = "subscription",
+        personality: str | None = None,
+        session_n: int = 1,
     ) -> list[str]:
         # opencode run is one-shot per invocation — the outer play.sh loop
         # drives session cadence. We do NOT pass --model; opencode uses the
@@ -469,12 +486,83 @@ class OpenCodeAdapter(CLIAdapter):
         return {}
 
 
-def get_adapter(harness: str = "claude", model: str | None = None) -> CLIAdapter:
+QWEN_DEFAULT_ENDPOINT = "https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1"
+
+
+class QwenAdapter(CLIAdapter):
+    """Adapter for the in-house Qwen3.5-9B SFT model served on Modal SGLang.
+
+    Wraps `play_qwen.py` as a per-session subprocess — orchestrate.py spawns
+    one invocation per session, captures its stdout (JSONL log records) into
+    the session log file, and respawns with --session-n N+1 on exit.
+
+    play_qwen.py exits cleanly when next call would exceed Qwen's 16K
+    trained context budget; orchestrate respawns. No turn cap from the
+    adapter side — `max_turns` is a safety bound only.
+    """
+
+    def __init__(self, model: str = "r10-sft", endpoint: str | None = None):
+        super().__init__(model)
+        self.endpoint = endpoint or QWEN_DEFAULT_ENDPOINT
+        self._port: str = ""
+        self._username: str = "QwenCompletionist"
+
+    @property
+    def name(self) -> str:
+        return "qwen"
+
+    def setup_sandbox(self, sandbox_dir: Path, system_prompt: str | None = None,
+                      port: str = "", username: str = "QwenCompletionist") -> None:
+        if system_prompt:
+            (sandbox_dir / "system_prompt.md").write_text(system_prompt)
+        self._port = port
+        self._username = username
+
+    def build_command(
+        self,
+        user_prompt: str,
+        system_prompt: str,
+        max_turns: int,
+        max_budget_usd: float | None = None,
+        auth_mode: str = "subscription",
+        personality: str | None = None,
+        session_n: int = 1,
+    ) -> list[str]:
+        # `user_prompt` is the orchestrate bootstrap. play_qwen.py rebuilds
+        # the same string from --personality + --session-n via the shared
+        # bootstrap module — byte-identical by construction.
+        cmd = [
+            VENV_PYTHON,
+            str(PROJECT_DIR / "play_qwen.py"),
+            "--endpoint", self.endpoint,
+            "--model", self.model,
+            "--system-prompt", "system_prompt.md",  # cwd-relative (orchestrate sets cwd to sandbox)
+            "--sandbox", ".",
+            "--max-turns", str(max_turns),
+            "--project-dir", str(PROJECT_DIR),
+            "--session-n", str(session_n),
+        ]
+        if self._port:
+            cmd.extend(["--server-port", str(self._port)])
+        if personality:
+            cmd.extend(["--personality", personality])
+        return cmd
+
+    def get_env(self) -> dict[str, str]:
+        return {
+            "PYTHONUNBUFFERED": "1",
+            "KAETRAM_USERNAME": self._username,
+        }
+
+
+def get_adapter(harness: str = "claude", model: str | None = None,
+                qwen_endpoint: str | None = None) -> CLIAdapter:
     """Factory function to create the appropriate CLI adapter.
 
     Args:
-        harness: one of 'claude', 'codex', 'gemini', 'opencode'
+        harness: one of 'claude', 'codex', 'gemini', 'opencode', 'qwen'
         model: optional model override
+        qwen_endpoint: optional Modal SGLang endpoint override (Qwen only)
     """
     if harness == "codex":
         return CodexAdapter(model=model or "gpt-5.4")
@@ -482,6 +570,8 @@ def get_adapter(harness: str = "claude", model: str | None = None) -> CLIAdapter
         return GeminiAdapter(model=model or "gemini-3-flash-preview")
     elif harness == "opencode":
         return OpenCodeAdapter(model=model)
+    elif harness == "qwen":
+        return QwenAdapter(model=model or "r10-sft", endpoint=qwen_endpoint)
     else:
         return ClaudeAdapter(model=model or "sonnet")
 

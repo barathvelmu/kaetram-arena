@@ -126,11 +126,16 @@ def test_no_think_assistant_turn_renders_cleanly():
     tok = AutoTokenizer.from_pretrained(TOKENIZER_ID)
     _apply_runtime_template_patch(tok)
 
-    # Three-turn record: think → no-think → think. Mirrors what the
-    # post-fix dataset will produce when reasoning is empty on a turn.
+    # Synthetic 3-turn fixture (think → no-think → think) with multiple
+    # user messages — required to exercise the patched template's
+    # `loop.index0 > ns.last_query_index` branch. The user-message content
+    # is arbitrary; real records use the orchestrate bootstrap (one user
+    # message at position 1 only) but this test specifically stresses the
+    # multi-user-message edge case.
+    USER_PROMPT = "next?"
     messages = [
         {"role": "system", "content": "You are a test agent."},
-        {"role": "user", "content": "What should you do?"},
+        {"role": "user", "content": USER_PROMPT},
         {
             "role": "assistant",
             "content": "<think>\nDeliberate decision.\n</think>",
@@ -141,7 +146,7 @@ def test_no_think_assistant_turn_renders_cleanly():
             }],
         },
         {"role": "tool", "content": "warped", "tool_call_id": "call_001", "name": "warp"},
-        {"role": "user", "content": "What should you do?"},
+        {"role": "user", "content": USER_PROMPT},
         # No-think turn: empty content, just the tool_call.
         {
             "role": "assistant",
@@ -153,7 +158,7 @@ def test_no_think_assistant_turn_renders_cleanly():
             }],
         },
         {"role": "tool", "content": "hit for 5", "tool_call_id": "call_002", "name": "attack"},
-        {"role": "user", "content": "What should you do?"},
+        {"role": "user", "content": USER_PROMPT},
         {
             "role": "assistant",
             "content": "<think>\nMob almost dead.\n</think>",

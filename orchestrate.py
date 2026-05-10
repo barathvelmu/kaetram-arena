@@ -442,21 +442,8 @@ class AgentInstance:
 
     def _build_user_prompt(self) -> str:
         """Build the user prompt for a session."""
-        playstyle_hint = {
-            "grinder":            "You play GRINDER — combat-first: attack, loot, equip, eat. Push levels and unlock higher-tier gear.",
-            "completionist":      "You play COMPLETIONIST — progression-first: talk to NPCs, accept quests, gather, craft. Finish quest chains before advancing.",
-            "explorer_tinkerer":  "You play EXPLORER/TINKERER — world + systems coverage: navigate everywhere, warp to new zones, try unusual NPCs and novel crafts.",
-        }.get(self.personality, "")
-
-        base_prompt = (
-            f"{playstyle_hint}\n\n"
-            "IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. "
-            "Your ONLY job is to play the game via the MCP tools. "
-            "Start IMMEDIATELY by calling observe — the MCP server auto-logs in on first connect.\n\n"
-            f"Session #{self.session}.\n"
-            "Follow your system instructions exactly. Call observe first, "
-            "then run the OBSERVE-ACT loop."
-        )
+        from bootstrap import build_orchestrate_bootstrap
+        base_prompt = build_orchestrate_bootstrap(self.personality, self.session)
 
         # `codex exec` and `opencode run` differ in how the loop ends:
         #   - codex exec is genuinely one-shot per invocation; the CLI itself
@@ -542,6 +529,8 @@ class AgentInstance:
             max_turns=self.max_turns,
             max_budget_usd=self.max_budget_usd,
             auth_mode=self.auth_mode,
+            personality=self.personality,
+            session_n=self.session,
         )
 
         # Build env: inherit current, layer harness env, then HLS overrides.
@@ -1200,12 +1189,14 @@ class Orchestrator:
                  harness_counts: dict[str, int] | None = None,
                  model: str | None = None,
                  opencode_model: str | None = None,
+                 qwen_endpoint: str | None = None,
                  max_budget_usd: float | None = None):
         self.n_agents = n_agents
         self.personality_counts = personality_counts
         self.harness_counts = harness_counts or {"claude": n_agents}
         self.model = model
         self.opencode_model = opencode_model
+        self.qwen_endpoint = qwen_endpoint
         self.max_budget_usd = max_budget_usd
         self.deadline = time.time() + hours * 3600 if hours else None
         self.servers: list[GameServer] = []
@@ -1228,7 +1219,7 @@ class Orchestrator:
         """Create all server and agent instances."""
         # Build per-agent harness assignment list
         harness_list = []
-        for h in ("claude", "codex", "gemini", "opencode"):
+        for h in ("claude", "codex", "gemini", "opencode", "qwen"):
             harness_list.extend([h] * self.harness_counts.get(h, 0))
 
         # Build personality assignment list
@@ -1261,16 +1252,33 @@ class Orchestrator:
             # OpenCode has its own model override since the model is configured
             # via opencode.json rather than a CLI flag — see OpenCodeAdapter.
             adapter_model = self.opencode_model if harness == "opencode" else self.model
-            adapter = get_adapter(harness=harness, model=adapter_model)
-            if harness == "opencode":
+            adapter = get_adapter(
+                harness=harness, model=adapter_model,
+                qwen_endpoint=self.qwen_endpoint if harness == "qwen" else None,
+            )
+            personality = assignments[i] if i < len(assignments) else "grinder"
+
+            # Username: most harnesses use ClaudeBot0/CodexBot1/etc (per-agent
+            # numeric suffix). Qwen uses personality-based names so the in-game
+            # bot maps 1:1 to the personality variant being evaluated.
+            if harness == "qwen":
+                qwen_username_map = {
+                    "grinder": "QwenGrinder",
+                    "completionist": "QwenCompletionist",
+                    "explorer_tinkerer": "QwenExplorer",
+                }
+                username = qwen_username_map.get(personality, f"QwenBot{i}")
+                bot_prefix = username  # used below for run.meta.json username field
+            elif harness == "opencode":
                 # Split by model family — adapter.model is the resolved full
                 # ID after alias substitution, so substring matches work.
                 bot_prefix = opencode_bot_prefix(adapter.model)
+                username = f"{bot_prefix}{i}"
             else:
                 prefix_map = {"codex": "CodexBot", "gemini": "GeminiBot"}
                 bot_prefix = prefix_map.get(harness, "ClaudeBot")
+                username = f"{bot_prefix}{i}"
 
-            personality = assignments[i] if i < len(assignments) else "grinder"
             sandbox = Path(f"/tmp/kaetram_agent_{i}")
 
             # ── Runs hierarchy: dataset/raw/agent_N/runs/run_<EST_TS>/
@@ -1296,7 +1304,7 @@ class Orchestrator:
                 "personality": personality,
                 "harness": harness,
                 "model": adapter.model,
-                "username": f"{bot_prefix}{i}",
+                "username": username,
                 "started_at": _dt.now(tz=_EST).isoformat(),
                 "hours_budget": round((self.deadline - self.start_time) / 3600, 1) if self.deadline else None,
                 "n_agents": self.n_agents,
@@ -1319,7 +1327,7 @@ class Orchestrator:
             log_dir = run_dir
             agent = AgentInstance(
                 agent_id=i,
-                username=f"{bot_prefix}{i}",
+                username=username,
                 server_port=port,
                 sandbox_dir=sandbox,
                 log_dir=log_dir,
@@ -1652,8 +1660,18 @@ def main():
              "Uses NVIDIA Qwen free API via opencode.template.json."
     )
     parser.add_argument(
+        "--qwen", type=int, nargs="?", const=-1, default=0,
+        help="Number of in-house Qwen3.5-9B agents (bare --qwen = all agents). "
+             "Spawns play_qwen.py per session against the Modal SGLang endpoint."
+    )
+    parser.add_argument(
+        "--qwen-endpoint", dest="qwen_endpoint", type=str, default=None,
+        help="Modal SGLang endpoint override for Qwen agents. "
+             "Default: cli_adapter.QWEN_DEFAULT_ENDPOINT."
+    )
+    parser.add_argument(
         "--model", type=str, default=None,
-        help="Model name override (default: sonnet for Claude, gpt-5.4 for Codex)"
+        help="Model name override (default: sonnet for Claude, gpt-5.4 for Codex, r10-sft for Qwen)"
     )
     parser.add_argument(
         "--opencode-model", dest="opencode_model", type=str, default=None,
@@ -1683,35 +1701,39 @@ def main():
     if n_total < 1 or n_total > 8:
         parser.error("Total agent count must be 1-8")
 
-    # Resolve harness counts (--claude N / --codex N / --gemini N / --opencode N)
+    # Resolve harness counts (--claude N / --codex N / --gemini N / --opencode N / --qwen N)
     claude_n = args.claude or 0
     codex_n = args.codex or 0
     gemini_n = args.gemini or 0
     opencode_n = args.opencode or 0
+    qwen_n = args.qwen or 0
 
-    bare_flags = sum(1 for v in [claude_n, codex_n, gemini_n, opencode_n] if v == -1)
+    bare_flags = sum(1 for v in [claude_n, codex_n, gemini_n, opencode_n, qwen_n] if v == -1)
     if bare_flags > 1:
-        parser.error("Cannot use multiple bare harness flags (--claude, --codex, --gemini, --opencode) without counts")
+        parser.error("Cannot use multiple bare harness flags (--claude, --codex, --gemini, --opencode, --qwen) without counts")
 
-    # Handle bare flags (e.g. --codex alone means all agents)
-    if opencode_n == -1:
+    # Handle bare flags (e.g. --qwen alone means all agents)
+    if qwen_n == -1:
+        qwen_n = n_total
+        claude_n = codex_n = gemini_n = opencode_n = 0
+    elif opencode_n == -1:
         opencode_n = n_total
-        claude_n = codex_n = gemini_n = 0
+        claude_n = codex_n = gemini_n = qwen_n = 0
     elif gemini_n == -1:
         gemini_n = n_total
-        claude_n = codex_n = opencode_n = 0
+        claude_n = codex_n = opencode_n = qwen_n = 0
     elif codex_n == -1:
         codex_n = n_total
-        claude_n = gemini_n = opencode_n = 0
+        claude_n = gemini_n = opencode_n = qwen_n = 0
     elif claude_n == -1:
         claude_n = n_total
-        codex_n = gemini_n = opencode_n = 0
-    elif claude_n == 0 and codex_n == 0 and gemini_n == 0 and opencode_n == 0:
+        codex_n = gemini_n = opencode_n = qwen_n = 0
+    elif claude_n == 0 and codex_n == 0 and gemini_n == 0 and opencode_n == 0 and qwen_n == 0:
         # No harness specified: default all Claude
         claude_n = n_total
     else:
         # Explicit counts: fill remainder with Claude
-        explicit_total = claude_n + codex_n + gemini_n + opencode_n
+        explicit_total = claude_n + codex_n + gemini_n + opencode_n + qwen_n
         if explicit_total < n_total:
             claude_n = n_total - explicit_total
         elif explicit_total > n_total:
@@ -1719,7 +1741,7 @@ def main():
 
     harness_counts = {
         "claude": claude_n, "codex": codex_n, "gemini": gemini_n,
-        "opencode": opencode_n,
+        "opencode": opencode_n, "qwen": qwen_n,
     }
 
     # Check for required CLIs
@@ -1735,6 +1757,7 @@ def main():
         personality_counts=personality_counts,
         harness_counts=harness_counts, model=args.model,
         opencode_model=args.opencode_model,
+        qwen_endpoint=args.qwen_endpoint,
         max_budget_usd=args.max_budget_usd,
     )
 

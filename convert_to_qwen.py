@@ -209,6 +209,30 @@ def load_turns_by_session(input_dir: Path) -> dict[str, list[dict]]:
     return sessions
 
 
+def load_session_meta(session_path: Path) -> dict:
+    """Read session.meta.json (written by extract_turns) for personality +
+    session number. Returns {} if missing — caller falls back to
+    detect_personality and parses session# from the directory name."""
+    p = session_path / "session.meta.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def _session_n_from_dirname(name: str) -> int:
+    """Parse session_<N>_<ts> → N. Falls back to 1 on malformed names."""
+    parts = name.split("_")
+    if len(parts) >= 2 and parts[0] == "session":
+        try:
+            return int(parts[1])
+        except ValueError:
+            pass
+    return 1
+
+
 # ── Message builders ────────────────────────────────────────────────────────
 
 def _turn_call_id(turn: dict) -> str:
@@ -278,43 +302,32 @@ def build_tool_result_message(turn: dict) -> dict | None:
     }
 
 
-def build_user_message() -> str:
-    """User prompt preceding an assistant turn.
-
-    Always exactly `"What should you do?"` to match inference (eval_harness +
-    play_qwen.py). State arrives via the `observe` tool_result, never via the
-    user message — invariant guarded by test_dataset_filters.
-    test_training_records_do_not_inject_game_state_in_user_messages.
-    """
-    return "What should you do?"
-
-
 # ── Record builders ─────────────────────────────────────────────────────────
 
-def _build_messages(turns: list[dict]) -> list[dict] | None:
+def _build_messages(turns: list[dict], personality: str | None, session_n: int) -> list[dict] | None:
     """Convert a sequence of turns into the messages list of one record.
 
-    First turn: user → assistant → tool. Subsequent turns: assistant → tool
-    (the prior tool message acts as the user-side boundary, since Qwen's
-    chat template renders tool messages as user-wrapped `<tool_response>` —
-    same shape inference produces). Returns None if any turn cannot be
+    First turn: user(orchestrate bootstrap) → assistant → tool. Subsequent
+    turns: assistant → tool (the prior tool message is the user-side
+    boundary, since Qwen's chat template renders tool messages as
+    user-wrapped `<tool_response>`). Returns None if any turn cannot be
     rendered (off-surface action).
 
-    Edge case: if a prior turn's tool_result was missing, the previous
-    message is an assistant turn and we must inject a user message to keep
-    the role sequence valid. This is rare (tool_result is captured for all
-    valid action_types in practice).
+    The user message is `bootstrap.build_orchestrate_bootstrap(personality,
+    session_n)` — byte-identical to what Claude actually saw at collection
+    time (orchestrate.py:_build_user_prompt). State arrives via the observe
+    tool_result, never via the user message.
     """
+    from bootstrap import build_orchestrate_bootstrap
+    bootstrap_text = build_orchestrate_bootstrap(personality, session_n)
+
     messages: list[dict] = []
     for turn in turns:
         asst = build_assistant_message(turn)
         if asst is None:
             return None
-        # Emit a user prompt only when the previous message isn't already
-        # a user-wrapped tool response. Matches the inference structure
-        # produced by play_qwen.py / eval_harness.
         if not messages or messages[-1]["role"] != "tool":
-            messages.append({"role": "user", "content": build_user_message()})
+            messages.append({"role": "user", "content": bootstrap_text})
         messages.append(asst)
         tool_msg = build_tool_result_message(turn)
         if tool_msg is not None:
@@ -325,10 +338,18 @@ def _build_messages(turns: list[dict]) -> list[dict] | None:
 def build_multi_turn_records(
     session_turns: list[dict],
     personality: str | None,
+    session_n: int,
     window_size: int = 3,
     stride: int | None = None,
 ) -> list[dict]:
     """Sliding-window multi-turn records: window_size consecutive turns each.
+
+    Replay-prefix invariant: every record's first turn is an `observe`. When
+    a window's natural start is an action turn, the most recent prior observe
+    from the same session is prepended. This guarantees the model never sees
+    a record that asks it to act without a preceding observe in context —
+    without this, ~47% of multi-turn records would train Qwen to produce
+    state-grounded actions from a content-free bootstrap with no observe.
 
     No content-based filtering — the model sees every Sonnet pattern.
     """
@@ -347,7 +368,19 @@ def build_multi_turn_records(
         window = session_turns[start : min(start + window_size, n)]
         if len(window) < 2:
             continue
-        msgs = _build_messages(window)
+        # Replay-prefix: if window starts on an action, prepend the most
+        # recent prior observe so the first assistant tool_call is observe.
+        if window[0].get("action_type") != "observe":
+            anchor = None
+            for i in range(start - 1, -1, -1):
+                if session_turns[i].get("action_type") == "observe":
+                    anchor = session_turns[i]
+                    break
+            if anchor is None:
+                continue  # session has no prior observe; skip rather than
+                          # ground actions on nothing
+            window = [anchor] + list(window)
+        msgs = _build_messages(window, personality, session_n)
         if msgs is None:
             continue
         records.append({"messages": msgs, "personality": personality})
@@ -357,6 +390,7 @@ def build_multi_turn_records(
 def build_single_turn_records(
     session_turns: list[dict],
     personality: str | None,
+    session_n: int,
 ) -> list[dict]:
     """One observe→tool_result(state)→action→tool_result(action) record per
     action turn, paired with its immediately-preceding observe.
@@ -375,7 +409,7 @@ def build_single_turn_records(
         if turn.get("action_type") not in VALID_ACTION_TYPES:
             continue
         pair = [session_turns[last_observe_idx], turn]
-        msgs = _build_messages(pair)
+        msgs = _build_messages(pair, personality, session_n)
         if msgs is None:
             continue
         records.append({"messages": msgs, "personality": personality})
@@ -550,23 +584,36 @@ def main():
         print("No turns found in input directory.", file=sys.stderr)
         sys.exit(1)
 
-    def _personality(session_turns: list[dict]) -> str | None:
+    def _session_meta(session_turns: list[dict], session_dirname: str) -> tuple[str | None, int]:
+        """Return (personality, session_n) for a session.
+
+        Authoritative: `session.meta.json` written by extract_turns from the
+        run's `<log>.meta.json` sidecar. Falls back to legacy path-segment
+        detection (agent_N → personality) and dirname parsing for runs that
+        predate the sidecar.
+        """
         if not session_turns:
-            return None
-        return detect_personality(Path(session_turns[0].get("_session_path", "")))
+            return None, 1
+        sp = Path(session_turns[0].get("_session_path", ""))
+        meta = load_session_meta(sp)
+        personality = meta.get("personality") or detect_personality(sp)
+        session_n = meta.get("session") or _session_n_from_dirname(session_dirname)
+        return personality, session_n
 
     # Mixed mode: window=3 multi-turn records, plus a 30% sample of single-turn
     # observe→action pairs.
     multi_records: list[dict] = []
     single_records: list[dict] = []
     for sess, turns in sessions.items():
+        personality, session_n = _session_meta(turns, sess)
         for r in build_multi_turn_records(
-            turns, _personality(turns), args.window_size, args.stride,
+            turns, personality, session_n, args.window_size, args.stride,
         ):
             r["_session"] = sess
             multi_records.append(r)
     for sess, turns in sessions.items():
-        for r in build_single_turn_records(turns, _personality(turns)):
+        personality, session_n = _session_meta(turns, sess)
+        for r in build_single_turn_records(turns, personality, session_n):
             r["_session"] = sess
             single_records.append(r)
 
@@ -655,6 +702,7 @@ def main():
             "no_thinking_share": round(post_ratio, 4),
         },
         "truncation_gate": truncation_gate_meta,
+        "bootstrap_source": "orchestrate",
         "personality_labels": list(PERSONALITY_SUFFIXES.keys()),
         "system_prompt": SYSTEM_PROMPT,
         "tools": TOOL_DEFINITIONS,

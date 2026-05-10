@@ -125,5 +125,5 @@ def test_training_records_do_not_inject_game_state_in_user_messages():
     assert checked > 0, "no user messages found in sampled records"
     assert offenders == 0, (
         f"{offenders}/{checked} user messages still contain <game_state> — "
-        f"build_user_message regressed to pre-r10 behavior."
+        f"_build_messages regressed: state must arrive via observe tool_result."
     )

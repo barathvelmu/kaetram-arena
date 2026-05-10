@@ -153,6 +153,18 @@ if [ "$HARNESS" != "$CUR_HARNESS" ] || [ "$PERSONALITY" != "$CUR_PERSONALITY" ];
       NEW_USERNAME="GeminiBot$AGENT_ID"
       MODEL="gemini-2.5-flash"
       ;;
+    qwen)
+      # Qwen uses personality-based usernames (matches orchestrate.py
+      # qwen_username_map). Falls back to QwenBot<id> if personality
+      # is unrecognized.
+      MODEL="r10-sft"
+      case "$PERSONALITY" in
+        grinder)            NEW_USERNAME="QwenGrinder";;
+        completionist)      NEW_USERNAME="QwenCompletionist";;
+        explorer_tinkerer)  NEW_USERNAME="QwenExplorer";;
+        *)                  NEW_USERNAME="QwenBot$AGENT_ID";;
+      esac
+      ;;
     opencode)
       MODEL="${OPENCODE_MODEL:-nvidia/qwen/qwen3-coder-480b-a35b-instruct}"
       # Pick username prefix by model family (mirrors orchestrate.py logic
@@ -196,8 +208,9 @@ if [ "$RESET" = true ]; then
   MONGO_DB="kaetram_devlopment"
   COLLECTIONS=(player_info player_skills player_equipment player_inventory player_bank player_quests player_achievements player_statistics player_abilities)
 
-  # Determine which usernames to clear (all possible bot types for this agent ID)
-  USERNAMES="'claudebot${AGENT_ID}','codexbot${AGENT_ID}','geminibot${AGENT_ID}','opencodebot${AGENT_ID}'"
+  # Determine which usernames to clear (all possible bot types for this agent ID,
+  # plus all Qwen personality usernames since Qwen names aren't agent-id-suffixed).
+  USERNAMES="'claudebot${AGENT_ID}','codexbot${AGENT_ID}','geminibot${AGENT_ID}','opencodebot${AGENT_ID}','qwengrinder','qwencompletionist','qwenexplorer'"
 
   if docker ps --format '{{.Names}}' | grep -q "^${MONGO_CONTAINER}$"; then
     echo "Resetting MongoDB for agent $AGENT_ID..."

@@ -225,11 +225,12 @@ Apr 28 strike-team audit (8 parallel agents on `barathvelmu/kae-50-q2-q3-strike-
 
 **Active backlog (revised priorities):** r10 training blocked on packing/ETA decision (see r10 section). `quest_resume.json` removed from the agent entirely (May 7, `09e611d`). Eval pipeline upgraded: `core3_stages_advanced` headline metric, N-model Bonferroni FWER, `serve_modal.py` defaults to r10. KAE-49 (paper-variables catalog) shipped.
 
-**Qwen agent infrastructure (Apr 10):**
-- Finetuned model: agent_4 slot, `QwenBot` username, `start-qwen.sh`
-- Base model: agent_5 slot, `QwenBase` username, `start-qwen.sh --base`
-- Dashboard: Qwen Live tab with split-screen MJPEG streaming (4 FPS), log polling
-- Management: `start-qwen.sh`, `stop-qwen.sh`, `restart-qwen.sh`, `status-qwen.sh`
+**Qwen agent infrastructure (current — May 10 rewrite):**
+- Qwen is a peer harness inside `orchestrate.py` (alongside Claude/Codex/Gemini/OpenCode), invoked via `--qwen`. `QwenAdapter` (`cli_adapter.py`) spawns `play_qwen.py` per session.
+- Usernames: personality-based — `QwenGrinder` / `QwenCompletionist` / `QwenExplorer` (so the in-game bot maps 1:1 to the personality variant under eval).
+- Sessions: bounded by Qwen's 16K trained context, not turn count. play_qwen.py exits when next call would overflow; orchestrate respawns with `Session #N+1`. Mongo state carries per-username across sessions (same as Claude).
+- Multi-agent: `restart-agent.sh --qwen --grinder 1 --completionist 1 --explorer 1 --hours 3` runs 3 Qwen agents in parallel on ports 9001/9011/9021.
+- Eval: `eval_harness.py` (separate from orchestrate) drives r10-sft vs base on dedicated ports 9061/9071. Spawns `play_qwen.py` per sub-session; same JSONL log shape.
 
 Backlog (by priority from Linear):
 - **High:** Dr. GRPO + DAPO patches for GRPO (KAE-12), guided decoding via GBNF grammar (KAE-14), context-dependent tool filtering (KAE-15)

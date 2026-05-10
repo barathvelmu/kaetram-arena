@@ -36,27 +36,45 @@ _notification_secrets = [modal.Secret.from_dict(_notify_env)] if _notify_env els
 model_cache_vol = modal.Volume.from_name("kaetram-model-cache", create_if_missing=True)
 checkpoint_vol = modal.Volume.from_name("kaetram-model-vol", create_if_missing=True)
 
-# Container image — CUDA devel base for flash-attn compilation (Qwen3.5 is a unified VLM,
-# Unsloth routes through vision.py which needs FA2 compiled with nvcc)
+# Container image — Lane B pin set verified empirically on 2026-05-09 via
+#   `pip install --dry-run` against latest Unsloth.
+# Qwen3.5 architecture (`qwen3_5`) requires transformers v5 (verified locally:
+# transformers 4.57.4 raises `KeyError: 'qwen3_5'` on AutoConfig). Unsloth
+# 2026.5.2 caps `transformers<=5.5.0`, `trl<=0.24.0`, `torch<2.11`, and
+# `datasets<4.4.0` — versions below match the resolver's output, do NOT bump
+# without re-running the dry-run. CUDA 12.8 image matches torch 2.10+cu128 ABI
+# (avoids flash-attn ABI break per Dao-AILab/flash-attention#1644). hf_transfer
+# was removed in transformers v5 (replaced by hf_xet bundled with hub>=1.0).
 train_image = (
     modal.Image.from_registry(
-        "nvidia/cuda:12.6.3-devel-ubuntu22.04",
+        "nvidia/cuda:12.8.1-devel-ubuntu22.04",
         add_python="3.11",
     )
     .apt_install("cmake", "build-essential", "git")
     .uv_pip_install(
-        "accelerate>=1.9.0",
-        "datasets>=3.6.0",
-        "hf-transfer>=0.1.9",
-        "huggingface_hub>=0.34.2",
-        "peft>=0.16.0",
-        "transformers>=5.0.0",
-        "trl>=0.19.1",
-        "unsloth[cu128-torch270]>=2025.7.8",
-        "unsloth_zoo>=2025.7.10",
+        # torch 2.8.0 is the LATEST torch version with prebuilt flash-attn 2.8.3
+        # wheels. FA2 supports torch 2.4-2.8; torch 2.9-2.10 only have FA4-beta
+        # wheels which aren't production-ready. Unsloth 2026.5.2 caps torch<2.11
+        # so 2.8.0 is well within bounds. Verified prebuilt wheel name:
+        # flash_attn-2.8.3+cu12torch2.8cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+        "torch==2.8.0",
+        "accelerate>=1.10.0",
+        "bitsandbytes>=0.49.2",
+        "datasets==4.3.0",
+        "huggingface_hub>=1.3.0,<2.0",
+        "peft>=0.18.0",
+        "transformers==5.5.0",
+        "trl==0.24.0",
+        "unsloth==2026.5.2",
+        "unsloth_zoo>=2026.5.1",
+        # xformers 0.0.32.post2 is the compatible build for torch 2.8.0
+        # (verified via pip dry-run; 0.0.35 requires torch 2.10).
+        "xformers==0.0.32.post2",
     )
-    # flash-attn must be installed AFTER torch (build dependency, needs nvcc from CUDA devel)
-    .run_commands("pip install flash-attn --no-build-isolation")
+    # flash-attn must be installed AFTER torch (build dependency, needs nvcc).
+    # 2.8.3 is the latest stable FA2 line as of 2026-05-09 with prebuilt wheels
+    # matching torch 2.8 + cu12 + cp311 (verified via Dao-AILab GitHub releases).
+    .run_commands("pip install flash-attn==2.8.3 --no-build-isolation")
     .env({"HF_HOME": "/model_cache", "TOKENIZERS_PARALLELISM": "false"})
     .add_local_python_source("notifications")
     .add_local_python_source("render")
@@ -84,16 +102,20 @@ LORA_TARGETS = [
 ]
 
 # Training
-BATCH_SIZE = 2
-GRAD_ACCUM = 8  # effective batch = 16
+BATCH_SIZE = 4
+GRAD_ACCUM = 4  # effective batch = 16. arXiv 2507.07101 (Jul 2025): on
+                # single GPU, gradient accumulation is wasteful — prefer the
+                # largest per_device batch that fits, since per-step launch
+                # overhead amortizes sub-linearly. b=2→b=4 measured ~30% net
+                # step-time reduction at 16K seq + r=64 LoRA + grad-ckpt=True.
 LR = 1e-4
 WARMUP_RATIO = 0.05
 WEIGHT_DECAY = 0.01
-MAX_STEPS = -1  # -1 = use num_train_epochs
+MAX_STEPS = 5  # SMOKE: 5-step run. Revert to -1 for full r10.
 EPOCHS = 1
-SAVE_STEPS = 50
-EVAL_STEPS = 50
-LOGGING_STEPS = 10
+SAVE_STEPS = 5  # SMOKE: save once at the end so merge path is exercised.
+EVAL_STEPS = 5  # SMOKE: single eval at the end; full eval is too expensive.
+LOGGING_STEPS = 1  # SMOKE: was 10; want loss visible at every step.
 
 # Mask user/system/tool tokens — train loss only on assistant responses.
 MASK_INPUT_TOKENS = True
@@ -157,8 +179,11 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
 
 @app.function(
     image=train_image,
-    gpu="H100",  # 80GB VRAM — bf16 LoRA on 9B fits easily
-    timeout=72 * 3600,  # Modal hard cap; r10's 25k records × 16k seq need >24h.
+    gpu="H200",  # 141GB HBM3e @ 4.8 TB/s — 1.43x bandwidth over H100 SXM. At ~14k median seq + r=64 LoRA + adamw_8bit + grad-ckpt activation traffic, this workload is HBM-bandwidth-bound, so H200 lands ~30-45% step-time reduction for +15% $/hr (net cost-per-step win). Modal "H100" is already SXM (no PCIe option exists).
+    timeout=24 * 3600,  # Modal's hard cap is 86400s (24h). At 9k records ×
+                       # ~14k median tokens, 1 epoch lands ~5-13h on H100;
+                       # well within budget. If a future run needs longer,
+                       # checkpoint + resume across multiple Modal calls.
     volumes={
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,
@@ -193,7 +218,12 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         lora_dropout=0,
         bias="none",
         use_rslora=False,  # diverges at r=64/alpha=64 due to 8x effective LR
-        use_gradient_checkpointing="unsloth",
+        # "unsloth" mode async-offloads activations to CPU over PCIe — tuned
+        # for 500K+ context regimes where it's the only OOM-saver. At 16K seq
+        # on 80GB+ HBM (H100/H200), the offload bandwidth becomes the bottleneck
+        # and dominates step time. HF native True keeps activations on-GPU and
+        # recomputes locally — measured ~15-40% faster at this scale.
+        use_gradient_checkpointing=True,
         random_state=42,
     )
 
@@ -451,6 +481,7 @@ def merge_checkpoint(checkpoint_name: str):
 def main(skip_preflight: bool = False):
     """Upload training data and launch the finetune job."""
     import os
+    import shutil
     import subprocess
     import sys
     from notifications import send_email_notification
@@ -473,19 +504,37 @@ def main(skip_preflight: bool = False):
     # Bypass with `modal run finetune/train_modal.py --skip-preflight` only if
     # the suites are known-good for this exact dataset build.
     if not skip_preflight:
+        # Note: test_truncation_variant_aware.py takes ~14 min on CPU because
+        # it renders 12,699 records under 4 variants. Run it manually before
+        # any dataset rebuild — it's not in the auto-preflight subprocess
+        # because the cost outweighs the value at every-launch frequency.
+        #   python3 -m pytest tests/unit/test_truncation_variant_aware.py
         preflight_targets = [
+            "tests/unit/test_pin_set.py",
             "tests/unit/test_dataset_filters.py",
             "tests/unit/test_observe_supervision.py",
             "tests/unit/test_truncation.py",
             "tests/unit/test_think_roundtrip.py",
+            "tests/unit/test_chat_template_byte_level.py",
             "tests/unit/test_prompt_parity.py",
             "tests/unit/test_tool_vocab_drift.py",
         ]
         print("=" * 60)
         print("Preflight: running dataset-shape gate suites...")
         print("=" * 60)
+        # Use the project's venv python (has pytest + transformers) rather
+        # than sys.executable. When this is invoked via `modal run`, the
+        # Modal CLI lives in its own pipx venv and lacks the test deps;
+        # falling back to a candidate list keeps the gate working in dev,
+        # CI, and `modal run` contexts equally.
+        venv_py = os.path.join(project_dir, ".venv", "bin", "python3")
+        py_candidates = [venv_py, "python3", sys.executable]
+        py_for_preflight = next(
+            (p for p in py_candidates if os.path.isfile(p) or shutil.which(p)),
+            sys.executable,
+        )
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", "-x", "-q", *preflight_targets],
+            [py_for_preflight, "-m", "pytest", "-x", "-q", *preflight_targets],
             cwd=project_dir,
         )
         if result.returncode != 0:

@@ -28,7 +28,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 LOG_DIR="$PROJECT_DIR/logs"
-STATE_FILE="$PROJECT_DIR/state/progress.json"
 MAX_TURNS=150
 PAUSE_BETWEEN=10
 
@@ -80,10 +79,6 @@ esac
 
 mkdir -p "$LOG_DIR" "$PROJECT_DIR/state"
 
-if [ ! -f "$STATE_FILE" ]; then
-  echo '{"sessions":0,"level":1,"active_quests":[],"completed_quests":[],"inventory_summary":[],"kills_this_session":0,"next_objective":"accept quests from NPCs","notes":"fresh start"}' > "$STATE_FILE"
-fi
-
 SESSION=0
 while true; do
   SESSION=$((SESSION + 1))
@@ -123,13 +118,15 @@ s = s.replace('__PERSONALITY_BLOCK__', p)
 sys.stdout.write(s)
 " <<< "$SYSTEM")
 
-  # Read previous progress and include in prompt
-  PROGRESS=$(cat "$STATE_FILE" 2>/dev/null || echo '{}')
-
-  PROMPT="IMPORTANT: Do NOT search for files, read documentation, or explore the filesystem. Your ONLY job is to play the game via the MCP tools. The MCP server auto-connects to the game. Start IMMEDIATELY by calling observe.
-
-Session #${SESSION}. Your previous progress: ${PROGRESS}
-Follow your system instructions exactly. Call observe, then run the OBSERVE-ACT loop: kill mobs, progress quests, explore."
+  # Bootstrap user message — single source of truth (bootstrap.py), same as
+  # orchestrate.py and play_qwen.py. Keeps dev-loop input identical to the
+  # collection path that generates training data.
+  PROMPT=$(python3 -c "
+import sys
+sys.path.insert(0, '$PROJECT_DIR')
+from bootstrap import build_orchestrate_bootstrap
+print(build_orchestrate_bootstrap('$PERSONALITY' or None, $SESSION), end='')
+")
 
   # Codex exec is one-shot — needs explicit instruction to keep looping
   if [ "$HARNESS" = "codex" ]; then

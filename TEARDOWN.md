@@ -59,7 +59,7 @@ python3 -m pip uninstall websockets --break-system-packages -y
 
 ```bash
 # Remove runtime state files (written by the MCP server and agent loop)
-rm -f state/game_state.json state/game_state.tmp state/progress.json
+rm -f state/game_state.json state/game_state.tmp
 
 # Remove dataset frames (large PNGs — already gitignored)
 rm -rf dataset/*/frames/

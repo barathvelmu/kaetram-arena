@@ -3,7 +3,7 @@
 **Compiled:** April 13, 2026
 **Sources:** ICLR 2025-2026, NeurIPS 2024-2025, ACL 2025, arXiv, Berkeley BFCL, Anthropic, OpenAI, DeepEval, Reddit (r/LocalLLaMA, r/MachineLearning), practitioner guides
 **Scope:** Evaluating finetuned vs base LLM game agents, MCP tool-use evaluation, MMORPG agent benchmarks, statistical methodology for agent comparison
-**Application:** Qwen 3.5 9B base vs r8-SFT on Kaetram (2D MMORPG, 17 MCP tools as of 2026-04-18; historically 22 during r7-r8 data collection)
+**Application:** Qwen 3.5 9B base vs r10-sft on Kaetram (2D MMORPG, 17 MCP tools as of 2026-04-18; historically 22 during r7-r8 data collection)
 
 ---
 
@@ -13,7 +13,7 @@
 2. [Tool-Use and MCP Evaluation Frameworks](#2-tool-use-and-mcp-evaluation-frameworks)
 3. [SFT Model Evaluation Best Practices](#3-sft-model-evaluation-best-practices)
 4. [Metrics Taxonomy for Game Agents](#4-metrics-taxonomy-for-game-agents)
-5. [Proposed Eval Protocol: Qwen Base vs r8-SFT](#5-proposed-eval-protocol-qwen-base-vs-r8-sft)
+5. [Proposed Eval Protocol: Qwen Base vs r10-sft](#5-proposed-eval-protocol-qwen-base-vs-r10-sft)
 6. [Fixed Evaluation Scenarios](#6-fixed-evaluation-scenarios)
 7. [Statistical Methodology](#7-statistical-methodology)
 8. [Automated Eval Frameworks](#8-automated-eval-frameworks)
@@ -245,14 +245,14 @@ These explain WHY Tier 1 metrics differ between models.
 
 ---
 
-## 5. Proposed Eval Protocol: Qwen Base vs r8-SFT
+## 5. Proposed Eval Protocol: Qwen Base vs r10-sft
 
 ### Design
 
 **Models under evaluation:**
 1. **Qwen 3.5 9B base** (unfinetuned) — `serve_modal_base.py`, eval port 9071
-2. **Qwen 3.5 9B r9-SFT** (finetuned) — `serve_modal.py`, eval port 9061
-3. (Future: **r8-SFT + KTO** — after KTO training completes)
+2. **Qwen 3.5 9B r10-sft** (finetuned) — `serve_modal.py`, eval port 9061
+3. (Future: **r10-sft + KTO** — after KTO training completes)
 
 **Controlled variables:**
 - Same MCP server (`mcp_game_server.py`) with identical 17 tools
@@ -265,10 +265,10 @@ These explain WHY Tier 1 metrics differ between models.
 
 ### Phase 1: Offline Evaluation (Fast, Cheap)
 
-Run immediately after r8-SFT training completes, before any live gameplay.
+Run immediately after r10-sft training completes, before any live gameplay.
 
-1. **Perplexity comparison** on val split (646 records)
-   - Expect: r8-SFT << base perplexity on game-formatted data
+1. **Perplexity comparison** on val split (live counts in `dataset/qwen_sft/metadata.json`)
+   - Expect: r10-sft << base perplexity on game-formatted data
    - This is a sanity check, not a headline metric
 
 2. **Action prediction on held-out Claude sessions**
@@ -294,7 +294,7 @@ Run after offline eval confirms the finetuned model is functional.
 
 | Ablation | Compare | What It Shows |
 |----------|---------|---------------|
-| r8-SFT vs r8-SFT+KTO | SFT only vs SFT+preference learning | KTO value-add |
+| r10-sft vs r10-sft+KTO | SFT only vs SFT+preference learning | KTO value-add |
 | 1 personality vs 3 personalities | Train on AGGRESSIVE-only, eval same protocol | Diversity value |
 | Loss-masked (r8) vs unmasked (r7) | Same data, different loss masking | Masking value |
 | 17 tools vs filtered tools | Full toolset vs scenario-specific subset | Tool count impact |
@@ -398,7 +398,7 @@ Example:
 ```
 Quest Completion Rate:
   Base:     0.07 +/- [0.02, 0.14]
-  r8-SFT:  0.43 +/- [0.31, 0.56]
+  r10-sft: 0.43 +/- [0.31, 0.56]
   p < 0.001, Glass's d = 2.14 (large)
 ```
 
@@ -460,7 +460,7 @@ Run on 50 samples per model. Report mean + distribution.
 |-----------|------|--------------|
 | Agent harness | `play_qwen.py` | Runs episodes, produces JSONL logs |
 | Base model endpoint | `finetune/serve_modal_base.py` | Unfinetuned Qwen3.5-9B on Modal A100 |
-| Finetuned endpoint | `finetune/serve_modal.py` | r8-SFT model on Modal A100 |
+| Finetuned endpoint | `finetune/serve_modal.py` | r10-sft model on Modal A100 |
 | Eval launcher | `scripts/run-eval.sh` | Starts game servers (9061/9071), runs r10-sft vs base in parallel |
 | Turn extraction | `extract_turns.py` | Parses JSONL logs into OODA cycles |
 | Session scoring | `score_sessions.py` | 21-metric session quality score |

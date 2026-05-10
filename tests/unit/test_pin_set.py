@@ -53,10 +53,19 @@ def _extract_pip_pins() -> dict[str, str]:
 
 def _extract_flash_attn_pin() -> str | None:
     """flash-attn is installed in a separate run_commands step; extract its
-    version pin if present."""
+    version pin (e.g. '2.8.3') from either the simple `flash-attn==X.Y.Z`
+    form or a direct wheel-URL pin (`flash_attn-X.Y.Z+cuN...`).
+    """
     src = TRAIN_MODAL.read_text()
-    m = re.search(r"pip install (flash-attn[^\s\"']*)", src)
-    return m.group(1) if m else None
+    # Form 1: literal `pip install flash-attn==X.Y.Z`
+    m = re.search(r"pip install (flash-attn==[^\s\"']+)", src)
+    if m:
+        return m.group(1)
+    # Form 2: direct wheel URL — pull the version from the wheel filename.
+    m = re.search(r"flash_attn-([\d\.]+)\+cu", src)
+    if m:
+        return f"flash-attn=={m.group(1)} (wheel-URL)"
+    return None
 
 
 def _extract_cuda_image() -> str | None:

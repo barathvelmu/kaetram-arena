@@ -58,7 +58,12 @@ serve_image = (
 # Config
 # ---------------------------------------------------------------------------
 
-BASE_MODEL_ID = "Qwen/Qwen3.5-9B"  # HF model ID (not Unsloth wrapper)
+BASE_MODEL_ID = "unsloth/Qwen3.5-9B"  # match train_modal.MODEL_ID + convert_to_qwen.GATE_TOKENIZER_ID
+# Train, gate, and serve must all load the same tokenizer revision. Unsloth
+# ships a slightly different tool-calling template fragment than upstream
+# Qwen/Qwen3.5-9B (see convert_to_qwen.py:60-64); using upstream at serve
+# time would silently render tool_call records differently than what the
+# model trained on. Vocab/BPE merges are identical between repos.
 # Override via env: SFT_EXPERIMENT=kaetram-qwen3.5-9b-r11 modal deploy finetune/serve_modal.py
 SFT_EXPERIMENT = os.environ.get("SFT_EXPERIMENT", "kaetram-qwen3.5-9b-r10")
 GRPO_EXPERIMENT = "kaetram-qwen3.5-9b-grpo"
@@ -170,9 +175,16 @@ class Inference:
         print(f"Starting SGLang engine (model={merged_path})...")
         import sglang as sgl
 
+        # SGLang tokenizer_path is encoding-only (we apply the chat template
+        # ourselves below via self.tokenizer); vocab/BPE merges are identical
+        # between Qwen/ and unsloth/ Qwen3.5-9B repos. Pin to canonical Qwen/
+        # so SGLang (transformers 4.x) doesn't trip on the TokenizersBackend
+        # tokenizer_class that transformers 5.x writes into unsloth/'s config.
+        # The chat-template-affecting tokenizer (self.tokenizer below) IS
+        # loaded from BASE_MODEL_ID = unsloth/ to match train byte-for-byte.
         self.engine = sgl.Engine(
             model_path=str(merged_path),
-            tokenizer_path=BASE_MODEL_ID,  # Use original Qwen tokenizer (avoids transformers 5.x compat issue)
+            tokenizer_path="Qwen/Qwen3.5-9B",
             dtype=DTYPE,
             context_length=MAX_MODEL_LEN,
             mem_fraction_static=GPU_MEMORY_UTILIZATION,
@@ -326,13 +338,18 @@ class Inference:
 
 @app.local_entrypoint()
 def main():
-    """Quick test of the deployed endpoint."""
+    """Quick test of the deployed endpoint using the canonical bootstrap."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from bootstrap import build_orchestrate_bootstrap
+
     inference = Inference()
     result = inference.v1_chat_completions.remote({
         "model": "kaetram",
         "messages": [
             {"role": "system", "content": "You are an AI agent playing Kaetram."},
-            {"role": "user", "content": '<game_state>\n{"player_position":{"x":188,"y":157},"player_stats":{"hp":100,"max_hp":100,"level":1,"experience":0}}\n</game_state>\n\nWhat should you do?'},
+            {"role": "user", "content": build_orchestrate_bootstrap("completionist", 1)},
         ],
         "temperature": 0.7,
         "max_tokens": 256,

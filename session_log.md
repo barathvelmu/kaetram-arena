@@ -11,7 +11,7 @@ End-to-end audit and fixes across the SFT pipeline. Test suite now 70 unit tests
 - `tests/unit/test_think_roundtrip.py` — broken import (`_patch_qwen_chat_template` from `train_modal`) → `patch_qwen_chat_template` from `finetune/render`. Mixed-mode assertion aligned with patched-template behavior (no-think turn renders empty `<think>\n\n</think>` per Qwen3 Thinking Mode Fusion).
 - `finetune/serve_modal.py` + `serve_modal_base.py` — drop `tools=` kwarg from `apply_chat_template` (training never passes it; was emitting a duplicated JSON-schema tool block at serve time).
 - `finetune/render.py` — `SYSTEM_PROMPT_INTRO_VARIANTS` regenerated from current `prompts/system.md` (variant 0 byte-identical to the canonical intro; variants 1-3 paraphrase the same framing).
-- `convert_to_qwen.py` — delete `format_reasoning` (500-char tail-keep is "known-bad" per arxiv 2512.21002 / 2502.18001); `<think>` rendered verbatim. `_drop_overlong` is the only length authority. Drop dead params on `build_user_message()`. Docstring trimmed.
+- `convert_to_qwen.py` — delete `format_reasoning` (500-char tail-keep is "known-bad" per arxiv 2512.21002 / 2502.18001); `<think>` rendered verbatim. `_drop_overlong` is the only length authority. Deleted `build_user_message()` (orchestrate bootstrap now reconstructed from `session.meta.json` via `bootstrap.build_orchestrate_bootstrap`). Docstring trimmed.
 - `finetune/train_modal.py` — wrap data collator with `(labels != -100).any(dim=-1).all()` per-batch assert (TRL #3927 guard).
 - `finetune/train_grpo_modal.py` + `train_kto_modal.py` — DEFERRED status notes added (GRPO missing chat-template patch; KTO has `tools=` drift).
 

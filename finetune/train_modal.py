@@ -74,8 +74,29 @@ train_image = (
     # flash-attn must be installed AFTER torch (build dependency, needs nvcc).
     # 2.8.3 is the latest stable FA2 line as of 2026-05-09 with prebuilt wheels
     # matching torch 2.8 + cu12 + cp311 (verified via Dao-AILab GitHub releases).
-    .run_commands("pip install flash-attn==2.8.3 --no-build-isolation")
-    .env({"HF_HOME": "/model_cache", "TOKENIZERS_PARALLELISM": "false"})
+    # Pin the wheel URL directly so pip never silently falls back to a 5-15 min
+    # source compile if the resolver hiccups.
+    .run_commands(
+        "pip install "
+        "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/"
+        "flash_attn-2.8.3+cu12torch2.8cxx11abiFALSE-cp311-cp311-linux_x86_64.whl "
+        "--no-build-isolation"
+    )
+    .env({
+        "HF_HOME": "/model_cache",
+        "TOKENIZERS_PARALLELISM": "false",
+        # Immunize against xet-core #800 (Xet downloads stall on some pop
+        # locations). Modal egress unverified — disabling Xet falls back to
+        # the legacy hub download path. Zero cost.
+        "HF_HUB_DISABLE_XET": "1",
+        # Persist Triton's JIT kernel cache across restarts so the multi-
+        # session resume path doesn't re-pay 1-2 min of recompile per cold
+        # start. Lives as a subdir under the existing /model_cache volume
+        # mount (Modal forbids mounting the same Volume at two paths).
+        # Cache is keyed on (triton, torch, source-hash) so stale entries
+        # are silently ignored on version bump.
+        "TRITON_CACHE_DIR": "/model_cache/.triton_cache",
+    })
     .add_local_python_source("notifications")
     .add_local_python_source("render")
 )
@@ -103,19 +124,25 @@ LORA_TARGETS = [
 
 # Training
 BATCH_SIZE = 4
-GRAD_ACCUM = 4  # effective batch = 16. arXiv 2507.07101 (Jul 2025): on
-                # single GPU, gradient accumulation is wasteful — prefer the
-                # largest per_device batch that fits, since per-step launch
-                # overhead amortizes sub-linearly. b=2→b=4 measured ~30% net
-                # step-time reduction at 16K seq + r=64 LoRA + grad-ckpt=True.
+GRAD_ACCUM = 4  # effective batch = 16. Empirical sweet spot for our workload
+                # (Qwen3.5-9B bf16 LoRA r=64, 16K seq, H200 grad-ckpt=True).
+                # Smoke results 2026-05-09:
+                #   b=2/accum=8 → 270s/step (baseline)
+                #   b=4/accum=4 → 243s/step (best)
+                #   b=8/accum=2 → 259s/step (regressed — likely HBM saturation
+                #                            at 128K tokens/micro-batch)
+                # Loss math equivalent across configs (bit-identical first 2
+                # steps at b=2 vs b=4). Per arXiv 2507.07101, larger per_device
+                # is preferred when memory allows, but throughput peaks before
+                # H200's memory ceiling at this seq length.
 LR = 1e-4
 WARMUP_RATIO = 0.05
 WEIGHT_DECAY = 0.01
-MAX_STEPS = 5  # SMOKE: 5-step run. Revert to -1 for full r10.
+MAX_STEPS = -1  # full epoch (526 steps at effective batch 16 over 8,510 records)
 EPOCHS = 1
-SAVE_STEPS = 5  # SMOKE: save once at the end so merge path is exercised.
-EVAL_STEPS = 5  # SMOKE: single eval at the end; full eval is too expensive.
-LOGGING_STEPS = 1  # SMOKE: was 10; want loss visible at every step.
+SAVE_STEPS = 50  # ~17 min granularity for resume; save_total_limit=3 keeps last 3
+EVAL_STEPS = 263  # 2 evals total (mid + end); eval ~25 min/pass on this stack
+LOGGING_STEPS = 10
 
 # Mask user/system/tool tokens — train loss only on assistant responses.
 MASK_INPUT_TOKENS = True
@@ -136,6 +163,45 @@ from render import (
     patch_qwen_chat_template,
     render_record,
 )
+
+
+# ---------------------------------------------------------------------------
+# Collator guard — TRL #3927 defense
+# ---------------------------------------------------------------------------
+
+def make_checked_collator(inner_collator):
+    """Wrap a collator so any record with ALL labels masked to -100 raises
+    a loud RuntimeError instead of silently contributing zero loss.
+
+    TRL #3927 (https://github.com/huggingface/trl/issues/3927, still OPEN
+    as of May 2026 in trl 0.24.0): with `train_on_responses_only` /
+    `assistant_only_loss=True`, a record whose assistant tokens land past
+    `max_length` truncation gets every label zeroed to -100. Per-record
+    loss is then 0, no warning. `convert_to_qwen._drop_overlong` is the
+    upstream gate that prevents this; this collator wrapper is the
+    fail-loud safety net if render parity drifts.
+
+    Extracted to module level so `tests/unit/test_collator_guard.py` can
+    fabricate a malformed batch and confirm the assertion fires.
+    """
+    import torch as _torch
+
+    def _checked_collator(features):
+        batch = inner_collator(features)
+        labels = batch.get("labels")
+        if labels is not None and isinstance(labels, _torch.Tensor):
+            unmasked_per_row = (labels != -100).any(dim=-1)
+            if not bool(unmasked_per_row.all().item()):
+                bad = (~unmasked_per_row).nonzero(as_tuple=True)[0].tolist()
+                raise RuntimeError(
+                    f"TRL #3927 guard: {len(bad)}/{labels.shape[0]} records "
+                    f"in this batch have ALL labels masked to -100; loss "
+                    f"would be silently zero. _drop_overlong gate is broken "
+                    f"or render parity has drifted. Bad row indices: {bad}"
+                )
+        return batch
+
+    return _checked_collator
 
 
 # ---------------------------------------------------------------------------
@@ -180,11 +246,18 @@ def load_kaetram_dataset(train_bytes: bytes, val_bytes: bytes, metadata_bytes: b
 @app.function(
     image=train_image,
     gpu="H200",  # 141GB HBM3e @ 4.8 TB/s — 1.43x bandwidth over H100 SXM. At ~14k median seq + r=64 LoRA + adamw_8bit + grad-ckpt activation traffic, this workload is HBM-bandwidth-bound, so H200 lands ~30-45% step-time reduction for +15% $/hr (net cost-per-step win). Modal "H100" is already SXM (no PCIe option exists).
-    timeout=24 * 3600,  # Modal's hard cap is 86400s (24h). At 9k records ×
-                       # ~14k median tokens, 1 epoch lands ~5-13h on H100;
-                       # well within budget. If a future run needs longer,
-                       # checkpoint + resume across multiple Modal calls.
+    timeout=24 * 3600,  # Modal's hard per-call cap is 86400s (24h).
+    # Multi-session resume: 526 steps × empirical 243s/step = ~35.5h, exceeds
+    # the 24h cap. Retries(10) lets Modal re-launch the function up to 10
+    # times when it hits the timeout boundary; combined with `spawn().get()`
+    # in main() and `resume_from_checkpoint=True` below, the trainer picks up
+    # exactly where the prior session ended. Canonical Modal long-training
+    # pattern — see modal-examples/06_gpu_and_ml/long-training.py.
+    retries=modal.Retries(max_retries=10, initial_delay=0.0),
     volumes={
+        # /model_cache hosts both HF_HOME and TRITON_CACHE_DIR=/model_cache/.triton_cache
+        # (Modal forbids mounting the same Volume at two paths). Skips ~1-2
+        # min of Triton recompile per cold start across resume.
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,
     },
@@ -246,7 +319,10 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         gradient_accumulation_steps=GRAD_ACCUM,
         learning_rate=LR,
         lr_scheduler_type="cosine",
-        warmup_ratio=WARMUP_RATIO,
+        # transformers v5 deprecated warmup_ratio (removed in v5.2 per HF
+        # PEFT issue #2949). warmup_steps now accepts a float fraction —
+        # same semantics, future-proof against the next pip refresh.
+        warmup_steps=WARMUP_RATIO,
         weight_decay=WEIGHT_DECAY,
         optim="adamw_8bit",
         bf16=True,
@@ -263,6 +339,14 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
         # ignores the old name. https://github.com/huggingface/trl/issues/3910
         max_length=MAX_SEQ_LEN,
         packing=False,
+        # TRL/Trainer default is num_workers=0 (single-process). With per-record
+        # apply_chat_template at training time the trainer process is the CPU
+        # bottleneck while the GPU waits. 4 workers + persistent + prefetch
+        # removes that idle. (HF #20581 has been open since 2022 asking for
+        # a sensible default.)
+        dataloader_num_workers=4,
+        dataloader_persistent_workers=True,
+        dataloader_prefetch_factor=2,
     )
 
     # Trainer
@@ -285,31 +369,8 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
             response_part="<|im_start|>assistant\n",
         )
 
-        # TRL #3927 (still open as of May 2026): when truncation eats every
-        # assistant token of a record, all labels become -100 and per-record
-        # loss is silently 0, no error. _drop_overlong should prevent this
-        # upstream, but render parity drift would re-open the hole. Wrap the
-        # collator so any all-masked record aborts the run loud and early.
-        # https://github.com/huggingface/trl/issues/3927
-        import torch as _torch
-        _inner_collator = trainer.data_collator
-
-        def _checked_collator(features):
-            batch = _inner_collator(features)
-            labels = batch.get("labels")
-            if labels is not None and isinstance(labels, _torch.Tensor):
-                unmasked_per_row = (labels != -100).any(dim=-1)
-                if not bool(unmasked_per_row.all().item()):
-                    bad = (~unmasked_per_row).nonzero(as_tuple=True)[0].tolist()
-                    raise RuntimeError(
-                        f"TRL #3927 guard: {len(bad)}/{labels.shape[0]} records "
-                        f"in this batch have ALL labels masked to -100; loss "
-                        f"would be silently zero. _drop_overlong gate is broken "
-                        f"or render parity has drifted. Bad row indices: {bad}"
-                    )
-            return batch
-
-        trainer.data_collator = _checked_collator
+        # TRL #3927 guard — see make_checked_collator above for full ref.
+        trainer.data_collator = make_checked_collator(trainer.data_collator)
 
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -327,10 +388,21 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
     )
     send_email_notification(subject, body)
 
-    # Train
+    # Train. Resume from the latest saved checkpoint if one exists in the
+    # output dir — required for the Retries(10) multi-session pattern. HF
+    # Trainer's resume_from_checkpoint=True picks the highest-numbered
+    # checkpoint-N/ subdir automatically and restores: model weights, LoRA
+    # adapter, optimizer state (optimizer.pt), scheduler state (scheduler.pt),
+    # and RNG state (rng_state.pth — Python/numpy/torch/CUDA generators).
     print("Starting training...")
+    import os as _os
+    _has_ckpt = _os.path.exists(output_dir) and any(
+        d.startswith("checkpoint-") for d in _os.listdir(output_dir)
+    )
+    if _has_ckpt:
+        print(f"  Resuming from existing checkpoints in {output_dir}")
     try:
-        result = trainer.train()
+        result = trainer.train(resume_from_checkpoint=_has_ckpt)
     except Exception as e:
         subject, body = format_notification(
             "Kaetram SFT Training Failed",
@@ -427,7 +499,11 @@ def merge_checkpoint(checkpoint_name: str):
         load_in_16bit=True,
     )
 
-    # Apply LoRA config (needed so Unsloth knows the adapter structure)
+    # Apply LoRA config (needed so Unsloth knows the adapter structure).
+    # use_gradient_checkpointing matches the training config (line 232) — drift
+    # here would not change correctness (merge does no backprop) but reflects
+    # an unintended difference. Keep aligned with training so any future code
+    # path that depends on adapter-config equality stays consistent.
     model = FastLanguageModel.get_peft_model(
         model,
         r=LORA_R,
@@ -435,7 +511,7 @@ def merge_checkpoint(checkpoint_name: str):
         lora_alpha=LORA_ALPHA,
         lora_dropout=0,
         bias="none",
-        use_gradient_checkpointing="unsloth",
+        use_gradient_checkpointing=True,
         random_state=42,
     )
 
@@ -573,7 +649,12 @@ def main(skip_preflight: bool = False):
     )
     send_email_notification(subject, body)
 
-    metrics = train.remote(train_data, val_data, metadata)
+    # spawn().get() rather than .remote() — required for runs that may
+    # exceed the 24h per-call cap. .remote() Function Calls expire at 24h;
+    # .spawn() returns a FunctionCall that survives Retries(10) re-launches
+    # and ultimately yields the metrics from whichever invocation finishes
+    # the training. See modal-examples/06_gpu_and_ml/long-training.py.
+    metrics = train.spawn(train_data, val_data, metadata).get()
 
     print(f"\n{'='*60}")
     print("TRAINING COMPLETE")

@@ -11,6 +11,8 @@
 #   ./scripts/resume-agent.sh                                    # resume all agents (default mode)
 #   ./scripts/resume-agent.sh --grinder 1 --completionist 1 --explorer 1
 #   ./scripts/resume-agent.sh --hours 8                          # resume with time limit
+#   ./scripts/resume-agent.sh --qwen-sft 3                       # explicit Qwen-SFT resume
+#   ./scripts/resume-agent.sh --qwen-base 3                      # explicit Qwen-base resume
 
 set -euo pipefail
 
@@ -39,6 +41,8 @@ N_CLAUDE=""
 N_CODEX=""
 N_GEMINI=""
 N_OPENCODE=""
+N_QWEN_SFT=""
+N_QWEN_BASE=""
 OPENCODE_MODEL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,6 +77,20 @@ while [[ $# -gt 0 ]]; do
         N_OPENCODE="$2"; shift 2
       else
         N_OPENCODE="-1"; shift
+      fi
+      ;;
+    --qwen-sft)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_QWEN_SFT="$2"; shift 2
+      else
+        N_QWEN_SFT="-1"; shift
+      fi
+      ;;
+    --qwen-base)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_QWEN_BASE="$2"; shift 2
+      else
+        N_QWEN_BASE="-1"; shift
       fi
       ;;
     *) shift;;
@@ -143,33 +161,35 @@ if [ "$DETECTED" -eq 0 ]; then
   exit 1
 fi
 
-# Auto-detect prior harness per agent from the latest session log so resume
-# preserves harness assignments across sessions. Without this, orchestrate.py
-# fills any unspecified slot with Claude (orchestrate.py:1804-1805), which
-# silently downgrades opencode runs to ClaudeBot when --opencode N < detected.
-# Detect prior harness per agent. Skips logs younger than 120s so a partial
-# in-flight run from a misconfigured prior resume doesn't poison detection
-# (e.g. a 30s-old ClaudeBot log shouldn't override months of opencode history).
+# Auto-detect prior harness per agent so resume preserves harness identity.
+# Without this, orchestrate.py fills any unspecified slot with Claude
+# (orchestrate.py default), which silently downgrades opencode/qwen runs.
+#
+# Source of truth: each sandbox's metadata.json (written by orchestrate at
+# AgentInstance.start_session). It carries `harness` and `model` — the
+# latter distinguishes Qwen SFT (`r10-sft`) from base (`kaetram-base`).
 _detect_prior_harness() {
   cd "$PROJECT_DIR" && .venv/bin/python3 - 2>/dev/null <<'PYEOF'
+import json
 from pathlib import Path
-import sys, time
-sys.path.insert(0, str(Path('.').resolve()))
-from cli_adapter import detect_log_format
 from collections import Counter
-NOW = time.time()
 counts = Counter()
 for i in range(3):
-    logs = sorted(
-        Path(f"dataset/raw/agent_{i}/runs").glob("run_*/session_*.log"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    chosen = next((p for p in logs if NOW - p.stat().st_mtime > 120), None) or (logs[0] if logs else None)
-    if chosen is None:
+    meta = Path(f"/tmp/kaetram_agent_{i}/metadata.json")
+    if not meta.is_file():
         continue
-    h = detect_log_format(chosen)
-    if h != "unknown":
+    try:
+        m = json.loads(meta.read_text())
+    except Exception:
+        continue
+    h = m.get("harness", "")
+    if h == "qwen":
+        # Variant lives in the model label.
+        if m.get("model") == "kaetram-base":
+            counts["qwen_base"] += 1
+        else:
+            counts["qwen_sft"] += 1
+    elif h in ("claude", "codex", "gemini", "opencode"):
         counts[h] += 1
 print(" ".join(f"{h}={n}" for h, n in counts.items()))
 PYEOF
@@ -252,7 +272,7 @@ fi
 #   - If user passed nothing, derive from the prior-detected harness mix so
 #     resume preserves harness identity across runs (no silent claude downgrade).
 USER_TOTAL=0
-for v in "$N_CLAUDE" "$N_CODEX" "$N_GEMINI" "$N_OPENCODE"; do
+for v in "$N_CLAUDE" "$N_CODEX" "$N_GEMINI" "$N_OPENCODE" "$N_QWEN_SFT" "$N_QWEN_BASE"; do
   [ -n "$v" ] && [ "$v" != "-1" ] && USER_TOTAL=$((USER_TOTAL + v))
 done
 [ -n "$PRIOR_DETECTED" ] && echo "  Prior harness mix: $PRIOR_DETECTED"
@@ -265,10 +285,12 @@ elif [ -n "$PRIOR_DETECTED" ]; then
   for kv in $PRIOR_DETECTED; do
     h="${kv%=*}"; n="${kv#*=}"
     case "$h" in
-      claude)   N_CLAUDE="$n";;
-      codex)    N_CODEX="$n";;
-      gemini)   N_GEMINI="$n";;
-      opencode) N_OPENCODE="$n";;
+      claude)    N_CLAUDE="$n";;
+      codex)     N_CODEX="$n";;
+      gemini)    N_GEMINI="$n";;
+      opencode)  N_OPENCODE="$n";;
+      qwen_sft)  N_QWEN_SFT="$n";;
+      qwen_base) N_QWEN_BASE="$n";;
     esac
   done
 fi
@@ -289,6 +311,8 @@ fi
 [ -n "$N_CODEX" ] && ORCH_ARGS="$ORCH_ARGS --codex $N_CODEX"
 [ -n "$N_GEMINI" ] && ORCH_ARGS="$ORCH_ARGS --gemini $N_GEMINI"
 [ -n "$N_OPENCODE" ] && ORCH_ARGS="$ORCH_ARGS --opencode $N_OPENCODE"
+[ -n "$N_QWEN_SFT" ] && ORCH_ARGS="$ORCH_ARGS --qwen-sft $N_QWEN_SFT"
+[ -n "$N_QWEN_BASE" ] && ORCH_ARGS="$ORCH_ARGS --qwen-base $N_QWEN_BASE"
 [ -n "$OPENCODE_MODEL" ] && ORCH_ARGS="$ORCH_ARGS --opencode-model $OPENCODE_MODEL"
 
 # Same auto-detection for opencode model: if user didn't pass --opencode-model

@@ -4,8 +4,9 @@ play_qwen.py — One Qwen session subprocess. Spawns mcp_game_server.py over
 stdio and drives the gameplay loop until context approaches the 16K trained
 budget, then exits cleanly so orchestrate can respawn the next session.
 
-Multi-agent runs go through orchestrate.py --qwen (which spawns this file
-via QwenAdapter); solo dev runs invoke directly.
+Multi-agent runs go through orchestrate.py --qwen-sft / --qwen-base (each
+spawns this file via QwenAdapter pointed at the SFT or base Modal endpoint);
+solo dev runs invoke directly.
 
 Usage (solo dev):
     python3 play_qwen.py --endpoint https://your-modal-url/v1 \
@@ -121,20 +122,143 @@ class MCPClient:
 # to stderr so they never pollute the log. For solo dev (no orchestrate),
 # pipe stdout to a file: `python3 play_qwen.py ... > my.log`.
 
-def log_turn(turn: int, role: str, content: str, tool_calls=None, usage=None):
-    """Emit one JSONL record per turn event to stdout."""
-    max_len = 500 if role == "assistant" else 0
-    record = {
+_THINK_RE = re.compile(r"<think>(.*?)</think>\s*(.*)", flags=re.DOTALL)
+
+
+def _split_thinking(content: str) -> tuple[str | None, str | None]:
+    """Return (thinking, remaining_text). Either may be None.
+
+    Qwen3.5 emits a single inline `<think>...</think>` block at the start of
+    its message; split it out so downstream parsers see the same
+    one-block-per-record shape Claude produces (thinking | text | tool_use).
+    """
+    if not content:
+        return None, None
+    m = _THINK_RE.match(content)
+    if m:
+        thinking = (m.group(1) or "").strip() or None
+        text = (m.group(2) or "").strip() or None
+        return thinking, text
+    return None, content.strip() or None
+
+
+def _map_usage(openai_usage: dict | None) -> dict:
+    """Map OpenAI's prompt_tokens/completion_tokens to Anthropic-shaped
+    input_tokens/output_tokens so cost tracking + log_analysis read the same
+    keys as Claude logs."""
+    if not openai_usage:
+        return {}
+    return {
+        "input_tokens": openai_usage.get("prompt_tokens", 0),
+        "output_tokens": openai_usage.get("completion_tokens", 0),
+    }
+
+
+def _emit(rec: dict) -> None:
+    print(json.dumps(rec), flush=True)
+
+
+def log_system_init(
+    personality: str,
+    session_n: int,
+    model: str,
+    endpoint: str,
+    tools: list[str],
+) -> None:
+    """Emit a Claude-shaped {type:'system', subtype:'init'} record.
+
+    Required by `cli_adapter.detect_log_format` (returns 'claude') and read by
+    `parse_session_claude` for `init_info` (model/session_id/tools)."""
+    _emit({
+        "type": "system",
+        "subtype": "init",
+        "session_id": f"qwen-s{session_n}",
+        "model": model,
+        "tools": tools,
+        "mcp_servers": [],
+        "harness": "qwen",
+        "personality": personality,
+        "session_n": session_n,
+        "endpoint": endpoint,
+        "timestamp": datetime.now().isoformat(),
+    })
+
+
+def log_assistant(
+    turn: int,
+    content: str,
+    parsed_calls: list[dict] | None,
+    usage: dict | None,
+) -> None:
+    """Emit one Claude-shaped {type:'assistant'} record per content block.
+
+    Mirrors the on-disk Claude shape: each record holds exactly ONE block
+    (thinking | text | tool_use). `parse_session_claude` tracks the most
+    recent thinking/text and pairs them with the next tool_use, so we emit in
+    that order.
+
+    Token usage is stamped on the LAST assistant record in this turn so
+    per-turn cost math reads it exactly once.
+    """
+    timestamp = datetime.now().isoformat()
+    blocks: list[dict] = []
+    thinking, text = _split_thinking(content or "")
+    if thinking:
+        blocks.append({"type": "thinking", "thinking": thinking})
+    if text:
+        blocks.append({"type": "text", "text": text})
+    for parsed in parsed_calls or []:
+        blocks.append({
+            "type": "tool_use",
+            "id": parsed.get("id", ""),
+            "name": parsed.get("name", ""),
+            "input": parsed.get("args", {}) or {},
+        })
+    if not blocks:
+        return
+    mapped_usage = _map_usage(usage)
+    for i, blk in enumerate(blocks):
+        msg: dict = {"role": "assistant", "content": [blk]}
+        if mapped_usage and i == len(blocks) - 1:
+            msg["usage"] = mapped_usage
+        _emit({
+            "type": "assistant",
+            "turn": turn,
+            "timestamp": timestamp,
+            "message": msg,
+        })
+
+
+def log_tool_result(turn: int, tool_use_id: str, name: str, result: str) -> None:
+    """Emit a Claude-shaped {type:'user'} record carrying the tool_result."""
+    _emit({
+        "type": "user",
         "turn": turn,
         "timestamp": datetime.now().isoformat(),
-        "role": role,
-        "content": (content[:max_len] if max_len else content) if content else "",
-    }
-    if tool_calls:
-        record["tool_calls"] = tool_calls
-    if usage:
-        record["usage"] = usage
-    print(json.dumps(record), flush=True)
+        "message": {
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": result,
+            }],
+        },
+        "tool_name": name,
+    })
+
+
+def log_session_end(turn: int, reason: str) -> None:
+    """Emit a Claude-shaped {type:'result'} record so `parse_session_claude`
+    populates `result_summary` (num_turns, is_error, terminal_reason)."""
+    _emit({
+        "type": "result",
+        "subtype": "session_end",
+        "num_turns": turn,
+        "result": reason,
+        "terminal_reason": reason,
+        "is_error": reason in ("api_errors",),
+        "timestamp": datetime.now().isoformat(),
+    })
 
 
 def info(msg: str):
@@ -245,7 +369,13 @@ async def run_agent(args):
     ]
 
     info(f"Harness started: max_turns={args.max_turns}, personality={args.personality}, session={args.session_n}, endpoint={args.endpoint}")
-    log_turn(0, "system", "", usage={"personality": args.personality, "session_n": args.session_n, "model": args.model})
+    log_system_init(
+        personality=args.personality,
+        session_n=args.session_n,
+        model=args.model,
+        endpoint=args.endpoint,
+        tools=tool_names,
+    )
 
     turn = 0
     consecutive_errors = 0
@@ -322,7 +452,7 @@ async def run_agent(args):
                 "content": content,
                 "tool_calls": structured_calls,
             })
-            log_turn(turn, "assistant", content, parsed_calls, usage=usage)
+            log_assistant(turn, content, parsed_calls, usage=usage)
 
             for parsed in parsed_calls:
                 fn_name = parsed["name"]
@@ -342,7 +472,7 @@ async def run_agent(args):
                     "tool_call_id": parsed["id"],
                     "name": fn_name,
                 })
-                log_turn(turn, "tool", f"{fn_name}: {result}")
+                log_tool_result(turn, parsed["id"], fn_name, result)
 
                 # Save game state for dashboard when model calls observe.
                 if fn_name == "observe" and "\n\nASCII_MAP:" in result:
@@ -356,16 +486,16 @@ async def run_agent(args):
             # is trained to emit structured tool_calls; divergence is a
             # serving-side bug, not papered over here.
             messages.append({"role": "assistant", "content": content})
-            log_turn(turn, "assistant", content, usage=usage)
+            log_assistant(turn, content, None, usage=usage)
             if choice.finish_reason == "stop":
                 info(f"  [{turn}] Model stopped (no tool call). Continuing...")
                 time.sleep(2)
 
       info(f"\nSession complete: {turn} turns, reason={session_end_reason}")
-      log_turn(turn, "session_end", "", usage={"reason": session_end_reason, "turns": turn})
+      log_session_end(turn, session_end_reason)
     except KeyboardInterrupt:
         info(f"\nInterrupted after {turn} turns, cleaning up...")
-        log_turn(turn, "session_end", "", usage={"reason": "interrupted", "turns": turn})
+        log_session_end(turn, "interrupted")
     finally:
         if mcp:
             await mcp.close()

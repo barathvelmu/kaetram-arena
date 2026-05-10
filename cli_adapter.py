@@ -486,11 +486,14 @@ class OpenCodeAdapter(CLIAdapter):
         return {}
 
 
-QWEN_DEFAULT_ENDPOINT = "https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1"
+QWEN_SFT_ENDPOINT = "https://workspace--kaetram-qwen-serve-inference-serve.modal.run/v1"
+QWEN_BASE_ENDPOINT = "https://workspace--kaetram-qwen-base-inference-serve.modal.run/v1"
+# Back-compat alias — earlier callers imported QWEN_DEFAULT_ENDPOINT.
+QWEN_DEFAULT_ENDPOINT = QWEN_SFT_ENDPOINT
 
 
 class QwenAdapter(CLIAdapter):
-    """Adapter for the in-house Qwen3.5-9B SFT model served on Modal SGLang.
+    """Adapter for the in-house Qwen3.5-9B model served on Modal SGLang.
 
     Wraps `play_qwen.py` as a per-session subprocess — orchestrate.py spawns
     one invocation per session, captures its stdout (JSONL log records) into
@@ -499,11 +502,23 @@ class QwenAdapter(CLIAdapter):
     play_qwen.py exits cleanly when next call would exceed Qwen's 16K
     trained context budget; orchestrate respawns. No turn cap from the
     adapter side — `max_turns` is a safety bound only.
+
+    Variant labels: `model="r10-sft"` for the finetuned endpoint,
+    `model="kaetram-base"` for the unfinetuned endpoint. The Modal endpoint
+    serves whichever model is baked into the deployment, so the model name
+    is a metadata label — but we keep it in lockstep with the endpoint URL
+    so dashboards and run.meta.json never misreport the variant.
     """
 
     def __init__(self, model: str = "r10-sft", endpoint: str | None = None):
+        endpoint = endpoint or QWEN_SFT_ENDPOINT
+        # Auto-correct the model label when the caller pointed at the base
+        # endpoint but didn't override the (sft) default. Saves the dashboard
+        # / log_analysis from showing "r10-sft" on a base run.
+        if endpoint == QWEN_BASE_ENDPOINT and model == "r10-sft":
+            model = "kaetram-base"
         super().__init__(model)
-        self.endpoint = endpoint or QWEN_DEFAULT_ENDPOINT
+        self.endpoint = endpoint
         self._port: str = ""
         self._username: str = "QwenCompletionist"
 

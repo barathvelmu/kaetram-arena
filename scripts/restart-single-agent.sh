@@ -9,6 +9,8 @@
 #   ./scripts/restart-single-agent.sh 2 --reset             # reset state (fresh level 1)
 #   ./scripts/restart-single-agent.sh 2 --codex             # switch to codex harness
 #   ./scripts/restart-single-agent.sh 2 --claude             # switch to claude harness
+#   ./scripts/restart-single-agent.sh 2 --qwen-sft           # switch to Qwen SFT
+#   ./scripts/restart-single-agent.sh 2 --qwen-base          # switch to Qwen base
 #   ./scripts/restart-single-agent.sh 2 --personality grinder
 #   ./scripts/restart-single-agent.sh 2 --reset --codex --personality explorer_tinkerer
 
@@ -23,6 +25,7 @@ source "$SCRIPT_DIR/_kill_helpers.sh"
 AGENT_ID=""
 RESET=false
 NEW_HARNESS=""
+NEW_QWEN_VARIANT=""    # "sft" | "base" — only meaningful when NEW_HARNESS=qwen
 NEW_PERSONALITY=""
 
 while [[ $# -gt 0 ]]; do
@@ -32,9 +35,11 @@ while [[ $# -gt 0 ]]; do
     --codex)       NEW_HARNESS="codex"; shift;;
     --gemini)      NEW_HARNESS="gemini"; shift;;
     --opencode)    NEW_HARNESS="opencode"; shift;;
+    --qwen-sft)    NEW_HARNESS="qwen"; NEW_QWEN_VARIANT="sft"; shift;;
+    --qwen-base)   NEW_HARNESS="qwen"; NEW_QWEN_VARIANT="base"; shift;;
     --personality) NEW_PERSONALITY="$2"; shift 2;;
     -h|--help)
-      echo "Usage: $0 <agent_id> [--reset] [--claude|--codex|--gemini|--opencode] [--personality <name>]"
+      echo "Usage: $0 <agent_id> [--reset] [--claude|--codex|--gemini|--opencode|--qwen-sft|--qwen-base] [--personality <name>]"
       echo ""
       echo "  agent_id         Agent number (0-7)"
       echo "  --reset          Clear sandbox state + reset DB (fresh level 1)"
@@ -42,6 +47,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --codex           Switch agent to Codex CLI"
       echo "  --gemini          Switch agent to Gemini CLI"
       echo "  --opencode        Switch agent to OpenCode CLI (NVIDIA Qwen free API)"
+      echo "  --qwen-sft        Switch agent to Qwen3.5-9B SFT (finetuned Modal endpoint)"
+      echo "  --qwen-base       Switch agent to Qwen3.5-9B base (unfinetuned Modal endpoint)"
       echo "  --personality X  Change personality (grinder/completionist/explorer_tinkerer)"
       exit 0;;
     *)
@@ -156,8 +163,13 @@ if [ "$HARNESS" != "$CUR_HARNESS" ] || [ "$PERSONALITY" != "$CUR_PERSONALITY" ];
     qwen)
       # Qwen uses personality-based usernames (matches orchestrate.py
       # qwen_username_map). Falls back to QwenBot<id> if personality
-      # is unrecognized.
-      MODEL="r10-sft"
+      # is unrecognized. SFT vs base is reflected in the model label so
+      # dashboards/log_analysis distinguish them.
+      if [ "$NEW_QWEN_VARIANT" = "base" ]; then
+        MODEL="kaetram-base"
+      else
+        MODEL="r10-sft"
+      fi
       case "$PERSONALITY" in
         grinder)            NEW_USERNAME="QwenGrinder";;
         completionist)      NEW_USERNAME="QwenCompletionist";;

@@ -226,10 +226,11 @@ Apr 28 strike-team audit (8 parallel agents on `barathvelmu/kae-50-q2-q3-strike-
 **Active backlog (revised priorities):** r10 training blocked on packing/ETA decision (see r10 section). `quest_resume.json` removed from the agent entirely (May 7, `09e611d`). Eval pipeline upgraded: `core3_stages_advanced` headline metric, N-model Bonferroni FWER, `serve_modal.py` defaults to r10. KAE-49 (paper-variables catalog) shipped.
 
 **Qwen agent infrastructure (current — May 10 rewrite):**
-- Qwen is a peer harness inside `orchestrate.py` (alongside Claude/Codex/Gemini/OpenCode), invoked via `--qwen`. `QwenAdapter` (`cli_adapter.py`) spawns `play_qwen.py` per session.
-- Usernames: personality-based — `QwenGrinder` / `QwenCompletionist` / `QwenExplorer` (so the in-game bot maps 1:1 to the personality variant under eval).
+- Qwen is a peer harness inside `orchestrate.py` (alongside Claude/Codex/Gemini/OpenCode) with two variants: `--qwen-sft N` (finetuned, default endpoint, model label `r10-sft`) and `--qwen-base N` (unfinetuned, model label `kaetram-base`). Mixable in one run for direct A/B. `QwenAdapter` (`cli_adapter.py`) spawns `play_qwen.py` per session against the corresponding Modal SGLang endpoint (`QWEN_SFT_ENDPOINT` / `QWEN_BASE_ENDPOINT`).
+- Usernames: personality-based — `QwenGrinder` / `QwenCompletionist` / `QwenExplorer` (so the in-game bot maps 1:1 to the personality variant under eval). SFT vs base is reflected in `metadata.json::model`, not the username, so a 3-agent SFT run and a 3-agent base run share the same Mongo player rows.
 - Sessions: bounded by Qwen's 16K trained context, not turn count. play_qwen.py exits when next call would overflow; orchestrate respawns with `Session #N+1`. Mongo state carries per-username across sessions (same as Claude).
-- Multi-agent: `restart-agent.sh --qwen --grinder 1 --completionist 1 --explorer 1 --hours 3` runs 3 Qwen agents in parallel on ports 9001/9011/9021.
+- Logs: play_qwen emits Claude-shaped stream-json (`type:"system"|"assistant"|"user"|"result"` with nested `message.content[]` blocks of `thinking`/`text`/`tool_use`/`tool_result`), so dashboard activity feed, `scripts/log_analysis/`, `extract_turns.py`, and the heartbeat ingest are all harness-agnostic.
+- Multi-agent: `restart-agent.sh --qwen-sft 3 --grinder 1 --completionist 1 --explorer 1 --hours 3` runs 3 finetuned-Qwen agents in parallel on ports 9001/9011/9021. Swap to `--qwen-base 3` for the base lane.
 - Eval: `eval_harness.py` (separate from orchestrate) drives r10-sft vs base on dedicated ports 9061/9071. Spawns `play_qwen.py` per sub-session; same JSONL log shape.
 
 Backlog (by priority from Linear):

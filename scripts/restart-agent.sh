@@ -16,6 +16,9 @@
 #   ./scripts/restart-agent.sh 3 0          # 3 agents, no time limit
 #   ./scripts/restart-agent.sh --grinder 1 --completionist 1 --explorer 1
 #   ./scripts/restart-agent.sh --opencode --opencode-model qwen3.5-35a3b --hours 3
+#   ./scripts/restart-agent.sh --qwen-sft 3 --grinder 1 --completionist 1 --explorer 1
+#   ./scripts/restart-agent.sh --qwen-base 3 --grinder 1 --completionist 1 --explorer 1
+#   ./scripts/restart-agent.sh --qwen-sft 1 --qwen-base 1   # mixed A/B run
 #
 # OpenCode model aliases (resolve to opencode.template.json model IDs):
 #   grok-4-1-fast     | qwen3.5-35a3b   | qwen3.5-397a17b
@@ -51,9 +54,9 @@ N_CLAUDE=""
 N_CODEX=""
 N_GEMINI=""
 N_OPENCODE=""
-N_QWEN=""
+N_QWEN_SFT=""
+N_QWEN_BASE=""
 OPENCODE_MODEL=""
-QWEN_ENDPOINT=""
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -64,7 +67,6 @@ while [[ $# -gt 0 ]]; do
     --hours)       HOURS="$2"; shift 2;;
     --max-budget-usd) MAX_BUDGET="$2"; shift 2;;
     --opencode-model) OPENCODE_MODEL="$2"; shift 2;;
-    --qwen-endpoint) QWEN_ENDPOINT="$2"; shift 2;;
     --claude)
       if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
         N_CLAUDE="$2"; shift 2
@@ -93,11 +95,18 @@ while [[ $# -gt 0 ]]; do
         N_OPENCODE="-1"; shift  # bare --opencode = all agents
       fi
       ;;
-    --qwen)
+    --qwen-sft)
       if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
-        N_QWEN="$2"; shift 2
+        N_QWEN_SFT="$2"; shift 2
       else
-        N_QWEN="-1"; shift  # bare --qwen = all agents
+        N_QWEN_SFT="-1"; shift  # bare --qwen-sft = all agents
+      fi
+      ;;
+    --qwen-base)
+      if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+        N_QWEN_BASE="$2"; shift 2
+      else
+        N_QWEN_BASE="-1"; shift  # bare --qwen-base = all agents
       fi
       ;;
     *)
@@ -147,15 +156,16 @@ HARNESS_DESC=""
 [ -n "$N_CODEX" ] && [ "$N_CODEX" != "-1" ] && [ "$N_CODEX" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_CODEX Codex"
 [ -n "$N_GEMINI" ] && [ "$N_GEMINI" != "-1" ] && [ "$N_GEMINI" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_GEMINI Gemini"
 [ -n "$N_OPENCODE" ] && [ "$N_OPENCODE" != "-1" ] && [ "$N_OPENCODE" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_OPENCODE OpenCode"
-[ -n "$N_QWEN" ] && [ "$N_QWEN" != "-1" ] && [ "$N_QWEN" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_QWEN Qwen"
+[ -n "$N_QWEN_SFT" ] && [ "$N_QWEN_SFT" != "-1" ] && [ "$N_QWEN_SFT" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_QWEN_SFT Qwen-SFT"
+[ -n "$N_QWEN_BASE" ] && [ "$N_QWEN_BASE" != "-1" ] && [ "$N_QWEN_BASE" -gt 0 ] 2>/dev/null && HARNESS_DESC="${HARNESS_DESC}${HARNESS_DESC:+ + }$N_QWEN_BASE Qwen-Base"
 [ "$N_CODEX" = "-1" ] && HARNESS_DESC="all Codex"
 [ "$N_GEMINI" = "-1" ] && HARNESS_DESC="all Gemini"
 [ "$N_OPENCODE" = "-1" ] && HARNESS_DESC="all OpenCode"
-[ "$N_QWEN" = "-1" ] && HARNESS_DESC="all Qwen"
+[ "$N_QWEN_SFT" = "-1" ] && HARNESS_DESC="all Qwen-SFT"
+[ "$N_QWEN_BASE" = "-1" ] && HARNESS_DESC="all Qwen-Base"
 [ -z "$HARNESS_DESC" ] && HARNESS_DESC="all Claude"
 echo "  Harness: $HARNESS_DESC"
 [ -n "$OPENCODE_MODEL" ] && echo "  OpenCode model: $OPENCODE_MODEL"
-[ -n "$QWEN_ENDPOINT" ] && echo "  Qwen endpoint: $QWEN_ENDPOINT"
 echo "  Hours:  ${HOURS}"
 echo ""
 
@@ -354,9 +364,9 @@ fi
 [ -n "$N_CODEX" ] && ORCH_CMD="$ORCH_CMD --codex $N_CODEX"
 [ -n "$N_GEMINI" ] && ORCH_CMD="$ORCH_CMD --gemini $N_GEMINI"
 [ -n "$N_OPENCODE" ] && ORCH_CMD="$ORCH_CMD --opencode $N_OPENCODE"
-[ -n "$N_QWEN" ] && ORCH_CMD="$ORCH_CMD --qwen $N_QWEN"
+[ -n "$N_QWEN_SFT" ] && ORCH_CMD="$ORCH_CMD --qwen-sft $N_QWEN_SFT"
+[ -n "$N_QWEN_BASE" ] && ORCH_CMD="$ORCH_CMD --qwen-base $N_QWEN_BASE"
 [ -n "$OPENCODE_MODEL" ] && ORCH_CMD="$ORCH_CMD --opencode-model $OPENCODE_MODEL"
-[ -n "$QWEN_ENDPOINT" ] && ORCH_CMD="$ORCH_CMD --qwen-endpoint $QWEN_ENDPOINT"
 ORCH_CMD="$ORCH_CMD 2>&1 | tee /tmp/orchestrate.log"
 
 # Send to existing datacol session, or create one

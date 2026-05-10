@@ -118,7 +118,7 @@ Each agent gets its own server port (9001, 9011, 9021), log directory, capabilit
 > - `--codex` — OpenAI Codex (GPT-5.4), Stop hook for turn continuation
 > - `--gemini` — Google Gemini 2.5 Flash, `maxSessionTurns` for turn limit
 > - `--opencode` — multi-model via `--opencode-model <alias>`. Aliases: `grok-4-1-fast`, `qwen3.5-35a3b`, `qwen3.5-397a17b`, `qwen3-80a3b`, `deepseek-v4-flash`, `deepseek-v4-pro` (or any fully-qualified `provider/model` ID). NIM-routed Qwen models need `scripts/start-nim-proxy.sh`; DeepSeek needs `DEEPSEEK_API_KEY`; xAI needs `XAI_API_KEY`.
-> - `--qwen` — in-house Qwen3.5-9B finetune served on Modal SGLang. Spawns `play_qwen.py` per session via `QwenAdapter`; sessions roll over when context approaches 16K. `--qwen-endpoint` overrides the default Modal URL.
+> - `--qwen-sft` / `--qwen-base` — in-house Qwen3.5-9B served on Modal SGLang. SFT routes to the finetuned endpoint and labels `model='r10-sft'`; base routes to the unfinetuned endpoint and labels `model='kaetram-base'`. Both spawn `play_qwen.py` per session via `QwenAdapter`; sessions roll over when context approaches 16K. Mixable in one run for direct A/B.
 >
 > See [`CLAUDE.md`](CLAUDE.md) for full details on each harness.
 
@@ -160,7 +160,7 @@ kaetram-agent/
 ├── cli_adapter.py           # Harness abstraction (Claude / Codex / Gemini / OpenCode / Qwen); opencode model aliases + bot-prefix helper
 ├── bootstrap.py             # Single source of truth for the orchestrate user bootstrap
 ├── play.sh                  # Single-agent dev loop (Claude / Codex / Gemini / OpenCode)
-├── play_qwen.py             # Per-session Qwen subprocess (spawned by orchestrate --qwen or solo dev)
+├── play_qwen.py             # Per-session Qwen subprocess (spawned by orchestrate --qwen-sft / --qwen-base or solo dev)
 ├── orchestrate.py           # Multi-agent launcher: game servers, Xvfb, ffmpeg, MCP, harness
 ├── extract_turns.py, convert_to_qwen.py  # SFT data pipeline (logs → Qwen records)
 ├── score_sessions.py, build_kto_dataset.py, inspect_kto_dataset.py  # KTO data pipeline
@@ -226,7 +226,7 @@ The finetuned Qwen3.5-9B model is served from a Modal SGLang endpoint
 
 ```bash
 # Multi-agent run (3 personalities in parallel via orchestrate, like Claude)
-./scripts/restart-agent.sh --qwen --grinder 1 --completionist 1 --explorer 1 --hours 3
+./scripts/restart-agent.sh --qwen-sft 3 --grinder 1 --completionist 1 --explorer 1 --hours 3
 
 # Solo dev — direct invocation
 python3 play_qwen.py --endpoint <modal-url> --personality completionist \

@@ -382,7 +382,11 @@ class APIMixin:
                 try:
                     with open(meta_file) as mf:
                         meta = json.load(mf)
-                    if meta.get("personality") != "qwen":
+                    # personality is one of grinder/completionist/explorer_tinkerer
+                    # — the prior `!= "qwen"` filter was dead code from a
+                    # transitional state where Qwen wasn't first-class. All
+                    # harnesses count toward agent_count now.
+                    if meta:
                         agent_count += 1
                 except Exception:
                     pass
@@ -469,6 +473,7 @@ class APIMixin:
                 "codex": "gpt-5.4",
                 "gemini": "gemini-2.5-flash",
                 "opencode": "opencode-default",
+                "qwen": "r10-sft",
             }
             if os.path.isfile(metadata_file):
                 try:
@@ -487,9 +492,6 @@ class APIMixin:
                 agent["mode"] = "grinder"
                 agent["harness"] = "claude"
                 agent["harness_model"] = default_models.get("claude", "")
-
-            if agent["mode"] == "qwen":
-                continue
 
             # HLS livestream freshness — independent of observe() cadence.
             # If ffmpeg is alive and emitting segments, this stays low even

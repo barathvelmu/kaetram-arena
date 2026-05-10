@@ -1092,7 +1092,7 @@
       <div class="qwen-panel">
         <div class="qwen-panel-header finetuned">
           <span class="qwen-status-dot stale" id="ev-dot-sft"></span>
-          <span class="qwen-badge ft">R9-SFT EVAL</span>
+          <span class="qwen-badge ft">R10-SFT EVAL</span>
           <span class="qval ft" id="ev-hp-sft">?/?</span>
           <span class="qlabel">EP</span><span class="qval ft" id="ev-ep-sft">0</span>
           <span class="qlabel">T</span><span class="qval ft" id="ev-turn-sft">0</span>
@@ -1100,7 +1100,7 @@
         <div id="ev-stats-sft" style="padding:4px 8px;font-size:10px;color:var(--text-dim);display:flex;flex-wrap:wrap;gap:10px;background:rgba(0,0,0,0.3);border-bottom:1px solid rgba(201,175,120,0.08)"></div>
         <div class="qwen-stream">
           <img id="ev-img-sft" src="" alt="r9-SFT eval stream">
-          <div class="no-signal" id="ev-nosig-sft">R9-SFT — WAITING</div>
+          <div class="no-signal" id="ev-nosig-sft">R10-SFT — WAITING</div>
         </div>
         <button class="log-toggle" onclick="toggleLog(this)">Log (0 entries)</button>
         <div class="qwen-actions collapsed" id="ev-log-sft"></div>
@@ -3000,16 +3000,28 @@ async function refreshFast() {
               claude: 'var(--green)',
               codex: 'var(--amber)',
               gemini: '#4285F4',    // Google blue
-              opencode: '#9C27B0'   // purple
+              opencode: '#9C27B0',  // purple
+              qwen: 'var(--slate)'  // matches Eval-tab Qwen palette
             };
             const hLabels = {
               claude: 'CLAUDE',
               codex: 'CODEX',
               gemini: 'GEMINI',
-              opencode: 'OPENCODE'
+              opencode: 'OPENCODE',
+              qwen: 'QWEN'
             };
             const hColor = hColors[harness] || 'var(--text)';
             html += '<span style="font-size:8px;color:' + hColor + ';border:1px solid ' + hColor + ';padding:1px 4px;border-radius:3px;margin-left:4px;letter-spacing:0.5px">' + (hLabels[harness] || harness.toUpperCase()) + '</span>';
+            // Qwen variant chip (SFT vs BASE) — labels metadata.json::model
+            // (`r10-sft` / `kaetram-base`) so a mixed-variant run on the
+            // dashboard is unambiguous.
+            if (harness === 'qwen') {
+              const m = (a.harness_model || '').toLowerCase();
+              const isBase = m.includes('base');
+              const vColor = isBase ? 'var(--olive)' : 'var(--slate)';
+              const vLabel = isBase ? 'BASE' : 'SFT';
+              html += '<span style="font-size:8px;color:' + vColor + ';border:1px solid ' + vColor + ';padding:1px 4px;border-radius:3px;margin-left:4px;letter-spacing:0.5px">' + vLabel + '</span>';
+            }
             html += '<span class="agent-server-dot"></span></div>';
             html += '<div class="agent-info-line" style="font-size:10px;color:var(--text)"></div>';
             html += '<div class="agent-hp-line" style="margin-top:4px"></div>';
@@ -3224,7 +3236,7 @@ let evalLoaded = false;
 let evalLiveTimer = null;
 let evalResultsTimer = null;
 const evalPanels = {
-  'r9-sft': { dot: 'ev-dot-sft', hp: 'ev-hp-sft', ep: 'ev-ep-sft', turn: 'ev-turn-sft',
+  'r10-sft': { dot: 'ev-dot-sft', hp: 'ev-hp-sft', ep: 'ev-ep-sft', turn: 'ev-turn-sft',
                img: 'ev-img-sft', nosig: 'ev-nosig-sft', log: 'ev-log-sft', count: 0 },
   'base':   { dot: 'ev-dot-base', hp: 'ev-hp-base', ep: 'ev-ep-base', turn: 'ev-turn-base',
                img: 'ev-img-base', nosig: 'ev-nosig-base', log: 'ev-log-base', count: 0 }
@@ -3333,7 +3345,7 @@ async function pollEvalLive() {
       const topTools = Object.entries(toolCounts).sort((a,b) => b[1]-a[1]).slice(0,3).map(([t,c]) => t+'='+c).join(', ');
 
       // Show live stats bar
-      const statsId = 'ev-stats-' + (name === 'r9-sft' ? 'sft' : 'base');
+      const statsId = 'ev-stats-' + (name === 'r10-sft' ? 'sft' : 'base');
       const statsEl = document.getElementById(statsId);
       if (!statsEl) continue;
       const isDead = ui.is_dead || false;
@@ -3385,7 +3397,7 @@ async function loadEvalResults() {
     const res = await fetch('/api/eval/latest');
     const data = await res.json();
     if (data.status !== 'ok' || !data.models || data.models.length === 0) {
-      container.innerHTML = '<div class="eval-empty">No eval results yet.<br><br><span style="font-size:12px;color:#555">Run: <code>python3 eval_harness.py --episodes 30 --watchdog --watchdog-kill-on-failure</code><br>Then: <code>python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r9-sft/results.json</code></span></div>';
+      container.innerHTML = '<div class="eval-empty">No eval results yet.<br><br><span style="font-size:12px;color:#555">Run: <code>python3 eval_harness.py --episodes 30 --watchdog --watchdog-kill-on-failure</code><br>Then: <code>python3 eval_compare.py dataset/eval/base/results.json dataset/eval/r10-sft/results.json</code></span></div>';
       return;
     }
     evalLoaded = true;

@@ -912,6 +912,15 @@ class AgentInstance:
                         in_tok = usage.get("input_tokens", 0)
                         out_tok = usage.get("output_tokens", 0)
                         cost_usd += (in_tok * 2.0 + out_tok * 8.0) / 1_000_000
+                    elif t == "assistant" and self.adapter.name == "qwen":
+                        # Qwen: Modal A100-40GB billing is GPU-seconds, not
+                        # tokens — these rates approximate ~$3/hr × ~30 tok/s
+                        # decode. Used only to feed --max-budget-usd; not
+                        # invoiced.
+                        usage = obj.get("message", {}).get("usage", {})
+                        in_tok = usage.get("input_tokens", 0)
+                        out_tok = usage.get("output_tokens", 0)
+                        cost_usd += (in_tok * 1.0 + out_tok * 30.0) / 1_000_000
         except OSError:
             pass
         return {"cost_usd": cost_usd, "is_overage": is_overage}
@@ -1189,14 +1198,16 @@ class Orchestrator:
                  harness_counts: dict[str, int] | None = None,
                  model: str | None = None,
                  opencode_model: str | None = None,
-                 qwen_endpoint: str | None = None,
+                 qwen_variants: list[str] | None = None,
                  max_budget_usd: float | None = None):
         self.n_agents = n_agents
         self.personality_counts = personality_counts
         self.harness_counts = harness_counts or {"claude": n_agents}
         self.model = model
         self.opencode_model = opencode_model
-        self.qwen_endpoint = qwen_endpoint
+        # Per-Qwen-slot variant ("sft" | "base") in the same order setup()
+        # walks the qwen-harness slots. Empty when no Qwen agents.
+        self.qwen_variants = list(qwen_variants or [])
         self.max_budget_usd = max_budget_usd
         self.deadline = time.time() + hours * 3600 if hours else None
         self.servers: list[GameServer] = []
@@ -1217,10 +1228,14 @@ class Orchestrator:
 
     def setup(self):
         """Create all server and agent instances."""
+        from cli_adapter import QWEN_SFT_ENDPOINT, QWEN_BASE_ENDPOINT
         # Build per-agent harness assignment list
         harness_list = []
         for h in ("claude", "codex", "gemini", "opencode", "qwen"):
             harness_list.extend([h] * self.harness_counts.get(h, 0))
+        # Pop-front queue of qwen variants (one per qwen slot, slot order
+        # matches the qwen entries we just appended to harness_list).
+        qwen_variant_queue = list(self.qwen_variants)
 
         # Build personality assignment list
         if self.personality_counts:
@@ -1252,9 +1267,15 @@ class Orchestrator:
             # OpenCode has its own model override since the model is configured
             # via opencode.json rather than a CLI flag — see OpenCodeAdapter.
             adapter_model = self.opencode_model if harness == "opencode" else self.model
+            slot_qwen_endpoint = None
+            if harness == "qwen" and qwen_variant_queue:
+                # SFT slots first, then base — order matches argparse build.
+                variant = qwen_variant_queue.pop(0)
+                slot_qwen_endpoint = (QWEN_BASE_ENDPOINT if variant == "base"
+                                      else QWEN_SFT_ENDPOINT)
             adapter = get_adapter(
                 harness=harness, model=adapter_model,
-                qwen_endpoint=self.qwen_endpoint if harness == "qwen" else None,
+                qwen_endpoint=slot_qwen_endpoint,
             )
             personality = assignments[i] if i < len(assignments) else "grinder"
 
@@ -1660,14 +1681,15 @@ def main():
              "Uses NVIDIA Qwen free API via opencode.template.json."
     )
     parser.add_argument(
-        "--qwen", type=int, nargs="?", const=-1, default=0,
-        help="Number of in-house Qwen3.5-9B agents (bare --qwen = all agents). "
-             "Spawns play_qwen.py per session against the Modal SGLang endpoint."
+        "--qwen-sft", dest="qwen_sft", type=int, nargs="?", const=-1, default=0,
+        help="Number of Qwen3.5-9B SFT (finetuned) agents. Routes to "
+             "cli_adapter.QWEN_SFT_ENDPOINT and labels model='r10-sft'."
     )
     parser.add_argument(
-        "--qwen-endpoint", dest="qwen_endpoint", type=str, default=None,
-        help="Modal SGLang endpoint override for Qwen agents. "
-             "Default: cli_adapter.QWEN_DEFAULT_ENDPOINT."
+        "--qwen-base", dest="qwen_base", type=int, nargs="?", const=-1, default=0,
+        help="Number of Qwen3.5-9B base (unfinetuned) agents. Routes to "
+             "cli_adapter.QWEN_BASE_ENDPOINT and labels model='kaetram-base'. "
+             "Mixable with --qwen-sft in the same run."
     )
     parser.add_argument(
         "--model", type=str, default=None,
@@ -1701,48 +1723,66 @@ def main():
     if n_total < 1 or n_total > 8:
         parser.error("Total agent count must be 1-8")
 
-    # Resolve harness counts (--claude N / --codex N / --gemini N / --opencode N / --qwen N)
+    # Resolve harness counts. Qwen has two variants (SFT / base) handled
+    # as separate harness flags; both can be mixed in one run.
     claude_n = args.claude or 0
     codex_n = args.codex or 0
     gemini_n = args.gemini or 0
     opencode_n = args.opencode or 0
-    qwen_n = args.qwen or 0
+    qwen_sft_n = args.qwen_sft or 0
+    qwen_base_n = args.qwen_base or 0
 
-    bare_flags = sum(1 for v in [claude_n, codex_n, gemini_n, opencode_n, qwen_n] if v == -1)
+    bare_flags = sum(
+        1 for v in [claude_n, codex_n, gemini_n, opencode_n, qwen_sft_n, qwen_base_n]
+        if v == -1
+    )
     if bare_flags > 1:
-        parser.error("Cannot use multiple bare harness flags (--claude, --codex, --gemini, --opencode, --qwen) without counts")
+        parser.error(
+            "Cannot use multiple bare harness flags "
+            "(--claude, --codex, --gemini, --opencode, --qwen-sft, --qwen-base) "
+            "without counts"
+        )
 
-    # Handle bare flags (e.g. --qwen alone means all agents)
-    if qwen_n == -1:
-        qwen_n = n_total
-        claude_n = codex_n = gemini_n = opencode_n = 0
+    # Handle bare flags (e.g. --qwen-sft alone means all agents)
+    if qwen_sft_n == -1:
+        qwen_sft_n = n_total
+        claude_n = codex_n = gemini_n = opencode_n = qwen_base_n = 0
+    elif qwen_base_n == -1:
+        qwen_base_n = n_total
+        claude_n = codex_n = gemini_n = opencode_n = qwen_sft_n = 0
     elif opencode_n == -1:
         opencode_n = n_total
-        claude_n = codex_n = gemini_n = qwen_n = 0
+        claude_n = codex_n = gemini_n = qwen_sft_n = qwen_base_n = 0
     elif gemini_n == -1:
         gemini_n = n_total
-        claude_n = codex_n = opencode_n = qwen_n = 0
+        claude_n = codex_n = opencode_n = qwen_sft_n = qwen_base_n = 0
     elif codex_n == -1:
         codex_n = n_total
-        claude_n = gemini_n = opencode_n = qwen_n = 0
+        claude_n = gemini_n = opencode_n = qwen_sft_n = qwen_base_n = 0
     elif claude_n == -1:
         claude_n = n_total
-        codex_n = gemini_n = opencode_n = qwen_n = 0
-    elif claude_n == 0 and codex_n == 0 and gemini_n == 0 and opencode_n == 0 and qwen_n == 0:
+        codex_n = gemini_n = opencode_n = qwen_sft_n = qwen_base_n = 0
+    elif (claude_n == 0 and codex_n == 0 and gemini_n == 0 and opencode_n == 0
+          and qwen_sft_n == 0 and qwen_base_n == 0):
         # No harness specified: default all Claude
         claude_n = n_total
     else:
         # Explicit counts: fill remainder with Claude
-        explicit_total = claude_n + codex_n + gemini_n + opencode_n + qwen_n
+        explicit_total = (claude_n + codex_n + gemini_n + opencode_n
+                          + qwen_sft_n + qwen_base_n)
         if explicit_total < n_total:
             claude_n = n_total - explicit_total
         elif explicit_total > n_total:
             n_total = explicit_total
 
+    qwen_n = qwen_sft_n + qwen_base_n
     harness_counts = {
         "claude": claude_n, "codex": codex_n, "gemini": gemini_n,
         "opencode": opencode_n, "qwen": qwen_n,
     }
+    # Per-Qwen-slot variant labels in slot order: SFT slots first, then base.
+    # Consumed pop-front by Orchestrator.setup() to pick endpoint per slot.
+    qwen_variants = ["sft"] * qwen_sft_n + ["base"] * qwen_base_n
 
     # Check for required CLIs
     if codex_n > 0 and shutil.which("codex") is None:
@@ -1757,7 +1797,7 @@ def main():
         personality_counts=personality_counts,
         harness_counts=harness_counts, model=args.model,
         opencode_model=args.opencode_model,
-        qwen_endpoint=args.qwen_endpoint,
+        qwen_variants=qwen_variants,
         max_budget_usd=args.max_budget_usd,
     )
 

@@ -23,6 +23,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 ## Experiments
 
 - [training-runs.md](experiments/training-runs.md) — r1 through r9-SFT (+ r6-KTO smoke test): hyperparams, results, failures, what improved
+- [r10-concerns.md](experiments/r10-concerns.md) — r10 design decisions, known limitations (3-turn window ceiling, session_n drift, gate dropouts), Core 3 forecast, r11 experiment candidates
 - [data-quality.md](experiments/data-quality.md) — Filters applied, before/after metrics, what got cut and why
 
 ## Related Work

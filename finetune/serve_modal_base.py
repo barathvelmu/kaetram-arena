@@ -125,9 +125,21 @@ class Inference:
             top_k = body.get("top_k", QWEN_THINK_TOP_K)
             presence_penalty = body.get("presence_penalty", QWEN_THINK_PRESENCE_PENALTY)
 
-            # No tools= kwarg — train/serve parity. See finetune/render.render_record.
+            # Honor tools= from the request body so the chat template
+            # injects Qwen3.5's native tool spec block. The base model was
+            # never finetuned on our XML format, so without this it falls back
+            # to free-text JSON (markdown-fenced) and `tool_calls` is always
+            # empty. The native template reminds the model to emit
+            # `<tool_call><function=NAME><parameter=...>...</parameter></function></tool_call>`,
+            # which is exactly what the regex parser below already matches.
+            #
+            # SFT (serve_modal.py) intentionally drops tools= to preserve
+            # training/serve parity — it learned the format from training,
+            # not from the chat template.
+            tools = body.get("tools") or None
             prompt = self.tokenizer.apply_chat_template(
                 messages,
+                tools=tools,
                 tokenize=False,
                 add_generation_prompt=True,
             )

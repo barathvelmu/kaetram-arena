@@ -352,6 +352,15 @@ async def run_agent(args):
     tool_names = await mcp.connect()
     info(f"MCP connected. Tools: {tool_names}")
 
+    # OpenAI-format tool definitions. Sent on every chat completion so the
+    # serve endpoint can pass them to apply_chat_template if needed:
+    #   - serve_modal_base.py honors them — Qwen3.5's native chat template
+    #     renders the tool spec + the `<tool_call><function=...>...</function>
+    #     </tool_call>` format reminder, which is what the model was trained
+    #     on. Without this the base model emits free-text markdown JSON.
+    #   - serve_modal.py ignores them (training/serve parity for SFT).
+    tool_defs = mcp.get_tool_definitions()
+
     # Load system prompt
     system_prompt = ""
     if args.system_prompt and os.path.isfile(args.system_prompt):
@@ -396,11 +405,13 @@ async def run_agent(args):
 
         # Sampling params pinned to Qwen3.5 thinking-mode recommendations.
         # top_k + presence_penalty go in extra_body (not OpenAI-spec; SGLang
-        # forwards them). No `tools=` — system prompt embeds the tool surface.
+        # forwards them). `tools=` is sent uniformly — server decides whether
+        # to render them in the chat template (base) or ignore (SFT).
         try:
             response = client.chat.completions.create(
                 model=args.model,
                 messages=messages,
+                tools=tool_defs,
                 temperature=QWEN_THINK_TEMPERATURE,
                 top_p=QWEN_THINK_TOP_P,
                 max_tokens=RESPONSE_BUDGET,

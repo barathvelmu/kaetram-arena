@@ -3,6 +3,12 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-05-11 — log_analysis decoder fix for qwen wire format
+
+`scripts/log_analysis/parse.py:decode_tool_result_content` only handled Claude's `{"result": "<inner>"}` tool_result wrapper. Qwen harness writes raw MCP output bare (no wrapper), so observe payloads — which carry `<JSON>\n\nASCII_MAP:<grid>` — failed `json.loads` with "Extra data" and degraded to raw strings. Result: `latest_observe()` returned None for every qwen session; analyzer reported `?` for lvl/hp/pos and `untouched` for quests on every qwen run. Same MCP, same observe.js, same prompts — only the harness adapter's logging differs. Fixed with a 4-branch decoder (Claude wrapper / qwen non-observe dict / qwen observe with ASCII suffix / plain string). Verified: 477/477 qwen sessions (100% observe→dict, 100% with quest keys), 1049 Claude sessions (zero regression — 32020/32495 parse rate identical to pre-fix), 22 OpenCode sessions (unchanged, separate parser path). Re-ran on `run_20260510_173852` (qwen-base, 3 agents, 3h, 1742 turns): grinder Foresting 1/3 stuck, completionist + explorer **both finished Foresting 3/3** (explorer's first stage advance via `gather(Oak)` not `interact_npc`); Herbalist's + Rick's Roll untouched by all. core3_stages 1/10/3/10/3/10. Format/argument 100%.
+
+---
+
 ## 2026-05-10 — Qwen first-class + warm-session loop
 
 Three landed:

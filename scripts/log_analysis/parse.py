@@ -139,19 +139,31 @@ def fmt_duration(seconds: float | int | None) -> str:
 def decode_tool_result_content(raw: str) -> tuple[dict | str, str | None]:
     """Decode a tool_result `.content` string.
 
-    Returns (payload, ascii_map). For observe, payload is the parsed game-state
-    dict and ascii_map is the trailing ASCII grid. For other tools, payload is
-    a parsed dict and ascii_map is None.
+    Handles two wire formats — same MCP, same payload, different harness wrappers:
+      * Claude Code CLI:  '{"result": "<inner>", "is_error": false}'
+      * Qwen / direct MCP: '<inner>' (bare; play_qwen logs raw MCP output)
 
-    Falls back to returning the raw string if decoding fails at any layer.
+    `<inner>` is `<JSON>` for non-observe tools, or `<JSON>\\n\\nASCII_MAP:<grid>`
+    for observe. Returns (payload, ascii_map). Falls back to (raw, None) if
+    nothing decodes.
     """
+    inner: str | None = None
     try:
         wrapper = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
-        return raw, None
-    inner = wrapper.get("result") if isinstance(wrapper, dict) else None
-    if not isinstance(inner, str):
+        wrapper = None
+    if isinstance(wrapper, dict) and isinstance(wrapper.get("result"), str):
+        # Claude wrapper.
+        inner = wrapper["result"]
+    elif isinstance(wrapper, dict) and "pos" not in wrapper and "ASCII_MAP" not in raw:
+        # Qwen non-observe path: raw is already the inner JSON object (no
+        # wrapper, no ASCII suffix). Return as-is.
         return wrapper, None
+    else:
+        # Qwen observe (or any bare-string format with trailing ASCII_MAP):
+        # `json.loads(raw)` either failed with "Extra data" or returned a dict
+        # that itself contains the game-state keys. Treat raw as inner.
+        inner = raw
     body, sep, ascii_map = inner.partition("\n\nASCII_MAP:")
     try:
         payload = json.loads(body)

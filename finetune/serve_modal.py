@@ -102,7 +102,7 @@ from render import patch_qwen_chat_template
         "/model_cache": model_cache_vol,
         "/checkpoints": checkpoint_vol,
     },
-    min_containers=1,
+    min_containers=0,  # scale to zero when idle — $0/hr vs ~$1500/month always-on
     max_containers=1,
     scaledown_window=600,  # 10 min idle before scale down
     timeout=300,  # 5 min per request max

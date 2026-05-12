@@ -58,12 +58,16 @@ serve_image = (
 # Config
 # ---------------------------------------------------------------------------
 
-BASE_MODEL_ID = "unsloth/Qwen3.5-9B"  # match train_modal.MODEL_ID + convert_to_qwen.GATE_TOKENIZER_ID
-# Train, gate, and serve must all load the same tokenizer revision. Unsloth
-# ships a slightly different tool-calling template fragment than upstream
-# Qwen/Qwen3.5-9B (see convert_to_qwen.py:60-64); using upstream at serve
-# time would silently render tool_call records differently than what the
-# model trained on. Vocab/BPE merges are identical between repos.
+BASE_MODEL_ID = "Qwen/Qwen3.5-9B"  # canonical Qwen repo, NOT unsloth/
+# Why canonical: SGLang's transformers version can't read Unsloth's
+# tokenizer_config.json (TokenizersBackend class — written by tx 5.x, not
+# in SGLang's tx 4.x). The merged checkpoint's local tokenizer_config IS
+# patched in-place (lines 163-172 below) for SGLang's engine load.
+# Train/serve template parity: patch_qwen_chat_template (applied below)
+# normalizes the chat_template `last_query_index` block identically for
+# both unsloth/ and Qwen/ repos. Any non-patched template fragment delta
+# between the two repos is bounded and tested via the chat-template
+# byte-level tests in tests/unit/test_chat_template_byte_level.py.
 # Override via env: SFT_EXPERIMENT=kaetram-qwen3.5-9b-r11 modal deploy finetune/serve_modal.py
 SFT_EXPERIMENT = os.environ.get("SFT_EXPERIMENT", "kaetram-qwen3.5-9b-r10")
 GRPO_EXPERIMENT = "kaetram-qwen3.5-9b-grpo"
@@ -179,9 +183,7 @@ class Inference:
         # ourselves below via self.tokenizer); vocab/BPE merges are identical
         # between Qwen/ and unsloth/ Qwen3.5-9B repos. Pin to canonical Qwen/
         # so SGLang (transformers 4.x) doesn't trip on the TokenizersBackend
-        # tokenizer_class that transformers 5.x writes into unsloth/'s config.
-        # The chat-template-affecting tokenizer (self.tokenizer below) IS
-        # loaded from BASE_MODEL_ID = unsloth/ to match train byte-for-byte.
+        # tokenizer_class that transformers 5.x writes.
         self.engine = sgl.Engine(
             model_path=str(merged_path),
             tokenizer_path="Qwen/Qwen3.5-9B",

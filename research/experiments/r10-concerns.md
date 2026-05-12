@@ -1,10 +1,12 @@
 # r10 — concerns, expectations, and r11 candidates
 
-**Status:** r10 SFT in training. Base 3hr run launched 2026-05-10 21:38 EDT for
-the baseline. Eval matrix will run r10-sft vs base on Core 3 via
-`eval_harness.py` (time-based scenarios, warm-session loop). This doc
-captures the design decisions, their known limitations, and the cheap
-experiments worth trying for r11.
+**Status:** r10 SFT dataset rebuilt 2026-05-10 (9,363 records). Training not yet launched.
+Base 3hr run completed 2026-05-10 (`run_20260510_173852`, 3 agents, 1742 turns).
+First base results: grinder Foresting 1/3 stuck, completionist + explorer **both
+finished Foresting 3/3** (explorer's first stage advance via `gather(Oak)` not
+`interact_npc`); Herbalist's + Rick's Roll untouched by all. `core3_stages_advanced`:
+1/10, 3/10, 3/10. This doc captures the design decisions, their known
+limitations, and the cheap experiments worth trying for r11.
 
 ## What r10 actually is
 
@@ -68,12 +70,14 @@ instead. Removes a never-firing safety bound from the contract.
 
 ## What to expect on Core 3
 
-### Base (running now)
-- **~0% tool-call format compliance** — fixed by passing `tools=` so the
-  chat template enforces XML, but the model has zero game knowledge
-- **Likely outcomes:** wanders around Lakesworld spawn, equips items, attacks
-  one mob, no quest progress
-- **Useful as:** floor for the comparison
+### Base (3hr run completed 2026-05-10)
+- **Tool-call format compliance** — passing `tools=` lets the chat template
+  enforce XML; base has zero game knowledge but format works
+- **Actual outcomes (run_20260510_173852):** 2 of 3 agents completed Foresting
+  3/3 (completionist + explorer). Grinder stuck at 1/3. Herbalist's +
+  Rick's Roll: 0 progress across all agents. `core3_stages_advanced`:
+  1/10, 3/10, 3/10 — mean 2.3/10.
+- **Useful as:** quantified floor for the r10-sft comparison
 
 ### r10-sft (when training finishes)
 - ✅ **>95% format compliance** (it was trained on this exact XML)

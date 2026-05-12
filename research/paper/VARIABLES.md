@@ -100,8 +100,8 @@ same-model-different-harness or same-harness-different-model runs.
 
 ## 8. Eval (`eval_harness.py`, `scripts/run-eval.sh`, `tests/e2e/quests/`)
 
-- 4 scenarios A/B/C/D with hardcoded turn budgets 100/200/150/300 — different from training's 150 → eval and training distributions don't match.
-- 30 episodes per model, 2 models (base vs r9-sft) on ports 9061/9071.
+- Eval is now time-based (`duration_minutes` per scenario, warm-session loop) — turn budgets removed as of May 10 Qwen rewrite.
+- 50 episodes per model (raised from 30 as of May 7), 2 models (base vs r10-sft) on ports 9061/9071.
 - Quest tiers: `core` (5) / `bonus` (5) / `extra` / `skip` / `reachability`. The `skip` tier means some quests are excluded from scoring — needs a justification.
 - Eval is fresh-Level-1; training may use resume — eval starts off-distribution from training.
 

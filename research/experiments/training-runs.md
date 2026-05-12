@@ -202,9 +202,9 @@ Originally planned to replace r8-KTO using r9 merged weights. **Deferred indefin
 **Platform:** Modal (H100 80GB for SFT/KTO training, A100 40GB for inference serving). Unsloth for LoRA, TRL for KTO/GRPO trainers. SGLang for inference.
 
 **Serving endpoints (Modal):**
-- `kaetram-qwen-serve` — finetuned model (SGLang, A100, `serve_modal.py`) — pointed at r9 (deployed Apr 16).
-- `kaetram-qwen-base` — unfinetuned Qwen3.5-9B baseline (SGLang, A100, `serve_modal_base.py`)
-- Both scale to 0 when idle ($0 cost). Cold start ~3-6 min (model download + SGLang init).
+- `kaetram-qwen-serve` — finetuned model (SGLang, A100, `serve_modal.py`) — defaults to r10 (`SFT_EXPERIMENT` env-overridable). `min_containers=0` (scale to zero, $0 when idle; updated May 11).
+- `kaetram-qwen-base` — unfinetuned Qwen3.5-9B baseline (SGLang, A100, `serve_modal_base.py`). `min_containers=1` (always warm; pending scale-to-zero update).
+- Cold start ~3-6 min (model download + SGLang init).
 
 **Known issues:**
 - Unsloth LoRA count mismatch: PEFT save fails when adapter count != expected. Fallback to standard PEFT save implemented (commit 34314ad).

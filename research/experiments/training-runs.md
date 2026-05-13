@@ -202,7 +202,7 @@ Originally planned to replace r8-KTO using r9 merged weights. **Deferred indefin
 **Platform:** Modal (H100 80GB for SFT/KTO training, A100 40GB for inference serving). Unsloth for LoRA, TRL for KTO/GRPO trainers. SGLang for inference.
 
 **Serving endpoints (Modal):**
-- `kaetram-qwen-serve` — finetuned model (SGLang, A100, `serve_modal.py`) — defaults to r10 (`SFT_EXPERIMENT` env-overridable). `min_containers=0` (scale to zero, $0 when idle; updated May 11).
+- `kaetram-qwen-serve` — finetuned model (SGLang, A100, `serve_modal.py`) — defaults to r10 (`SFT_EXPERIMENT` env-overridable). `min_containers=0` (scale to zero, $0 when idle; updated May 11). BASE_MODEL_ID reverted to `Qwen/Qwen3.5-9B` (May 12) — SGLang's transformers can't load unsloth's tokenizer_config.json.
 - `kaetram-qwen-base` — unfinetuned Qwen3.5-9B baseline (SGLang, A100, `serve_modal_base.py`). `min_containers=1` (always warm; pending scale-to-zero update).
 - Cold start ~3-6 min (model download + SGLang init).
 
@@ -221,7 +221,7 @@ Originally planned to replace r8-KTO using r9 merged weights. **Deferred indefin
 
 Apr 28 strike-team audit (8 parallel agents on `barathvelmu/kae-50-q2-q3-strike-team`) traced Herbalist's Desperation + Rick's Roll failures: Herbalist's = decision gap (game_knowledge claims ~440 blueberry gathers to Lv25 vs real ~873; Blue Lily requires Foraging Lv10 but stage 0 needs 3 — structural wall at L1). Rick's Roll = data hallucination + capability gap (agents invent a non-existent "L25 zone gate" and pivot to Desert Quest, dying at L8 to L16 Sneks). Live VM: 0/3 agents accepted Herbalist's or Rick's Roll across 38 min of a 4 hr Sonnet run.
 
-**Data scale (May 3):** 294 runs / 1,694 sessions across 3 agents (agent_0: 102 runs/583 sessions, agent_1: 95/573, agent_2: 97/538). Rick's Roll stage-2+ knowledge **now in `game_knowledge.md`** (shipped May 1 commit `154badc` — puzzle-room door chain, Lena coords, all 7 decoy ladders, 2-call turn-in caveat).
+**Data scale (May 3, updated May 13):** Active corpus (post-archive-split): 34 runs / 4,036 sessions across 3 agents (agent_0: 14/1,142, agent_1: 10/1,456, agent_2: 10/1,438). 1,694 sessions archived. Rick's Roll stage-2+ knowledge **now in `game_knowledge.md`** (shipped May 1 commit `154badc` — puzzle-room door chain, Lena coords, all 7 decoy ladders, 2-call turn-in caveat).
 
 **Active backlog (revised priorities):** r10 dataset rebuilt 2026-05-10 (9,363 records). Training not yet launched — ETA ~22h on H100 once kicked off. `quest_resume.json` removed from the agent entirely (May 7, `09e611d`). Eval pipeline upgraded: `core3_stages_advanced` headline metric, N-model Bonferroni FWER, `serve_modal.py` defaults to r10. KAE-49 (paper-variables catalog) shipped.
 

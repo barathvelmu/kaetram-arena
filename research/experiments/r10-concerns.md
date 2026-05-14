@@ -19,7 +19,7 @@ limitations, and the cheap experiments worth trying for r11.
 | **Thinking ratio** | 75% with-think, 25% no-think (Qwen3 Thinking Mode Fusion) |
 | **Session_n distribution** | Healthy spread 1–16 (mode = #5 at 10%, #1 only 5%) — multi-session is *trained-on*, not a runtime workaround |
 | **Bootstrap** | `bootstrap.build_orchestrate_bootstrap(personality, session_n)` — byte-identical at train and runtime |
-| **Tokenizer** | `unsloth/Qwen3.5-9B` (template fragment differs from upstream Qwen — keep both serve + train on unsloth) |
+| **Tokenizer** | `unsloth/Qwen3.5-9B` for training; `Qwen/Qwen3.5-9B` for serving (SGLang can't load unsloth's tokenizer_config.json; reverted May 12). `patch_qwen_chat_template` normalizes both. |
 | **Model** | Qwen3.5-9B base, LoRA r=64 α=64, `use_rslora=False`, bf16, H100 80GB, 1 epoch, LR=1e-4 |
 | **Runtime** | Warm-session loop in `play_qwen.py`: 1 process per agent slot, MCP/Chromium/login persist; conversation rotates on context_overflow |
 | **Eval** | Time-based scenarios (`duration_minutes`); one play_qwen per episode; aggregate metrics across internal session rollovers |

@@ -1,12 +1,9 @@
 # r10 — concerns, expectations, and r11 candidates
 
 **Status:** r10 SFT dataset rebuilt 2026-05-10 (9,363 records). Training not yet launched.
-Base 3hr run completed 2026-05-10 (`run_20260510_173852`, 3 agents, 1742 turns).
-First base results: grinder Foresting 1/3 stuck, completionist + explorer **both
-finished Foresting 3/3** (explorer's first stage advance via `gather(Oak)` not
-`interact_npc`); Herbalist's + Rick's Roll untouched by all. `core3_stages_advanced`:
-1/10, 3/10, 3/10. This doc captures the design decisions, their known
-limitations, and the cheap experiments worth trying for r11.
+Three qwen-base runs completed (see Base results below). This doc captures the
+design decisions, their known limitations, and the cheap experiments worth
+trying for r11.
 
 ## What r10 actually is
 
@@ -70,14 +67,32 @@ instead. Removes a never-firing safety bound from the contract.
 
 ## What to expect on Core 3
 
-### Base (3hr run completed 2026-05-10)
-- **Tool-call format compliance** — passing `tools=` lets the chat template
-  enforce XML; base has zero game knowledge but format works
-- **Actual outcomes (run_20260510_173852):** 2 of 3 agents completed Foresting
-  3/3 (completionist + explorer). Grinder stuck at 1/3. Herbalist's +
-  Rick's Roll: 0 progress across all agents. `core3_stages_advanced`:
-  1/10, 3/10, 3/10 — mean 2.3/10.
-- **Useful as:** quantified floor for the r10-sft comparison
+### Base (3 runs completed, May 10–12)
+
+Three qwen-base runs give us variance data on the baseline floor:
+
+| Run | Duration | Grinder | Completionist | Explorer | Mean |
+|-----|----------|---------|---------------|----------|------|
+| `run_20260510_173852` (3h) | 1,742 turns | 1/10 | 3/10 | 3/10 | 2.3 |
+| `run_20260510_211339` (6h) | 3,449 turns | 1/10 | 3/10 | 3/10 | 2.3 |
+| `run_20260512_120516` (3h) | 1,493 turns | 1/10 | 0/10 | 2/10 | 1.0 |
+
+- **Tool-call format compliance** — 100% across all runs; `tools=` lets the
+  chat template enforce XML. Base has zero game knowledge but format works.
+- **Foresting is the only quest touched.** Herbalist's + Rick's Roll: 0
+  progress across all runs and agents.
+- **Variance is non-trivial.** Completionist regressed from 3/10 to 0/10
+  between runs; explorer from 3/10 to 2/10. The 6h run didn't outperform
+  the 3h runs — more time doesn't help without memory.
+- **Grinder is consistently stuck at 1/10** — likely the "combat-first"
+  archetype doesn't attempt Foresting quest interactions early enough.
+- **play_qwen.py bug discovered (uncommitted).** Qwen3.5 chat template
+  (`tool_call.arguments | items`) crashes on JSON-string arguments — requires
+  dict. Fix: pass `fn_args` directly instead of `json.dumps(fn_args)`.
+  Earlier runs may have hit this on turn 2+ (context window included
+  prior tool calls). Could explain some completionist variance.
+- **Useful as:** quantified floor for the r10-sft comparison. Mean baseline
+  is ~1.0–2.3/10 depending on run luck.
 
 ### r10-sft (when training finishes)
 - ✅ **>95% format compliance** (it was trained on this exact XML)
@@ -164,6 +179,15 @@ mostly measures the *knowledge* gap, since both have format compliance
 (though SFT's is more reliable). The model-vs-model comparison may
 understate SFT's value because base's format-from-template is a fair
 floor.
+
+### I. **play_qwen.py chat template crash on multi-turn (discovered May 16)**
+`play_qwen.py` was passing `json.dumps(fn_args)` (a string) for tool call
+arguments, but Qwen3.5's chat template does `tool_call.arguments | items`
+which requires a dict. This crashes `apply_chat_template` on turn 2+ when
+the context window includes prior tool calls. Fix (uncommitted): pass
+`fn_args` directly. All three qwen-base runs were affected — could explain
+some of the completionist variance (3/10 → 0/10 between runs) if the crash
+caused silent retries or truncated context.
 
 ### H. **No memory across episodes in eval**
 Each eval episode resets Mongo + sandbox. The model can't even use

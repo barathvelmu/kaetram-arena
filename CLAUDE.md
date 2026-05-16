@@ -330,7 +330,7 @@ python3 scripts/log_analysis/analyze.py status     # one-line per agent + run he
 
 # Historical / cross-run
 python3 scripts/log_analysis/analyze.py runs -n 10            # last N runs across all agents
-python3 scripts/log_analysis/analyze.py runs --all-runs       # every run ever
+python3 scripts/log_analysis/analyze.py --all-runs runs       # every run ever (--all-runs must precede subcommand)
 python3 scripts/log_analysis/analyze.py --run <run_id> status # full breakdown of a past run (parses ALL its sessions)
 
 # Behavioral audits (use these when assessing whether prompt/tool changes worked)
@@ -358,7 +358,7 @@ python3 scripts/log_analysis/analyze.py agent 1 -n 10              # full per-ag
 - "Why is agent N looping?" → `errors` shows what failed + what it did next
 - "How much real Core 3 progress this run?" → `metrics` — uses last-vs-first-observe DELTA so resume-state replays don't inflate the count
 - "What did agent N do today?" → `timeline` for an emoji-tagged event stream across sessions
-- "How does this run compare to last week's?" → `runs -n 20` or `--all-runs`
+- "How does this run compare to last week's?" → `runs -n 20` or `--all-runs runs`
 
 See `scripts/log_analysis/README.md` for the log-shape reference. To write a
 custom one-off analysis, import from `parse.py`:

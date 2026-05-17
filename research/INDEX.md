@@ -45,7 +45,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 ---
 
-## Recent Major Changes (Apr 24 – May 16, 2026)
+## Recent Major Changes (Apr 24 – May 17, 2026)
 
 - **Qwen-base variance data (May 10–12, compiled May 16).** Three qwen-base runs now provide variance data on the baseline floor. Results: `run_20260510_173852` (3h) = 1/3/3, `run_20260510_211339` (6h) = 1/3/3, `run_20260512_120516` (3h) = 1/0/2 (core3_stages_advanced per agent). Mean baseline ~1.0–2.3/10 depending on run. Completionist regressed from 3/10 to 0/10 between runs — non-trivial variance. Longer runs (6h) don't improve on 3h — more time doesn't help without memory. Grinder consistently stuck at 1/10. Only Foresting is touched; Herbalist's + Rick's Roll zero across all runs.
 - **play_qwen.py chat template fix (discovered May 16, uncommitted).** Qwen3.5 chat template does `tool_call.arguments | items` which requires a dict; `play_qwen.py` was passing `json.dumps(fn_args)` (a string), crashing `apply_chat_template` on turn 2+ with "Can only get item pairs from a mapping". Fix: pass `fn_args` directly. Could explain some variance in earlier base runs.

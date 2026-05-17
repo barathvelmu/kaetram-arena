@@ -77,7 +77,7 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 | With/without click_tile filter | Data quality > quantity | r5 vs pre-filter comparison (have data) |
 | ORAK 3-stream vs monolithic SFT | Decomposed training improves action accuracy | Pending KAE-19 |
 
-**Most paper-ready now:** loss masking (r7 vs r8), train/inference alignment (r8 vs r9), and click_tile filtering. r8 eval data exists (base outperformed r8-SFT). r9 eval showed similar pattern (r9-SFT underperformed base: 1.5 quests / 28.5 kills vs 2.5 / 26.5). Root cause: observe supervision + prompt parity gaps → fixed in r10 P0 but r10 never trained (benchmark pivot). Personality diversity is promising but still needs a direct ablation. **Eval harness implemented** (Apr 15) — `eval_harness.py`, `eval_compare.py`, `eval_offline.py` ready to produce ablation numbers. **Paper metrics scorer** added Apr 29 (`analyze.py metrics`).
+**Most paper-ready now:** loss masking (r7 vs r8), train/inference alignment (r8 vs r9), and click_tile filtering. r8 eval data exists (base outperformed r8-SFT). r9 eval showed similar pattern (r9-SFT underperformed base: 1.5 quests / 28.5 kills vs 2.5 / 26.5). Root cause: observe supervision + prompt parity gaps → fixed in r10 P0 but r10 never trained (benchmark pivot). Personality diversity is promising but still needs a direct ablation. **Eval harness implemented** (Apr 15) — `eval_harness.py`, `eval_compare.py`, `eval_offline.py` ready to produce ablation numbers. **Paper metrics scorer** added Apr 29 (`analyze.py metrics`). **Baseline variance data collected** (May 10–12): 3 qwen-base runs give a quantified floor (mean 1.0–2.3/10 core3_stages, Foresting-only). See `r10-concerns.md`.
 
 ---
 
@@ -96,9 +96,10 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 
 4. **Experiments**
    - 4.1 Setup: Qwen3.5-9B, Modal H100, dataset stats (9,363 records from 135 Claude sessions)
-   - 4.2 Main results: finetuned model gameplay vs baseline
-   - 4.3 Ablations (see table above)
-   - 4.4 Qualitative analysis: example game sessions, reasoning quality
+   - 4.2 Baseline: 3 qwen-base runs quantify the floor (mean 1.0–2.3/10 core3_stages; Foresting-only, non-trivial variance between runs). See `r10-concerns.md` §"Base results."
+   - 4.3 Main results: finetuned model gameplay vs baseline
+   - 4.4 Ablations (see table above)
+   - 4.5 Qualitative analysis: example game sessions, reasoning quality
 
 5. **Analysis** — What the student model learns vs doesn't learn. Where it fails. Context window limitations. Tool selection accuracy.
 

@@ -489,7 +489,12 @@ async def _run_inner_loop(
                 structured_calls.append({
                     "id": tc.id,
                     "type": "function",
-                    "function": {"name": fn_name, "arguments": json.dumps(fn_args)},
+                    # arguments MUST be a dict (matches convert_to_qwen.py:279
+                    # training-time render). Qwen3.5 chat_template line 120
+                    # does `tool_call.arguments | items` which requires a
+                    # mapping; passing a JSON string here crashes apply_chat_template
+                    # with "Can only get item pairs from a mapping" on turn 2+.
+                    "function": {"name": fn_name, "arguments": fn_args},
                 })
                 parsed_calls.append({"name": fn_name, "args": fn_args, "id": tc.id})
 

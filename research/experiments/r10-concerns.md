@@ -67,67 +67,74 @@ instead. Removes a never-firing safety bound from the contract.
 
 ## What to expect on Core 3
 
-### Base (3 runs completed, May 10–12)
+### Base + SFT eval matrix (n=3 base / n=2 SFT, all 3h, clean)
 
-Three qwen-base runs give us variance data on the baseline floor:
+**Correction note (2026-05-20):** the prior table mislabeled
+`run_20260512_120516` as a base run — its `harness_meta_template.json`
+shows `model: r10-sft`. That run was also on the pre-fix `play_qwen.py`
+JSON-string code path (`tool_call.arguments | items` template
+constraint, fixed in commit `7bf7c8d`). Buggy SFT data deleted from
+the corpus; clean re-runs landed 2026-05-19 → 2026-05-20.
 
-| Run | Duration | Grinder | Completionist | Explorer | Mean |
-|-----|----------|---------|---------------|----------|------|
-| `run_20260510_173852` (3h) | 1,742 turns | 1/10 | 3/10 | 3/10 | 2.3 |
-| `run_20260510_211339` (6h) | 3,449 turns | 1/10 | 3/10 | 3/10 | 2.3 |
-| `run_20260512_120516` (3h) | 1,493 turns | 1/10 | 0/10 | 2/10 | 1.0 |
+| Run | Harness | Duration | Grinder | Completionist | Explorer | Stages/30 |
+|-----|---------|----------|---------|---------------|----------|-----------|
+| `run_20260510_173852` (3h) | base | 1,742 turns | 1 | 3✅ | 3✅ | **7** |
+| `run_20260510_211339` (6h) | base | 3,449 turns | 1 | 3✅ | 3✅ | **7** |
+| `run_20260519_223921` (3h) | base | 1,737 turns | 1 | 3✅ | 3✅ | **7** |
+| `run_20260520_014319` (3h) | r10-sft | 1,560 turns | 0 | 3✅ | 0 | **3** |
+| `run_20260520_044433` (3h) | r10-sft | 1,449 turns | 0 | 1 | 0 | **1** |
 
-- **Tool-call format compliance** — 100% across all runs; `tools=` lets the
-  chat template enforce XML. Base has zero game knowledge but format works.
-- **Foresting is the only quest touched.** Herbalist's + Rick's Roll: 0
-  progress across all runs and agents.
-- **Variance is non-trivial.** Completionist regressed from 3/10 to 0/10
-  between runs; explorer from 3/10 to 2/10. The 6h run didn't outperform
-  the 3h runs — more time doesn't help without memory.
-- **Grinder is consistently stuck at 1/10** — likely the "combat-first"
-  archetype doesn't attempt Foresting quest interactions early enough.
-- **play_qwen.py bug discovered (uncommitted).** Qwen3.5 chat template
-  (`tool_call.arguments | items`) crashes on JSON-string arguments — requires
-  dict. Fix: pass `fn_args` directly instead of `json.dumps(fn_args)`.
-  Earlier runs may have hit this on turn 2+ (context window included
-  prior tool calls). Could explain some completionist variance.
-- **Useful as:** quantified floor for the r10-sft comparison. Mean baseline
-  is ~1.0–2.3/10 depending on run luck.
+Numbers are Core 3 stages (Foresting/Herbalist's/Rick's Roll, max 10
+per agent). Foresting completion shown as 3✅.
 
-### r10-sft (when training finishes)
-- ✅ **>95% format compliance** (it was trained on this exact XML)
-- ✅ **Game-knowledge retention** — quest names, NPC coords, mob progression,
-  shop layouts, decision-tree rules are in the system prompt and SFT
-  reinforced their use
-- ✅ **Local recovery** — STUCK_CHECK, gate.gated, is_dead, inventory_full all
-  produce trained reactions
-- ✅ **Foresting + Herbalist's Desperation are structurally tractable** — both
-  state-readable, both visible from Mudwich-area observe payloads, both
-  have explicit walkthroughs via `query_quest`
-- ⚠️ **Rick's Roll uncertain** — requires a 9-leg navigate chain past the
-  100-tile cap; SFT was trained on pin-chain examples but the model has to
-  remember which leg it's on between context rollovers
-- ❌ **50+ turn strategic loops** — "I keep failing on Foraging gate, switch
-  to Rick's Roll instead" requires memory the model doesn't have. Expect
-  loops that the **stale-watchdog (5 min)** will eventually rescue by
-  triggering a cold restart
-- ❌ **Cross-session continuation of a half-finished plan** — at session
-  rollover, the next session starts from the observe payload; any
-  "in-flight reasoning" is gone
+- **Base is identically reproducible.** Three runs (two 3h, one 6h) all
+  hit `(grinder=1, completionist=3✅, explorer=3✅) = 7/30`. Zero
+  variance. The 6h didn't outperform 3h — more time doesn't help
+  without memory. Reproduction at this fidelity is itself notable.
+- **SFT regresses by 3.0×** on the headline metric (base 7/30 vs SFT
+  2.0/30 mean, n=2 clean).
+- **Foresting completion rate** is the cleanest single-quest delta:
+  - Base: 6 of 9 attempts succeeded (3 runs × 3 agents) = **67%**
+  - SFT: 1 of 6 attempts succeeded (2 runs × 3 agents) = **17%**
+  - **4× drop in completion rate.**
+- **Herbalist's + Rick's Roll: 0 progress across every run.** This is a
+  teacher ceiling — Claude itself doesn't reliably accept these (Apr 28
+  strike-team audit). Neither base nor SFT can transcend the teacher.
+- **Tool-call format compliance**: ~100% across all runs; `tools=` lets
+  the chat template enforce XML on base; SFT was trained on the format.
+- **Completionist tool-mix suppression (the mechanism):**
 
-### Numeric expectations (rough)
-Based on the r9 eval failure (1.5 quests / 28.5 kills / L24 vs base 2.5 /
-26.5 / L20 in 30-episode runs) and r10's P0 fixes (observe supervision, prompt
-parity, no `format_reasoning` tail-keep):
+  | Tool | Base mean (n=3) | SFT mean (n=2) | Ratio |
+  |---|---|---|---|
+  | `interact_npc` | 62.5 | 10 | **0.16× (6.25× suppression)** |
+  | `query_quest` | 68.5 | 13.5 | **0.20× (5.0× suppression)** |
+  | `navigate` | 32 | 130.5 | **4.08× (kinetic amplification)** |
+  | `observe` | 251 | 179 | 0.71× |
 
-- **Quest completion rate** > base on Foresting (it's the easiest Core 3),
-  parity-or-better on Herbalist's, lower confidence on Rick's Roll
-- **Tool-call parse rate** dominantly r10-sft (format compliance is what
-  SFT teaches)
-- **Level reached** likely lower than r9 because we now prioritize quests
-  over grinding (system prompt explicit)
-- **Stages-advanced metric** is the headline for Bonferroni-corrected eval
-  — this is where short-horizon SFT helps most
+  The training corpus has interact_npc at 3.6% / query_quest at 2.1% /
+  navigate at 21.6% / observe at 40.9% (`dataset/qwen_sft/metadata.json`).
+  SFT's inference mix tracks the corpus distribution; base's inference
+  mix doesn't (it has a dialogue-heavy chat-model prior). This is the
+  corpus-prior-becomes-inference-prior story.
+- **Useful as:** the quantified r10-sft vs base headline for the
+  May 25 writeup. Base 7/30 ↔ SFT 2/30 with non-overlapping verb
+  distributions.
+
+### r10-sft actual results (May 19–20)
+
+Pre-eval predictions (preserved for the record) expected SFT > base on
+Foresting and ≥ parity on Herbalist's. **Actual result was a 3.5× regression**
+— see eval matrix above. What held:
+
+- ✅ **>95% format compliance** — confirmed; both base and SFT near 100%
+- ✅ **Game-knowledge retention** — SFT agents use correct NPC names, coords,
+  quest references from the system prompt
+- ❌ **Foresting + Herbalist's** — SFT regressed catastrophically on Foresting
+  (17% vs base 67%) due to corpus-prior verb suppression; Herbalist's + Rick's
+  Roll untouched by both (teacher ceiling)
+- ❌ **Tool-mix distortion** — `interact_npc` suppressed 6.25×, `navigate`
+  amplified 4.08×; inference prior tracks corpus distribution, not task needs
+- ❌ **Cross-session continuation** — confirmed absent as predicted
 
 ## Concerns we know about
 
@@ -180,14 +187,15 @@ mostly measures the *knowledge* gap, since both have format compliance
 understate SFT's value because base's format-from-template is a fair
 floor.
 
-### I. **play_qwen.py chat template crash on multi-turn (discovered May 16)**
+### I. **play_qwen.py chat template crash on multi-turn (discovered May 16, fixed May 19)**
 `play_qwen.py` was passing `json.dumps(fn_args)` (a string) for tool call
 arguments, but Qwen3.5's chat template does `tool_call.arguments | items`
 which requires a dict. This crashes `apply_chat_template` on turn 2+ when
-the context window includes prior tool calls. Fix (uncommitted): pass
-`fn_args` directly. All three qwen-base runs were affected — could explain
-some of the completionist variance (3/10 → 0/10 between runs) if the crash
-caused silent retries or truncated context.
+the context window includes prior tool calls. **Fixed in commit `7bf7c8d`:**
+pass `fn_args` directly. Note: `serve_modal_base.py` already had a
+server-side string→dict adapter (lines 113-119), so all three qwen-base
+runs were **not affected** — only SFT runs through `serve_modal.py` hit
+the bug. The buggy May 12 SFT run (`run_20260512_120516`) was deleted.
 
 ### H. **No memory across episodes in eval**
 Each eval episode resets Mongo + sandbox. The model can't even use

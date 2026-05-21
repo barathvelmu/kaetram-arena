@@ -3,6 +3,12 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-05-20 — clean r10-sft vs base headline + buggy SFT deleted
+
+Three new 3h runs with `play_qwen.py` JSON-dict fix (commit `7bf7c8d`): `run_20260519_223921` (base), `run_20260520_014319` (sft), `run_20260520_044433` (sft). Combined with prior clean base runs the matrix is **n=3 base / n=2 SFT, all 3h, clean wire**. Headline: **base 7/30 Core 3 stages every single run** (zero variance — three identical 1/3/3 splits), **SFT mean 2.0/30** (3 and 1). **3.5× regression**; `interact_npc` suppressed 6.25× and `navigate` amplified 4.08× on completionist — corpus prior becomes inference prior. Foresting completion rate: base 6/9 (67%), SFT 1/6 (17%). Herbalist's + Rick's Roll untouched on every run (teacher ceiling). Buggy `run_20260512_120516` (mislabeled as base in old docs; actually `r10-sft` per harness_meta) deleted; `r10-concerns.md` table corrected. `serve_modal_base.py` scaled to `min_containers=0` (uncommitted). Cost ~$22 Modal. Next: corpus-vs-inference distribution chart + write the May 25 post.
+
+---
+
 ## 2026-05-11 — log_analysis decoder fix for qwen wire format
 
 `scripts/log_analysis/parse.py:decode_tool_result_content` only handled Claude's `{"result": "<inner>"}` tool_result wrapper. Qwen harness writes raw MCP output bare (no wrapper), so observe payloads — which carry `<JSON>\n\nASCII_MAP:<grid>` — failed `json.loads` with "Extra data" and degraded to raw strings. Result: `latest_observe()` returned None for every qwen session; analyzer reported `?` for lvl/hp/pos and `untouched` for quests on every qwen run. Same MCP, same observe.js, same prompts — only the harness adapter's logging differs. Fixed with a 4-branch decoder (Claude wrapper / qwen non-observe dict / qwen observe with ASCII suffix / plain string). Verified: 477/477 qwen sessions (100% observe→dict, 100% with quest keys), 1049 Claude sessions (zero regression — 32020/32495 parse rate identical to pre-fix), 22 OpenCode sessions (unchanged, separate parser path). Re-ran on `run_20260510_173852` (qwen-base, 3 agents, 3h, 1742 turns): grinder Foresting 1/3 stuck, completionist + explorer **both finished Foresting 3/3** (explorer's first stage advance via `gather(Oak)` not `interact_npc`); Herbalist's + Rick's Roll untouched by all. core3_stages 1/10/3/10/3/10. Format/argument 100%.

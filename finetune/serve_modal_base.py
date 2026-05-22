@@ -57,7 +57,7 @@ from render import patch_qwen_chat_template
     image=serve_image,
     gpu="A100",
     volumes={"/model_cache": model_cache_vol},
-    min_containers=1,
+    min_containers=0,  # scale to zero when idle — matches serve_modal.py
     max_containers=1,
     scaledown_window=600,
     timeout=300,

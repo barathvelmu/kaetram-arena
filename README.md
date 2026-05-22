@@ -205,9 +205,8 @@ Backend lives in `dashboard/test_runner.py`; full reference in `dashboard/DASHBO
 
 | Command | When to use |
 |---------|-------------|
-| `/game-session` | Check what's running, get startup commands, see port status |
-| `/verify-pipeline` | Confirm data is flowing, inspect latest training record |
-| `/training-summary` | Dataset stats, reward trends, best/worst sessions |
+| `/log-analysis` | Per-agent run analysis, Core 3 quest progression, 5 paper metrics |
+| `/compile-research` | Lint pass over `research/` knowledge base |
 
 ## Gotchas
 

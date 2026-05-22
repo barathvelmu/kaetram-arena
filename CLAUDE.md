@@ -21,8 +21,7 @@ For current run state, training results, and what's in flight: read
 At the start of every new session:
 1. Read this file.
 2. Read `session_log.md` (recent decisions and context).
-3. Read `.claude/commands/training-summary/history.json` if it exists (reward trends).
-4. Then ask what the user wants to do.
+3. Then ask what the user wants to do.
 
 At the end of every session, append to `session_log.md` (keep under 30 lines).
 After any big change (training infra, dataset rebuild, architecture shift),
@@ -379,9 +378,8 @@ JSON report and the CLI stay in lock-step.
 
 ## Slash commands (`.claude/commands/`)
 
-`/game-session` (stack status), `/verify-pipeline` (confirm data flow),
-`/training-summary` (dataset stats), `/compile-research` (refresh `research/`,
-also runs from VM cron).
+`/log-analysis` (per-agent run analysis, Core 3 progression, 5 paper metrics),
+`/compile-research` (refresh `research/`, also runs from VM cron).
 
 Storage: Kaetram-Open is ~1.3-2 GB installed. See `TEARDOWN.md` for uninstall
 or "keep but trim" (~1 GB reclaimed via `node_modules/dist` deletion).

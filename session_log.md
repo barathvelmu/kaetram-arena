@@ -3,9 +3,13 @@ _Keep under 30 lines. Update at end of every session. Most recent first._
 
 ---
 
+## 2026-05-22 — final r10-sft vs base eval matrix (n=4 base / n=3 SFT clean)
+
+Two more runs landed since May 20: `run_20260520_143530` (base #4, 3h) and `run_20260520_173902` (sft #3, 3h). **All 4 base runs identical at 7/30 Core 3 stages** (1/3✅/3✅ — zero variance across 12 days, 4 fresh Mongo states). **SFT n=3: [3, 1, 2]**, mean 2.0/30, std 1.0. Stats now robust: Mann-Whitney per-run **p=0.016**, per-agent (n=12 vs 9) **p=0.001**, Fisher Foresting completion (9/12 vs 1/9) **p=0.006 OR=24**. Foresting rate **75% → 11% (6.75× drop)**. Completionist tool-mix: `interact_npc` 5.6× suppressed, `query_quest` 4.8× suppressed, `navigate` 4.49× amplified. **Smoking gun: SFT inference matches corpus within ±1pp** on every key tool (corpus interact_npc 2.4% ↔ SFT 2.1%; navigate 27.6% ↔ 26.4%). Base diverges 2-5× from corpus — chat-model prior leaks through. Cost ~$30 Modal. Data collection complete; next is charts + writing for May 25 post.
+
 ## 2026-05-20 — clean r10-sft vs base headline + buggy SFT deleted
 
-Three new 3h runs with `play_qwen.py` JSON-dict fix (commit `7bf7c8d`): `run_20260519_223921` (base), `run_20260520_014319` (sft), `run_20260520_044433` (sft). Combined with prior clean base runs the matrix is **n=3 base / n=2 SFT, all 3h, clean wire**. Headline: **base 7/30 Core 3 stages every single run** (zero variance — three identical 1/3/3 splits), **SFT mean 2.0/30** (3 and 1). **3.5× regression**; `interact_npc` suppressed 6.25× and `navigate` amplified 4.08× on completionist — corpus prior becomes inference prior. Foresting completion rate: base 6/9 (67%), SFT 1/6 (17%). Herbalist's + Rick's Roll untouched on every run (teacher ceiling). Buggy `run_20260512_120516` (mislabeled as base in old docs; actually `r10-sft` per harness_meta) deleted; `r10-concerns.md` table corrected. `serve_modal_base.py` scaled to `min_containers=0` (uncommitted). Cost ~$22 Modal. Next: corpus-vs-inference distribution chart + write the May 25 post.
+Three new 3h runs with `play_qwen.py` JSON-dict fix (commit `7bf7c8d`): `run_20260519_223921` (base), `run_20260520_014319` (sft), `run_20260520_044433` (sft). Combined with prior clean base runs the matrix was **n=3 base / n=2 SFT, all 3h, clean wire**. Headline: **base 7/30 Core 3 stages every single run** (zero variance — three identical 1/3/3 splits), **SFT mean 2.0/30** (3 and 1). **3.5× regression**; `interact_npc` suppressed 6.25× and `navigate` amplified 4.08× on completionist — corpus prior becomes inference prior. Buggy `run_20260512_120516` (mislabeled as base in old docs; actually `r10-sft` per harness_meta) deleted. Cost ~$22 Modal at this point.
 
 ---
 

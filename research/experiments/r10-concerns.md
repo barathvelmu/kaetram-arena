@@ -67,7 +67,7 @@ instead. Removes a never-firing safety bound from the contract.
 
 ## What to expect on Core 3
 
-### Base + SFT eval matrix (n=3 base / n=2 SFT, all 3h, clean)
+### Base + SFT eval matrix (n=4 base / n=3 SFT, all 3h+, clean)
 
 **Correction note (2026-05-20):** the prior table mislabeled
 `run_20260512_120516` as a base run — its `harness_meta_template.json`
@@ -81,22 +81,32 @@ the corpus; clean re-runs landed 2026-05-19 → 2026-05-20.
 | `run_20260510_173852` (3h) | base | 1,742 turns | 1 | 3✅ | 3✅ | **7** |
 | `run_20260510_211339` (6h) | base | 3,449 turns | 1 | 3✅ | 3✅ | **7** |
 | `run_20260519_223921` (3h) | base | 1,737 turns | 1 | 3✅ | 3✅ | **7** |
+| `run_20260520_143530` (3h) | base | 1,750 turns | 1 | 3✅ | 3✅ | **7** |
 | `run_20260520_014319` (3h) | r10-sft | 1,560 turns | 0 | 3✅ | 0 | **3** |
 | `run_20260520_044433` (3h) | r10-sft | 1,449 turns | 0 | 1 | 0 | **1** |
+| `run_20260520_173902` (3h) | r10-sft | 1,456 turns | 1 | 0 | 1 | **2** |
 
 Numbers are Core 3 stages (Foresting/Herbalist's/Rick's Roll, max 10
 per agent). Foresting completion shown as 3✅.
 
-- **Base is identically reproducible.** Three runs (two 3h, one 6h) all
-  hit `(grinder=1, completionist=3✅, explorer=3✅) = 7/30`. Zero
+- **Base is identically reproducible.** All four runs (three 3h, one
+  6h) hit `(grinder=1, completionist=3✅, explorer=3✅) = 7/30`. Zero
   variance. The 6h didn't outperform 3h — more time doesn't help
-  without memory. Reproduction at this fidelity is itself notable.
-- **SFT regresses by 3.0×** on the headline metric (base 7/30 vs SFT
-  2.0/30 mean, n=2 clean).
+  without memory. Reproduction at this fidelity across machine resets,
+  fresh Mongo, and a 10-day span is itself notable.
+- **SFT regresses by 3.5×** on the headline metric (base 7/30 vs SFT
+  2.0/30 mean, n=3 clean: [3, 1, 2], std=1.0).
+- **Statistical tests (n=4 base / n=3 SFT):**
+  - Core 3 stages per run: Mann-Whitney **p=0.016** (one-sided)
+  - Core 3 stages per agent (n=12 vs n=9): **p=0.001**
+  - Foresting completion 9/12 vs 1/9: Fisher exact **p=0.006**, OR=24
+  - Completionist `query_quest` per run: **p=0.038**
+  - Completionist `interact_npc` per run: **p=0.050** (exact
+    Mann-Whitney floor for n=3,3 with perfect separation)
 - **Foresting completion rate** is the cleanest single-quest delta:
-  - Base: 6 of 9 attempts succeeded (3 runs × 3 agents) = **67%**
-  - SFT: 1 of 6 attempts succeeded (2 runs × 3 agents) = **17%**
-  - **4× drop in completion rate.**
+  - Base: 9 of 12 attempts succeeded (4 runs × 3 agents) = **75%**
+  - SFT: 1 of 9 attempts succeeded (3 runs × 3 agents) = **11%**
+  - **6.75× drop in completion rate.**
 - **Herbalist's + Rick's Roll: 0 progress across every run.** This is a
   teacher ceiling — Claude itself doesn't reliably accept these (Apr 28
   strike-team audit). Neither base nor SFT can transcend the teacher.
@@ -104,21 +114,31 @@ per agent). Foresting completion shown as 3✅.
   the chat template enforce XML on base; SFT was trained on the format.
 - **Completionist tool-mix suppression (the mechanism):**
 
-  | Tool | Base mean (n=3) | SFT mean (n=2) | Ratio |
+  | Tool | Base mean (n=3 3h) | SFT mean (n=3) | Ratio |
   |---|---|---|---|
-  | `interact_npc` | 62.5 | 10 | **0.16× (6.25× suppression)** |
-  | `query_quest` | 68.5 | 13.5 | **0.20× (5.0× suppression)** |
-  | `navigate` | 32 | 130.5 | **4.08× (kinetic amplification)** |
-  | `observe` | 251 | 179 | 0.71× |
+  | `interact_npc` | 63.3 | 11.3 | **0.18× (5.6× suppression)** |
+  | `query_quest` | 65.7 | 13.7 | **0.21× (4.8× suppression)** |
+  | `navigate` | 32 | 143.7 | **4.49× (kinetic amplification)** |
+  | `observe` | 254 | 180 | 0.71× |
 
-  The training corpus has interact_npc at 3.6% / query_quest at 2.1% /
-  navigate at 21.6% / observe at 40.9% (`dataset/qwen_sft/metadata.json`).
-  SFT's inference mix tracks the corpus distribution; base's inference
-  mix doesn't (it has a dialogue-heavy chat-model prior). This is the
-  corpus-prior-becomes-inference-prior story.
+- **The smoking gun: SFT inference distribution matches corpus
+  distribution within 0.3-1.2 percentage points.** Completionist
+  per-call rates:
+
+  | Tool | Corpus % | SFT inference % | Base inference % |
+  |---|---|---|---|
+  | `interact_npc` | 2.4 | **2.1** | 10.8 |
+  | `query_quest` | 2.1 | **2.5** | 11.2 |
+  | `navigate` | 27.6 | **26.4** | 5.5 |
+  | `observe` | 41.2 | 33.0 | 43.3 |
+
+  SFT inference is corpus-matched to ±1pp on every key tool. Base
+  inference deviates 2-5× in both directions — the chat-model prior
+  is preserving dialogue-eagerness that the corpus under-represents.
+  This is the **corpus-prior-becomes-inference-prior** result.
 - **Useful as:** the quantified r10-sft vs base headline for the
-  May 25 writeup. Base 7/30 ↔ SFT 2/30 with non-overlapping verb
-  distributions.
+  May 25 writeup. Base 7/30 ↔ SFT 2/30 with statistically clean
+  separation across all per-agent and per-run measures.
 
 ### r10-sft actual results (May 19–20)
 

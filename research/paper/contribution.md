@@ -70,7 +70,7 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 | Ablation | What it shows | Status |
 |----------|---------------|--------|
 | SFT only vs SFT + KTO | KTO improves over pure imitation | **r10-KTO DEFERRED** — pipeline pivoted to quest-completion benchmark. r6-KTO smoke test passed (10/10 steps clean); scaffolding intact in `finetune/train_kto_modal.py`. |
-| **r10-SFT vs base (Core 3 stages)** | **SFT regresses 3.5×; mechanism is corpus-prior-becomes-inference-prior** | **COMPLETE (May 22).** n=4 base / n=3 SFT, all 3h+, clean wire. Base 7/30 every run, SFT mean 2.0/30. Stats: Mann-Whitney per-run p=0.016, Fisher Foresting completion p=0.006. Full eval in `r10-concerns.md`. |
+| **r10-SFT vs base (Core 3 stages)** | **SFT regresses 3.5×; mechanism is corpus-prior-becomes-inference-prior** | **COMPLETE (May 22).** n=4 base / n=3 SFT, all 3h+, clean wire. Base 7/30 every run, SFT mean 2.0/30. Stats: Mann-Whitney exact per-run p=0.029, Fisher Foresting completion p=0.016 OR=16. Full eval in `r10-discussion.md`. |
 | 1 archetype vs 3 archetypes | Diversity improves student policy | Need to train on completionist-only, compare against 3-archetype mix |
 | Loss masking vs full loss | Training on game state tokens hurts | r8 (correct masking) vs r7 (broken masking, same data) — natural ablation. Same dataset, only difference is loss masking. |
 | Train/inference alignment | Matching prompts matters | r8 (mismatched prompt) vs r9 (aligned prompt) — r8 eval showed base 2x better than r8-SFT. r9 fixes alignment. |
@@ -81,9 +81,9 @@ Planned (KAE-16) but not implemented. If it works, it's a strong contribution: s
 **Most paper-ready now: r10-SFT vs base (May 19–22, n=4 base / n=3 SFT, all 3h+).** Clean negative result with mechanism:
 
 - Base hits **7/30 Core 3 stages identically across 4 runs** (1/3✅/3✅ — zero variance over 12 days, fresh Mongo state per run).
-- r10-SFT hits **2.0/30 mean** (3, 1, 2) — **3.5× regression** with statistically clean separation: Mann-Whitney per-run p=0.016, per-agent (n=12 vs 9) p=0.001, Fisher Foresting completion (9/12 vs 1/9) p=0.006 OR=24.
-- Foresting completion rate: **75% base → 11% SFT, 6.75× drop.**
-- Mechanism: completionist `interact_npc` suppressed 5.6×, `query_quest` suppressed 4.8×, `navigate` amplified 4.49×. **SFT inference distribution matches the training corpus to ±1pp on every key tool** (corpus interact_npc 2.4% ↔ SFT 2.1%; corpus navigate 27.6% ↔ SFT 26.4%); base inference diverges 2-5× from corpus, preserving a chat-model dialogue-eager prior the corpus under-represents. The SFT student faithfully imitated a teacher whose distribution under-samples the verbs Core 3 requires. Full eval matrix + stats in `r10-concerns.md`.
+- r10-SFT hits **2.0/30 mean** (3, 1, 2) — **3.5× regression** with perfect separation (every base run > every SFT run): Mann-Whitney exact per-run **p=0.029** (scipy's default returns the tie-degraded 0.016 — base is all-7s; use `method='exact'`; per-agent p=0.001 dropped as pseudo-replicated). Fisher Foresting completion (8/12 vs 1/9) **p=0.016, OR=16**.
+- Foresting completion rate: **67% base → 11% SFT, 6.0× drop.**
+- Mechanism: completionist `interact_npc` suppressed 5.6×, `query_quest` suppressed 4.8×, `navigate` amplified 4.49×. **SFT inference matches the training-target distribution to ~1pp on the decision verbs** (interact_npc 2.4% ↔ SFT 2.1%, query_quest 2.2% ↔ 2.5%, navigate 27.7% ↔ 26.4%; observe is the exception at ~8pp); base runs the dialogue verbs ~5× more often (10.8%, 11.2%), preserving a chat-model dialogue-eager prior the corpus under-represents. The SFT student faithfully imitated a teacher whose distribution under-samples the verbs Core 3 requires. Full eval matrix + stats in `r10-discussion.md` (reproducible via `scripts/r10_stats.py`).
 
 This is the headline paper-ready ablation. The earlier r7/r8/r9 deltas (loss masking, prompt parity, observe supervision) are now methodological lessons that *led to* r10 — they remain useful for the related-work / ablation table but no longer carry the contribution alone.
 
@@ -106,8 +106,8 @@ This is the headline paper-ready ablation. The earlier r7/r8/r9 deltas (loss mas
 
 4. **Experiments**
    - 4.1 Setup: Qwen3.5-9B, Modal H100, dataset stats (9,363 records from 135 Claude sessions)
-   - 4.2 Baseline: **4 qwen-base runs identically reach 7/30 Core 3 stages** (1/3✅/3✅ — Foresting completed by completionist + explorer, grinder reaches Foresting 1/3). Zero variance across 12 days. See `r10-concerns.md` §"Base + SFT eval matrix."
-   - 4.3 Main result: **r10-SFT regresses to 2.0/30 mean** (3, 1, 2) — 3.5× drop, statistically clean. Mechanism (corpus-prior-becomes-inference-prior): SFT inference distribution matches training corpus to ±1pp; base preserves chat-model dialogue prior; SFT successfully imitates a verb-imbalanced teacher. Foresting completion rate 75% → 11%.
+   - 4.2 Baseline: **4 qwen-base runs identically reach 7/30 Core 3 stages** (1/3✅/3✅ — Foresting completed by completionist + explorer, grinder reaches Foresting 1/3). Zero variance across 12 days. See `r10-discussion.md` §"Eval matrix."
+   - 4.3 Main result: **r10-SFT regresses to 2.0/30 mean** (3, 1, 2) — 3.5× drop (Mann-Whitney exact p=0.029). Mechanism (corpus-prior-becomes-inference-prior): SFT inference matches the training-target distribution to ~1pp on the decision verbs; base preserves chat-model dialogue prior; SFT imitates a verb-imbalanced teacher. Foresting completion rate 67% → 11%.
    - 4.4 Ablations (see table above)
    - 4.5 Qualitative analysis: example game sessions, reasoning quality
 

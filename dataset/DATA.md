@@ -120,7 +120,7 @@ Written automatically by `orchestrate.py` at session start. The `harness` field 
 | Raw OODA turns extracted | live count in `metadata.json::raw_turns` |
 | SFT training records | live count in `metadata.json::record_counts` (after thinking-ratio gate ≤25% no-think + truncation gate ≤16,384 tokens) |
 | Architecture | Modular MCP package (`mcp_server/{core,tools/...}`, entry point `mcp_game_server.py` is a 19-line stub), 17 model-visible typed tools |
-| Active SFT focus | r10 LoRA training. Agent-side unblocks shipped: `live_gate_status`, `mob_stats`, `station_locations`. |
+| Active SFT focus | r10 complete (regressed 3.5× below base — see `research/experiments/r10-discussion.md`); r11 in planning (Phase A data fixes → Phase B on-policy distillation). Agent-side unblocks shipped: `live_gate_status`, `mob_stats`, `station_locations`. |
 | Latest completed SFT | r10. r9 archived. |
 
 Rebuild with `scripts/collect_sft_data.sh` or manually:

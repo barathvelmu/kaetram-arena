@@ -16,7 +16,7 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | r7 | Apr 9-10 | SFT | 6,423 train / 646 val | Chat template fix, personality labels, expanded dataset | COMPLETE. Final loss 0.072. Deployed and tested. rsLoRA attempted and reverted (8x LR trap). |
 | r8 | Apr 13-14 | SFT | 6,419 train / 646 val (4 filtered from r7's 6,423) | Loss masking fix (train_on_responses_only) | COMPLETE. Deployed on Modal. Eval harness set up (base vs r8-SFT). |
 | r9 | Apr 15-16 | SFT | 5,871 train / 575 val | Train/inference alignment fix (system prompt, reasoning, seq length) + degenerate filtering | COMPLETE Apr 16. Deployed via `serve_modal.py`. In early curious eval lost to base (1.5 quests / 28.5 kills / L24 vs base 2.5 / 26.5 / L20). Root cause → r10 P0 fixes. |
-| r10 | May 7-10 | SFT (dataset) | 8,510 train / 853 val (9,363 total) | Claude corpus only, 3 agents (grinder / completionist / explorer_tinkerer). Mixed-mode thinking-ratio gate (≤25% no-think) + strict-16,384 truncation gate (dropped 4,799 overlong). Reasoning rendered verbatim; `_drop_overlong` is the only length authority. | Dataset rebuilt 2026-05-10. **Training not yet launched** — ETA ~22h on H100 (fits Modal 24h). Pre-training eval (base vs r10-sft on existing weights) showed 3.5× SFT regression; see `r10-concerns.md`. |
+| r10 | May 7-10 | SFT (dataset) | 8,510 train / 853 val (9,363 total) | Claude corpus only, 3 agents (grinder / completionist / explorer_tinkerer). Mixed-mode thinking-ratio gate (≤25% no-think) + strict-16,384 truncation gate (dropped 4,799 overlong). Reasoning rendered verbatim; `_drop_overlong` is the only length authority. | Dataset rebuilt 2026-05-10. **COMPLETE** — trained ~22h on H100; eval May 19–22 showed **3.5× SFT regression below base** (Mann-Whitney exact p=0.029); see `r10-discussion.md`. |
 | r9-KTO | DEFERRED | KTO | TBD | Preference learning on r9 merged weights | Deferred indefinitely — pipeline focuses on the quest-completion benchmark over preference-RL. |
 
 ---
@@ -189,19 +189,19 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 | `run_20260520_044433` | r10-sft | 3h | 1 |
 | `run_20260520_173902` | r10-sft | 3h | 2 |
 
-Base: identical reproduction `(grinder=1, completionist=3✅ Foresting, explorer=3✅ Foresting) = 7/30` four times in a row across 12 days. SFT: mean **2.0/30**, std 1.0 — **3.5× regression**, statistically clean (Mann-Whitney per-run p=0.016; per-agent n=12 vs 9 p=0.001; Fisher Foresting completion 9/12 vs 1/9 p=0.006 OR=24). Foresting completion rate: **base 75% (9/12), SFT 11% (1/9)**, 6.75× drop. Herbalist's + Rick's Roll: 0 progress across every run (Claude teacher also can't accept these per Apr 28 strike-team audit — teacher ceiling caps both arms).
+Base: identical reproduction `(grinder=1, completionist=3✅ Foresting, explorer=3✅ Foresting) = 7/30` four times in a row across 12 days. SFT: mean **2.0/30**, std 1.0 — **3.5× regression** with perfect separation: Mann-Whitney exact per-run **p=0.029** (scipy's default returns the tie-degraded 0.016 — base is all-7s; use `method='exact'`; per-agent p=0.001 dropped as pseudo-replicated, agents within a run aren't independent). Fisher Foresting completion (8/12 vs 1/9) **p=0.016 OR=16**. Foresting completion rate: **base 67% (8/12), SFT 11% (1/9)**, 6.0× drop. Herbalist's + Rick's Roll: 0 progress across every run (Claude teacher also can't accept these per Apr 28 strike-team audit — teacher ceiling caps both arms). All numbers reproducible via `scripts/r10_stats.py`.
 
 **Mechanism — corpus prior becomes inference prior.** Completionist tool-mix (mean over runs):
 
 | Tool | Base (n=3 3h) | SFT (n=3) | Ratio | Corpus % | SFT inference % | Base inference % |
 |---|---|---|---|---|---|---|
 | `interact_npc` | 63.3 | 11.3 | **5.6× suppression** | 2.4 | **2.1** | 10.8 |
-| `query_quest` | 65.7 | 13.7 | **4.8× suppression** | 2.1 | **2.5** | 11.2 |
-| `navigate` | 32 | 143.7 | **4.49× amplification** | 27.6 | **26.4** | 5.5 |
+| `query_quest` | 65.7 | 13.7 | **4.8× suppression** | 2.2 | **2.5** | 11.2 |
+| `navigate` | 32 | 143.7 | **4.49× amplification** | 27.7 | **26.4** | 5.5 |
 
-SFT inference distribution matches the training corpus to ±1pp on every key tool. Base inference diverges 2-5× from corpus in both directions — chat-model pretraining prior is preserving dialogue-eagerness that the corpus under-represents. The SFT student successfully imitated a teacher whose corpus distribution under-samples the verbs Core 3 requires (especially `interact_npc(Forester)` × 3 for Foresting completion). This is catastrophic capability suppression via verb-imbalanced demonstration data — not a training bug, but the cross-entropy loss objective doing exactly what it's specified to do on a misspecified corpus.
+SFT inference matches the training-target distribution to ~1pp on the decision verbs (`interact_npc`, `query_quest`, `navigate`); `observe` is the exception (~8pp lower at inference). Base runs the dialogue verbs ~5× more often (10.8%, 11.2%) — chat-model pretraining prior is preserving dialogue-eagerness that the corpus under-represents. The SFT student successfully imitated a teacher whose corpus distribution under-samples the verbs Core 3 requires (especially `interact_npc(Forester)` × 3 for Foresting completion). This is catastrophic capability suppression via verb-imbalanced demonstration data — not a training bug, but the cross-entropy loss objective doing exactly what it's specified to do on a misspecified corpus.
 
-Buggy May 12 SFT run (`run_20260512_120516`, pre-fix `play_qwen.py`) deleted from corpus 2026-05-20. Full eval matrix + statistical tests in `research/experiments/r10-concerns.md`.
+Buggy May 12 SFT run (`run_20260512_120516`, pre-fix `play_qwen.py`) deleted from corpus 2026-05-20. Full eval matrix + statistical tests + r11 plan in `research/experiments/r10-discussion.md`.
 
 ---
 

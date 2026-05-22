@@ -140,7 +140,7 @@ per agent). Foresting completion shown as 3✅.
   May 25 writeup. Base 7/30 ↔ SFT 2/30 with statistically clean
   separation across all per-agent and per-run measures.
 
-### r10-sft actual results (May 19–20)
+### r10-sft actual results (May 19–22, finalized)
 
 Pre-eval predictions (preserved for the record) expected SFT > base on
 Foresting and ≥ parity on Herbalist's. **Actual result was a 3.5× regression**
@@ -150,10 +150,11 @@ Foresting and ≥ parity on Herbalist's. **Actual result was a 3.5× regression*
 - ✅ **Game-knowledge retention** — SFT agents use correct NPC names, coords,
   quest references from the system prompt
 - ❌ **Foresting + Herbalist's** — SFT regressed catastrophically on Foresting
-  (17% vs base 67%) due to corpus-prior verb suppression; Herbalist's + Rick's
-  Roll untouched by both (teacher ceiling)
-- ❌ **Tool-mix distortion** — `interact_npc` suppressed 6.25×, `navigate`
-  amplified 4.08×; inference prior tracks corpus distribution, not task needs
+  (11% vs base 75% after n=4/n=3) due to corpus-prior verb suppression;
+  Herbalist's + Rick's Roll untouched by both (teacher ceiling)
+- ❌ **Tool-mix distortion** — `interact_npc` suppressed 5.6×, `query_quest`
+  4.8×, `navigate` amplified 4.49× (completionist, n=3 each arm); inference
+  prior matches corpus distribution to ±1pp, not task needs
 - ❌ **Cross-session continuation** — confirmed absent as predicted
 
 ## Concerns we know about

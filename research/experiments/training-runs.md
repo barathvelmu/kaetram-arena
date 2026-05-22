@@ -175,7 +175,33 @@ History of all Qwen3.5-9B finetuning runs, from initial SFT through KTO preferen
 
 **Config.** LoRA r=64, alpha=64, `use_rslora=False`, 1 epoch, LR=1e-4, bf16, `MAX_SEQ_LEN=16,384`, `packing=False`, `dataset_text_field="text"`, `max_length=MAX_SEQ_LEN` (TRL #3910 — `max_seq_length` was the old name, silently ignored). Loss masking via Unsloth's `train_on_responses_only` with `<|im_start|>user\n` / `<|im_start|>assistant\n` markers. Data collator wrapped with a `(labels != -100).any(dim=-1).all()` per-batch assert to abort on any all-masked record (TRL #3927 guard). Experiment: `kaetram-qwen3.5-9b-r10`. Modal timeout: 72h.
 
-**Status.** Dataset rebuilt 2026-05-10 (9,363 records after truncation gate dropped 4,799 overlong). Reasoning rendered verbatim; `_drop_overlong` is the only length authority. ETA ~22h on H100 — fits Modal's 24h timeout; packing decision no longer blocking. Once kicked off, `r10-sft` deploys via `serve_modal.py` (env-overridable `SFT_EXPERIMENT`, defaults to `kaetram-qwen3.5-9b-r10`) and is evaluated against base on the live quest benchmark via the N-model Bonferroni eval pipeline.
+**Status.** COMPLETE. Dataset rebuilt 2026-05-10 (9,363 records after truncation gate dropped 4,799 overlong). Reasoning rendered verbatim; `_drop_overlong` is the only length authority. Trained on Modal H100 ~22h. `r10-sft` deployed via `serve_modal.py` (env-overridable `SFT_EXPERIMENT`, defaults to `kaetram-qwen3.5-9b-r10`, `min_containers=0` since May 11).
+
+**Eval result (May 19–22, finalized; n=4 base / n=3 SFT, all 3h+, clean wire after `play_qwen.py` JSON-dict fix `7bf7c8d`):**
+
+| Run | Harness | Duration | Stages/30 |
+|-----|---------|----------|-----------|
+| `run_20260510_173852` | base | 3h | 7 |
+| `run_20260510_211339` | base | 6h | 7 |
+| `run_20260519_223921` | base | 3h | 7 |
+| `run_20260520_143530` | base | 3h | 7 |
+| `run_20260520_014319` | r10-sft | 3h | 3 |
+| `run_20260520_044433` | r10-sft | 3h | 1 |
+| `run_20260520_173902` | r10-sft | 3h | 2 |
+
+Base: identical reproduction `(grinder=1, completionist=3✅ Foresting, explorer=3✅ Foresting) = 7/30` four times in a row across 12 days. SFT: mean **2.0/30**, std 1.0 — **3.5× regression**, statistically clean (Mann-Whitney per-run p=0.016; per-agent n=12 vs 9 p=0.001; Fisher Foresting completion 9/12 vs 1/9 p=0.006 OR=24). Foresting completion rate: **base 75% (9/12), SFT 11% (1/9)**, 6.75× drop. Herbalist's + Rick's Roll: 0 progress across every run (Claude teacher also can't accept these per Apr 28 strike-team audit — teacher ceiling caps both arms).
+
+**Mechanism — corpus prior becomes inference prior.** Completionist tool-mix (mean over runs):
+
+| Tool | Base (n=3 3h) | SFT (n=3) | Ratio | Corpus % | SFT inference % | Base inference % |
+|---|---|---|---|---|---|---|
+| `interact_npc` | 63.3 | 11.3 | **5.6× suppression** | 2.4 | **2.1** | 10.8 |
+| `query_quest` | 65.7 | 13.7 | **4.8× suppression** | 2.1 | **2.5** | 11.2 |
+| `navigate` | 32 | 143.7 | **4.49× amplification** | 27.6 | **26.4** | 5.5 |
+
+SFT inference distribution matches the training corpus to ±1pp on every key tool. Base inference diverges 2-5× from corpus in both directions — chat-model pretraining prior is preserving dialogue-eagerness that the corpus under-represents. The SFT student successfully imitated a teacher whose corpus distribution under-samples the verbs Core 3 requires (especially `interact_npc(Forester)` × 3 for Foresting completion). This is catastrophic capability suppression via verb-imbalanced demonstration data — not a training bug, but the cross-entropy loss objective doing exactly what it's specified to do on a misspecified corpus.
+
+Buggy May 12 SFT run (`run_20260512_120516`, pre-fix `play_qwen.py`) deleted from corpus 2026-05-20. Full eval matrix + statistical tests in `research/experiments/r10-concerns.md`.
 
 ---
 
@@ -203,7 +229,7 @@ Originally planned to replace r8-KTO using r9 merged weights. **Deferred indefin
 
 **Serving endpoints (Modal):**
 - `kaetram-qwen-serve` — finetuned model (SGLang, A100, `serve_modal.py`) — defaults to r10 (`SFT_EXPERIMENT` env-overridable). `min_containers=0` (scale to zero, $0 when idle; updated May 11). BASE_MODEL_ID reverted to `Qwen/Qwen3.5-9B` (May 12) — SGLang's transformers can't load unsloth's tokenizer_config.json.
-- `kaetram-qwen-base` — unfinetuned Qwen3.5-9B baseline (SGLang, A100, `serve_modal_base.py`). `min_containers=1` (always warm; pending scale-to-zero update).
+- `kaetram-qwen-base` — unfinetuned Qwen3.5-9B baseline (SGLang, A100, `serve_modal_base.py`). `min_containers=0` since May 22 (commit `0992c82`) — $0/hr idle, ~3-6min cold start.
 - Cold start ~3-6 min (model download + SGLang init).
 
 **Known issues:**

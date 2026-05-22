@@ -114,7 +114,7 @@ same-model-different-harness or same-harness-different-model runs.
 
 ## 10. Cross-cutting / hidden
 
-- `r9-sft` naming implies r1-r8 existed. Either report r9 only (and explain run selection) or report the full progression (and explain attrition). r7's rsLoRA divergence is the most interesting failure to write up.
+- `r10-sft` naming implies r1-r9 existed. Either report r10 only (and explain run selection) or report the full progression (and explain attrition). r7's rsLoRA divergence and the r10 verb-suppression result are the most interesting failures to write up.
 - Three archetypes is a data-diversity choice, not a persona-conditioned-policy claim.
 - Training data is ~100% Claude-collected; cross-harness comparisons are validation, not training. Say this loudly.
 - Qwen3 chat-template `<think>` drop on intermediate turns (QwenLM/Qwen3 #1831) — affects all pre-r10 multi-turn records. Verified via `tests/unit/test_think_roundtrip.py`.
@@ -141,7 +141,7 @@ same-model-different-harness or same-harness-different-model runs.
 - [ ] Decide unit-of-analysis (session vs run vs trajectory) and back-fill it in `extract_turns.py` metadata.
 - [ ] Add `harness` + `model` + `archetype` + `resume_used` flags to per-record metadata so any subset is filterable at training time.
 - [ ] **Add no-knowledge ablation flag to `eval_harness.py:resolve_system_prompt()`** — strip `__GAME_KNOWLEDGE_BLOCK__` on `--no-knowledge`. Until shipped, the paper cannot make a "learned to play" claim, only a "plan-execution distillation" claim. See `contribution.md` §Limitations. (`quest_resume.json` injection already removed, May 7.)
-- [ ] Decide r9-only vs r1-r10 progression framing for the paper.
+- [ ] Decide r10-only vs r1-r10 progression framing for the paper.
 - [ ] Write up the rsLoRA r7 divergence as a methodological lesson.
 
 ## Eval-pipeline notes (post-r10-readiness PR)

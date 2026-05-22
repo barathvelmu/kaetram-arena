@@ -112,7 +112,7 @@ Each turn is scored 0.0-1.0 on three axes:
 | agent_2 (EXPLORER_TINKERER) | 538 | 525 | 515 | 453 | 210 |
 | **Total** | **1,694** | **1,656** | **1,624** | **1,422** | **675** |
 
-**Post-May 7 archive split.** Pre-Core-3 and non-Claude runs were moved to `dataset/raw/_archive/` (commit `144e252`, May 6). As of May 21, the active corpus under `dataset/raw/agent_*/runs/` contains **42 runs / 3,650 sessions** (agent_0: 16/1,036, agent_1: 13/1,323, agent_2: 13/1,291). This includes both Claude collection runs and Qwen eval runs. The archive holds 1,049 Claude + 20 Codex + 67 Gemini + 558 OpenCode = 1,694 archived sessions. The r10 dataset build uses 5 source Claude runs / 135 sessions from this active pool (stamped in `metadata.json::source_runs`).
+**Post-May 7 archive split.** Pre-Core-3 and non-Claude runs were moved to `dataset/raw/_archive/` (commit `144e252`, May 6). As of May 22, the active corpus under `dataset/raw/agent_*/runs/` contains **42 runs / 3,723 sessions** (agent_0: 16/1,063, agent_1: 13/1,345, agent_2: 13/1,315). This includes both Claude collection runs and Qwen eval runs. The archive holds 1,049 Claude + 20 Codex + 67 Gemini + 558 OpenCode = 1,694 archived sessions. The r10 dataset build uses 5 source Claude runs / 135 sessions from this active pool (stamped in `metadata.json::source_runs`).
 
 Only Claude logs feed into training. Non-Claude runs are collected for comparison but excluded via `INCLUDED_HARNESSES = {"claude", "unknown"}` in `convert_to_qwen.py`.
 

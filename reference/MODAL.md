@@ -141,8 +141,8 @@ flash-attn: compiled from source (needs nvcc from devel image)
 |-----------|-------|
 | Timeout | 72 hours |
 | GPU | H100 80GB (~$3.95/hr) |
-| Typical duration | scales with corpus size; multi-day at MAX_SEQ_LEN=16,384 |
-| Typical cost | $50-200 depending on corpus size and resume strategy |
+| Typical duration | scales with corpus size; multi-day at MAX_SEQ_LEN=16,384 (r10: ~43h for 9,363 records) |
+| Typical cost | $50-200 depending on corpus size and resume strategy (r10 actual: $197 for the final ~43h run, billing-verified; ~$4.7/hr = H100 list + CPU/RAM for gradient offloading) |
 
 **Cost note**: at MAX_SEQ_LEN=16,384 a step runs ~5.5 min on H100 80GB due to gradient offloading. Step count = `(train_records / batch_size / grad_accum) * epochs`. Budget accordingly; use checkpoint-resume if a single window won't fit.
 
@@ -295,7 +295,7 @@ Not built in currently. To resume from a checkpoint:
 
 | Operation | GPU | Duration | Cost |
 |-----------|-----|----------|------|
-| SFT training | H100 | scales with corpus; multi-day at 16k seq | $50-200 |
+| SFT training | H100 | scales with corpus; multi-day at 16k seq (r10: ~43h) | $50-200 (r10 actual: $197) |
 | GRPO training | H100 | ~6h (deferred) | ~$24 |
 | KTO training | H100 | ~8h (deferred) | ~$32 |
 | Checkpoint merge | H100 | 30 min | ~$2 |

@@ -19,8 +19,10 @@ out-performs the student.
 ## 1. Setup
 
 **Model / training.** Qwen3.5-9B base, LoRA `r=64, α=64`, `use_rslora=False`,
-bf16, 1 epoch, LR `1e-4`, H100 80GB (~22h). Loss is masked to assistant turns
-(`train_on_responses_only`).
+bf16, 1 epoch, LR `1e-4`, H100 80GB (final run ~43h wall-clock at ~$4.7/hr =
+$197, billing-verified; the "~22h" in older notes was an optimistic pre-run ETA
+the job overshot — `MODAL.md`'s own ~5.5 min/step predicts ~43h for 8,510
+records). Loss is masked to assistant turns (`train_on_responses_only`).
 
 **Corpus.** 5 Claude-Sonnet runs × 3 capability archetypes
 (grinder / completionist / explorer) ≈ 135 sessions / ~19k raw turns. Converted
@@ -38,6 +40,11 @@ Rick's Roll (4) = max 10 per agent, 30 per 3-agent run.
 
 All numbers below are re-derived from the session logs by `scripts/r10_stats.py`
 and `scripts/r10_credit_diag.py`.
+
+**Cost (billing-verified, `modal billing report`, May 27).** Full r10 cycle
+**$360 Modal** = training $264 (final run $197 + ~$67 in earlier/aborted
+attempts) + eval serving $96 (base $67 + finetuned $29). Project-to-date across
+all iterations since March: **$919**.
 
 ## 2. Result
 

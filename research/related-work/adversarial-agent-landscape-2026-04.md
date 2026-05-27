@@ -1,8 +1,8 @@
 # Adversarial Agent Research Landscape, April 2026
 
-Compiled for this project in response to the cofounder question: "but this isn't AI safety or alignment or adversarial behav, is it?" Short answer: it isn't — yet. This doc maps the field honestly and sketches where `kaetram-agent` could plausibly earn a seat.
+An internal scan of the adversarial-agent / AI-safety landscape as of April 2026, framed around the question: is `kaetram-agent` adjacent to AI-safety or alignment work? Short answer: not directly — yet. This doc maps the field honestly and sketches where the project could plausibly fit.
 
-**Confidence flags.** No live web access while compiling this; everything comes from prior knowledge (training cutoff Jan 2026). Confident claims are stated flatly. Plausible but unverified items are marked `[unverified]` — treat these as prompts to double-check before this leaves your Slack.
+**Confidence flags.** No live web access while compiling this; everything comes from prior knowledge (training cutoff Jan 2026). Confident claims are stated flatly. Plausible but unverified items are marked `[unverified]` — treat these as prompts to double-check before relying on them.
 
 ---
 
@@ -98,4 +98,4 @@ A MMO **cannot** do: biosec uplift, cyber CTF, research automation, economic rea
 
 **Actual recommendation.** Don't pivot hard; *add* an adversarial chapter to the existing paper. Tier-1 experiments are a week on your current infra and give you an "Adversarial Probing" section differentiating you from ORAK/lmgame. Then decide based on results whether Tier 2/3 becomes paper #2. Worst outcome: spending 3 months on control protocols for a model too small to do interesting unsafe things. Best outcome: the persistent-state MMO angle unlocks a real contribution to long-horizon control evals — which nobody has seriously studied outside text envs.
 
-The cofounder's question is correct and worth respecting: don't call yourselves a safety lab yet. Call this "capability benchmarking with adversarial probes" and let evidence upgrade or downgrade the framing.
+The framing question is worth respecting: don't call this a safety project yet. Call it "capability benchmarking with adversarial probes" and let evidence upgrade or downgrade the framing.

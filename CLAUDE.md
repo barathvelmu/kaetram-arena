@@ -32,15 +32,15 @@ VM if it runs that code.
 
 ## Multi-machine sync protocol — MANDATORY
 
-Two machines (laptop + GCP VM `vm.example.com`) share `origin/main`. **Stale
-checkouts are the #1 cause of cofounder confusion in this project.** Two
-incidents:
+Two machines (laptop + remote GPU VM) share `origin/main`. **Stale checkouts
+are the leading cause of cross-machine confusion in this project.** Two prior
+incident classes motivated this protocol:
 
-- **2026-04-17:** Agent edited files on stale VM checkout before pulling,
-  diffs looked like reverts of cofounder commits. Triggered argument.
-- **2026-04-28:** Agent `scp`'d a modified file to VM mid-test, then committed
-  locally, never pulled on VM. VM working tree showed dirty file matching the
-  pushed commit. the maintainer spotted it, asked "did u touch the file in VM? its dirty".
+- Editing files on a stale VM checkout before pulling — diffs end up looking
+  like reverts of upstream commits.
+- `scp`'ing a modified file to the VM mid-test, then committing locally and
+  never pulling on the VM — the VM working tree shows a dirty file that
+  silently diverges from `origin/main`.
 
 These rules are non-negotiable. Follow them on **every machine, every session,
 every file edit** — not just for shared code.
@@ -64,10 +64,10 @@ there; the push IS the sync. Only ssh-pull the *other* machine (laptop).
 
 ### 2. NEVER `scp` / `rsync` files between laptop and VM
 
-The 2026-04-28 incident: testing a fix locally, `scp`'d the modified file
-to the VM to "test before committing". This created a dirty working tree on
-the VM that didn't match `origin/main` even after the fix landed via git.
-Cofounder spotted it as suspicious.
+The hand-copy pattern (`scp` modified file to VM to "test before committing")
+creates a dirty working tree on the VM that doesn't match `origin/main` even
+after the fix lands via git. This is hard to spot in review and easy to
+mistake for a regression.
 
 **Always go through git.** The full loop is:
 
@@ -97,7 +97,7 @@ ahead of you.
 
 ### 4. Branch for shared code, direct for solo lanes
 
-Push to `feat/…` / `chore/…` for anything your cofounder might edit
+Push to `feat/…` / `chore/…` for anything a collaborator might edit
 concurrently: `eval_harness.py`, `dashboard/`, `prompts/`, `finetune/`,
 `scripts/`, `mcp_server/`. Direct to `main` is fine for solo lanes:
 `research/`, `session_log.md`, `.claude/memory/`, personal docs.
@@ -112,10 +112,9 @@ git fetch origin && git pull --ff-only
 git stash list                               # decide per-stash to pop or drop
 ```
 
-Stash-first means nothing is destroyed if a cofounder commit conflicts. If
-the dirty diff turns out to match an already-pushed commit (the 2026-04-28
-case), `git checkout -- <file>` then pull — the working-tree change was
-redundant.
+Stash-first means nothing is destroyed if an upstream commit conflicts. If
+the dirty diff turns out to match an already-pushed commit, `git checkout --
+<file>` then pull — the working-tree change was redundant.
 
 ### 6. Quick recovery checklist (when you spot a dirty VM)
 

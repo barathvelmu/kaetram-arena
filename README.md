@@ -2,9 +2,11 @@
 
 ![Kaetram Observatory — live monitoring of three Claude agents (grinder, completionist, explorer) playing Kaetram in parallel](assets/kaetram.jpg)
 
-**Research project** on **structured game-agent distillation** — distilling frontier LLM gameplay reasoning (Claude Sonnet) into a small open student model (Qwen3.5 9B) using a typed MCP tool API as the shared teacher–student interface in a persistent 2D pixel MMORPG ([Kaetram](https://github.com/Kaetram/Kaetram-Open)).
+**Research project** on **structured game-agent distillation** — making a small open model better at long-horizon, tool-mediated gameplay through a typed MCP tool API as the shared teacher–student interface, in a persistent 2D pixel MMORPG ([Kaetram](https://github.com/Kaetram/Kaetram-Open)).
 
-The agent calls 17 structured tools (observe, attack, navigate, interact_npc, gather, craft_item, …) — never writes JavaScript or clicks pixels. Sessions across **4 frontier-LLM harnesses** (Claude / Codex / Gemini / OpenCode) are collected as SFT training data, with OpenCode multiplexing across xAI Grok, NVIDIA Qwen3.5, and DeepSeek V4 via `--opencode-model`. Progress is measured against the **Core 3 quest benchmark** (see below).
+**Headline result:** on-policy distillation (OPD) took a base **Qwen3.5-2B** from **12/30 to 18/30** on the Core-3 quest benchmark, clearing a quest wall the base model never passes (weights-only, same harness: 3/3 vs 0/3). Teacher: a scaffolded Qwen3.5-4B. This *reversed* the lesson of an earlier 9B SFT lane (r1–r10), where cross-vocabulary imitation of a Claude teacher **regressed** the student 3.5× below base. Full write-up: [`research/experiments/opd-2b.md`](research/experiments/opd-2b.md) + the case-study paper [`reference/overview.pdf`](reference/overview.pdf).
+
+The agent calls 17 structured tools (observe, attack, navigate, interact_npc, gather, craft_item, …) — never writes JavaScript or clicks pixels. Sessions across **4 frontier-LLM harnesses** (Claude / Codex / Gemini / OpenCode) are collected as gameplay trajectories (Claude is the primary corpus, the others are cross-harness comparisons), with OpenCode multiplexing across xAI Grok, NVIDIA Qwen3.5, and DeepSeek V4 via `--opencode-model`. Progress is measured against the **Core 3 quest benchmark** (see below).
 
 > **For developers:** see [`CLAUDE.md`](CLAUDE.md) for the full developer reference and [`session_log.md`](session_log.md) for the most recent decisions.
 
@@ -27,7 +29,7 @@ Capability progress is measured against three canonical quests that span combat,
 | Q2 | **Herbalist's Desperation** | Long-tail gathering (blueberries, Blue Lily) + skill-gated foraging |
 | Q3 | **Rick's Roll** | Fishing + cooking via `craft_item` + dialogue branching + cross-region door routing |
 
-The student model's quest completion rate on the Core 3 — alongside the Sonnet teacher's — is the primary capability metric, replacing earlier ad-hoc XP/level deltas.
+Core-3 stages reached — for the student and its teacher — is the primary capability metric, replacing earlier ad-hoc XP/level deltas.
 
 ## Current status
 
@@ -40,12 +42,16 @@ For the latest run state, training results, and what's in flight, see
   <alias>`) are experimental peer harnesses that share the
   orchestrator/dashboard/log paths but are excluded from training.
 - **Training.** Dataset stats: [`dataset/DATA.md`](dataset/DATA.md).
-- **Eval harness.** `eval_harness.py` runs side-by-side episodes on
-  dedicated ports (9061 r10-sft, 9071 base). Live dashboard tab.
+- **Eval.** Core-3 evals run via `orchestrate.py` / `play_qwen.py`, read with
+  `scripts/log_analysis/analyze.py` (last-vs-first observe stage deltas).
+  `eval_harness.py` (ports 9061/9071) is the older r10-sft-vs-base scaffold,
+  superseded for the OPD work.
 - **World model.** Deprecated — [`world/`](world/) is not in use (targets an older log shape).
-- **Iteration history.** r1-r9 were rapid exploratory cycles; r10 onward is the
-  deliberate phase — see [`research/INDEX.md`](research/INDEX.md) for the
-  methodological turn.
+- **Iteration history.** r1–r9 were rapid SFT exploration; **r10** was the clean
+  negative (9B Claude-SFT regressed 3.5× below base); **r11** is the current phase —
+  a scaffold reframe (harness engineering beats capacity) plus on-policy distillation
+  (4B→2B). See [`research/INDEX.md`](research/INDEX.md) and
+  [`research/experiments/opd-2b.md`](research/experiments/opd-2b.md).
 
 ## Architecture
 
@@ -132,13 +138,21 @@ Each agent gets its own server port (9001, 9011, 9021), log directory, capabilit
 
 ## Training pipeline
 
-Three stages transform raw Claude session logs into SFT training data for Qwen3.5 9B:
+The current method is **on-policy distillation (OPD)** (r11); the SFT pipeline below is the historical r1–r10 lane.
+
+### On-policy distillation (r11 — current)
+
+The base Qwen3.5-2B student rolls out in-game; a scaffolded same-family teacher (Qwen3.5-4B) grades the student's *own* visited states token-by-token (reverse-KL), and the weights co-evolve with harness-affordance fixes rather than a frozen scaffold. Round 2 corrects the student's visitation by **seeding the game database** at the failure state, so it trains where the teacher's competence lives. Pipeline: `scripts/opd/` (data build, milestone seeding, gate, probes) → `finetune/train_opd_2b.py` (Modal H100) → `finetune/serve_modal_2b_opd*.py` (served **non-thinking** — see Gotchas). Full record: [`research/experiments/opd-2b.md`](research/experiments/opd-2b.md).
+
+### SFT pipeline (r1–r10 — historical)
+
+Three stages turned raw Claude session logs into SFT data:
 
 1. **Extract turns** (`extract_turns.py`) — parse JSONL session logs, identify OODA cycles, emit `(game_state, reasoning, action)` tuples per agent.
-2. **Convert to Qwen format** (`convert_to_qwen.py`) — Qwen3.5 9B conversation records with `<think>` + `<action>` tags. 90/10 train/val split stratified by session. Modes: `single` / `multi` / `mixed` (default 70/30). Format: `sft` or `grpo`.
-3. **Train + serve** — `finetune/train_modal.py` (SFT) on Modal H100s; `finetune/serve_modal.py` exposes an OpenAI-compatible SGLang endpoint for the eval harness.
+2. **Convert to Qwen format** (`convert_to_qwen.py`) — Qwen3.5 conversation records with `<think>` reasoning + structured MCP tool calls. 90/10 train/val split stratified by session. Modes: `single` / `multi` / `mixed` (default 70/30). Format: `sft` or `grpo`.
+3. **Train + serve** — `finetune/train_modal.py` (SFT) on Modal H100s; `finetune/serve_modal.py` exposes an OpenAI-compatible SGLang endpoint.
 
-**Post-SFT refinement (r11):** on-policy distillation (OPD) — the student rolls out in-game and a scaffolded larger same-family teacher supervises on the student's own visited states, co-evolving with harness-affordance improvements rather than a frozen scaffold. Current instantiation: Qwen3.5-4B teacher → base-2B student (`scripts/opd/`, `finetune/train_opd_2b.py`; see `research/experiments/opd-2b.md`). A KTO preference-learning track (`score_sessions.py` + `build_kto_dataset.py` → `finetune/train_kto_modal.py`, automated 0–1 game-outcome labels) is scaffolded but deferred.
+This lane peaked at r10, where controlled SFT on Claude trajectories *regressed* the 9B 3.5× below base — the clean negative that motivated the OPD pivot. A label-free KTO track (`score_sessions.py` + `build_kto_dataset.py` → `finetune/train_kto_modal.py`) is scaffolded but deferred.
 
 ### Model-visible tool vocabulary (17 tools)
 
@@ -220,25 +234,23 @@ Backend lives in `dashboard/test_runner.py`; full reference in `dashboard/DASHBO
 
 **Multi-agent port conflicts** — If running `orchestrate.py`, kill any existing Kaetram servers first. The orchestrator manages its own server instances.
 
-## Finetuned agent (Qwen3.5 9B)
+## In-house Qwen agents (Modal SGLang)
 
-The finetuned Qwen3.5-9B model is served from a Modal SGLang endpoint
-(`finetune/serve_modal.py`) and exercised by the eval harness:
+The in-house Qwen models — the OPD 2B student and its 4B teacher, plus the historical 9B — are each served from a Modal SGLang endpoint (`finetune/serve_modal_2b_opd*.py`, `serve_modal_4b.py`, `serve_modal.py`) and run through the same orchestrator / MCP / browser path as the frontier harnesses. All serve **non-thinking** (Qwen3.5 template default — see Gotchas). The `--qwen-sft` endpoint is overridable via `KAETRAM_QWEN_SFT_ENDPOINT`, and the `model` label follows the served checkpoint (`2b-opd-r3`, etc.):
 
 ```bash
-# Multi-agent run (3 personalities in parallel via orchestrate, like Claude)
-./scripts/restart-agent.sh --qwen-sft 3 --grinder 1 --completionist 1 --explorer 1 --hours 3
+# OPD 2B eval — 3 personalities in parallel, read with analyze.py
+KAETRAM_QWEN_SFT_ENDPOINT=https://<workspace>--kaetram-qwen-2b-opd-r3-inference-serve.modal.run/v1 \
+  ./scripts/restart-agent.sh --qwen-sft 3 --grinder 1 --completionist 1 --explorer 1 --hours 6
+python3 scripts/log_analysis/analyze.py --run <run_id> metrics   # Core-3 stage deltas
 
 # Solo dev — direct invocation (warm-session loop: MCP + browser persist
 # across context rollovers; --max-duration-seconds 0 = unbounded)
 python3 play_qwen.py --endpoint <modal-url> --personality completionist \
   --system-prompt prompts/system.md --sandbox /tmp/qwen_dev
-
-# Side-by-side eval (r10-sft vs base) — see scripts/run-eval.sh
-./scripts/run-eval.sh
 ```
 
-**Architecture:** GCP VM (`vm.example.com`) hosts the Kaetram game server + client, data collection, and training pipeline. Training and serving both run on Modal (H100); the r10 model is exposed via `finetune/serve_modal.py` and consumed by `eval_harness.py` / `play_qwen.py`.
+**Architecture:** the GCP VM hosts the Kaetram game server + client, data collection, and the orchestrator. Training and serving both run on Modal (H100 train; L4/A100 serve). The OPD 2B/4B endpoints are exposed via `finetune/serve_modal_2b_opd*.py` / `serve_modal_4b.py` and driven by `play_qwen.py`; the older r10-sft-vs-base side-by-side lives in `eval_harness.py` (`scripts/run-eval.sh`).
 
 ## World model (deprecated)
 
@@ -252,7 +264,7 @@ Unlike prior work where LLMs serve as decision advisors for human players ([Thin
 
 ### What's novel
 
-**1. Shared typed MCP tool vocabulary** — Teacher (Claude) and student (Qwen3.5-9B) call the same 17 typed tools (`attack("goblin")`, `navigate(188, 157)`, `interact_npc("Blacksmith")`). This eliminates action space mismatch between teacher and student at training time — a structural problem in prior game-agent distillation where teachers write raw code or click pixels the student can't reliably reproduce.
+**1. Shared typed MCP tool vocabulary** — teacher and student call the same 17 typed tools (`attack("goblin")`, `navigate(188, 157)`, `interact_npc("Blacksmith")`), whether the teacher is Claude (SFT lane) or a same-family Qwen3.5-4B (OPD lane) and the student a 9B or 2B. This eliminates action-space mismatch between teacher and student at training time — a structural problem in prior game-agent distillation where teachers write raw code or click pixels the student can't reliably reproduce.
 
 **2. Capability-diverse teacher data** — Claude agents are run under three orthogonal capability archetypes (GRINDER, COMPLETIONIST, EXPLORER_TINKERER) that produce structurally different decision distributions at overlapping game states. The student learns a richer action distribution than any single teacher policy provides. Archetypes are a data-factory mechanism, not a scientific claim — if trajectories collapse, we fall back to two policies (progression and uncertainty/recovery/coverage).
 
@@ -261,6 +273,20 @@ Unlike prior work where LLMs serve as decision advisors for human players ([Thin
 vs. prior work: persistent MMORPG (not episodic), shared typed MCP tools (not categorical labels / raw code / pixel clicks), capability-archetype teacher diversity (not a single teacher), on-policy distillation refinement (not online RL or none), full open source. Detailed comparison table and novelty framing live off-repo.
 
 ---
+
+## Open source
+
+This is an open-source project. The OPD models and gameplay datasets are published
+on the Hugging Face Hub at **[huggingface.co/patnir41](https://huggingface.co/patnir41)**:
+
+- **Models** — [`kaetram-qwen3.5-2b-opd-r1`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r1) ·
+  [`-r2`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r2) ·
+  [`-r3`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r3) — the 12 → 15 → 18/30 OPD chain (merged weights + LoRA adapters, Apache-2.0).
+- **Datasets** — [`kaetram-opd-2b`](https://huggingface.co/datasets/patnir41/kaetram-opd-2b) (reverse-KL on-policy-distillation records) ·
+  [`kaetram-qwen-rollouts`](https://huggingface.co/datasets/patnir41/kaetram-qwen-rollouts) (raw Qwen gameplay logs across the 2B / 4B / 9B / 27B size ladder).
+
+All released model and data artifacts are Qwen self-play only and Apache-2.0-licensed;
+see each repo's `NOTICE` for base-model and Kaetram-Open attribution.
 
 ## License
 

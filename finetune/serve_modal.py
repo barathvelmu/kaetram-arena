@@ -82,8 +82,9 @@ MAX_MODEL_LEN = 32768  # A100 40GB fits 9B bf16 (18GB) + 32k KV cache (~12GB)
 GPU_MEMORY_UTILIZATION = 0.92
 DTYPE = "bfloat16"
 
-# Qwen3.5-9B thinking mode general defaults (per official model card)
-# We serve in thinking mode because training data has <think> blocks on every turn.
+# Qwen3.5 thinking-mode SAMPLING preset (per the official model card) — sampling values
+# only; the generation prompt below uses the template's non-thinking default
+# (closed-empty `<think></think>`), the base config the other serve_modal_*.py match.
 # Do NOT enable repetition_penalty / frequency_penalty / DRY — they hurt tool-call JSON.
 QWEN_THINK_TEMP = 1.0
 QWEN_THINK_TOP_P = 0.95
@@ -341,7 +342,7 @@ class Inference:
             import re as _re
             body = await request.json()
             messages = body.get("messages", [])
-            # Qwen3.5-9B thinking-general defaults per model card; caller may override.
+            # Qwen3.5 thinking-mode sampling defaults per model card; caller may override.
             temperature = body.get("temperature", QWEN_THINK_TEMP)
             max_tokens = body.get("max_tokens", 512)
             top_p = body.get("top_p", QWEN_THINK_TOP_P)

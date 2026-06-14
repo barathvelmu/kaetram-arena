@@ -52,9 +52,10 @@ is novel: under teacher forcing the \textbf{teacher prefers the student's malfor
 prior surfacing inside the grader --- which dense reverse-KL distills. Suppressing the teacher's
 endorsement of the defect in the grading context does not suppress the student's generation of it;
 a small harness recovery affordance with in-context correction does ($98.5\%$ self-correction,
-zero relapse). The same separation explains the program's ceiling: the cook-incompetent
-same-family teacher transfers \emph{zero} cook behavior, so Rick's Roll stays $0/4$ --- a teacher
-cannot grade in what it cannot do. Every arm is $n{=}1$ across three personality-variant agents;
+zero relapse). The program's ceiling is over-determined: Rick's Roll stays $0/4$ gated at link 1 by
+a displaced fishing tool (cooking is never reached), behind which the cook-incompetent same-family
+teacher transfers \emph{zero} cook behavior --- a teacher cannot grade in what it cannot do, one of
+several blockers. Every arm is $n{=}1$ across three personality-variant agents;
 we report the limits alongside the results.
 \end{abstract}
 
@@ -111,7 +112,8 @@ cures it. (iv) A \textbf{clean separation of levers}, quantified by a controlled
 \emph{weights} instill the competence (the wall passes $3/3$ unseeded, a weights-only result); an
 interface affordance dissolves a defect no weights update reaches (it carries most of the
 round-two-to-three \emph{step}, while the round-three weight update buys speed); and a same-family
-teacher transfers \emph{zero} of a behavior it never performs (cook $= 0$, Rick's $0/4$). The
+teacher transfers \emph{zero} of a behavior it never performs (cook $= 0$) --- one of the
+over-determined walls behind Rick's $0/4$, where a displaced tool already gates link 1. The
 harness$+$weights co-evolution thesis, made concrete.
 
 \section{System}
@@ -132,8 +134,11 @@ cannot inflate it), summed over the three agents, in $[0,30]$.
 
 \subsection{Agent harness}
 The agent runs an OODA loop (\texttt{play\_qwen.py}): an OpenAI-compatible client against a Modal
-SGLang endpoint plus an MCP stdio client driving a Playwright-controlled browser. Qwen3.5
-thinking-mode decoding (temp 1.0, top-p 0.95, top-k 20, presence 1.5). Context budget 14{,}336 of
+SGLang endpoint plus an MCP stdio client driving a Playwright-controlled browser. Decoding uses
+Qwen3.5's thinking-mode sampling preset (temp 1.0, top-p 0.95, top-k 20, presence 1.5), but the
+generation prompt is the template's \emph{non-thinking} default --- a closed-empty
+\texttt{<think></think>} block, so reasoning surfaces as plain content (the dangling-\texttt{</think>}
+dialect, \S\ref{sec:prefix}), a regime held identical across base, teacher, and student. Context budget 14{,}336 of
 the 16{,}384 training length, measured with the same patched chat template the server renders;
 overflow triggers a \emph{session rollover} (fresh conversation, persistent game state, a
 programmatic --- never model-authored --- advisory note carrying quest stage and position).
@@ -345,7 +350,7 @@ $\text{full} = \text{ctx} \,\|\, \text{emission}$. Re-rendering the completed tu
 chat template is wrong in a subtle way we hit twice: the template extracts reasoning from any
 \texttt{</think>} inside content and re-renders a real think block, diverging from the
 closed-empty-think generation prompt the model was actually served --- 4\% of base-2B turns in
-round 1, but $\approx$100\% of r1-policy turns (whose acquired dialect ends content with a
+round 1, but $99\%$ of r1-policy turns (whose acquired dialect ends content with a
 dangling \texttt{</think>}). Verbatim construction makes the prefix property hold by
 construction; the round-2 build of 7{,}849 states had \emph{zero} alignment failures of any
 kind. Both endpoints score the same raw string; behavior logprobs are therefore exactly the
@@ -408,6 +413,18 @@ and \texttt{query\_quest} --- the single verb whose rKL \emph{increased} ($+20\%
 the verb that behaviorally overshot the teacher $2\times$: the student moved \emph{past} the
 teacher and diverged from the other side. Small per-token movement compounds over autoregressive
 rollouts; a token-KL gate on old-visitation states measures the wrong quantity.
+
+\textbf{What the advantages reward: structure, not reasoning.} Reading the round-1 held-out
+advantages directly (teacher minus student logprob over the emitted tokens), the positive
+reverse-KL signal concentrates on tool-call \emph{structural} tokens --- the \texttt{</think>}
+delimiter ($+0.212$, $79\%$ positive) and the \texttt{<function=}/\texttt{<parameter=} syntax
+(sharply positive) --- while \emph{reasoning-prose} tokens carry the most \emph{negative} mean
+advantage ($-0.333$; the tool-call region as a whole averages $\approx$0). The \texttt{</think>}
+reward --- the dialect's entry hook --- explains the tag rate jumping $4\%\rightarrow99\%$; the
+$\sim$4$\times$ growth in reasoning \emph{length} is instead a trajectory-level mode-seeking pull
+toward the teacher's reason-then-act trajectories, \emph{not} a per-token reward. So \opd{} transfers
+the \emph{shape} of reasoning, not its substance --- and the round-3 compression
+(\S\ref{sec:round3}) is the same signal with that pull relaxed.
 
 \subsection{The teacher-forcing copy prior}
 \label{sec:copyprior}
@@ -614,7 +631,13 @@ round 1 $\approx$\$111 (dominated by a 3$\times$ broken-kernel $\sim$8h H100 ret
 $\sim$168\,s/step), round 2 $\approx$\$33, round 3 $\approx$\$16. Once the fast GDN kernels were
 fixed (round 2) the marginal build+train of a round is $\sim$\$5--10; eval serving on L4
 ($\sim$\$6--23/round) then dominates. No paid-API cost enters the loop --- student rollouts and
-the 4B teacher are both self-hosted Qwen on Modal.
+the 4B teacher are both self-hosted Qwen on Modal. \emph{(7) The decode regime is non-thinking, by
+inheritance not design.} Every model ran the Qwen3.5 template's default closed-empty
+\texttt{<think></think>} prompt (the thinking-mode \emph{sampling} preset sits on top of it), so
+reasoning surfaces as plain content; we did not deliberately choose thinking vs.\ non-thinking. It is
+held identical across base, teacher serve, teacher grading, and every student eval, so it is an
+internal-consistency property, not a confound on any comparison --- whether thinking-on would change
+the results is untested.
 
 \textbf{Not claimed.} No general statement about 2B capacity ceilings (Rick's failure is
 multi-causal --- a displaced tool, a budget limit, and a teacher null --- not a clean capacity
@@ -670,8 +693,8 @@ Round 3 confirmed the predictions of round 2's failure analysis and sharpened th
 What worked: full-ladder seeding broke the next teacher-competent wall (Herbalist stage 2,
 $18/30$), and a harness recovery affordance with in-context correction dissolved the format defect
 that weights-side fixes (masking, then counterfactual grading) could not. What did not: a same-family teacher transferred zero
-of a behavior it never performs (cook), so Rick's Roll is gated below the point where competence
-even matters. The round-4 agenda is now \emph{evidenced}, not speculative: (i)~\textbf{privileged-context
+of a behavior it never performs (cook) --- though Rick's $0/4$ is over-determined, gated at link 1
+by a displaced fishing tool before the cook step is even reached. The round-4 agenda is now \emph{evidenced}, not speculative: (i)~\textbf{privileged-context
 grading} for Rick's --- a Claude cook/door trajectory in the \emph{teacher's} grading context
 (\cite{pidistill,opsd}), the only published route that exploits cross-vocabulary trajectories
 without the token-level distillation that sank our SFT line; (ii)~\textbf{two cheap harness fixes
@@ -699,8 +722,9 @@ cleanest evidence is the weights-only round-two passage --- we do not lean on no
 rounds, three levers, one monotone curve: \emph{weights instilled the competence over base} (the
 walls fell on training, visible unseeded), a harness affordance dissolved a defect no weights
 update could reach, and the round-three weight refinement bought speed. And the ceiling is honest:
-a teacher cannot grade in what it cannot do, so the last quest waits on a different teacher, not a
-fourth round of the same one.
+Rick's $0/4$ is over-determined --- a displaced tool gates link 1, a multi-session traverse exceeds
+the budget, and a teacher cannot grade the cooking behind them --- so it waits on cheap harness
+fixes \emph{and} a teacher that can cook, not a fourth round of the same one.
 
 \begin{thebibliography}{99}\small
 \bibitem{tml} Thinking Machines Lab. \emph{On-Policy Distillation}. Blog, 2025.

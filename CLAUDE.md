@@ -8,8 +8,11 @@
 This is an autonomous AI agent that plays Kaetram (a 2D pixel MMORPG) using a
 custom MCP server (`mcp_server/` package, entry point `mcp_game_server.py`)
 that exposes typed game tools (observe, attack, navigate, etc.). The agent
-calls structured tools — never writes JavaScript. Gameplay sessions are
-collected as SFT training data for Qwen3.5 9B.
+calls structured tools — never writes JavaScript. The current training line is
+**on-policy distillation** of a base Qwen3.5-2B toward a scaffolded 4B teacher (r11);
+gameplay trajectories are collected via the typed tool API. An earlier 9B Claude-SFT
+lane (r1–r10) regressed below base and motivated the pivot — see `session_log.md` and
+`research/experiments/opd-2b.md`.
 
 For current run state, training results, and what's in flight: read
 `session_log.md`. This file is the stable reference that doesn't change weekly.
@@ -182,8 +185,9 @@ Full reference: `dashboard/DASHBOARD.md`.
 | `prompts/game_knowledge.md` | Quest guides, NPC coords, mob stats. |
 | `prompts/personalities/*.md` | Archetype overrides (`grinder.md`, `completionist.md`, `explorer_tinkerer.md`). |
 | `dashboard/server.py` | Dashboard entry point (HTTP :8080 + WS :8081). Full reference: `dashboard/DASHBOARD.md`. |
-| `eval_harness.py` + `scripts/run-eval.sh` | Eval orchestrator: r10-sft vs base on dedicated ports 9061 / 9071. |
-| `play_qwen.py` | In-house Qwen3.5-9B harness — Modal SGLang endpoint + MCP server. Multi-agent via `orchestrate.py --qwen-sft N` (finetuned) or `--qwen-base N` (unfinetuned); peer to Claude/Codex/Gemini/OpenCode. Mixable in one run. Solo dev invokes directly. |
+| `eval_harness.py` + `scripts/run-eval.sh` | r10-era side-by-side eval (r10-sft vs base, ports 9061/9071) — superseded for the OPD work by `orchestrate`/`play_qwen` runs read with `scripts/log_analysis/analyze.py`. |
+| `play_qwen.py` | In-house Qwen harness — any size (the OPD 2B/4B or the historical 9B), set by `KAETRAM_QWEN_SFT_ENDPOINT`. Modal SGLang endpoint + MCP server. Multi-agent via `orchestrate.py --qwen-sft N` / `--qwen-base N`; peer to Claude/Codex/Gemini/OpenCode, mixable in one run. Solo dev invokes directly. |
+| `scripts/opd/` + `finetune/train_opd_2b.py` | r11 OPD pipeline: data build (`opd_2b_data.py`), milestone DB-seeding (`seed_milestones.py`), post-train gate, teacher-grading probes → reverse-KL trainer (Modal H100). Served by `finetune/serve_modal_2b_opd*.py` (non-thinking). Record: `research/experiments/opd-2b.md`. |
 | `tests/e2e/quests/` | Reachability tier — per-step playthrough tests for Core 3 (Herbalist's Desperation, Rick's Roll). Foresting is exercised under `tests/e2e/game/`. Each step seeds the cumulative state an agent has at that point per game_knowledge.md. |
 
 ## Ports
@@ -197,7 +201,7 @@ Game-server port `P` reserves `P+1` for `apiPort` (currently dormant; matches
 | 9000 | Kaetram client (HTTP, shared) |
 | 9001 + N×10, N ∈ [0,8] | Multi-agent game-server WS. **Standard run is 3 agents — one per archetype** (grinder + completionist + explorer-tinkerer): 9001 / 9011 / 9021. |
 | 9191 | Test-lane Kaetram (db `kaetram_e2e`, `TEST_AGENT_ID=99`, Xvfb `:198`) — isolated from data-collection lanes; dashboard Tests tab runs headed pytest against it |
-| 9061, 9071 | Eval game servers (r10-sft, base) |
+| 9061, 9071 | Eval game servers (r10-sft, base) — r10-era `eval_harness.py` lane |
 | 27017 | MongoDB (`kaetram-mongo`); per-lane isolation by db name |
 | 8080 | Dashboard HTTP (UI + `/hls/agent_N/*` + `/ingest/{state,activity}`) |
 | 8081 | Dashboard WebSocket relay (state, activity, heartbeat) |
@@ -289,7 +293,8 @@ lessons: `dataset/DATA.md` and `research/experiments/training-runs.md`.
 - **Counting running agents.** `pgrep -fa "claude -p"` self-matches the shell that ran it (the pattern appears in its own cmdline). Count unique bot IDs from the output (`ClaudeBot[0-9]+`, `CodexBot[0-9]+`, `GeminiBot[0-9]+`, `QwenGrinder` / `QwenCompletionist` / `QwenExplorer`, or for opencode: `BigQwenBot[0-9]+` / `GrokBot[0-9]+` / `DeepSeekBot[0-9]+` / `OpenCodeBot[0-9]+` depending on `--opencode-model`), or cross-check against listening game-server ports (`9001 + N×10`) — those are authoritative.
 - **OpenCode bot username depends on the model.** The opencode harness splits its in-game username + Mongo player row by model family so dashboard / log analysis can distinguish runs: `*qwen*` → `BigQwenBot` (separate from the in-house Qwen harness), `*grok*` → `GrokBot`, `*deepseek*` → `DeepSeekBot`, otherwise `OpenCodeBot`. Logic lives in `cli_adapter.opencode_bot_prefix()` and is mirrored in `restart-single-agent.sh` + `play.sh`.
 - **Qwen bot username depends on the personality, not agent ID.** The in-house Qwen harness (`orchestrate.py --qwen-sft` / `--qwen-base`) names agents by personality so the in-game bot maps 1:1 to the personality variant being evaluated: `grinder` → `QwenGrinder`, `completionist` → `QwenCompletionist`, `explorer_tinkerer` → `QwenExplorer`. SFT vs base is reflected in `metadata.json::model` (`r10-sft` / `kaetram-base`), not the username, so a 3-agent SFT run and a 3-agent base run share the same Mongo player rows. Logic lives in `orchestrate.Orchestrator.setup` (qwen_username_map) and is mirrored in `restart-single-agent.sh` + `restart-agent.sh` Mongo seeding.
-- **Qwen3.5 chat template drops `<think>` on intermediate turns** (QwenLM/Qwen3 #1831, still open against Qwen3.5 as of May 2026). `patch_qwen_chat_template` in `finetune/render.py` is the single source of truth — imported by `convert_to_qwen.py` (truncation gate), `train_modal.py`, `serve_modal.py`, `serve_modal_base.py` (`train_kto_modal.py` is a deferred planning stub and will re-import it when implemented). If you touch the tokenizer, re-run `tests/unit/test_think_roundtrip.py` to verify CoT survives `apply_chat_template` on every assistant turn.
+- **Qwen3.5 chat template drops `<think>` on intermediate turns** (QwenLM/Qwen3 #1831, still open against Qwen3.5 as of May 2026). `patch_qwen_chat_template` in `finetune/render.py` is the single source of truth — imported by every renderer/serve/train caller (`convert_to_qwen.py`, all `finetune/serve_modal*.py`, `train_modal.py` / `train_opd_2b.py` / `train_opd_modal.py`, and the OPD data build `scripts/opd/opd_2b_data.py` + probes). If you touch the tokenizer, re-run `tests/unit/test_think_roundtrip.py` to verify CoT survives `apply_chat_template` on every assistant turn. This patch *preserves* `<think>` inside multi-turn records — separate from the non-thinking *serving* regime below.
+- **The Qwen serves run NON-thinking (closed-empty `<think></think>`).** At serving time every `finetune/serve_modal*.py` uses the Qwen3.5 template default (no `enable_thinking`), so the generation prompt is a closed-empty `<think>\n\n</think>` — the model reasons as plain content and emits a vestigial trailing `</think>` (the "dangling-`</think>` dialect"). This is deliberate train/serve parity (the OPD data build renders the same way; the regime is held constant across base/teacher/student), so **don't "fix" it with `enable_thinking=True`** — that diverges serve from train and from the reported r1–r3 evals. Why it's valid + the full mechanism: `research/experiments/opd-2b.md` → "The thinking regime".
 - **`world/` is deprecated — not in use.** The forward-dynamics model (`world/extract_transitions.py`, `world/schema.py`, `world/mcts.py`, `world/train_modal.py`) targets the older `browser_run_code` log shape and is not maintained against the current MCP harness. `world/extract_transitions.classify_action` greps for `__attackmob` / `__interactnpc` JS calls that current logs no longer contain; running it on the live corpus would emit zero transitions. Don't update these files when refactoring the SFT pipeline — leave them as-is.
 
 ---

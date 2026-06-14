@@ -8,8 +8,8 @@ base 12 → r1 12 → r2 15 → **r3 18**. The competence is **weights-driven** 
 the cleanest piece, a weights-only result on the same harness base ran on (no affordance). Over
 base, the +6 decomposes as **+3 pure weights (r2, the wall) / +2 harness recovery / +1 r3
 weights** (the +1 is within n=1 noise — the r3 weight update's reliable payoff is speed). Round 3 broke the stage-2 wall and fixed the format defect via the harness recovery
-affordance — but Rick's Roll stayed 0/4 (the same-family teacher can't grade in what it can't
-generatively do). The r2→r3 ablation (round-2 weights + recovery = 17/30) shows the harness
+affordance — but Rick's Roll stayed 0/4 (over-determined: a displaced fishing tool gates link 1
+before cooking is reached, with the cook-incompetent teacher a wall behind it). The r2→r3 ablation (round-2 weights + recovery = 17/30) shows the harness
 carried ~2 of those 3 stages and the r3 weight update ~1, whose distinct payoff is ~2× faster
 progression — so **harness → stages, weights → speed describes the r2→r3 step only; over base,
 weights are the competence engine**. We label 18/30 a weights-plus-interface result and don't lean
@@ -245,9 +245,9 @@ Consequences for how to read the round:
 - **The dialect shift IS directly rewarded, the reasoning *length* is not.** The single token
   the teacher rewards inside the reasoning span is the `</think>` delimiter (+0.212, 79%
   positive) — the entry hook into the reasoning dialect. That cleanly explains the tag rate
-  going 3.5% (base) → 99.9% (r1). It does **not** explain the ~4× growth in reasoning prose
-  (base ~64% of turns carry reasoning content / median ~190 chars on the tagged subset → r1
-  ~100% / ~830), because the prose tokens themselves are suppressed.
+  going 4% (base) → 99% (r1). It does **not** explain the ~4× growth in reasoning prose
+  (base ~64% of turns carry reasoning content / median 195 chars on the tagged subset → r1
+  ~100% / 793), because the prose tokens themselves are suppressed.
 - **The length growth is a trajectory-level mode-seeking effect, not a per-token reward.** The
   student is pulled toward the teacher's high-probability *trajectories* ("reason, then emit a
   clean tool call" — the teacher reasons on 100% of its own turns); the teacher-forced grade on
@@ -260,6 +260,20 @@ Consequences for how to read the round:
   ~36-point propensity gap is the inter-size capability difference) and **false** of how it
   *grades* token-by-token (rewards structure + `</think>`, suppresses prose). Conflating the two
   produces the wrong "teacher taught reasoning by rewarding it" story.
+
+**The thinking regime — why the dangling `</think>`, and why it's valid.** The whole OPD pipeline
+(base-2B rollouts, the 4B teacher's serve + `/score` grading, every r1–r3 eval, and the
+`opd_2b_data._render` build) ran the Qwen3.5 template's **non-thinking default**: a closed-empty
+`<think>\n\n</think>\n\n` generation prompt that says "reasoning is done, answer now." Qwen3.5's
+RL-hardened reasoning prior leaks through that soft suppressor anyway — the model reasons in the
+*content* channel and emits a vestigial close tag with no opener (the "dangling `</think>`"). The
+tag rate is a reasoning-effort gauge, not a real block: base-2B 4% → 4B teacher 100% → distilled
+r1/r2 99% → r3 12%. It is **cosmetic, not a correctness bug**: the tool-call parser ignores think
+tags, train and serve use the identical verbatim-emission format, and the regime is held constant
+across base/teacher/student, so every comparison is apples-to-apples and no result depends on it.
+The regime was inherited from the template default, not chosen (whether thinking-*on* would help is
+untested), and the 99%-vs-12% dangling split is also what let us confirm, after the fact, that the
+pipeline ran non-thinking throughout.
 
 ### Argument-dropout root cause: the teacher shares the defect in-context
 
@@ -320,9 +334,9 @@ and `run_20260608_185339` (base). Beyond the metrics:
   toward template-matching late in the run). Base drifted — sometimes productively
   (finished Anvil's Echoes, ran Scavenger to stage 2) — and out-leveled r1 in raw combat
   (grinder ~L78 vs ~L37). Distillation traded breadth for execution discipline.
-- **Thinking dialect:** 99.9% of r1 turns reason in a dangling-`</think>` dialect
+- **Thinking dialect:** 99% of r1 turns reason in a dangling-`</think>` dialect
   (reasoning as plain content + spurious close tag; the opener lives in the
-  closed-empty-think generation prompt), median ~830–930 chars, zero empty — base's ~4.6%
+  closed-empty-think generation prompt), verbose with zero empty turns — base's 4%
   dialect universalized. Base: 97% of turns have no think structure (median 106 chars,
   ~32% effectively thoughtless), and its rare *long* reasoning (600+ tokens) is
   self-contradicting stream-of-consciousness that doesn't change the chosen action.

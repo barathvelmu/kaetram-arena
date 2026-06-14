@@ -39,7 +39,8 @@ MAX_MODEL_LEN = 32768
 GPU_MEMORY_UTILIZATION = 0.85  # headroom for concurrent prefill spikes (0.92 OOMd under load)
 DTYPE = "bfloat16"
 
-# Qwen3.5-9B thinking mode general defaults (per official model card).
+# Qwen3.5 thinking-mode SAMPLING preset (per the official model card) — sampling values
+# only; the generation prompt below is non-thinking (closed-empty `<think></think>`).
 # Matched to serve_modal.py so base vs finetuned comparison uses identical decode config.
 # Do NOT enable repetition_penalty / frequency_penalty / DRY — they hurt tool-call JSON.
 QWEN_THINK_TEMP = 1.0
@@ -187,7 +188,7 @@ class Inference:
             import re as _re
             body = await request.json()
             messages = body.get("messages", [])
-            # Qwen3.5-9B thinking-general defaults per model card; caller may override.
+            # Qwen3.5 thinking-mode sampling defaults per model card; caller may override.
             temperature = body.get("temperature", QWEN_THINK_TEMP)
             max_tokens = body.get("max_tokens", 512)
             top_p = body.get("top_p", QWEN_THINK_TOP_P)

@@ -264,6 +264,6 @@ vs. prior work: persistent MMORPG (not episodic), shared typed MCP tools (not ca
 
 ## License
 
-Tooling layer around [Kaetram-Open](https://github.com/Kaetram/Kaetram-Open) (MPL-2.0 code, CC-BY-SA 3.0 assets).
-The game server runs with a small set of local modifications — bug fixes, agent-harness plumbing, and disclosed
-difficulty adjustments — described in full in [`reference/KAETRAM_PATCHES.md`](reference/KAETRAM_PATCHES.md).
+The agent, training, and evaluation tooling in this repository is released under the
+[MIT License](LICENSE). It wraps [Kaetram-Open](https://github.com/Kaetram/Kaetram-Open),
+which is licensed separately under MPL-2.0.

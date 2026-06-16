@@ -2,6 +2,9 @@
 
 ![Kaetram Observatory — live monitoring of three Claude agents (grinder, completionist, explorer) playing Kaetram in parallel](assets/kaetram.jpg)
 
+> **Writeups:** ["Hello, World": Learning to Train LLM Agents in 2026](https://x.com/patelnir41/status/2059614365536391636) ·
+> [Beyond Base: How On-Policy Distillation Made Our 2B Better Than It Started](https://x.com/patelnir41/status/2066495377151271386)
+
 **Research project** on **structured game-agent distillation** — making a small open model better at long-horizon, tool-mediated gameplay through a typed MCP tool API as the shared teacher–student interface, in a persistent 2D pixel MMORPG ([Kaetram](https://github.com/Kaetram/Kaetram-Open)).
 
 **Headline result:** on-policy distillation (OPD) took a base **Qwen3.5-2B** from **12/30 to 18/30** on the Core-3 quest benchmark, clearing a quest wall the base model never passes (weights-only, same harness: 3/3 vs 0/3). Teacher: a scaffolded Qwen3.5-4B. This *reversed* the lesson of an earlier 9B SFT lane (r1–r10), where cross-vocabulary imitation of a Claude teacher **regressed** the student 3.5× below base. Full write-up: [`research/experiments/opd-2b.md`](research/experiments/opd-2b.md) + the case-study paper [`reference/overview.pdf`](reference/overview.pdf).

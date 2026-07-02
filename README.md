@@ -1,26 +1,35 @@
-# Kaetram AI Agent
+# Kaetram Arena
 
-![Kaetram Observatory — live monitoring of three Claude agents (grinder, completionist, explorer) playing Kaetram in parallel](assets/kaetram.jpg)
+![Kaetram Observatory: live monitoring of three Claude agents (grinder, completionist, explorer) playing Kaetram in parallel](assets/kaetram.jpg)
 
 > **Writeups:** ["Hello, World": Learning to Train LLM Agents in 2026](https://x.com/patelnir41/status/2059614365536391636) ·
 > [Beyond Base: How On-Policy Distillation Made Our 2B Better Than It Started](https://x.com/patelnir41/status/2066495377151271386)
 
-**Research project** on **structured game-agent distillation** — making a small open model better at long-horizon, tool-mediated gameplay through a typed MCP tool API as the shared teacher–student interface, in a persistent 2D pixel MMORPG ([Kaetram](https://github.com/Kaetram/Kaetram-Open)).
+**Can a 2-billion-parameter open model learn to play a persistent MMORPG?** Kaetram Arena is a research project on **structured game-agent distillation**: teaching a small open model long-horizon, tool-mediated gameplay by having it share one typed MCP tool API with its teacher, inside [Kaetram](https://github.com/Kaetram/Kaetram-Open), a persistent open-world 2D MMORPG. The agent never writes JavaScript and never clicks pixels; it plays through 17 typed tools (`observe`, `attack("goblin")`, `navigate(188, 157)`, `craft_item(...)`), and so does everything that teaches it.
 
-**Headline result:** on-policy distillation (OPD) took a base **Qwen3.5-2B** from **12/30 to 18/30** on the Core-3 quest benchmark, clearing a quest wall the base model never passes (weights-only, same harness: 3/3 vs 0/3). Teacher: a scaffolded Qwen3.5-4B. This *reversed* the lesson of an earlier 9B SFT lane (r1–r10), where cross-vocabulary imitation of a Claude teacher **regressed** the student 3.5× below base. Full write-up: [`research/experiments/opd-2b.md`](research/experiments/opd-2b.md) + the case-study paper [`reference/overview.pdf`](reference/overview.pdf).
+**Headline result:** on-policy distillation (OPD) took a base **Qwen3.5-2B** from **12/30 to 18/30** on the Core-3 quest benchmark, clearing a quest wall the base model never passes (3/3 vs 0/3, weights-only, same harness). The teacher is a scaffolded Qwen3.5-4B. Full experiment record: [`research/experiments/opd-2b.md`](research/experiments/opd-2b.md); case-study paper: [`reference/overview.pdf`](reference/overview.pdf).
 
-The agent calls 17 structured tools (observe, attack, navigate, interact_npc, gather, craft_item, …) — never writes JavaScript or clicks pixels. Sessions across **4 frontier-LLM harnesses** (Claude / Codex / Gemini / OpenCode) are collected as gameplay trajectories (Claude is the primary corpus, the others are cross-harness comparisons), with OpenCode multiplexing across xAI Grok, NVIDIA Qwen3.5, and DeepSeek V4 via `--opencode-model`. Progress is measured against the **Core 3 quest benchmark** (see below).
+**The result is worth telling as a story, because it starts with a failure.** The first serious training lane (r1 to r10) did the obvious thing: collect gameplay trajectories from a frontier teacher (Claude) and fine-tune a 9B student on them. That *regressed* the student 3.5x below its own base. Cross-vocabulary imitation of a stronger model's reasoning turned out to be poison, and that clean negative forced the pivot: keep the teacher in the same model family, scaffold it well, and let it grade the student's *own* visited states token by token (reverse-KL) instead of feeding it someone else's trajectories. That is the OPD lane, and it is the one that works: a 12 to 15 to 18/30 chain across three rounds, with all models and data open on Hugging Face (below).
 
-> **For developers:** see [`CLAUDE.md`](CLAUDE.md) for the full developer reference and [`session_log.md`](session_log.md) for the most recent decisions.
+Built with [Niral Patel](https://x.com/patelnir41).
 
-## What it does
+> **For developers:** [`CLAUDE.md`](CLAUDE.md) is the full developer reference and [`session_log.md`](session_log.md) has the most recent decisions. Everything from **Current status** down is the operational reference for running and developing the system.
 
-- Logs in, navigates the world, fights monsters, loots drops, talks to NPCs, completes quests
-- Extracts real-time game state (nearby entities, combat events, XP) directly from the browser via `page.evaluate()`
-- Records every action as a `(game_state, reasoning, action)` tuple
-- Runs indefinitely in sessions — each session picks up where the last left off
-- Supports multi-agent mode: run N agents in parallel for scaled data collection
-- 3 capability archetypes (GRINDER, COMPLETIONIST, EXPLORER_TINKERER) as a data factory for diverse training trajectories
+## Why this is different from prior work
+
+This project is the basis for a **planned research paper** on **structured game-agent distillation**: distilling LLM gameplay reasoning into a small open model using a typed tool API as the teacher-student interface.
+
+Unlike prior work where LLMs serve as decision advisors for human players ([Think in Games](https://arxiv.org/abs/2508.21365)), generate raw code or click pixels ([CRADLE](https://arxiv.org/abs/2403.03186), [Voyager](https://arxiv.org/abs/2305.16291)), or operate in episodic single-player environments ([Orak](https://arxiv.org/abs/2506.03610), [GamingAgent](https://arxiv.org/abs/2505.15146)), **our agent operates fully autonomously in a persistent open world using a shared typed tool API as the teacher-student interface.**
+
+### What's novel
+
+**1. Shared typed MCP tool vocabulary** — teacher and student call the same 17 typed tools (`attack("goblin")`, `navigate(188, 157)`, `interact_npc("Blacksmith")`), whether the teacher is Claude (SFT lane) or a same-family Qwen3.5-4B (OPD lane) and the student a 9B or 2B. This eliminates action-space mismatch between teacher and student at training time — a structural problem in prior game-agent distillation where teachers write raw code or click pixels the student can't reliably reproduce.
+
+**2. Capability-diverse teacher data** — Claude agents are run under three orthogonal capability archetypes (GRINDER, COMPLETIONIST, EXPLORER_TINKERER) that produce structurally different decision distributions at overlapping game states. The student learns a richer action distribution than any single teacher policy provides. Archetypes are a data-factory mechanism, not a scientific claim — if trajectories collapse, we fall back to two policies (progression and uncertainty/recovery/coverage).
+
+**3. On-policy distillation, straight from the instruct student** — r11 trains with on-policy distillation (OPD) and no SFT init: the student rolls out in-game and a scaffolded larger same-family teacher supervises on the student's *own* visited states (reverse-KL, per-token), co-evolving with harness-affordance improvements rather than freezing the scaffold. The current round distills a scaffolded Qwen3.5-4B teacher into a base-2B student — a capability-instillation test rather than a regression repair (`research/experiments/opd-2b.md`). A label-free preference-learning track (KTO over a 6-dimension automated game-outcome reward — XP, level delta, quest progression, exploration, turn quality, death penalty) is scaffolded as a deferred alternative. Fits the MMORPG setting where there is no binary win condition.
+
+vs. prior work: persistent MMORPG (not episodic), shared typed MCP tools (not categorical labels / raw code / pixel clicks), capability-archetype teacher diversity (not a single teacher), on-policy distillation refinement (not online RL or none), full open source. Detailed comparison table and novelty framing live off-repo.
 
 ## The Core 3 benchmark
 
@@ -33,6 +42,31 @@ Capability progress is measured against three canonical quests that span combat,
 | Q3 | **Rick's Roll** | Fishing + cooking via `craft_item` + dialogue branching + cross-region door routing |
 
 Core-3 stages reached — for the student and its teacher — is the primary capability metric, replacing earlier ad-hoc XP/level deltas.
+
+## What it does
+
+- Logs in, navigates the world, fights monsters, loots drops, talks to NPCs, completes quests
+- Extracts real-time game state (nearby entities, combat events, XP) directly from the browser via `page.evaluate()`
+- Records every action as a `(game_state, reasoning, action)` tuple
+- Runs indefinitely in sessions — each session picks up where the last left off
+- Supports multi-agent mode: run N agents in parallel for scaled data collection
+- 3 capability archetypes (GRINDER, COMPLETIONIST, EXPLORER_TINKERER) as a data factory for diverse training trajectories
+
+## Open source
+
+This is an open-source project. The OPD models and gameplay datasets are published
+on the Hugging Face Hub at **[huggingface.co/patnir41](https://huggingface.co/patnir41)**:
+
+- **Models** — [`kaetram-qwen3.5-2b-opd-r1`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r1) ·
+  [`-r2`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r2) ·
+  [`-r3`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r3) — the 12 → 15 → 18/30 OPD chain (merged weights + LoRA adapters, Apache-2.0).
+- **Datasets** — [`kaetram-opd-2b`](https://huggingface.co/datasets/patnir41/kaetram-opd-2b) (reverse-KL on-policy-distillation records) ·
+  [`kaetram-qwen-rollouts`](https://huggingface.co/datasets/patnir41/kaetram-qwen-rollouts) (raw Qwen gameplay logs across the 2B / 4B / 9B / 27B size ladder).
+
+All released model and data artifacts are Qwen self-play only and Apache-2.0-licensed;
+see each repo's `NOTICE` for base-model and Kaetram-Open attribution.
+
+---
 
 ## Current status
 
@@ -258,38 +292,6 @@ python3 play_qwen.py --endpoint <modal-url> --personality completionist \
 ## World model (deprecated)
 
 Forward dynamics model (2.2M param Transformer) in `world/`. **Deprecated / not in use** — it targets an older `browser_run_code` log shape and is not maintained against the current MCP harness. Originally a concept for MCTS planning and reward shaping. See `world/README.md` for details.
-
-## Research contribution
-
-This project is the basis for a **planned research paper** on **structured game-agent distillation** — distilling frontier LLM gameplay reasoning into a small open model using a typed tool API as the teacher-student interface.
-
-Unlike prior work where LLMs serve as decision advisors for human players ([Think in Games](https://arxiv.org/abs/2508.21365)), generate raw code or click pixels ([CRADLE](https://arxiv.org/abs/2403.03186), [Voyager](https://arxiv.org/abs/2305.16291)), or operate in episodic single-player environments ([Orak](https://arxiv.org/abs/2506.03610), [GamingAgent](https://arxiv.org/abs/2505.15146)), **our agent operates fully autonomously in a persistent open world using a shared typed tool API as the teacher-student interface.**
-
-### What's novel
-
-**1. Shared typed MCP tool vocabulary** — teacher and student call the same 17 typed tools (`attack("goblin")`, `navigate(188, 157)`, `interact_npc("Blacksmith")`), whether the teacher is Claude (SFT lane) or a same-family Qwen3.5-4B (OPD lane) and the student a 9B or 2B. This eliminates action-space mismatch between teacher and student at training time — a structural problem in prior game-agent distillation where teachers write raw code or click pixels the student can't reliably reproduce.
-
-**2. Capability-diverse teacher data** — Claude agents are run under three orthogonal capability archetypes (GRINDER, COMPLETIONIST, EXPLORER_TINKERER) that produce structurally different decision distributions at overlapping game states. The student learns a richer action distribution than any single teacher policy provides. Archetypes are a data-factory mechanism, not a scientific claim — if trajectories collapse, we fall back to two policies (progression and uncertainty/recovery/coverage).
-
-**3. On-policy distillation, straight from the instruct student** — r11 trains with on-policy distillation (OPD) and no SFT init: the student rolls out in-game and a scaffolded larger same-family teacher supervises on the student's *own* visited states (reverse-KL, per-token), co-evolving with harness-affordance improvements rather than freezing the scaffold. The current round distills a scaffolded Qwen3.5-4B teacher into a base-2B student — a capability-instillation test rather than a regression repair (`research/experiments/opd-2b.md`). A label-free preference-learning track (KTO over a 6-dimension automated game-outcome reward — XP, level delta, quest progression, exploration, turn quality, death penalty) is scaffolded as a deferred alternative. Fits the MMORPG setting where there is no binary win condition.
-
-vs. prior work: persistent MMORPG (not episodic), shared typed MCP tools (not categorical labels / raw code / pixel clicks), capability-archetype teacher diversity (not a single teacher), on-policy distillation refinement (not online RL or none), full open source. Detailed comparison table and novelty framing live off-repo.
-
----
-
-## Open source
-
-This is an open-source project. The OPD models and gameplay datasets are published
-on the Hugging Face Hub at **[huggingface.co/patnir41](https://huggingface.co/patnir41)**:
-
-- **Models** — [`kaetram-qwen3.5-2b-opd-r1`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r1) ·
-  [`-r2`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r2) ·
-  [`-r3`](https://huggingface.co/patnir41/kaetram-qwen3.5-2b-opd-r3) — the 12 → 15 → 18/30 OPD chain (merged weights + LoRA adapters, Apache-2.0).
-- **Datasets** — [`kaetram-opd-2b`](https://huggingface.co/datasets/patnir41/kaetram-opd-2b) (reverse-KL on-policy-distillation records) ·
-  [`kaetram-qwen-rollouts`](https://huggingface.co/datasets/patnir41/kaetram-qwen-rollouts) (raw Qwen gameplay logs across the 2B / 4B / 9B / 27B size ladder).
-
-All released model and data artifacts are Qwen self-play only and Apache-2.0-licensed;
-see each repo's `NOTICE` for base-model and Kaetram-Open attribution.
 
 ## License
 

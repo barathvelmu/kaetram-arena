@@ -23,7 +23,7 @@ mechanism arms.
 | Primary | Random-valid state | Uniform registered valid-snapshot pool | Same reconstruction as targeted |
 | Primary | Progress-matched state | Registered progress-stratified pool | Same reconstruction as targeted |
 | Primary | TCOD-B2F prefixes | Evidence-backed teacher-success boundary | Authentic prefix from the same trajectory |
-| Primary | Guided-OPD | Evidence-backed teacher-success boundary | Authentic prefix, annealed linearly from probability 1 to 0 |
+| Primary | Guided-OPD | Fresh canonical live rollout | Shared history of complete teacher- and student-generated turns |
 | Mechanism | Visitation only | Visitation-only persistent-state pool | Matched visible-field reconstruction |
 | Mechanism | Teacher advantage only | Teacher-advantage-only persistent-state pool | Matched visible-field reconstruction |
 | Baseline | Corrected-interface SFT | Corrected-interface teacher trajectory replay | History rendered from that corrected trajectory |
@@ -82,11 +82,19 @@ count. Snapshot-based arms additionally require a passed witness-trajectory or
 invariant-certificate reachability record; “loadable by the server” is not
 treated as evidence of legal reachability.
 
-TCOD-B2F and Guided-OPD accept only teacher-success prefix artifacts with a
-hash-backed, DB-authoritative quest-completion record. TCOD moves backward from
-success over action-token progress. Guided-OPD must linearly anneal teacher-prefix
-probability from 1 to 0 across the entire shared action-token budget. Missing or
-unresolved evidence remains visible in dry-run and blocks execution.
+TCOD-B2F alone accepts teacher-success prefix artifacts with a hash-backed,
+DB-authoritative quest-completion record and moves backward from success over
+action-token progress. Guided-OPD instead requires fresh live mixed rollouts.
+Its published curriculum is frozen to 250 training steps: the probability of a
+complete teacher-generated turn follows cosine decay from 1 to 0 during the
+first 80% of training and is then zero. The probability is held fixed within a
+trajectory, while the actor is drawn independently for every turn. Student
+turns use reverse KL and teacher turns use forward KL.
+
+This protocol branch deliberately keeps Guided-OPD as an unconditional launch
+blocker. It may be inspected and preregistered here, but it cannot execute until
+the reviewed live mixed-rollout collector and actor-conditional objective land;
+resolving artifact placeholders is not sufficient to bypass that gate.
 
 SCoRe accepts only verified first-error-prefix artifacts. Its evidence record
 must identify the first model-visible student error and hash both the evidence

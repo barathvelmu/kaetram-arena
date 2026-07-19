@@ -46,7 +46,7 @@ HISTORY_ABLATION_IDS = (
     "snapshot_matched_reconstructed_history",
     "backplay_witness_annealing",
 )
-PREFIX_ARMS = {"tcod_b2f_prefixes", "guided_opd"}
+PREFIX_ARMS = {"tcod_b2f_prefixes"}
 FIRST_ERROR_ARMS = {"score_first_error_prefixes"}
 REACHABILITY_ARMS = {
     "targeted_persistent_state",
@@ -61,7 +61,7 @@ EXPECTED_ARTIFACT_KINDS = {
     "random_valid_state": "persistent_player_snapshots",
     "progress_matched_state": "persistent_player_snapshots",
     "tcod_b2f_prefixes": "teacher_success_prefixes",
-    "guided_opd": "teacher_success_prefixes",
+    "guided_opd": "guided_live_rollouts",
     "visitation_only": "persistent_player_snapshots",
     "teacher_advantage_only": "persistent_player_snapshots",
     "corrected_interface_sft": "corrected_interface_teacher_trajectories",
@@ -89,8 +89,8 @@ EXPECTED_CONSTRUCTORS = {
         "authentic_teacher_success_prefix", "same_evidence_backed_teacher_trajectory",
     ),
     "guided_opd": (
-        "teacher_success_prefix_state", "restore_state_at_registered_prefix_boundary",
-        "authentic_teacher_success_prefix", "same_evidence_backed_teacher_trajectory",
+        "canonical_guided_rollout", "fresh_canonical_world_online",
+        "guided_mixed_history", "same_live_mixed_rollout",
     ),
     "visitation_only": (
         "visitation_only_persistent_player_state", "hash_verified_database_snapshot_restore",
@@ -397,18 +397,27 @@ def _validate_arm(
         _exact_keys(
             cfg,
             {
-                "schedule", "schedule_basis", "start_teacher_prefix_probability",
-                "end_teacher_prefix_probability", "anneal_action_tokens",
+                "schedule", "schedule_basis", "start_teacher_turn_probability",
+                "end_teacher_turn_probability", "curriculum_ratio",
+                "trajectory_probability", "total_training_steps", "student_turn_loss",
+                "teacher_turn_loss",
             },
             label="arm guided_opd.guided_annealing",
         )
-        if cfg["schedule"] != "linear" or cfg["schedule_basis"] != "action_tokens":
-            raise ProtocolError("Guided-OPD annealing must be linear over action tokens")
-        if cfg["start_teacher_prefix_probability"] != 1.0 \
-                or cfg["end_teacher_prefix_probability"] != 0.0:
-            raise ProtocolError("Guided-OPD must anneal teacher-prefix probability from 1 to 0")
-        if cfg["anneal_action_tokens"] != action_budget:
-            raise ProtocolError("Guided-OPD annealing must span the full shared action-token budget")
+        if cfg["schedule"] != "cosine" or cfg["schedule_basis"] != "training_progress":
+            raise ProtocolError("published Guided-OPD must use cosine training-progress decay")
+        if cfg["start_teacher_turn_probability"] != 1.0 \
+                or cfg["end_teacher_turn_probability"] != 0.0:
+            raise ProtocolError("Guided-OPD teacher-turn probability must decay from 1 to 0")
+        if cfg["curriculum_ratio"] != 0.8:
+            raise ProtocolError("published Guided-OPD curriculum ratio must be 0.8")
+        if cfg["trajectory_probability"] != "held_fixed_within_trajectory":
+            raise ProtocolError("Guided probability must be held fixed within each trajectory")
+        if cfg["total_training_steps"] != 250:
+            raise ProtocolError("published Guided-OPD uses 250 total training steps")
+        if cfg["student_turn_loss"] != "reverse_kl" \
+                or cfg["teacher_turn_loss"] != "forward_kl":
+            raise ProtocolError("Guided-OPD requires student rKL and teacher fKL")
     elif "guided_annealing" in arm:
         raise ProtocolError(f"arm {arm_id} must not define guided_annealing")
     return arm
@@ -618,6 +627,10 @@ def build_plan(path: str | Path) -> TrainingPlan:
             blockers=blockers,
         )
         for index, item in enumerate(arms_raw)
+    )
+    blockers.append(
+        "guided_opd requires the reviewed live mixed-rollout collector and "
+        "actor-conditional reverse-KL/forward-KL trainer before execution"
     )
     if tuple(arm["arm_id"] for arm in arms) != ARM_IDS:
         raise ProtocolError(f"arms must appear exactly in registered order: {list(ARM_IDS)}")

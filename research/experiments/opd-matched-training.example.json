@@ -6,7 +6,7 @@
     "source_git_commit": "UNRESOLVED_FOR_REVIEWED_LIVE_MANIFEST",
     "artifact_registry": {
       "path": "research/experiments/opd-matched-training-artifacts.example.json",
-      "sha256": "86b52374cfa0bf8b4b6b02d75c7503b3b5de70bcb3d413842e6aa87ac8c21dfa"
+      "sha256": "6bc8df9f744b7eed78312db695112462a8eb8723560d887aca6872ac1ef3acb4"
     }
   },
   "shared_inputs": {
@@ -146,22 +146,26 @@
       "arm_id": "guided_opd",
       "role": "primary",
       "objective": "opd",
-      "training_artifact_id": "guided_success_prefixes",
+      "training_artifact_id": "guided_live_rollouts",
       "recovery": "on",
       "state_source": {
-        "kind": "teacher_success_prefix_state",
-        "constructor": "restore_state_at_registered_prefix_boundary"
+        "kind": "canonical_guided_rollout",
+        "constructor": "fresh_canonical_world_online"
       },
       "history_constructor": {
-        "kind": "authentic_teacher_success_prefix",
-        "source": "same_evidence_backed_teacher_trajectory"
+        "kind": "guided_mixed_history",
+        "source": "same_live_mixed_rollout"
       },
       "guided_annealing": {
-        "schedule": "linear",
-        "schedule_basis": "action_tokens",
-        "start_teacher_prefix_probability": 1.0,
-        "end_teacher_prefix_probability": 0.0,
-        "anneal_action_tokens": 2000000
+        "schedule": "cosine",
+        "schedule_basis": "training_progress",
+        "start_teacher_turn_probability": 1.0,
+        "end_teacher_turn_probability": 0.0,
+        "curriculum_ratio": 0.8,
+        "trajectory_probability": "held_fixed_within_trajectory",
+        "total_training_steps": 250,
+        "student_turn_loss": "reverse_kl",
+        "teacher_turn_loss": "forward_kl"
       }
     },
     {

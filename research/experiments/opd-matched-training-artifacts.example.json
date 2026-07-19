@@ -111,17 +111,12 @@
         "scanned_records": 0
       }
     },
-    "guided_success_prefixes": {
-      "kind": "teacher_success_prefixes",
+    "guided_live_rollouts": {
+      "kind": "guided_live_rollouts",
       "status": "unresolved_example",
       "payload": {
-        "uri": "UNRESOLVED://guided-opd-success-prefixes",
+        "uri": "UNRESOLVED://guided-opd-live-rollouts",
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
-      },
-      "teacher_success_evidence": {
-        "status": "unresolved",
-        "metric": "db_authoritative_quest_completion",
-        "evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "held_out_exclusion": {
         "registration_artifact_id": "heldout_registration",

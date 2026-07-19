@@ -80,6 +80,7 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
                 "episode": 1,
                 "status": "ok",
                 "returncode": 0,
+                "duration_seconds": plan.duration_seconds,
                 "turns_played": 100,
                 "core3_stages_advanced": value,
             }],

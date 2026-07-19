@@ -25,7 +25,9 @@ snapshot must explicitly cover every field accepted by the database seeder, so
 omitted values cannot silently inherit defaults. Duplicate snapshots under
 different IDs, unsupported database arguments, unverifiable validity claims,
 missing or digest-mismatched evidence, and any held-out-quest leakage are hard
-errors. Relative evidence paths are resolved beside the candidate JSONL.
+errors. The held-out guard scans the entire candidate record, including source
+run IDs and evidence paths, not only the snapshot. Relative evidence paths are
+resolved beside the candidate JSONL.
 
 ## Selection and controls
 

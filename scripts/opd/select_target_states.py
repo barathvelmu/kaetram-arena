@@ -136,7 +136,7 @@ def load_candidates(path: Path, *, registration_path: Path) -> list[dict[str, An
             )
         try:
             assert_text_not_reserved(
-                json.dumps(snapshot, sort_keys=True),
+                json.dumps(raw, sort_keys=True),
                 use="training_seed",
                 source=f"candidate {state_id}",
                 path=registration_path,

@@ -137,6 +137,11 @@ def test_duplicate_snapshot_and_heldout_leak_fail_closed(tmp_path: Path) -> None
     with pytest.raises(SelectionError, match="held-out quest leakage"):
         build_selection(_candidates(tmp_path, leaking), _config(tmp_path))
 
+    provenance_leak = _pool()
+    provenance_leak[0]["source_run_ids"] = ["desertquest-candidate-discovery"]
+    with pytest.raises(SelectionError, match="held-out quest leakage"):
+        build_selection(_candidates(tmp_path, provenance_leak), _config(tmp_path))
+
 
 def test_missing_progress_control_is_a_hard_error(tmp_path: Path) -> None:
     rows = _pool()

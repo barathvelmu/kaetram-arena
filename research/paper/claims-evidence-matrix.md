@@ -1,0 +1,39 @@
+# Claims-to-evidence matrix
+
+This file is the source of truth for manuscript language. “Supported” means the checked-in evidence is sufficient for the exact wording shown—not that the finding automatically generalizes beyond Kaetram.
+
+| Claim | Current evidence | Status | Allowed wording now | Required upgrade |
+|---|---|---|---|---|
+| r10 SFT performs below base | Base run totals `[7,7,7,7]`; SFT `[3,1,2]`; n=4 versus n=3 runs; one-sided exact Mann–Whitney p=0.0286; Foresting 8/12 versus 1/9, Fisher p=0.0159 | Exploratory | “All four observed base runs exceeded all three SFT runs.” | Restore raw artifacts, predeclare the test, use run-level replication, report multiplicity and CIs |
+| r10 is a 3.5× regression | Mean Core-3 stages 7 versus 2 | Descriptive | “Mean score fell from 7 to 2 in seven exploratory runs.” | Same as above; do not use the ratio as a general effect estimate |
+| Corpus prior becomes inference prior | Aggregate decision-verb frequencies match within about 1pp for several verbs | Hypothesis, not mechanism | “The aggregate tool-use fingerprint is consistent with marginal imitation.” | Matched-state action probabilities, opportunity-normalized recall, and a corrective reweighting intervention |
+| SFT and base share the same typed interface | They share seventeen command names and the MCP execution backend, but base receives native `tools=` schema rendering while SFT does not; the manual schema is incomplete | Refuted as written | “The models share a seventeen-command execution vocabulary and backend.” | Byte-identical schema serialization and full-schema hash parity across train and every eval arm |
+| Scaffold dominates capacity | R11 scouting: 2B 12–13, 4B 12/17, 9B 12–19, 27B 15, with differing durations and n=1–2 per size | Scouting observation | “In our small capacity sweep, larger models did not monotonically improve Core-3 score.” | Matched durations, repeated seeds, uncertainty, and a prespecified capacity analysis |
+| Round one transfers style without competence | Base and r1 both 12/30; tool mix, tempo, and per-verb KL move toward teacher | Descriptive, n=1 arm | “Round one changed measured behavior without changing the run-level benchmark score.” | Independent replications and a fixed held-out state set |
+| Environment-state seeding transfers competence | Base/r1 0/3 and r2 3/3 on the Herbalist wall; r2 15/30 versus base 12/30; eval is unseeded | Strongest causal observation, unreplicated | “The seeded-training round was followed by unanimous unseeded wall passage in one three-agent run.” | Otherwise identical seeded versus unseeded training arms and independent run-level replication |
+| Round two is a pure weights improvement | R2 evaluation used the same harness and no recovery affordance | Provisionally supported | “The clean weights-only comparison is 12/30 to 15/30 in one matched run per arm.” | Replicate and preserve the exact run manifests |
+| Round three reaches 18/30 through weights | R3 used a new tool-recovery affordance; r2 weights plus recovery score 17/30 | Refuted as written | “The final weights-plus-recovery system reached 18/30.” | Full weights × recovery factorial; never call 18/30 pure weights |
+| Teacher-forcing copy prior | Two-sided probe reports roughly 85% teacher probability on continuing malformed syntax in context despite clean teacher generation | Promising mechanism | “A targeted probe reveals a context-dependent endorsement reversal.” | Larger causal sample, clean/malformed paired histories, multiple defects/models, confidence intervals |
+| Harness recovery cures the format defect | 405 recovery-marked sessions, one note each, zero logged relapse after in-context correction | Supported as a system fact | “The recovery affordance corrected the observed defect in this run.” | Replicate under frozen logging; distinguish rewritten logs from raw emissions |
+| The teacher cannot transfer cooking | 4B teacher and post-Herbalist student make zero `craft_item` calls in the audited runs | Conditional null | “No cooking behavior was observed from the same-family teacher in these runs.” | A competent-teacher arm; do not infer a universal impossibility |
+| MCP is novel in game-agent training | Orak uses MCP across twelve games and includes a fine-tuning dataset | Refuted | Do not claim | Position MCP as infrastructure, not novelty |
+| Capability archetype diversity improves training | No one-versus-three ablation | Unsupported | “We collect three prompt variants.” | Direct one-versus-three data/training ablation |
+| KTO improves the agent | KTO entry point is a planning stub; only an old ten-step smoke test is described | Unsupported | “KTO was considered but not evaluated.” | Implemented, preserved, controlled SFT versus SFT+KTO experiment |
+| World model improves play | Deprecated code, no evaluation | Unsupported | Omit | Full evaluation and planning-impact ablation |
+| Continual learning | Repeated rounds on one task, no sequential-task retention protocol | Unsupported | Omit | Sequential skill acquisition plus retention/forgetting evaluation |
+| Cross-environment generality | One game | Unsupported | “Single-environment case study.” | Held-out quest plus second environment |
+
+## Reproducibility audit
+
+The current artifact fails the paper's own reproduction bar:
+
+- `python3 scripts/r10_stats.py` crashes with `KeyError: 'agent_0'` in both the clean clone and the original local checkout.
+- The r10 raw logs and generated SFT dataset are absent from the repository.
+- OPD gate summaries are checked in, but their input records and fixed external test set are absent.
+- The round-two and round-three gates report `0/0` parameter-emitting completions, so the format check is vacuous.
+- Several round-three “non-degenerate” samples are irrelevant prose, code, refusals, or fake tool syntax; the checker detects repetition, not task validity.
+- A focused OPD unit run passed 29 tests and skipped 11 fixture/live-endpoint tests. The full unit suite does not collect in a clean clone because the MCP dependency is not installed from a root lockfile.
+- `eval_harness.py` reads `SCENARIOS[scenario]["max_turns"]` while current scenarios define `duration_minutes`, which can crash result saving.
+- Base and SFT rendering differ: base passes native `tools=` schemas to the Qwen template; SFT intentionally omits them.
+
+No main-paper table should be labeled reproducible until a clean, documented environment regenerates it from a versioned artifact bundle.

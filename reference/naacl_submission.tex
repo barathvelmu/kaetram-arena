@@ -7,8 +7,9 @@
 \usepackage{hyperref}
 \usepackage{url}
 
-% FORMAT NOTE: Built with the current official ACL review template for ARR.
-% Recheck the NAACL 2027 venue-specific CFP before submission.
+% INTERNAL FORMAT NOTE (remove before release): built with the current official
+% ACL review template. As of July 19, 2026, NAACL lists the October 12 ARR
+% deadline, but its main-paper CFP remains forthcoming.
 
 \title{State-Visitation Failures in On-Policy Distillation:\\
 An Audited Agent Case Study and Confirmatory Protocol}
@@ -493,12 +494,18 @@ scaffolding, logging model-visible schemas and raw emissions, separating runtime
 recovery from weights, and reporting failed interventions. No human-subject or
 private-user data are used.
 
-\section*{Acknowledgments and AI Assistance Disclosure}
+% ACL review PDFs must not include acknowledgments. The detailed disclosure is
+% final/preprint-only; material assistance must still be declared in the
+% Responsible NLP Checklist during review.
+\makeatletter
+\ifacl@finalcopy
+  \section*{Acknowledgments and AI Assistance Disclosure}
 
-Large language models materially assisted literature search, code review,
-experimental-design critique, and manuscript drafting. Human authors are
-responsible for every claim, citation, artifact, and submission decision; the
-scope will also be disclosed in the Responsible NLP Checklist.
+  Large language models materially assisted literature search, code review,
+  experimental-design critique, and manuscript drafting. Human authors are
+  responsible for every claim, citation, artifact, and submission decision.
+\fi
+\makeatother
 
 \bibliography{submission}
 
@@ -588,13 +595,5 @@ We will report all runs, bootstrap or randomization-based confidence intervals
 appropriate to the achieved sample, standardized and raw effect sizes, and the
 full family of secondary endpoints with multiplicity handling. Exact categorical
 wall-passage counts will be reported descriptively when sample sizes are small.
-
-\section{Venue and Disclosure Note}
-
-This PDF uses the current official ACL review style as an ARR/NAACL 2027 working
-draft. The NAACL 2027 venue-specific call is not yet published. Recheck the call,
-page limit, responsible NLP checklist, anonymity, author-review registration,
-and commitment rules before submission. ARR prohibits simultaneous archival
-review.
 
 \end{document}

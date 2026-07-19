@@ -18,7 +18,7 @@ AAAI-27 and EACL 2027 are no-go: their deadlines arrive before the required expe
 - Anonymous supplementary code and data; no tracking links.
 - No simultaneous archival review.
 - All authors must complete registration and any assigned reviewing.
-- Material LLM writing, coding, literature-search, or idea assistance must be disclosed in the Responsible NLP Checklist and acknowledgments.
+- Material LLM writing, coding, literature-search, or idea assistance must be disclosed in the Responsible NLP Checklist during review. Review PDFs must not contain acknowledgments; add the detailed acknowledgment only to the final version.
 
 Official sources:
 

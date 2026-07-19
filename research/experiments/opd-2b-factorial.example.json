@@ -13,6 +13,27 @@
     ],
     "replicates": 5
   },
+  "analysis": {
+    "primary_metric": "core3_stages_advanced",
+    "primary_estimands": [
+      "r2_minus_base_recovery_off",
+      "r3_minus_base_recovery_off",
+      "recovery_on_minus_off_base",
+      "recovery_on_minus_off_r2",
+      "recovery_on_minus_off_r3",
+      "r2_minus_base_recovery_interaction",
+      "r3_minus_base_recovery_interaction"
+    ],
+    "familywise_alpha": 0.05,
+    "sample_size": {
+      "phase": "pilot",
+      "planned_replicates": 5,
+      "target_power": 0.8,
+      "confirmatory_replicates": null,
+      "power_analysis_artifact": "",
+      "power_analysis_sha256": ""
+    }
+  },
   "models": {
     "base": {
       "endpoint_env": "KAETRAM_QWEN_2B_BASE_ENDPOINT",

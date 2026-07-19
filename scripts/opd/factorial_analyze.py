@@ -31,7 +31,6 @@ from scripts.opd.factorial_eval import (  # noqa: E402
 )
 
 
-WEIGHT_CONTRASTS = (("r2", "base"), ("r3", "base"), ("r3", "r2"))
 DEFAULT_BOOTSTRAP_SAMPLES = 20_000
 DEFAULT_BOOTSTRAP_SEED = 20_260_718
 
@@ -65,6 +64,16 @@ def load_cell_metric(plan: ExperimentPlan, cell: Cell, metric: str) -> dict[str,
     if isinstance(turns, bool) or not isinstance(turns, int) or turns < 1:
         raise ManifestError(f"cell {cell.cell_id} has no completed agent turns")
     value = _numeric(episode.get(metric), label=f"cell {cell.cell_id} metric {metric}")
+    if metric == "core3_stages_advanced" and (not value.is_integer() or not 0 <= value <= 10):
+        raise ManifestError(
+            f"cell {cell.cell_id} core3_stages_advanced must be an integer in [0, 10]"
+        )
+    provenance_keys = (
+        "inference_seed", "factorial_schedule_algorithm", "factorial_schedule_seed",
+        "factorial_schedule_index", "factorial_batch_index", "factorial_cluster_id",
+        "factorial_pair_id", "environment_seed_mechanism", "environment_seed",
+        "environment_seed_reason",
+    )
     return {
         "cell_id": cell.cell_id,
         "pair_id": cell.pair_id,
@@ -79,6 +88,9 @@ def load_cell_metric(plan: ExperimentPlan, cell: Cell, metric: str) -> dict[str,
         "git_sha": git_sha,
         "results_path": str(path),
         "results_sha256": _sha256(path),
+        "randomization_provenance": {
+            key: meta[key] for key in provenance_keys if key in meta
+        },
     }
 
 
@@ -138,11 +150,19 @@ def _sign_flip_p(values: list[float]) -> float | None:
 
 
 def summarize_effect(
-    *, name: str, deltas: list[float], comparisons: int,
+    *,
+    name: str,
+    definition: str,
+    deltas: list[float],
+    analysis_role: str,
+    sampling_phase: str,
+    comparisons: int | None,
 ) -> dict[str, Any]:
-    p_value = _sign_flip_p(deltas)
+    p_value = _sign_flip_p(deltas) if analysis_role == "primary" else None
     return {
         "name": name,
+        "estimand_definition": definition,
+        "analysis_role": analysis_role,
         "n_replicates": len(deltas),
         "paired_deltas": deltas,
         "mean_delta": statistics.fmean(deltas),
@@ -152,12 +172,32 @@ def summarize_effect(
         "bootstrap_95pct_ci_mean": _bootstrap_ci(deltas),
         "exact_two_sided_sign_flip_p": p_value,
         "bonferroni_comparisons": comparisons,
-        "bonferroni_adjusted_p": min(1.0, p_value * comparisons) if p_value is not None else None,
-        "inference_status": "confirmatory_eligible" if len(deltas) >= 5 else "pilot_only",
+        "bonferroni_adjusted_p": (
+            min(1.0, p_value * comparisons)
+            if p_value is not None and comparisons is not None else None
+        ),
+        "inference_status": (
+            "confirmatory_preregistered"
+            if sampling_phase == "confirmatory" else "preliminary_only"
+        ),
     }
 
 
-def build_analysis(plan: ExperimentPlan, metric: str) -> dict[str, Any]:
+def _replicate_deltas(
+    by_arm: dict[tuple[int, str, bool], float],
+    replicates: list[int],
+    fn: Any,
+) -> list[float]:
+    return [float(fn(replicate, by_arm)) for replicate in replicates]
+
+
+def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str, Any]:
+    metric = metric or plan.primary_metric
+    if metric != plan.primary_metric:
+        raise ManifestError(
+            f"analysis metric {metric!r} does not match preregistered primary metric "
+            f"{plan.primary_metric!r}"
+        )
     rows = [load_cell_metric(plan, cell, metric) for cell in plan.cells]
     git_shas = sorted({row["git_sha"] for row in rows})
     if len(git_shas) != 1:
@@ -168,49 +208,199 @@ def build_analysis(plan: ExperimentPlan, metric: str) -> dict[str, Any]:
         for row in clusters
     }
     replicates = sorted({row["replicate"] for row in clusters})
-    effects: list[dict[str, Any]] = []
-    comparisons = 3 + (2 * len(WEIGHT_CONTRASTS))
-    for weight in ("base", "r2", "r3"):
-        deltas = [
-            by_arm[(replicate, weight, True)] - by_arm[(replicate, weight, False)]
-            for replicate in replicates
-        ]
-        effects.append(summarize_effect(
-            name=f"recovery_on_minus_off/{weight}", deltas=deltas, comparisons=comparisons,
-        ))
-    for recovery in (False, True):
-        for treatment, control in WEIGHT_CONTRASTS:
-            deltas = [
-                by_arm[(replicate, treatment, recovery)] - by_arm[(replicate, control, recovery)]
-                for replicate in replicates
-            ]
-            effects.append(summarize_effect(
-                name=f"{treatment}_minus_{control}/recovery_{'on' if recovery else 'off'}",
-                deltas=deltas,
-                comparisons=comparisons,
-            ))
+    comparisons = len(plan.primary_estimands)
+
+    def arm(replicate: int, weight: str, recovery: bool) -> float:
+        return by_arm[(replicate, weight, recovery)]
+
+    primary_specs = {
+        "r2_minus_base_recovery_off": (
+            "E[Y(r2, recovery=off) - Y(base, recovery=off)]",
+            lambda r, _b: arm(r, "r2", False) - arm(r, "base", False),
+        ),
+        "r3_minus_base_recovery_off": (
+            "E[Y(r3, recovery=off) - Y(base, recovery=off)]",
+            lambda r, _b: arm(r, "r3", False) - arm(r, "base", False),
+        ),
+        "recovery_on_minus_off_base": (
+            "E[Y(base, recovery=on) - Y(base, recovery=off)]",
+            lambda r, _b: arm(r, "base", True) - arm(r, "base", False),
+        ),
+        "recovery_on_minus_off_r2": (
+            "E[Y(r2, recovery=on) - Y(r2, recovery=off)]",
+            lambda r, _b: arm(r, "r2", True) - arm(r, "r2", False),
+        ),
+        "recovery_on_minus_off_r3": (
+            "E[Y(r3, recovery=on) - Y(r3, recovery=off)]",
+            lambda r, _b: arm(r, "r3", True) - arm(r, "r3", False),
+        ),
+        "r2_minus_base_recovery_interaction": (
+            "E[(Y(r2,on)-Y(base,on)) - (Y(r2,off)-Y(base,off))]",
+            lambda r, _b: (
+                arm(r, "r2", True) - arm(r, "base", True)
+                - arm(r, "r2", False) + arm(r, "base", False)
+            ),
+        ),
+        "r3_minus_base_recovery_interaction": (
+            "E[(Y(r3,on)-Y(base,on)) - (Y(r3,off)-Y(base,off))]",
+            lambda r, _b: (
+                arm(r, "r3", True) - arm(r, "base", True)
+                - arm(r, "r3", False) + arm(r, "base", False)
+            ),
+        ),
+    }
+    primary_effects = [
+        summarize_effect(
+            name=name,
+            definition=primary_specs[name][0],
+            deltas=_replicate_deltas(by_arm, replicates, primary_specs[name][1]),
+            analysis_role="primary",
+            sampling_phase=plan.sampling_phase,
+            comparisons=comparisons,
+        )
+        for name in plan.primary_estimands
+    ]
+
+    factorial_specs = (
+        (
+            "recovery_main_effect",
+            "E_w[Y(w,on)-Y(w,off)], equally weighted over base, r2, and r3",
+            lambda r, _b: statistics.fmean(
+                arm(r, weight, True) - arm(r, weight, False)
+                for weight in ("base", "r2", "r3")
+            ),
+        ),
+        (
+            "r2_minus_base_main_effect",
+            "E_recovery[Y(r2,recovery)-Y(base,recovery)], equally weighted over off/on",
+            lambda r, _b: statistics.fmean(
+                arm(r, "r2", recovery) - arm(r, "base", recovery)
+                for recovery in (False, True)
+            ),
+        ),
+        (
+            "r3_minus_base_main_effect",
+            "E_recovery[Y(r3,recovery)-Y(base,recovery)], equally weighted over off/on",
+            lambda r, _b: statistics.fmean(
+                arm(r, "r3", recovery) - arm(r, "base", recovery)
+                for recovery in (False, True)
+            ),
+        ),
+        (
+            "r3_minus_r2_main_effect",
+            "E_recovery[Y(r3,recovery)-Y(r2,recovery)], equally weighted over off/on",
+            lambda r, _b: statistics.fmean(
+                arm(r, "r3", recovery) - arm(r, "r2", recovery)
+                for recovery in (False, True)
+            ),
+        ),
+    )
+    factorial_main_effects = [
+        summarize_effect(
+            name=name,
+            definition=definition,
+            deltas=_replicate_deltas(by_arm, replicates, fn),
+            analysis_role="secondary_factorial",
+            sampling_phase=plan.sampling_phase,
+            comparisons=None,
+        )
+        for name, definition, fn in factorial_specs
+    ]
+
+    secondary_specs = (
+        (
+            "r2_minus_base_recovery_on",
+            "E[Y(r2,recovery=on)-Y(base,recovery=on)]",
+            lambda r, _b: arm(r, "r2", True) - arm(r, "base", True),
+        ),
+        (
+            "r3_minus_base_recovery_on",
+            "E[Y(r3,recovery=on)-Y(base,recovery=on)]",
+            lambda r, _b: arm(r, "r3", True) - arm(r, "base", True),
+        ),
+        (
+            "r3_minus_r2_recovery_off",
+            "E[Y(r3,recovery=off)-Y(r2,recovery=off)]",
+            lambda r, _b: arm(r, "r3", False) - arm(r, "r2", False),
+        ),
+        (
+            "r3_minus_r2_recovery_on",
+            "E[Y(r3,recovery=on)-Y(r2,recovery=on)]",
+            lambda r, _b: arm(r, "r3", True) - arm(r, "r2", True),
+        ),
+        (
+            "r3_minus_r2_recovery_interaction",
+            "E[(Y(r3,on)-Y(r2,on))-(Y(r3,off)-Y(r2,off))]",
+            lambda r, _b: (
+                arm(r, "r3", True) - arm(r, "r2", True)
+                - arm(r, "r3", False) + arm(r, "r2", False)
+            ),
+        ),
+    )
+    secondary_effects = [
+        summarize_effect(
+            name=name,
+            definition=definition,
+            deltas=_replicate_deltas(by_arm, replicates, fn),
+            analysis_role="secondary_simple_effect",
+            sampling_phase=plan.sampling_phase,
+            comparisons=None,
+        )
+        for name, definition, fn in secondary_specs
+    ]
+
+    randomization_fields = (
+        "schedule_algorithm", "schedule_seed", "inference_seeds",
+        "environment_seed_mechanism", "environment_seed", "environment_seed_reason",
+    )
+    randomization = {
+        field: getattr(plan, field)
+        for field in randomization_fields
+        if hasattr(plan, field)
+    }
     return {
-        "schema_version": "kaetram-opd-factorial-analysis-v1",
+        "schema_version": "kaetram-opd-factorial-analysis-v2",
         "experiment_id": plan.experiment_id,
         "manifest": plan.manifest,
         "metric": metric,
+        "preregistered_primary_metric": plan.primary_metric,
         "independent_unit": "DB-reset replicate",
         "personality_handling": "summed within replicate x weight x recovery arm",
         "n_replicates": len(replicates),
         "n_cells": len(rows),
         "n_cluster_arms": len(clusters),
         "source_git_sha": git_shas[0],
+        "sample_size_contract": {
+            "phase": plan.sampling_phase,
+            "planned_replicates": len(replicates),
+            "target_power": plan.target_power,
+            "confirmatory_replicates": plan.confirmatory_replicates,
+            "power_analysis_artifact": plan.power_analysis_artifact,
+            "power_analysis_sha256": plan.power_analysis_sha256,
+            "status": (
+                "power_preregistered_confirmatory"
+                if plan.sampling_phase == "confirmatory" else "pilot_preliminary"
+            ),
+        },
         "multiple_comparisons": {
-            "family": "three recovery contrasts plus six weight contrasts",
+            "family": "seven preregistered primary estimands",
             "count": comparisons,
             "adjustment": "Bonferroni",
+            "familywise_alpha": plan.familywise_alpha,
+            "per_comparison_alpha": plan.familywise_alpha / comparisons,
         },
         "bootstrap": {
             "method": "percentile bootstrap of paired mean delta",
             "samples": DEFAULT_BOOTSTRAP_SAMPLES,
             "seed": DEFAULT_BOOTSTRAP_SEED,
         },
-        "effects": effects,
+        "primary_estimands": primary_effects,
+        "factorial_main_effects": factorial_main_effects,
+        "secondary_simple_effects": secondary_effects,
+        "effects": primary_effects + factorial_main_effects + secondary_effects,
+        "randomization_provenance": randomization or {
+            "status": "not_available_in_launcher_manifest_schema"
+        },
         "clusters": clusters,
         "cells": rows,
     }
@@ -243,7 +433,10 @@ def write_cluster_csv(path: Path, analysis: dict[str, Any]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
-    parser.add_argument("--metric", required=True, help="numeric episode metric to aggregate")
+    parser.add_argument(
+        "--metric",
+        help="optional assertion; must equal analysis.primary_metric in the manifest",
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--clusters-csv", type=Path, required=True)
     args = parser.parse_args()

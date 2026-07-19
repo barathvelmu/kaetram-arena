@@ -9,7 +9,9 @@ Default behavior is preflight only. Launching requires all three of:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -28,6 +30,15 @@ REQUIRED_WEIGHTS = ("base", "r2", "r3")
 REQUIRED_RECOVERY = (False, True)
 REQUIRED_PERSONALITIES = ("grinder", "completionist", "explorer_tinkerer")
 PERSONALITY_CODES = {"grinder": "g", "completionist": "c", "explorer_tinkerer": "e"}
+REQUIRED_PRIMARY_ESTIMANDS = (
+    "r2_minus_base_recovery_off",
+    "r3_minus_base_recovery_off",
+    "recovery_on_minus_off_base",
+    "recovery_on_minus_off_r2",
+    "recovery_on_minus_off_r3",
+    "r2_minus_base_recovery_interaction",
+    "r3_minus_base_recovery_interaction",
+)
 
 
 class ManifestError(ValueError):
@@ -63,6 +74,14 @@ class ExperimentPlan:
     omit_game_knowledge: bool
     held_out_quest: str
     held_out_registration: str
+    primary_metric: str
+    primary_estimands: tuple[str, ...]
+    familywise_alpha: float
+    sampling_phase: str
+    target_power: float
+    confirmatory_replicates: int | None
+    power_analysis_artifact: str
+    power_analysis_sha256: str
     allow_launch: bool
     max_parallel: int
     cells: tuple[Cell, ...]
@@ -75,6 +94,15 @@ def _require(mapping: dict[str, Any], key: str, kind: type, context: str) -> Any
     return value
 
 
+def _finite_number(value: Any, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ManifestError(f"{label} must be a finite number")
+    value = float(value)
+    if not math.isfinite(value):
+        raise ManifestError(f"{label} must be a finite number")
+    return value
+
+
 def load_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
     manifest_path = Path(path).resolve()
     try:
@@ -84,6 +112,102 @@ def load_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
     if not isinstance(raw, dict) or raw.get("schema_version") != 1:
         raise ManifestError("manifest schema_version must be 1")
     return raw, manifest_path
+
+
+def _resolve_manifest_path(raw_path: str) -> Path:
+    path = Path(raw_path)
+    return path.resolve() if path.is_absolute() else (REPO / path).resolve()
+
+
+def _validate_power_contract(
+    *,
+    raw: dict[str, Any],
+    experiment_id: str,
+    replicates: int,
+    primary_metric: str,
+    primary_estimands: tuple[str, ...],
+    familywise_alpha: float,
+) -> tuple[str, float, int | None, str, str]:
+    sampling = _require(raw, "sample_size", dict, "analysis")
+    phase = _require(sampling, "phase", str, "analysis.sample_size")
+    if phase not in {"pilot", "confirmatory"}:
+        raise ManifestError("analysis.sample_size.phase must be 'pilot' or 'confirmatory'")
+    planned_replicates = sampling.get("planned_replicates")
+    if planned_replicates != replicates:
+        raise ManifestError(
+            "analysis.sample_size.planned_replicates must equal design.replicates"
+        )
+    target_power = _finite_number(
+        sampling.get("target_power"), label="analysis.sample_size.target_power"
+    )
+    if not 0.8 <= target_power < 1:
+        raise ManifestError("analysis.sample_size.target_power must be in [0.8, 1)")
+    confirmatory_replicates = sampling.get("confirmatory_replicates")
+    artifact_raw = sampling.get("power_analysis_artifact", "")
+    artifact_sha = sampling.get("power_analysis_sha256", "")
+    if not isinstance(artifact_raw, str) or not isinstance(artifact_sha, str):
+        raise ManifestError("power-analysis artifact path and SHA-256 must be strings")
+
+    if phase == "pilot":
+        if confirmatory_replicates is not None or artifact_raw or artifact_sha:
+            raise ManifestError(
+                "pilot sample-size contract must leave confirmatory_replicates and "
+                "power-analysis artifact fields unset"
+            )
+        return phase, target_power, None, "", ""
+
+    if (
+        isinstance(confirmatory_replicates, bool)
+        or not isinstance(confirmatory_replicates, int)
+        or confirmatory_replicates < 1
+    ):
+        raise ManifestError(
+            "confirmatory sample-size contract requires a positive confirmatory_replicates"
+        )
+    if confirmatory_replicates != replicates:
+        raise ManifestError(
+            "confirmatory_replicates must equal design.replicates; do not change n after launch"
+        )
+    if not artifact_raw or not re.fullmatch(r"[0-9a-f]{64}", artifact_sha):
+        raise ManifestError(
+            "confirmatory sample-size contract requires a power-analysis artifact and SHA-256"
+        )
+    artifact_path = _resolve_manifest_path(artifact_raw)
+    try:
+        artifact_bytes = artifact_path.read_bytes()
+        power = json.loads(artifact_bytes)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ManifestError(f"cannot load registered power analysis {artifact_path}: {exc}") from exc
+    actual_sha = hashlib.sha256(artifact_bytes).hexdigest()
+    if actual_sha != artifact_sha:
+        raise ManifestError(
+            f"registered power analysis SHA-256 mismatch: expected {artifact_sha}, got {actual_sha}"
+        )
+    expected = {
+        "schema_version": "kaetram-opd-power-analysis-v1",
+        "experiment_id": experiment_id,
+        "primary_metric": primary_metric,
+        "primary_estimands": list(primary_estimands),
+        "familywise_alpha": familywise_alpha,
+        "target_power": target_power,
+        "planned_replicates": replicates,
+    }
+    if not isinstance(power, dict):
+        raise ManifestError("registered power analysis root must be an object")
+    mismatches = {
+        key: {"expected": expected_value, "actual": power.get(key)}
+        for key, expected_value in expected.items()
+        if power.get(key) != expected_value
+    }
+    if mismatches:
+        raise ManifestError(f"registered power analysis does not match manifest: {mismatches}")
+    method = power.get("method")
+    assumptions = power.get("assumptions")
+    if not isinstance(method, str) or not method.strip():
+        raise ManifestError("registered power analysis must name its method")
+    if not isinstance(assumptions, dict) or not assumptions:
+        raise ManifestError("registered power analysis must record non-empty assumptions")
+    return phase, target_power, confirmatory_replicates, str(artifact_path), artifact_sha
 
 
 def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> ExperimentPlan:
@@ -102,6 +226,39 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         raise ManifestError("design.recovery must contain exactly false and true")
     if isinstance(replicates, bool) or not isinstance(replicates, int) or replicates < 1:
         raise ManifestError("design.replicates must be a positive integer")
+
+    analysis = _require(raw, "analysis", dict, "manifest")
+    primary_metric = _require(analysis, "primary_metric", str, "analysis").strip()
+    if not re.fullmatch(r"[a-z][a-z0-9_]{2,63}", primary_metric):
+        raise ManifestError("analysis.primary_metric must be a metric identifier")
+    primary_estimands_raw = _require(
+        analysis, "primary_estimands", list, "analysis"
+    )
+    primary_estimands = tuple(primary_estimands_raw)
+    if primary_estimands != REQUIRED_PRIMARY_ESTIMANDS:
+        raise ManifestError(
+            "analysis.primary_estimands must exactly match the registered ordered estimand family: "
+            f"{list(REQUIRED_PRIMARY_ESTIMANDS)}"
+        )
+    familywise_alpha = _finite_number(
+        analysis.get("familywise_alpha"), label="analysis.familywise_alpha"
+    )
+    if not 0 < familywise_alpha < 1:
+        raise ManifestError("analysis.familywise_alpha must be between 0 and 1")
+    (
+        sampling_phase,
+        target_power,
+        confirmatory_replicates,
+        power_analysis_artifact,
+        power_analysis_sha256,
+    ) = _validate_power_contract(
+        raw=analysis,
+        experiment_id=experiment_id,
+        replicates=replicates,
+        primary_metric=primary_metric,
+        primary_estimands=primary_estimands,
+        familywise_alpha=familywise_alpha,
+    )
 
     models = _require(raw, "models", dict, "manifest")
     if set(models) != set(REQUIRED_WEIGHTS):
@@ -233,6 +390,14 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         omit_game_knowledge=omit_game_knowledge,
         held_out_quest=registration.quest_name if registration else "",
         held_out_registration=str(registration.path) if registration else "",
+        primary_metric=primary_metric,
+        primary_estimands=primary_estimands,
+        familywise_alpha=familywise_alpha,
+        sampling_phase=sampling_phase,
+        target_power=target_power,
+        confirmatory_replicates=confirmatory_replicates,
+        power_analysis_artifact=power_analysis_artifact,
+        power_analysis_sha256=power_analysis_sha256,
         allow_launch=allow_launch,
         max_parallel=max_parallel,
         cells=tuple(cells),

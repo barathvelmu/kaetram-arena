@@ -53,25 +53,43 @@ it is `canonical` before analysis.
 
 ## Fail-closed clustered analysis
 
-After every cell completes, analyze a preregistered episode metric with the
-three personality lanes summed inside each independent DB-reset replicate:
+After every cell completes, analyze the manifest-registered primary metric with
+the three personality lanes summed inside each independent DB-reset replicate:
 
 ```bash
 python3 scripts/opd/factorial_analyze.py \
   research/experiments/opd-2b-factorial.example.json \
-  --metric held_out_quest_completed_delta \
   --out artifacts/opd-factorial-analysis.json \
   --clusters-csv artifacts/opd-factorial-clusters.csv
 ```
 
 The analyzer rejects a missing/failed cell, zero-turn episode, endpoint
-misattribution, absent metric, mixed source commits, non-canonical schema, or
-attempt to overwrite an existing analysis artifact. It reports `n=5`
-replicates—not `n=90` cells—and computes paired recovery and weights contrasts
-on replicate-level cluster sums. The nine prespecified contrasts use exact
-two-sided sign-flip tests with Bonferroni adjustment and deterministic
-percentile-bootstrap intervals. Designs with fewer than five replicates are
-marked `pilot_only` and receive no p-value.
+misattribution, absent or out-of-range metric, mixed source commits,
+non-canonical schema, a metric override, or an attempt to overwrite an existing
+analysis artifact. The current example reports `n=5` replicates—not `n=90`
+cells—and is unconditionally labeled `preliminary_only`: replicate count alone
+can never promote a pilot to confirmatory status.
+
+The seven ordered primary estimands are frozen in `analysis.primary_estimands`:
+the r2 and r3 weights effects versus base with recovery off, recovery on-minus-off
+within each of base/r2/r3, and the r2-vs-base and r3-vs-base recovery
+difference-in-differences interactions. They receive exact two-sided sign-flip
+tests, deterministic percentile-bootstrap intervals, and one Bonferroni family.
+The analyzer also reports equally weighted factorial main effects over recovery
+and weights, plus the remaining simple effects, as explicitly secondary
+estimates without confirmatory p-values.
+
+## Power-registered confirmatory sample
+
+The checked-in five-replicate manifest is a cost-estimation pilot, not a final
+sample-size recommendation. A confirmatory manifest must set
+`analysis.sample_size.phase="confirmatory"`, make `planned_replicates` and
+`confirmatory_replicates` exactly equal `design.replicates`, and register a
+power-analysis JSON artifact by SHA-256 before launch. The artifact must bind
+the experiment ID, primary metric, exact ordered estimands, familywise alpha,
+target power, planned replicate count, method, and assumptions. Missing,
+changed, or contradictory artifacts fail preflight. This makes the final sample
+an explicit power-driven contract rather than the old `n >= 5` heuristic.
 
 ## Isolation and pairing
 
@@ -82,15 +100,15 @@ unlocked held-out registration. Recovery is set explicitly per child process:
 the off cell removes `KAETRAM_TOOL_RECOVERY`; the on cell sets it to `1`.
 `execution.max_parallel` is a hard launch cap; the checked-in design uses six.
 
-The confirmatory unit is the independent `replicate`, not an individual agent
+The independent unit is the `replicate`, not an individual agent
 episode. Each replicate contains the three fixed historical personality lanes
 (`grinder`, `completionist`, `explorer_tinkerer`) under all six weights ×
 recovery arms. Each lane runs exactly one DB-reset episode; the launcher rejects
 `episodes != 1`, so additional independent observations must be added through
 `design.replicates`. Aggregate the three personality strata within each
-`replicate × arm`, then make paired arm comparisons across the five replicate
-clusters. Do not report the 90 lane cells as `n=90`; the confirmatory sample is
-`n=5` independent replicate clusters per arm. `pair_id` pairs recovery off/on
+`replicate × arm`, then make paired arm comparisons across replicate clusters.
+Do not report the 90 lane cells as `n=90`; the example's pilot sample is `n=5`
+independent replicate clusters per arm. `pair_id` pairs recovery off/on
 within a replicate, weight, and personality; `cluster_id` groups all three
 personality lanes for a replicate and weight.
 

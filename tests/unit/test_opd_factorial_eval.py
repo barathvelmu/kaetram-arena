@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -150,6 +151,68 @@ def test_confirmatory_manifest_requires_three_historical_personality_lanes(tmp_p
         raw["evaluation"]["personalities"] = ["completionist"]
 
     with pytest.raises(ManifestError, match="personalities"):
+        build_plan(_manifest_copy(tmp_path, mutate))
+
+
+def test_manifest_rejects_changed_or_reordered_primary_estimands(tmp_path: Path):
+    def mutate(raw):
+        raw["analysis"]["primary_estimands"].reverse()
+
+    with pytest.raises(ManifestError, match="primary_estimands"):
+        build_plan(_manifest_copy(tmp_path, mutate))
+
+
+def test_pilot_cannot_self_promote_to_confirmatory_by_replicate_count(tmp_path: Path):
+    def mutate(raw):
+        raw["design"]["replicates"] = 20
+        raw["analysis"]["sample_size"]["planned_replicates"] = 20
+
+    plan = build_plan(_manifest_copy(tmp_path, mutate))
+    assert plan.sampling_phase == "pilot"
+    assert plan.confirmatory_replicates is None
+
+
+def test_confirmatory_contract_requires_matching_hashed_power_analysis(tmp_path: Path):
+    artifact = tmp_path / "power.json"
+    power = {
+        "schema_version": "kaetram-opd-power-analysis-v1",
+        "experiment_id": "opd-2b-weights-x-recovery-v1",
+        "primary_metric": "core3_stages_advanced",
+        "primary_estimands": [
+            "r2_minus_base_recovery_off",
+            "r3_minus_base_recovery_off",
+            "recovery_on_minus_off_base",
+            "recovery_on_minus_off_r2",
+            "recovery_on_minus_off_r3",
+            "r2_minus_base_recovery_interaction",
+            "r3_minus_base_recovery_interaction",
+        ],
+        "familywise_alpha": 0.05,
+        "target_power": 0.8,
+        "planned_replicates": 20,
+        "method": "paired-difference power calculation",
+        "assumptions": {"minimum_detectable_delta": 3, "paired_sd": 3},
+    }
+    artifact.write_text(json.dumps(power, sort_keys=True) + "\n")
+    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
+
+    def mutate(raw):
+        raw["design"]["replicates"] = 20
+        raw["analysis"]["sample_size"].update({
+            "phase": "confirmatory",
+            "planned_replicates": 20,
+            "confirmatory_replicates": 20,
+            "power_analysis_artifact": str(artifact),
+            "power_analysis_sha256": digest,
+        })
+
+    plan = build_plan(_manifest_copy(tmp_path, mutate))
+    assert plan.sampling_phase == "confirmatory"
+    assert plan.confirmatory_replicates == 20
+    assert plan.power_analysis_sha256 == digest
+
+    artifact.write_text(artifact.read_text() + " ")
+    with pytest.raises(ManifestError, match="SHA-256 mismatch"):
         build_plan(_manifest_copy(tmp_path, mutate))
 
 

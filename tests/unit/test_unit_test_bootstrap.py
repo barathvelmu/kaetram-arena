@@ -74,3 +74,8 @@ def test_clean_checkout_guard_rejects_user_changes(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(bootstrap_unit_tests, "_git", fake_git)
     with pytest.raises(bootstrap_unit_tests.BootstrapError, match="dirty checkout"):
         bootstrap_unit_tests.require_clean_checkout()
+
+
+def test_managed_environment_names_are_gitignored() -> None:
+    ignore = (REPO_ROOT / ".gitignore").read_text().splitlines()
+    assert ".venv-unit-tests*/" in ignore

@@ -236,7 +236,14 @@ def _history_alias_scan(record: dict[str, Any], aliases: list[str], *, record_id
         raise ProtocolError(f"source record {record_id} leaks held-out alias(es): {leaked}")
 
 
-def _validate_arrays(supervision: dict[str, Any], *, objective: str, record_id: str) -> int:
+def _validate_arrays(
+    supervision: dict[str, Any],
+    *,
+    objective: str,
+    record_id: str,
+    tokenizer_vocab_size: int,
+    forbidden_token_sequences: list[list[int]],
+) -> int:
     _exact_keys(
         supervision,
         {"input_ids", "labels", "advantages", "behavior_logprobs", "step_weight"},
@@ -245,13 +252,27 @@ def _validate_arrays(supervision: dict[str, Any], *, objective: str, record_id: 
     input_ids = supervision["input_ids"]
     labels = supervision["labels"]
     if not isinstance(input_ids, list) or not input_ids or not all(
-        isinstance(value, int) and not isinstance(value, bool) and value >= 0 for value in input_ids
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value < tokenizer_vocab_size
+        for value in input_ids
     ):
-        raise ProtocolError(f"record {record_id} input_ids must be non-empty token IDs")
+        raise ProtocolError(
+            f"record {record_id} input_ids must be non-empty in-vocabulary token IDs"
+        )
     if not isinstance(labels, list) or len(labels) != len(input_ids) or not all(
-        isinstance(value, int) and not isinstance(value, bool) for value in labels
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and (value == -100 or 0 <= value < tokenizer_vocab_size)
+        for value in labels
     ):
-        raise ProtocolError(f"record {record_id} labels must align with input_ids")
+        raise ProtocolError(
+            f"record {record_id} labels must align and contain only -100 or in-vocabulary token IDs"
+        )
+    for sequence in forbidden_token_sequences:
+        width = len(sequence)
+        if any(input_ids[index:index + width] == sequence for index in range(len(input_ids) - width + 1)):
+            raise ProtocolError(f"record {record_id} input_ids leak a held-out token sequence")
     action_tokens = sum(label != -100 for label in labels)
     if action_tokens < 1:
         raise ProtocolError(f"record {record_id} has no supervised action tokens")
@@ -421,6 +442,8 @@ def _validate_source_record(
     cell: dict[str, Any],
     arm: dict[str, Any],
     aliases: list[str],
+    tokenizer_vocab_size: int,
+    forbidden_token_sequences: list[list[int]],
     render_sha: str,
     source_artifact_id: str,
     source_payload_sha: str,
@@ -468,7 +491,13 @@ def _validate_source_record(
     _history_alias_scan(record, aliases, record_id=record_id)
 
     supervision = _mapping(record["supervision"], label=f"record {record_id}.supervision")
-    action_tokens = _validate_arrays(supervision, objective=arm["objective"], record_id=record_id)
+    action_tokens = _validate_arrays(
+        supervision,
+        objective=arm["objective"],
+        record_id=record_id,
+        tokenizer_vocab_size=tokenizer_vocab_size,
+        forbidden_token_sequences=forbidden_token_sequences,
+    )
     usage = _mapping(record["budget_usage"], label=f"record {record_id}.budget_usage")
     _exact_keys(
         usage,
@@ -711,6 +740,25 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
     aliases = heldout.get("aliases")
     if not isinstance(aliases, list) or not aliases or not all(isinstance(alias, str) and alias for alias in aliases):
         raise ProtocolError("held-out registration aliases are invalid")
+    tokenizer_vocab_size = heldout.get("tokenizer_vocab_size")
+    if not isinstance(tokenizer_vocab_size, int) or isinstance(tokenizer_vocab_size, bool) \
+            or tokenizer_vocab_size < 1:
+        raise ProtocolError("held-out registration tokenizer_vocab_size is invalid")
+    forbidden_token_sequences = heldout.get("forbidden_token_sequences")
+    if not isinstance(forbidden_token_sequences, list) or not forbidden_token_sequences:
+        raise ProtocolError("held-out registration must include forbidden token sequences")
+    if not all(
+        isinstance(sequence, list)
+        and sequence
+        and all(
+            isinstance(token, int)
+            and not isinstance(token, bool)
+            and 0 <= token < tokenizer_vocab_size
+            for token in sequence
+        )
+        for sequence in forbidden_token_sequences
+    ):
+        raise ProtocolError("held-out registration forbidden token sequences are invalid")
 
     training_artifact_id = arm.get("training_artifact_id")
     artifact, source_path, source_payload_sha = _verified_material(
@@ -764,6 +812,8 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
             cell=cell,
             arm=arm,
             aliases=aliases,
+            tokenizer_vocab_size=tokenizer_vocab_size,
+            forbidden_token_sequences=forbidden_token_sequences,
             render_sha=render_sha,
             source_artifact_id=training_artifact_id,
             source_payload_sha=source_payload_sha,

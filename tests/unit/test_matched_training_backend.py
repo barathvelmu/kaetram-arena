@@ -97,6 +97,8 @@ def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
             "heldout": {
                 "kind": "heldout_registration", "status": "verified",
                 "quest": "held-out-quest", "aliases": ["secret-quest-alias"],
+                "tokenizer_vocab_size": 1000,
+                "forbidden_token_sequences": [[777, 778]],
             },
             "natural": {
                 "kind": "on_policy_rollouts", "status": "verified",
@@ -248,3 +250,40 @@ def test_heldout_alias_scan_checks_values_not_json_keys() -> None:
     record["history"]["content"].append("mentions SECRET-QUEST-ALIAS here")
     with pytest.raises(mt.ProtocolError, match="leaks held-out alias"):
         backend._history_alias_scan(record, ["secret-quest-alias"], record_id="record-1")
+
+
+@pytest.mark.parametrize("bad_label", [-2, 1000])
+def test_array_validation_rejects_invalid_label_token_ids(bad_label) -> None:
+    supervision = {
+        "input_ids": [10, 11],
+        "labels": [-100, bad_label],
+        "advantages": [0.0, 1.0],
+        "behavior_logprobs": [0.0, -0.2],
+        "step_weight": 1.0,
+    }
+    with pytest.raises(mt.ProtocolError, match="in-vocabulary token IDs"):
+        backend._validate_arrays(
+            supervision,
+            objective="opd",
+            record_id="record-1",
+            tokenizer_vocab_size=1000,
+            forbidden_token_sequences=[[777, 778]],
+        )
+
+
+def test_array_validation_rejects_heldout_token_sequence() -> None:
+    supervision = {
+        "input_ids": [10, 777, 778, 11],
+        "labels": [-100, 777, 778, 11],
+        "advantages": [0.0, 1.0, 1.0, 1.0],
+        "behavior_logprobs": [0.0, -0.2, -0.2, -0.1],
+        "step_weight": 1.0,
+    }
+    with pytest.raises(mt.ProtocolError, match="held-out token sequence"):
+        backend._validate_arrays(
+            supervision,
+            objective="opd",
+            record_id="record-1",
+            tokenizer_vocab_size=1000,
+            forbidden_token_sequences=[[777, 778]],
+        )

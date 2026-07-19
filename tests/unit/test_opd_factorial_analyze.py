@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from scripts.opd.factorial_analyze import _sign_flip_p, build_analysis
-from scripts.opd.factorial_eval import ManifestError, build_plan
+from scripts.opd.factorial_eval import (
+    ManifestError,
+    build_plan,
+    seal_cell_bundle,
+    seal_completed_inventory,
+)
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -40,6 +45,18 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
         value = weight_offset[cell.weight] + int(cell.recovery)
         path = Path(cell.run_dir) / cell.cell_id / "results.json"
         path.parent.mkdir(parents=True)
+        (Path(cell.run_dir) / "launcher.log").write_text("launcher output\n")
+        (path.parent / "system_prompt.md").write_text("resolved prompt\n")
+        (path.parent / "episode_001.jsonl").write_text('{"type":"assistant"}\n')
+        (path.parent / "episode_001_state.json").write_text(json.dumps({
+            "schema_version": "kaetram.eval-state-boundary.v1",
+            "episode": 1,
+        }))
+        raw_dir = path.parent / "episode_001_raw"
+        raw_dir.mkdir()
+        (raw_dir / "session_1_test.log").write_text(
+            '{"type":"raw_model_emission","content":"exact"}\n'
+        )
         path.write_text(json.dumps({
             "meta": {
                 "model": cell.cell_id,
@@ -69,9 +86,16 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
         }))
 
 
+def _seal(plan) -> None:
+    for cell in plan.cells:
+        seal_cell_bundle(plan, cell)
+    seal_completed_inventory(plan)
+
+
 def test_analysis_uses_replicates_not_personality_cells_as_n(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     _write_results(plan)
+    _seal(plan)
     analysis = build_analysis(plan, "core3_stages_advanced")
     assert analysis["n_cells"] == 360
     assert analysis["n_cluster_arms"] == 120
@@ -107,6 +131,7 @@ def test_analysis_uses_replicates_not_personality_cells_as_n(tmp_path: Path) -> 
 def test_one_replicate_is_explicitly_preliminary_only(tmp_path: Path) -> None:
     plan = _plan(tmp_path, replicates=1, phase="pilot")
     _write_results(plan)
+    _seal(plan)
     analysis = build_analysis(plan, "core3_stages_advanced")
     assert all(effect["inference_status"] == "preliminary_only" for effect in analysis["effects"])
     assert all(effect["exact_two_sided_sign_flip_p"] is None for effect in analysis["effects"])
@@ -115,6 +140,7 @@ def test_one_replicate_is_explicitly_preliminary_only(tmp_path: Path) -> None:
 def test_analysis_rejects_unregistered_metric_override(tmp_path: Path) -> None:
     plan = _plan(tmp_path, replicates=1)
     _write_results(plan)
+    _seal(plan)
     with pytest.raises(ManifestError, match="does not match preregistered"):
         build_analysis(plan, "held_out_quest_completed_delta")
 
@@ -122,13 +148,14 @@ def test_analysis_rejects_unregistered_metric_override(tmp_path: Path) -> None:
 def test_analysis_fails_closed_on_missing_cell(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     _write_results(plan, omit_cell=plan.cells[-1].cell_id)
-    with pytest.raises(ManifestError, match="no valid results artifact"):
+    with pytest.raises(ManifestError, match="completed factorial inventory"):
         build_analysis(plan, "core3_stages_advanced")
 
 
 def test_analysis_rejects_mixed_source_commits(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     _write_results(plan, alternate_sha_cell=plan.cells[-1].cell_id)
+    _seal(plan)
     with pytest.raises(ManifestError, match="multiple source commits"):
         build_analysis(plan, "core3_stages_advanced")
 
@@ -141,6 +168,7 @@ def test_analysis_rejects_missing_metric(tmp_path: Path) -> None:
     result = json.loads(path.read_text())
     del result["episodes"][0]["core3_stages_advanced"]
     path.write_text(json.dumps(result))
+    _seal(plan)
     with pytest.raises(ManifestError, match="must be a finite numeric value"):
         build_analysis(plan)
 
@@ -153,6 +181,7 @@ def test_analysis_rejects_out_of_range_primary_metric(tmp_path: Path) -> None:
     result = json.loads(path.read_text())
     result["episodes"][0]["core3_stages_advanced"] = 11
     path.write_text(json.dumps(result))
+    _seal(plan)
     with pytest.raises(ManifestError, match=r"integer in \[0, 10\]"):
         build_analysis(plan)
 

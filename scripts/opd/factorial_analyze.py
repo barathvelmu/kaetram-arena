@@ -28,6 +28,7 @@ from scripts.opd.factorial_eval import (  # noqa: E402
     ExperimentPlan,
     ManifestError,
     build_plan,
+    validate_completed_inventory,
     validate_cell_result,
 )
 
@@ -198,6 +199,7 @@ def _replicate_deltas(
 
 
 def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str, Any]:
+    validate_completed_inventory(plan)
     metric = metric or plan.primary_metric
     if metric != plan.primary_metric:
         raise ManifestError(

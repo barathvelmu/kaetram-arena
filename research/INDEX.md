@@ -46,6 +46,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 - [overview.pdf](../reference/overview.pdf) (`reference/overview.tex`) — **The 15-page OPD case-study technical report (base→r3 end-to-end).** This is the historical evidence record, not a conference-ready manuscript. Regenerate: `pdflatex reference/overview.tex` (×2)
 - [naacl_submission.tex](../reference/naacl_submission.tex) — **Evidence-safe ACL-format working manuscript for the NAACL 2027 / ARR path.** Its current results are explicitly exploratory; submission is gated on the matched and held-out experiments in `paper/experiment-plan.md`.
+- [pr-integration-audit.md](paper/pr-integration-audit.md) — exact merge/rebase order, cross-PR conflicts, and fail-closed compute gates for the current paper stack.
 - [reviewer-handoff.md](paper/reviewer-handoff.md) — Central handoff for collaborators: PR order, current truth, experiment launch gates, work packages, and review checklist
 - [contribution.md](paper/contribution.md) — Paper 1: What's novel, framing, outline, key ablations needed
 - [VARIABLES.md](paper/VARIABLES.md) — Design-variables catalog (KAE-49): every knob reviewers can question, grouped by layer

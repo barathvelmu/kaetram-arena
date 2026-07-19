@@ -21,9 +21,9 @@ The verdict remains **2/10, strong reject**, but the failure surface is now shar
    12/15/17/18 are one unmatched historical run per cell and their raw bundles are absent.
 3. The 20 frozen-checkpoint evaluation clusters do not replicate training. Only fresh training
    seeds can support a method-level uncertainty claim.
-4. A stacked launcher could have made an unfaithful Guided-OPD approximation executable. Guided
-   must remain unconditionally blocked until fresh mixed-turn collection and actor-conditional
-   forward/reverse-KL training exist.
+4. A stacked launcher could have made an unfaithful Guided-OPD approximation executable. PRs
+   #48--#51 remain blocked; PR #52 validates the faithful role/bundle contract but still blocks
+   because the live collector and actor-conditioned objective backend are absent.
 5. The copy-prior evidence does not contain the four paired cells required for a preference
    reversal. It supports, at most, a reported positive teacher-over-student advantage for one
    malformed continuation.
@@ -78,7 +78,7 @@ The complete severity and release-gate ledger is in
 
 ## Manuscript consequence
 
-The 15-page report remains a historical record. The submission draft is organized around the research question, evidence grades, and confirmatory design. It must not be rewritten into success language until the experiments change the evidence status.
+The 14-page report remains a historical record. The submission draft is organized around the research question, evidence grades, and confirmatory design. It must not be rewritten into success language until the experiments change the evidence status.
 
 ## Independent pass 2 — July 19, 2026
 
@@ -131,8 +131,8 @@ first stage of a SCoRe-style condition and fails closed before Stage 2. A
 primary-source audit rejected an unfaithful Guided-OPD prefix approximation;
 the published baseline requires complete teacher/student turn mixing with a
 trajectory-constant, training-step cosine schedule and actor-conditional
-forward/reverse KL. PR #52 now freezes and validates that collection contract,
-but blocks before the missing live collector and asymmetric objective. Verified
-training inputs, that faithful Guided execution, and accelerator execution
-remain unresolved. The paper remains an audited hypothesis report and
-confirmatory protocol.
+forward/reverse KL. PR #52 validates the faithful schedule and mixed-history
+record contract but deliberately blocks the legacy trainer; the live collector
+and asymmetric objective backend remain unimplemented. Verified training
+inputs, faithful Guided execution, and accelerator execution remain unresolved.
+The paper remains an audited hypothesis report and confirmatory protocol.

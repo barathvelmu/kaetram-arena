@@ -53,7 +53,8 @@ on code-path and port chronology rather than raw run metadata, which is missing.
 `eval_harness.py` looks up display names such as `Foresting`. A deterministic fixture therefore
 scores internal `foresting` stage 3 as zero while the display-name spelling scores three. Fix the
 mapping, cover all 3+3+4 stages with a regression test, and rerun every prospective score through
-the corrected metric.
+the corrected metric. Draft PR #53 implements the internal-key mapping and regression fixtures;
+the gate remains closed until the PR is merged and deployed.
 
 ### P0.3 Historical headline artifacts are absent
 
@@ -106,14 +107,16 @@ checkpoints. They do **not** replicate training and cannot support a population 
 training method. The five fresh-LoRA training seeds in the planned matrix are the relevant
 training-procedure replicates.
 
-### P1.3 Guided-OPD stack composition could have executed the wrong algorithm
+### P1.3 Guided-OPD execution remains unimplemented
 
 An earlier draft froze teacher-success prefix state and linearly annealed prefix-token
 probability. The published method instead collects fresh live mixed-turn rollouts, samples complete
 teacher/student turns with a cosine schedule fixed within a trajectory, and applies actor-specific
 forward/reverse KL. Because a later generic backend could make the earlier manifest executable,
-merge-order prose alone was insufficient. The stack must fail closed for Guided-OPD until the live
-collector and actor-conditional objective exist.
+merge-order prose alone was insufficient. PRs #48--#51 remain fail-closed for Guided-OPD. PR #52
+validates the 250-step role schedule and complete mixed-history bundle contract, then reports
+`guided_collection_supported_objective_blocked`. The live mixed-turn collector and
+actor-conditioned forward/reverse-KL execution backend remain unimplemented.
 
 ### P1.4 Copy-prior evidence is not a four-cell reversal
 
@@ -235,7 +238,8 @@ interaction without cross-run arithmetic.
 ### Current format
 
 - ACL style files are byte-identical to the current official repository.
-- Current draft is nine A4 pages; main content ends on page seven.
+- Current draft is ten A4 pages; main content ends on page seven, references
+  begin on page eight, and appendices occupy pages nine and ten.
 - Fonts are embedded; no broken references, undefined citations, clipping, or overfull boxes were
   found in the pre-review render.
 - A repository-root build script now fails on LaTeX errors, unresolved citations/references,

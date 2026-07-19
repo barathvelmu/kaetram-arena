@@ -1,6 +1,6 @@
 # Paper 1 reviewer handoff
 
-Updated: July 18, 2026
+Updated: July 19, 2026
 
 ## The short version
 
@@ -28,15 +28,53 @@ Review and merge in this order:
 5. [PR #41 — immutable manifests and clean-clone reproduction](https://github.com/patnir411/kaetram-arena/pull/41)
    - Adds create-only run manifests, artifact/dataset/checkpoint hashes, secret-safe provenance, exact-commit checkout, and external-bundle reproduction preflight.
 6. [PR #42 — 2B factorial launcher and held-out evaluation](https://github.com/patnir411/kaetram-arena/pull/42)
-   - Adds the five-replicate, three-personality weights × recovery launcher and the preregistered held-out/no-walkthrough condition.
+   - Adds the registered three-checkpoint weights × recovery evaluation matrix
+     and the held-out/no-walkthrough condition.
+   - Its evaluation clusters quantify frozen-checkpoint behavior; they do not
+     replicate training.
    - Depends on PR #40's canonical-schema mode and must not be used for live compute before the P0 smoke gate.
-7. [PR #39 — recovery and copy-prior diagnostics](https://github.com/patnir411/kaetram-arena/pull/39)
+7. [PR #53 — correct Core-3 quest-key scoring](https://github.com/patnir411/kaetram-arena/pull/53)
+   - Uses the internal quest identifiers returned by the database and tolerates
+     partial snapshots without fabricating progress.
+   - Must merge before any prospective Core-3 score is trusted.
+8. [PR #39 — recovery and copy-prior diagnostics](https://github.com/patnir411/kaetram-arena/pull/39)
    - Audits malformed emissions and harness recovery, and scores paired malformed/canonical continuations under repaired history/docs.
    - Records whether it reproduces the historical no-schema grading context or PR #40's canonical native-schema context; do not pool those interfaces.
-8. [PR #35 — paper audit and research plan](https://github.com/patnir411/kaetram-arena/pull/35) (this PR)
+9. [PR #43 — historical-evidence validation](https://github.com/patnir411/kaetram-arena/pull/43)
+   - Makes historical analysis fail closed on missing, corrupt, or semantically
+     trivial session evidence.
+10. [PR #44 — registered factorial analysis](https://github.com/patnir411/kaetram-arena/pull/44)
+    - Verifies the registered protocol and sealed inputs before producing
+      outputs; it does not turn evaluation repeats into training replication.
+11. [PR #45 — targeted-state curriculum](https://github.com/patnir411/kaetram-arena/pull/45)
+    - Adds prospective reachability and selector contracts; no live
+      reachability certificate exists yet.
+12. [PR #46 — clean-clone bootstrap](https://github.com/patnir411/kaetram-arena/pull/46)
+    - Pins the prospective CPU test environment and documents service/data
+      skips; it does not reproduce a historical result.
+13. [PR #47 — randomness contracts](https://github.com/patnir411/kaetram-arena/pull/47)
+    - Registers paired inference/environment seeds and a game-startup
+      attestation; it depends on Kaetram-Open PR #333.
+14. [PR #48 — matched-training launcher](https://github.com/patnir411/kaetram-arena/pull/48), then stacked
+    [#49](https://github.com/patnir411/kaetram-arena/pull/49),
+    [#51](https://github.com/patnir411/kaetram-arena/pull/51), and finally sibling
+    [#50](https://github.com/patnir411/kaetram-arena/pull/50) /
+    [#52](https://github.com/patnir411/kaetram-arena/pull/52)
+    - #48--#51 remain fail-closed preparation/training infrastructure.
+    - #50 is an incomplete SCoRe-style condition and blocks before Stage 2.
+    - #52 validates the published 250-step role schedule and complete
+      mixed-history bundle contract, then blocks the legacy trainer. The live
+      collector and actor-conditioned objective backend are still absent.
+15. [PR #35 — paper audit and research plan](https://github.com/patnir411/kaetram-arena/pull/35) (this PR)
    - Adds the evidence-safe ACL-format manuscript, refreshed technical-report PDF, venue audit, adversarial reviewer simulation, claim audit, and minimum experiment package.
 
-PRs #36–#38 intentionally separate result serialization, database semantics, and wrapper completion behavior. PRs #39–#41 are separate review units. PR #42 is explicitly stacked on #40 to pre-resolve their shared harness entry-point change; after #40 merges, its prerequisite commit/files collapse from #42's diff. PR #39's canonical-schema condition also assumes #40. No new training, deployment, database mutation, or live inference was performed while preparing #39–#42.
+PRs #36–#38 and #53 intentionally separate result serialization, database
+semantics, wrapper completion behavior, and metric semantics. PRs #39–#41 are
+separate review units. PR #42 is stacked on #40; #44, #45, and #47 then inherit
+the launcher contract. The training stack is #48 -> #49 -> #51, with #50 and
+#52 as sibling descendants of #51. No new training, deployment, database
+mutation, or live inference was performed while preparing or auditing these
+branches.
 
 ## Historical scope of PR #37's database-lane bug
 
@@ -71,8 +109,13 @@ KAE-79 through KAE-85 are blocked on their relevant P0 tickets so the board does
 
 - Round two is the least-confounded historical recovery-off observation: the score was 15/30 versus the base run's 12/30, and wall passage was 3/3 versus 0/3 among clustered prompt variants. Exact checkpoint/configuration parity, the gameplay-RNG seed, and independent reproduction remain unavailable, so it is not a clean weights-only comparison.
 - Round-three reaches 18/30 only with a model-interface recovery affordance. It must be labeled weights plus recovery, not a pure weight result.
-- Round-two weights plus recovery reaches 17/30 in one ablation run. This is suggestive, not a replicated factorial estimate.
-- The malformed-history copy-prior observation is a plausible mechanism: a teacher can locally prefer continuation of malformed syntax already present in context. The current sample is too small for a general causal claim.
+- Round-two weights plus recovery was reported at 17/30 in one unmatched
+  historical run. It is not a controlled ablation or factorial estimate.
+- The malformed-history copy-prior observation is a mechanism hypothesis: one
+  targeted state reportedly gave a malformed continuation positive
+  teacher-over-student distillation advantage. It did not compare both
+  canonical and malformed candidates in the same state and therefore does not
+  establish that the teacher preferred malformed syntax.
 - The historical r10 base/SFT comparison is exploratory evidence of regression, not a clean causal SFT baseline.
 
 ## What is not currently supported
@@ -88,7 +131,7 @@ KAE-79 through KAE-85 are blocked on their relevant P0 tickets so the board does
 
 Before spending additional training or evaluation compute:
 
-- Merge PRs #36–#38 and run their focused tests in a clean clone.
+- Merge PRs #36–#38 and #53 and run their focused tests in a clean clone.
 - Pin the Kaetram-Arena and Kaetram-Open commits, environment image, dependencies, model/tokenizer revisions, prompts, decode settings, and database lane.
 - Freeze a normalized full tool-schema snapshot and hash.
 - Introduce an explicit, versioned render contract shared by new training and serving code.
@@ -112,13 +155,15 @@ Train fresh students from the same checkpoint. Hold teacher, optimizer, scored-t
 
 Collect successful same-family 4B trajectories and train a fresh 2B student with the same native schema render used at evaluation. Match the OPD action-token or compute budget. The historical Claude-to-9B r10 result is not a substitute.
 
-Draft PR #51 now supplies a direct-token, hash-pinned execution path and freezes
-the shared fresh-LoRA parameterization, but no verified trajectory bundle or
+Draft PR #51 supplies a direct-token, hash-pinned execution path and freezes the
+shared fresh-LoRA parameterization, but no verified trajectory bundle or
 accelerator run exists. Draft PR #50 prepares SCoRe-style correction SFT and
 blocks before its second stage; it is not a completed SCoRe baseline. Draft PR
-#52 freezes and validates the published Guided complete-turn cosine schedule,
-but live mixed collection and actor-conditional forward/reverse-KL training are
-still absent and the legacy trainer aborts before model loading.
+#52 freezes the published 250-step cosine role schedule and validates complete
+mixed-history records, but intentionally reports
+`guided_collection_supported_objective_blocked`. The live mixed-rollout
+collector and actor-conditioned forward/reverse-KL execution backend remain
+unimplemented; no model or accelerator run occurred.
 
 ### WP4 — Recovery-mechanism controls
 

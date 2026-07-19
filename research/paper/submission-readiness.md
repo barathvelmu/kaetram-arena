@@ -1,10 +1,10 @@
-# Paper 1 submission readiness — July 18, 2026
+# Paper 1 submission readiness — July 19, 2026
 
 ## Decision
 
 **Do not submit the current manuscript to AAAI-27 or EACL 2027. Target NAACL 2027 through the October 12, 2026 ARR cycle. Keep ICLR 2027 only as a stretch option if its official call appears and the full experiment package is ready by early September.**
 
-AAAI-27 is not the remembered September deadline. Its abstract is due **July 21, 2026** and the full paper is due **July 28, 2026**, both AoE. The main track allows seven content pages. The current technical report is fifteen pages, the central OPD result has one run per arm, and the public artifact cannot reproduce the reported statistics. A ten-day conversion would be a rushed lottery ticket, not a serious top-paper attempt.
+AAAI-27 is not the remembered September deadline. Its abstract is due **July 21, 2026** and the full paper is due **July 28, 2026**, both AoE. The main track allows seven content pages. The historical technical report is fourteen pages, the central OPD result has one run per arm, and the public artifact cannot reproduce the reported statistics. A ten-day conversion would be a rushed lottery ticket, not a serious top-paper attempt.
 
 NAACL 2027 confirms an October 12, 2026 ARR deadline and a June 1–5, 2027 conference in San Francisco. Current ARR rules allow eight content pages for long papers, require the ACL template and a dedicated Limitations section, use two-way anonymized review, and require disclosure of material LLM assistance. The venue-specific NAACL call is not yet published, so recheck it before submission.
 
@@ -48,7 +48,9 @@ The paper moves from **no-go** to **submission candidate** only when all of thes
 8. At least one serious OPD baseline is run under the same harness and budget.
 9. The manuscript is anonymous, within the venue page limit, and includes reproducibility, ethics, and required LLM-use disclosure.
 
-If gates 3–6 are not complete before the eventual ICLR deadline, wait for COLM or ICML rather than submit an underpowered case study.
+If gates 3–8 are not complete before the October 12 ARR deadline, use TMLR as
+the rolling fallback or wait for a later conference rather than submit an
+underpowered case study.
 
 ## Submission policy
 
@@ -91,7 +93,8 @@ The authors must also retain full responsibility for the paper and follow the ch
 
 ### Weeks 6–7: write the conference paper
 
-- Convert the technical report into a nine-page ICLR-style paper if the 2027 rules match the prior cycle.
+- Replace protocol-heavy space in the ACL-format draft with executed results,
+  run-level uncertainty, mechanism tests, and held-out transfer.
 - Move engineering history and exhaustive failure logs to the appendix.
 - Lead with one causal result, one mechanism, and one generalization result.
 
@@ -101,7 +104,7 @@ The authors must also retain full responsibility for the paper and follow the ch
 - Perform an internal reviewer pass for novelty, statistics, confounds, and anonymity.
 - Submit only if the go/no-go gates above remain satisfied.
 
-## Recommended nine-page structure
+## Recommended eight-content-page ACL structure
 
 1. Introduction and three contributions — 1 page
 2. Related work and novelty boundary — 0.75 page

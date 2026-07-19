@@ -372,9 +372,11 @@ normalizes every arm's immutable record contract. Stacked drafts additionally
 freeze one fresh LoRA parameterization across the matrix, provide a direct-token
 corrected-interface SFT trainer, and prepare the first stage of the SCoRe-style
 condition. They do not supply verified arm artifacts, a completed SCoRe-style
-second stage, a faithful Guided-OPD objective, or accelerator execution. Results
-are not reported until those remaining implementation boundaries, the full
-protocol, and immutable run bundles exist.
+second stage, a live Guided-OPD collector and actor-conditioned objective
+backend, or accelerator execution. One stacked draft validates the prospective
+Guided-OPD role schedule and complete mixed-history record contract, then
+blocks the legacy trainer. Results are not reported until the remaining
+implementation boundaries, the full protocol, and immutable run bundles exist.
 
 \paragraph{Primary endpoint and unit.}
 The independent unit is a six-hour run from a fresh canonical-start world with no
@@ -622,12 +624,13 @@ another stacked draft freezes a fresh bf16 LoRA ($r=64$, $\alpha=64$) over the
 same seven attention/MLP projections for every cell and provides a direct-token
 corrected-interface SFT execution path without re-rendering. A separate
 SCoRe-style adapter prepares correction SFT but fails closed before its
-short-horizon reward stage. A third draft corrects Guided-OPD to complete-turn
-teacher/student sampling, freezes its cosine training-step curriculum, and
-validates mixed-history role traces, but deliberately blocks the legacy trainer.
-Verified training bundles, a live Guided-OPD mixed-turn collector and
-actor-conditional forward/reverse-KL objective, the SCoRe-style second-stage
-artifacts, and accelerator execution remain absent. These
+short-horizon reward stage. A third draft validates prospective Guided-OPD
+records with complete-turn teacher/student roles, a frozen cosine training-step
+curriculum, and mixed-history traces; earlier stacked branches remain blocked
+from executing an unfaithful approximation. The live mixed-turn collector and
+actor-conditioned forward/reverse-KL backend remain unimplemented. Verified
+training bundles, SCoRe-style second-stage artifacts, and accelerator results
+also remain absent. These
 omissions are release blockers, not appendix footnotes.
 
 \section{Planned Statistical Analysis}

@@ -11,19 +11,20 @@ compose across the stack.
 1. #36 result saving
 2. #37 database-lane alignment
 3. #38 paired-evaluation completion checks
-4. #40 model-visible render contract
-5. rebase and resolve #42 factorial launcher
-6. functionally integrate #41 immutable manifests and #47 randomness contract
-7. rebase #44 factorial analysis and #45 targeted-state curriculum independently
-8. merge #48 matched-training launcher after #40/#41 contracts stabilize
-9. review and merge stacked #49 preparation adapter after #48; preserve its
+4. #53 internal-key Core-3 scoring
+5. #40 model-visible render contract
+6. rebase and resolve #42 factorial launcher
+7. functionally integrate #41 immutable manifests and #47 randomness contract
+8. rebase #44 factorial analysis and #45 targeted-state curriculum independently
+9. merge #48 matched-training launcher after #40/#41 contracts stabilize
+10. review and merge stacked #49 preparation adapter after #48; preserve its
    explicit `prepared_not_trained` boundary
-10. review and merge stacked #51 after #49; it freezes the shared LoRA
+11. review and merge stacked #51 after #49; it freezes the shared LoRA
     parameterization and adds the direct-token corrected-interface SFT path
-11. review #50 and #52 on top of #51 so SCoRe-style Stage 1 and the Guided-OPD
+12. review #50 and #52 on top of #51 so SCoRe-style Stage 1 and the Guided-OPD
     contract inherit the identical parameterization contract
-12. merge structurally independent #39, #43, and #46 when reviewed
-13. merge #35 paper/audit after its cited code contracts stabilize
+13. merge structurally independent #39, #43, and #46 when reviewed
+14. merge #35 paper/audit after its cited code contracts stabilize
 
 #42 already contains #40. #44 and #45 each contain #42/#40, so their diffs
 should narrow after prerequisites merge.
@@ -48,8 +49,10 @@ should narrow after prerequisites merge.
 - #44 now verifies the hashed protocol, computes factorial marginal effects and
   difference-in-differences interactions, and cannot promote a five-run pilot
   to confirmatory status.
-- The resulting weights-by-recovery plan is 20 replicate clusters, 360 six-hour
-  cells, or 2,160 cell-hours. Capacity and cost require explicit operator review.
+- The resulting weights-by-recovery plan is 20 evaluation replicate clusters,
+  360 six-hour cells, or 2,160 cell-hours. These repeats estimate uncertainty
+  conditional on frozen checkpoints; they are not training-procedure
+  replication. Capacity and cost require explicit operator review.
 
 These are draft implementations pending maintainer review and ordered merge;
 they do not make the historical results reproducible.
@@ -96,9 +99,10 @@ they do not make the historical results reproducible.
   curriculum with an 0.8 decay ratio, holds its probability fixed within each
   trajectory, and binds each hashed complete pre-observation response to its
   action-position token IDs, labels, append-only mixed history, and
-  teacher/forward-KL or student/reverse-KL metadata. It remains explicitly objective-blocked:
-  live mixed-rollout collection and the actor-conditional trainer do not exist,
-  and the legacy PPO-style trainer aborts before model loading.
+  teacher/forward-KL or student/reverse-KL metadata. #52 validates these
+  prospective records and then reports
+  `guided_collection_supported_objective_blocked`; the live collector and
+  asymmetric execution backend remain unimplemented.
 
 ## Historical database-bug scope
 
@@ -109,36 +113,50 @@ independent replay of those headline values.
 
 ## Audit checks performed
 
-- #42/#44 focused suite: 44 passed.
-- #36: 31 passed.
-- #37: 30 passed.
-- #38: 10 passed.
-- #43: 5 passed.
-- Real #42 serializer into #44 analyzer on a synthetic 18-cell factorial:
-  passed mechanically, but exposed the estimand and provenance gaps above.
-- Hardened #42 unit suite: 195 passed, 31 expected skips.
-- Hardened composed #42/#44 unit suite: 204 passed, 31 expected skips.
-- Complete-cell evidence sealing and post-run revalidation suite on #42: 47
-  passed; every sealed artifact and requested/completed cell is re-hashed.
-- #44 merged the new #42 contract and refuses analysis until the sealed
-  completion inventory and every underlying artifact revalidate: 56 focused
-  tests passed.
-- #47 composed with #42's newest bundle contract and the deterministic game
-  handshake: 218 passed, 31 expected skips.
-- #45 merged #42's newest bundle/revalidation contract; reachability, selector,
-  held-out, factorial, logging, and manifest focused suite: 77 passed.
-- #48 corrected matched-training protocol: 17 focused passed; full prospective unit suite
-  151 passed with 31 expected dependency/artifact skips.
-- Stacked #49 preparation adapter: 22 focused passed; broader unit suite 153
-  passed with 31 expected dependency skips. Optional MCP/PyMongo and live
-  services remain unavailable for collection/e2e tests.
-- Stacked #50 SCoRe-style objective adapter: 32 focused tests passed; no trainer
-  or accelerator execution occurred and Stage 2 remains blocked.
-- Stacked #51 corrected-interface SFT path: 37 focused tests passed; broader
-  prospective suite 168 passed with 31 expected dependency skips. No model,
-  tokenizer, trainer, endpoint, or accelerator was invoked.
-- Stacked #52 Guided-OPD contract: 46 combined focused tests passed after the
-  #51 rebase; its broader unit suite reports 183 passed and 31 environment/data
-  skips. Manifest dry-run and compilation passed; no live collector, model, or
-  accelerator was invoked.
-- No open PR had a reported GitHub status check at audit time.
+Final audited heads and focused verification:
+
+| PR | Head | Local verification |
+|---|---|---:|
+| #36 | `bc70920b` | 7 passed |
+| #37 | `79c57bed` | 6 passed |
+| #38 | `1c3d83bd` | 13 passed |
+| #39 | `2e75d700` | 8 passed |
+| #40 | `76bcbe69` | 16 passed; compile check |
+| #41 | `b9c19314` | 19 passed |
+| #42 | `5ff089b2` | 41 process/episode + 22 launcher/manifest passed |
+| #43 | `3874f59f` | 9 passed |
+| #44 | `78187ac3` | 51 passed |
+| #45 | `4e1f8905` | 41 passed |
+| #46 | `d92fcf41` | 7 passed |
+| #47 | `718f6761` | 61 passed |
+| #48 | `c51a749a` | 18 passed |
+| #49 | `71e5ed5e` | 28 passed |
+| #50 | `e87a39d5` | 52 passed |
+| #51 | `3d910398` | 43 passed |
+| #52 | `7f26a785` | 50 passed |
+| #53 | `6bb7feec` | 3 passed |
+| Kaetram-Open #333 | `0b1f5e4c` | 2 server tests; build; emitted-bundle digest |
+
+On the final GitHub sweep, Arena PRs #35--#53 were individually
+`MERGEABLE/CLEAN`; Kaetram-Open #333 was `MERGEABLE/BLOCKED` by repository
+review policy. All twenty PRs had zero unresolved review threads. None reported
+a hosted status check, so no hosted-CI result is being claimed.
+
+These counts record local tests at the audited commits. They are not hosted-CI
+results and do not attest unavailable services, datasets, endpoints, or GPUs.
+
+## Residual implementation boundaries
+
+- #45 does not transactionally roll back a partially applied external-state
+  restoration.
+- #46 does not provide a fully hash-locked offline wheel/artifact set.
+- #39 publishes each file atomically, but a process crash between two hard
+  links is not a group transaction.
+- #40 assumes experiment identifiers are immutable; mutation behind the same
+  identifier cannot be detected by the cache key.
+- #48--#51 remain intentionally fail-closed pending registered immutable
+  artifacts and explicit compute approval.
+- #52 lacks the live mixed-rollout collector and actor-conditioned asymmetric
+  objective backend.
+- #333 still requires maintainer review, merge, deployment, and live startup
+  attestation.

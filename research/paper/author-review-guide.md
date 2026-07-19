@@ -26,12 +26,14 @@ The candidate method is reachability-targeted persistent-player-state initializa
 
 ## Current PR order
 
-1. Correctness and evaluation fixes: #36, #37, #38.
+1. Correctness and evaluation fixes: #36, #37, #38, #53.
 2. Canonical tool/render contract: #40.
 3. Immutable run manifests: #41.
 4. Recovery/copy-prior diagnostics: #39.
-5. Factorial/held-out launcher: #42 after #40.
-6. Central paper and audit package: #35 after the supporting PRs settle.
+5. Factorial/held-out launcher: #42 after #40; then #44/#45/#47.
+6. Matched-training stack: #48 -> #49 -> #51, then sibling #50/#52.
+7. Historical evidence and clean clone: #43/#46.
+8. Central paper and audit package: #35 after the supporting PRs settle.
 
 ## What is still missing
 

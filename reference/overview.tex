@@ -444,7 +444,7 @@ faithfully distills the defect and cannot self-correct it on the student's own r
 no precedent for this mechanism in the distillation literature (nearest relatives: the ``KL
 agreement trap''~\cite{kat}, the survey's flawed-prefix trap~\cite{survey}, SKD's inaccurate
 teacher feedback~\cite{skd}); the mechanistic substrate is the ICL copy bias / induction-head
-literature~\cite{copybias}.
+literature~\cite{copybias,repetitioncurse}.
 
 \section{Round 2: visitation-corrected distillation}
 
@@ -677,7 +677,7 @@ blending~\cite{trb} --- our contribution lifts this reverse curriculum into pers
 environment state for on-policy distillation. Multi-turn agentic \opd{} at small scale documents per-turn KL
 escalation and curricula~\cite{tcod}; iterated rounds are the DAgger loop~\cite{dagger,survey}.
 The harness-over-capacity finding aligns with the 2026 system-scaling literature (interface
-adaptation over weights)~\cite{lifeharness}. The r10 mechanism connects to imitation
+adaptation over weights)~\cite{lifeharness,systemscaling}. The r10 mechanism connects to imitation
 collapse / capability-suppression results in SFT~\cite{gem}.
 
 \textbf{Grading-context engineering (round 3).} Scoring student tokens under a teacher context
@@ -697,7 +697,7 @@ extends it to black-box teachers~\cite{omniopd}. On the negative-gradient questi
 unlikelihood reinforcement ineffective and prefers corrective distribution-matching~\cite{aopd}
 (supporting our corrective-grade-over-mask choice), while AntiSD demonstrates a sign-reversed
 self-distillation term under an entropy gate~\cite{antisd}. The copy-prior mechanism's substrate
-is in-context copy bias and induction-head dynamics~\cite{copybias}.
+is in-context copy bias and induction-head dynamics~\cite{copybias,repetitioncurse}.
 
 \section{Discussion and future work}
 Round 3 confirmed the predictions of round 2's failure analysis and sharpened the open agenda.
@@ -766,8 +766,10 @@ fixes \emph{and} a teacher that can cook, not a fourth round of the same one.
 \bibitem{tcod} Wang et al. \emph{TCOD: Exploring Temporal Curriculum in On-Policy Distillation for Multi-turn Autonomous Agents}. arXiv:2604.24005, 2026.
 \bibitem{dagger} Ross, Gordon, Bagnell. \emph{A Reduction of Imitation Learning to No-Regret Online Learning (DAgger)}. arXiv:1011.0686, 2010.
 \bibitem{rethinking} Li et al. \emph{Rethinking On-Policy Distillation of Large Language Models: Phenomenology, Mechanism, and Recipe}. arXiv:2604.13016, 2026.
-\bibitem{copybias} Ali et al. \emph{Mitigating Copy Bias in In-Context Learning through Neuron Pruning}. arXiv:2410.01288, 2024; Wang et al. \emph{Induction Head Toxicity Mechanistically Explains Repetition Curse in Large Language Models}. arXiv:2505.13514, 2025.
-\bibitem{lifeharness} Xu et al. \emph{Adapting the Interface, Not the Model: Runtime Harness Adaptation for Deterministic LLM Agents}. arXiv:2605.22166, 2026; Gu. \emph{From Model Scaling to System Scaling: Scaling the Harness in Agentic AI}. arXiv:2605.26112, 2026.
+\bibitem{copybias} Ali et al. \emph{Mitigating Copy Bias in In-Context Learning through Neuron Pruning}. arXiv:2410.01288, 2024.
+\bibitem{repetitioncurse} Wang et al. \emph{Induction Head Toxicity Mechanistically Explains Repetition Curse in Large Language Models}. arXiv:2505.13514, 2025.
+\bibitem{lifeharness} Xu et al. \emph{Adapting the Interface, Not the Model: Runtime Harness Adaptation for Deterministic LLM Agents}. arXiv:2605.22166, 2026.
+\bibitem{systemscaling} Gu. \emph{From Model Scaling to System Scaling: Scaling the Harness in Agentic AI}. arXiv:2605.26112, 2026.
 \bibitem{gem} Li et al. \emph{Preserving Diversity in Supervised Fine-Tuning of Large Language Models}. arXiv:2408.16673, 2024.
 \bibitem{ccopd} Lin et al. \emph{Same Evidence, Different Answers: Canonical-Context On-Policy Distillation for Multi-Turn Language Models}. arXiv:2605.30251, 2026.
 \bibitem{opcd} Ye et al. \emph{On-Policy Context Distillation for Language Models}. arXiv:2602.12275, 2026.

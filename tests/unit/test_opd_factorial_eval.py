@@ -15,6 +15,7 @@ from scripts.opd.factorial_eval import (
     cell_command,
     launch,
     plan_dict,
+    validate_cell_result,
 )
 
 
@@ -221,9 +222,42 @@ def test_launch_sets_canonical_schema_recovery_and_respects_parallel_cap(tmp_pat
         "scripts.opd.factorial_eval.subprocess.Popen",
         lambda *args, **kwargs: FakeProcess(args, kwargs),
     )
+    monkeypatch.setattr("scripts.opd.factorial_eval.validate_cell_result", lambda *args: None)
     assert launch(plan, confirmation=plan.experiment_id, environ=endpoint_env) == 0
     assert len(captured) == 90
     assert maximum_active == plan.max_parallel == 6
     assert all(p.kwargs["env"]["KAETRAM_TOOL_SCHEMA_SOURCE"] == "canonical" for p in captured)
     assert sum("KAETRAM_TOOL_RECOVERY" in p.kwargs["env"] for p in captured) == 45
     assert all(secret not in json.dumps(p.args[0]) for p in captured)
+
+
+def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_path: Path):
+    plan = build_plan(_manifest_copy(tmp_path))
+    cell = plan.cells[0]
+    result_path = Path(cell.run_dir) / cell.cell_id / "results.json"
+    result_path.parent.mkdir(parents=True)
+
+    def write_result(*, status="ok", model=None):
+        result_path.write_text(json.dumps({
+            "meta": {
+                "model": model or cell.cell_id,
+                "scenario": plan.scenario,
+                "total_episodes": 1,
+                "ok_episodes": int(status == "ok"),
+                "tool_schema_source": plan.tool_schema_source,
+                "include_game_knowledge": not plan.omit_game_knowledge,
+                "held_out_quest": plan.held_out_quest,
+            },
+            "episodes": [{"episode": 1, "status": status}],
+        }))
+
+    write_result()
+    validate_cell_result(plan, cell)
+
+    write_result(status="no_log")
+    with pytest.raises(ManifestError, match="failed episode"):
+        validate_cell_result(plan, cell)
+
+    write_result(model="different-cell")
+    with pytest.raises(ManifestError, match="metadata mismatch"):
+        validate_cell_result(plan, cell)

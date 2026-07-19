@@ -313,6 +313,50 @@ def plan_dict(plan: ExperimentPlan) -> dict[str, Any]:
     return payload
 
 
+def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
+    """Require one complete, correctly attributed artifact for a launched cell."""
+    path = Path(cell.run_dir) / cell.cell_id / "results.json"
+    try:
+        results = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ManifestError(f"cell {cell.cell_id} has no valid results artifact: {exc}") from exc
+    if not isinstance(results, dict):
+        raise ManifestError(f"cell {cell.cell_id} results root must be an object")
+    episodes = results.get("episodes")
+    if not isinstance(episodes, list) or len(episodes) != plan.episodes:
+        raise ManifestError(
+            f"cell {cell.cell_id} recorded {len(episodes) if isinstance(episodes, list) else 0} "
+            f"episodes; expected {plan.episodes}"
+        )
+    expected_ids = list(range(1, plan.episodes + 1))
+    if not all(isinstance(episode, dict) for episode in episodes):
+        raise ManifestError(f"cell {cell.cell_id} episodes must be objects")
+    if [episode.get("episode") for episode in episodes] != expected_ids:
+        raise ManifestError(f"cell {cell.cell_id} episode IDs are incomplete or duplicated")
+    if any(episode.get("status") != "ok" for episode in episodes):
+        raise ManifestError(f"cell {cell.cell_id} contains a failed episode")
+
+    meta = results.get("meta")
+    if not isinstance(meta, dict):
+        raise ManifestError(f"cell {cell.cell_id} results meta must be an object")
+    expected_meta = {
+        "model": cell.cell_id,
+        "scenario": plan.scenario,
+        "total_episodes": plan.episodes,
+        "ok_episodes": plan.episodes,
+        "tool_schema_source": plan.tool_schema_source,
+        "include_game_knowledge": not plan.omit_game_knowledge,
+        "held_out_quest": plan.held_out_quest or None,
+    }
+    mismatches = {
+        key: {"expected": expected, "actual": meta.get(key)}
+        for key, expected in expected_meta.items()
+        if meta.get(key) != expected
+    }
+    if mismatches:
+        raise ManifestError(f"cell {cell.cell_id} result metadata mismatch: {mismatches}")
+
+
 def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] | None = None) -> int:
     if not plan.allow_launch:
         raise ManifestError("launch blocked: set execution.allow_launch=true in the reviewed manifest")
@@ -358,11 +402,21 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
                 log_handle.close()
             raise
 
-        for _cell, proc, log_handle in processes:
+        validation_errors = []
+        for cell, proc, log_handle in processes:
             rc = proc.wait()
             log_handle.close()
             if rc != 0 and return_code == 0:
                 return_code = rc
+            elif rc == 0:
+                try:
+                    validate_cell_result(plan, cell)
+                except ManifestError as exc:
+                    validation_errors.append(str(exc))
+        if validation_errors:
+            raise ManifestError(
+                "launch blocked after incomplete cell results: " + "; ".join(validation_errors)
+            )
         if return_code != 0:
             break
     return return_code

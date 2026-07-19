@@ -34,7 +34,7 @@ Review and merge in this order:
 8. [PR #35 — paper audit and research plan](https://github.com/patnir411/kaetram-arena/pull/35) (this PR)
    - Revises the technical report, audits claims and literature, and records the minimum experiment package.
 
-PRs #36–#38 intentionally separate result serialization, database semantics, and wrapper completion behavior. PRs #39–#42 are also separate review units. Merge #40 before #42; #39's canonical-schema condition also assumes #40. No new training, deployment, database mutation, or live inference was performed while preparing #39–#42.
+PRs #36–#38 intentionally separate result serialization, database semantics, and wrapper completion behavior. PRs #39–#41 are separate review units. PR #42 is explicitly stacked on #40 to pre-resolve their shared harness entry-point change; after #40 merges, its prerequisite commit/files collapse from #42's diff. PR #39's canonical-schema condition also assumes #40. No new training, deployment, database mutation, or live inference was performed while preparing #39–#42.
 
 ## Historical scope of PR #37's database-lane bug
 

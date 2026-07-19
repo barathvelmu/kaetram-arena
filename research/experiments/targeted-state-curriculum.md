@@ -30,20 +30,53 @@ Each schema-v2 JSONL candidate records:
 ### Executed reachability verification
 
 A declared witness or certificate is insufficient. For each accepted candidate,
-the selector executes the method-specific checker pinned by path and SHA-256 in
-the reviewed config. The checker must return a passing JSON result bound to its
-own digest, the reachability-artifact digest, canonical-start digest, exact
-target-snapshot digest, and method. A witness result must report that every
-transition was replayed. An invariant result must report every declared
-invariant as executed. Missing, changed, timed-out, rejected, malformed, or
-merely syntactic checker results are hard errors.
+the selector executes `scripts/opd/check_player_state_reachability.py`, pinned by
+path and SHA-256 in the reviewed config. The checker runs from an isolated
+canonical-start player through the existing stdio MCP/game interface. It accepts
+only frozen model-visible state-changing tools, records and compares the exact
+canonical JSON digest before and after every action, and compares the exact tool
+result digest. Any action error or pre-state, result, or post-state divergence is
+a hard failure.
 
-No production Kaetram transition replayer or reachability-invariant checker is
-currently checked into this repository. The example config therefore contains
-deliberately unresolved checker pins. Candidate selection fails closed until a
-reviewed production checker is supplied and its exact SHA-256 values replace
-those placeholders. Test fixtures use an executable checker only to verify this
-contract; they are not production reachability evidence.
+The live-replay artifact uses
+`checker_protocol: kaetram-live-player-state-replay-v1` and contains the exact
+canonical-start and target snapshots, their digests, an initial observation
+digest, executable `{tool, arguments}` transitions with expected pre/result/post
+digests, and a `runtime` object. The runtime object pins the full harness and
+Kaetram game Git object IDs, adapter ID, observation-digest schema, and
+persistent-state-digest schema. Both Git worktrees must have no tracked changes.
+The selector independently requires the checker result to reproduce that
+runtime object and complete trace.
+
+After replay, the adapter closes the player session so Kaetram saves it. It then
+compares the replay player's seeded-field database projection against a separate
+target player that was seeded and canonicalized through its own cold login/save
+cycle. This exact comparison covers the persistent player fields represented by
+the candidate; it does not compare or claim full world state. Both temporary
+players are removed during cleanup.
+
+Invariant-certificate mode does not execute candidate-supplied code or accept
+free-form checks. It performs the same live replay and requires exactly this
+allowlist: `canonical_start_loaded`, `runtime_revisions_exact`,
+`every_transition_exact`, and `target_persistent_player_state_exact`.
+
+The production adapter deliberately fails offline. A live verification requires
+all of the following before selection can succeed:
+
+- `KAETRAM_REACHABILITY_LIVE=1`;
+- `KAETRAM_REACHABILITY_USERNAME` beginning with `reachability_`;
+- `KAETRAM_MONGO_DB` naming an isolated e2e/test/reachability database;
+- explicit `KAETRAM_MONGO_URI`, `KAETRAM_PORT`, and `KAETRAM_CLIENT_URL`
+  endpoints (`KAETRAM_PORT=9001`, the data-collection lane, is forbidden);
+- `KAETRAM_GAME_REPO` pointing at the exact clean Kaetram checkout; and
+- reachable isolated Mongo, game, web-client, browser, and MCP dependencies.
+
+Warm-session mode is forbidden because each verification requires cold,
+isolated save boundaries. Missing services, dependencies, revision mismatches,
+dirty tracked files, malformed MCP results, or any cleanup/replay exception
+produce a nonzero checker exit. Unit and integration-contract tests use an
+injected fake adapter to exercise divergence handling; those tests are not live
+Kaetram certification. A real candidate still requires a successful live run.
 
 ### Provenance-bound repeated trials
 

@@ -42,14 +42,29 @@ result = {
     "artifact_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
     "canonical_start_sha256": args.canonical_start_sha256,
     "target_snapshot_sha256": args.target_snapshot_sha256,
+    "execution_environment": "live-isolated-service",
 }
 if args.method == "witness_trajectory":
     transitions = artifact["transitions"]
-    assert len(transitions) == len(states) - 1
-    for index, transition in enumerate(transitions):
-        assert transition["before_state_sha256"] == states[index]
-        assert transition["after_state_sha256"] == states[index + 1]
-        assert transition["action"] == "fixture_replay_transition"
+    live_replay = artifact.get("checker_protocol") == "kaetram-live-player-state-replay-v1"
+    if live_replay:
+        for transition in transitions:
+            assert set(transition["action"]) == {"tool", "arguments"}
+        result.update({
+            "runtime": artifact["runtime"],
+            "executed_trace": [dict(index=index, **transition) for index, transition in enumerate(transitions)],
+            "final_persistent_player_state": {
+                "matches_target": True,
+                "actual_sha256": "f" * 64,
+                "expected_sha256": "f" * 64,
+            },
+        })
+    else:
+        assert len(transitions) == len(states) - 1
+        for index, transition in enumerate(transitions):
+            assert transition["before_state_sha256"] == states[index]
+            assert transition["after_state_sha256"] == states[index + 1]
+            assert transition["action"] == "fixture_replay_transition"
     result.update({
         "verification_kind": "transition_replay",
         "replayed_transition_count": len(transitions),
@@ -388,6 +403,35 @@ def test_executed_invariant_checker_is_accepted(tmp_path: Path) -> None:
     selected = next(row for row in selection["arms"]["targeted"] if row["state_id"] == "target_a")
     assert selected["reachability_checker_result"]["verification_kind"] == "executed_invariant_checker"
     assert selected["reachability_checker_result"]["checked_invariants"]
+
+
+def test_selector_preserves_live_replay_trace_and_runtime_attestation(tmp_path: Path) -> None:
+    candidates = _candidates(tmp_path, _pool())
+
+    def make_live_replay(artifact: dict) -> None:
+        artifact["checker_protocol"] = "kaetram-live-player-state-replay-v1"
+        artifact["runtime"] = {
+            "adapter_id": "kaetram-mcp-mongo-isolated-v1",
+            "harness_git_revision": "a" * 40,
+            "game_git_revision": "b" * 40,
+            "state_digest_schema": "kaetram-mcp-observation-canonical-json-v1",
+            "persistent_digest_schema": "kaetram-seeded-player-collections-v1",
+        }
+        artifact["transitions"] = [{
+            "action": {"tool": "navigate", "arguments": {"x": 2, "y": 20}},
+            "before_observation_sha256": "1" * 64,
+            "tool_result_sha256": "2" * 64,
+            "after_observation_sha256": "3" * 64,
+        }]
+
+    _rewrite_artifact(
+        candidates, 0, "validity_evidence", "legal_reachable", make_live_replay,
+    )
+    selection = build_selection(candidates, _config(tmp_path))
+    selected = next(row for row in selection["arms"]["targeted"] if row["state_id"] == "target_a")
+    result = selected["reachability_checker_result"]
+    assert result["runtime"]["adapter_id"] == "kaetram-mcp-mongo-isolated-v1"
+    assert result["executed_trace"][0]["action"]["tool"] == "navigate"
 
 
 def test_hashed_trial_evidence_binds_counts_and_provenance(tmp_path: Path) -> None:

@@ -49,6 +49,7 @@ TRIAL_SPECS = {
 }
 REACHABILITY_METHODS = {"witness_trajectory", "invariant_certificate"}
 REACHABILITY_RESULT_SCHEMA = "kaetram-player-state-reachability-check-v1"
+LIVE_REPLAY_PROTOCOL = "kaetram-live-player-state-replay-v1"
 TRIAL_SCHEMA = "kaetram-player-state-trials-v1"
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
@@ -223,6 +224,7 @@ def _execute_reachability_checker(
         "artifact_sha256": _sha256_file(evidence_path),
         "canonical_start_sha256": canonical_start,
         "target_snapshot_sha256": snapshot_sha256,
+        "execution_environment": "live-isolated-service",
     }
     if not isinstance(result, dict) or any(result.get(key) != value for key, value in expected.items()):
         raise SelectionError(f"candidate {state_id} reachability checker result is not provenance-bound")
@@ -272,19 +274,39 @@ def _validate_reachability_evidence(
         raise SelectionError(f"candidate {state_id} reachability path digests are invalid")
     if path_digests[0] != canonical_start or path_digests[-1] != snapshot_sha256:
         raise SelectionError(f"candidate {state_id} reachability path must connect canonical start to target")
-    if method == "witness_trajectory":
-        transitions = artifact.get("transitions")
-        if not isinstance(transitions, list) or len(transitions) != len(path_digests) - 1:
+    live_replay = artifact.get("checker_protocol") == LIVE_REPLAY_PROTOCOL
+    transitions = artifact.get("transitions")
+    if method == "witness_trajectory" or live_replay:
+        if not isinstance(transitions, list) or not transitions:
+            raise SelectionError(f"candidate {state_id} witness requires executable transitions")
+        if not live_replay and len(transitions) != len(path_digests) - 1:
             raise SelectionError(f"candidate {state_id} witness transitions must cover every path edge")
         for index, transition in enumerate(transitions):
-            if not isinstance(transition, dict) or not isinstance(transition.get("action"), str):
+            action = transition.get("action") if isinstance(transition, dict) else None
+            if not isinstance(transition, dict) or not isinstance(action, (str, dict)):
                 raise SelectionError(f"candidate {state_id} witness transition {index} requires an action")
-            if (
+            if live_replay:
+                if (
+                    not isinstance(action, dict) or set(action) != {"tool", "arguments"}
+                    or not isinstance(action.get("tool"), str)
+                    or not isinstance(action.get("arguments"), dict)
+                ):
+                    raise SelectionError(
+                        f"candidate {state_id} live replay transition {index} action is invalid"
+                    )
+                for digest_key in (
+                    "before_observation_sha256", "tool_result_sha256", "after_observation_sha256",
+                ):
+                    _require_sha256(
+                        transition.get(digest_key),
+                        f"candidate {state_id} transition {index} {digest_key}",
+                    )
+            elif (
                 transition.get("before_state_sha256") != path_digests[index]
                 or transition.get("after_state_sha256") != path_digests[index + 1]
             ):
                 raise SelectionError(f"candidate {state_id} witness transition {index} breaks path continuity")
-    else:
+    if method == "invariant_certificate":
         invariants = artifact.get("invariants")
         if not isinstance(invariants, list) or not invariants or not all(
             isinstance(item, str) and item.strip() for item in invariants
@@ -294,8 +316,31 @@ def _validate_reachability_evidence(
         checker, evidence_path, method=method, canonical_start=canonical_start,
         snapshot_sha256=snapshot_sha256, state_id=state_id,
     )
-    if method == "witness_trajectory" and result["replayed_transition_count"] != len(path_digests) - 1:
-        raise SelectionError(f"candidate {state_id} checker did not replay every witness transition")
+    if method == "witness_trajectory" or live_replay:
+        expected_replayed = len(transitions) if live_replay else len(path_digests) - 1
+        if result.get("replayed_transition_count") != expected_replayed:
+            raise SelectionError(f"candidate {state_id} checker did not replay every witness transition")
+    if live_replay:
+        if result.get("runtime") != artifact.get("runtime"):
+            raise SelectionError(f"candidate {state_id} checker runtime attestation diverged")
+        executed_trace = result.get("executed_trace")
+        if not isinstance(executed_trace, list) or len(executed_trace) != len(transitions):
+            raise SelectionError(f"candidate {state_id} checker did not return the complete executed trace")
+        trace_keys = (
+            "action", "before_observation_sha256", "tool_result_sha256",
+            "after_observation_sha256",
+        )
+        for index, (expected, observed) in enumerate(zip(transitions, executed_trace, strict=True)):
+            if not isinstance(observed, dict) or any(
+                observed.get(key) != expected.get(key) for key in trace_keys
+            ):
+                raise SelectionError(f"candidate {state_id} executed trace {index} diverged")
+        persistent = result.get("final_persistent_player_state")
+        if (
+            not isinstance(persistent, dict) or persistent.get("matches_target") is not True
+            or persistent.get("actual_sha256") != persistent.get("expected_sha256")
+        ):
+            raise SelectionError(f"candidate {state_id} final persistent player state diverged")
     if method == "invariant_certificate" and sorted(result["checked_invariants"]) != sorted(artifact["invariants"]):
         raise SelectionError(f"candidate {state_id} checker did not execute every declared invariant")
     return result

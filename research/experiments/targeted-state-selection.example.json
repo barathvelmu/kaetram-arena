@@ -13,14 +13,14 @@
   },
   "reachability_checkers": {
     "witness_trajectory": {
-      "path": "REPLACE_WITH_REVIEWED_KAETRAM_TRANSITION_REPLAYER.py",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-      "timeout_seconds": 120
+      "path": "../../scripts/opd/check_player_state_reachability.py",
+      "sha256": "278619a79cc84b0d78a869e6277af492c846928c3d2669b2368a242e7149e9b9",
+      "timeout_seconds": 300
     },
     "invariant_certificate": {
-      "path": "REPLACE_WITH_REVIEWED_KAETRAM_INVARIANT_CHECKER.py",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-      "timeout_seconds": 120
+      "path": "../../scripts/opd/check_player_state_reachability.py",
+      "sha256": "278619a79cc84b0d78a869e6277af492c846928c3d2669b2368a242e7149e9b9",
+      "timeout_seconds": 300
     }
   },
   "thresholds": {

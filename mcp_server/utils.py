@@ -289,6 +289,8 @@ def apply_no_walkthrough_policy(response: dict, matched_name: str) -> dict:
     accepted/stage/finished state and gate status remain visible; walkthrough,
     next-action, NPC, item, recipe, boss, reward, and station hints do not.
     """
+    if not isinstance(response, dict):
+        return response
     enabled = os.environ.get("KAETRAM_NO_WALKTHROUGH", "").lower() in {"1", "true", "yes"}
     target = os.environ.get("KAETRAM_HELDOUT_QUEST", "")
     if not enabled or not target:

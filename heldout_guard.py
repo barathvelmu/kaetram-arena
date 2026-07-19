@@ -44,12 +44,14 @@ class HeldOutRegistration:
 def load_registration(path: str | Path = DEFAULT_REGISTRATION) -> HeldOutRegistration:
     registration_path = Path(path).resolve()
     try:
-        raw = json.loads(registration_path.read_text())
+        raw = json.loads(registration_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise HeldOutGuardError(f"cannot load held-out registration {registration_path}: {exc}") from exc
 
-    if raw.get("schema_version") != 1:
-        raise HeldOutGuardError("held-out registration schema_version must be 1")
+    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
+        raise HeldOutGuardError(
+            "held-out registration must be a JSON object with schema_version 1"
+        )
     if raw.get("locked") is not True:
         raise HeldOutGuardError("held-out registration must have locked=true")
     if raw.get("preregistered_before_evaluation") is not True:

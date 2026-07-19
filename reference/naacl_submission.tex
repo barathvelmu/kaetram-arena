@@ -1,0 +1,501 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[review]{acl}
+\usepackage{amsmath,amssymb,booktabs,array,multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{url}
+
+% FORMAT NOTE: Built with the current official ACL review template for ARR.
+% Recheck the NAACL 2027 venue-specific CFP before submission.
+
+\title{Targeted Failure-State Initialization for On-Policy Distillation:\\
+An Audited Case Study in a Persistent Tool-Use Agent}
+
+\author{Anonymous submission}
+
+\newcommand{\opd}{\textsc{opd}}
+\newcommand{\core}{\textsc{Core-3}}
+\newcommand{\rkl}{\mathrm{rKL}}
+\newcommand{\todoresult}[1]{\textcolor{red}{#1}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+On-policy distillation supervises only states visited by the student. This is
+restrictive for persistent agents: early failures can prevent them from reaching
+states at which a teacher is more capable. We study a 2B-parameter language model
+acting for six hours through 17 typed tools in an open-source MMORPG. In one
+reported run per arm, natural-visitation distillation changes tool use and
+interaction tempo but leaves the quest score at 12/30. A second round augments
+student rollouts with verified intermediate world states. Evaluated from a fresh,
+unseeded world, the resulting policy scores 15/30; all three clustered prompt
+variants pass a wall that none passes under the reported base or first-round
+policy. This is a weights-only observation, not a replicated causal estimate:
+the training rounds differ in more than state source. A targeted teacher-forcing
+probe also finds that malformed history can locally reverse the teacher's syntax
+preference. In rewritten runtime logs, correction markers do not repeat within a
+session. These observations motivate a confirmatory comparison against natural
+OPD and a success-prefix temporal curriculum, with model weights and interface
+recovery isolated. We present an audited case study and falsifiable protocol,
+not established cross-task generality.
+\end{abstract}
+
+\section{Introduction}
+
+Post-training a small language model to act over long horizons is not just a
+token-prediction problem. The model chooses which environment states become
+training data. If it never reaches a state where its teacher knows what to do,
+dense teacher feedback is unavailable exactly where it is needed. This creates
+a state-visitation bottleneck: improving token-level agreement on common states
+can alter style without transferring the competence that distinguishes the
+teacher.
+
+We examine that bottleneck in a persistent tool-use setting. A Qwen-family 2B
+student plays a tile-based MMORPG through a typed action interface. The world
+persists across conversation rollovers, and benchmark progress requires long
+chains of gathering, navigation, dialogue, and quest actions. A scaffolded 4B
+teacher reaches states that the 2B student does not. We apply reverse-KL
+on-policy distillation to the student's own emitted tokens and compare natural
+student visitation with a mixture that begins some rollouts from verified
+intermediate database states.
+
+The present evidence is hypothesis-generating and under-replicated. It contains
+one complete six-hour run per principal arm; the three agents within a run are
+prompt variants sharing weights, harness, and launch conditions, not independent
+experimental units. We therefore separate observations from claims throughout.
+The observed sequence is: base 12/30, natural-visitation round 12/30, and
+state-augmented round 15/30. In the last arm, every prompt variant passes the
+same wall from an unseeded evaluation world. This supports the hypothesis that
+training visitation matters, but it does not isolate state seeding from all
+round-to-round changes or estimate population-level uncertainty.
+
+This paper makes three bounded contributions:
+
+\begin{enumerate}
+  \item We instantiate targeted failure-state reset as a control point for
+  on-policy distillation and document an exploratory case in which a seeded
+  training round is followed by unseeded passage of a previously unseen wall.
+  \item We distinguish behavioral imitation from competence: the first round
+  closely changes measured tool mix and tempo toward the teacher while the
+  benchmark score remains fixed.
+  \item We expose an interface failure that token-average analyses obscure: in
+  a targeted teacher-forcing probe, malformed history reverses the teacher's
+  local preference. We separate this grading-side observation from a runtime
+  recovery result and specify the experiments required to test generality.
+\end{enumerate}
+
+The broader lesson is methodological. Model weights, visited states, and
+runtime affordances are different interventions. A credible agent-training
+result must preserve and cross them rather than roll them into one headline.
+
+\section{Setting}
+
+\subsection{Persistent tool-use benchmark}
+
+The environment is Kaetram, an open-source tile-based MMORPG backed by a game
+server and MongoDB. Each policy controls three agents with different priority
+prompts (grinder, completionist, and explorer) through 17 typed tools. Tools
+cover observation, navigation, combat, gathering, dialogue, quest inspection,
+inventory use, and crafting. The prompt includes procedural quest guidance, so
+the benchmark measures execution of a supplied plan rather than autonomous
+world-model discovery.
+
+The primary development metric, \core{}, counts newly reached stages in three
+quest chains: Foresting (3 stages), Herbalist's Desperation (3), and Rick's Roll
+(4). Each agent can gain at most ten stages; a three-agent run therefore scores
+in $[0,30]$. Runs begin from a freshly initialized world and continue for six
+hours. Conversation sessions roll over under a fixed context budget while game
+state persists. The intended confirmatory experimental unit is a full run from
+a fresh world. Prompt variants are clustered observations within that run.
+
+\subsection{Agent and interface contract}
+
+The policy acts in an observe--reason--act loop through an OpenAI-compatible
+model endpoint and a typed tool server. Navigation and selected interactions
+contain deterministic affordances such as path finding and automatic walking;
+the model still decides goals, tools, and arguments. The current development
+record contains an important interface asymmetry: older base-model runs used a
+native model-visible tool schema while some fine-tuned runs did not receive an
+identical serialization. We therefore do not use those comparisons as primary
+evidence. The confirmatory implementation requires normalized full-schema hash
+parity across training and every evaluation arm.
+
+\section{On-Policy Distillation Under Visitation Constraints}
+
+Let $\pi_S$ and $\pi_T$ denote student and teacher policies, and let
+$d^{\pi_S}$ be the serving-state distribution induced by student rollouts. A
+reverse-KL on-policy objective can be written
+\begin{equation}
+\begin{aligned}
+\mathcal{L}_{\mathrm{OPD}}
+&=\mathbb{E}_{s\sim d^{\pi_S}}
+  \mathbb{E}_{a\sim\pi_S(\cdot\mid s)} \\
+&\quad\left[\log\pi_S(a\mid s)-\log\pi_T(a\mid s)\right].
+\end{aligned}
+\label{eq:opd}
+\end{equation}
+The teacher scores the student's emitted tokens. Training uses a clipped
+importance-weighted update around the rollout policy, with advantages frozen at
+data-build time. Full implementation details appear in Appendix~\ref{app:training}.
+
+Equation~\ref{eq:opd} makes the bottleneck explicit. If a teacher advantage is
+concentrated on a set of states $H$ for which
+$\Pr_{s\sim d^{\pi_S}}[s\in H]\approx0$, token-dense grading supplies almost no
+information about that advantage. We change the state source, not the loss:
+some student rollouts begin from verified intermediate environment states, and
+their records are mixed with natural student rollouts. The student still acts
+and the same teacher still grades every emitted token.
+
+The seeded states are typed game states rather than textual demonstrations.
+Player rows specify quest stage, skill level, inventory, and a verified walkable
+position. End-to-end checks confirm that the game loads each state and exposes
+the intended condition through the same tools used at evaluation. Evaluation is
+always unseeded. This resembles reset-based curricula in reinforcement learning
+\citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. TCOD
+uses teacher-success prefixes to initialize multi-turn OPD curricula
+\citep{wang2026tcod}. Our narrower target is a verified failure state selected
+for high student-visitation deficit and teacher competence, evaluated against
+both natural OPD and a TCOD-style success-prefix baseline.
+
+\section{Evidence Protocol}
+
+We grade evidence before interpreting it. A \emph{run} is the independent unit;
+agents within a run share the policy, launch, infrastructure, and analysis
+pipeline. Exact scores from single runs are descriptive. Counts over agents or
+sessions diagnose mechanisms but cannot be treated as independent replications
+of a policy effect.
+
+The principal comparison uses the same 2B base checkpoint, six-hour unseeded
+evaluation protocol, benchmark, and nominal harness. Round 1 trains on natural
+base-policy rollouts. Round 2 initializes from round 1 and mixes natural
+round-1 rollouts with 2,326 records collected by the round-1 policy from a
+verified Herbalist milestone state. The round-2 corpus contains 7,849 states,
+split into 7,024 training and 825 held-out records. Because round 2 also changes
+the initialization and data batch, round 1 versus round 2 is not a clean
+seeded-versus-unseeded training ablation.
+
+\begin{table*}[t]
+\caption{Observed development runs and the claims they permit. Scores are
+descriptive because there is one run per arm. Recovery is a runtime interface
+affordance.}
+\label{tab:arms}
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lccccl}
+\toprule
+Policy & Training states & Recovery & \core{} & Wall & Interpretation \\
+\midrule
+Base 2B & -- & off & 12 & 0/3 & Reference run \\
+OPD round 1 & natural & off & 12 & 0/3 & Behavior changed; score did not \\
+OPD round 2 & natural + seeded & off & 15 & 3/3 & Weights-only, unseeded observation \\
+Round-2 weights & -- & on & 17 & -- & Recovery ablation; one run \\
+Round-3 weights & broader seeded & on & 18 & -- & Weights plus interface; not pure weights \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The \emph{wall} column measures passage of Herbalist stage 1 by the three prompt
+variants. It is a useful within-run consistency check, not a binomial sample of
+independent policies. We preserve raw pre-rewrite emissions for confirmatory
+format analyses; rewritten history is not an authoritative defect counter.
+
+\section{Exploratory Results}
+
+\subsection{Natural-visitation OPD transfers behavior, not score}
+
+Round 1 leaves \core{} unchanged at 12/30 and every agent reaches the same 4/10
+stage profile as base. Nevertheless, several behavioral measurements move
+toward the 4B teacher (Table~\ref{tab:behavior}). The average number of turns per
+session exactly matches the teacher, observation and navigation shares approach
+the teacher, and query frequency overshoots it. The result is consistent with
+mode-seeking behavioral imitation, while showing that agreement on frequently
+visited states is insufficient for this quest wall.
+
+\begin{table}[t]
+\caption{Behavior changes in the first OPD round. Percentages are shares of
+tool calls in one run per policy; they are diagnostics, not independent trials.}
+\label{tab:behavior}
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+Measure & Base & Round 1 & Teacher \\
+\midrule
+Turns per session & 9.1 & \textbf{6.1} & 6.1 \\
+Observe share & 26.6\% & \textbf{35.5\%} & 36.1\% \\
+Navigate share & 14.3\% & \textbf{9.4\%} & 9.1\% \\
+Attack share & 17.9\% & \textbf{6.6\%} & 9.1\% \\
+Query-quest share & 5.3\% & \textbf{18.0\%} & 8.7\% \\
+Chars./turn & 411 & \textbf{1,248} & 864 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Per-verb reverse-KL signs and behavioral movement are also aligned in the
+development logs: verbs whose held-out divergence falls generally move toward
+the teacher's usage, while query-quest both diverges and behaviorally overshoots
+the teacher. This is descriptive triangulation. It does not establish that a
+specific token update caused downstream quest behavior.
+
+\subsection{The seeded-training round is followed by unseeded wall passage}
+
+The 4B teacher demonstrates competence beyond the Herbalist stage-1 wall, while
+the base 2B almost never visits the required state naturally. Seeded collection
+starts the round-1 policy at the accepted quest with the required gathering
+skill and near the target resource. All three seeded collectors pass the wall,
+creating student-authored actions and teacher scores in this region.
+
+After training on the natural-plus-seeded mixture, round 2 is evaluated from a
+fresh unseeded world with recovery disabled. It scores 15/30, with each prompt
+variant at 5/10. All three pass Herbalist stage 1, compared with zero of three
+under both the base and round-1 policies. Logs show earlier quest acceptance,
+explicit tracking of the skill gate, resource rotation after empty harvests,
+and less premature return to the quest giver. These are concrete trajectory
+differences consistent with the intended mechanism.
+
+The valid statement is deliberately narrow: \emph{a seeded-training round was
+followed by unanimous unseeded wall passage in one run}. The present data do not
+show that seeding alone caused the improvement. The required causal experiment
+trains fresh students from the same checkpoint under identical budgets, seeds,
+and data construction, varying only whether the verified state mixture is
+included (Section~\ref{sec:confirmatory}).
+
+\subsection{Weights and recovery solve different failures}
+
+Round 3 combines broader state seeding with a runtime recovery affordance and
+scores 18/30. That number is not a pure-weights result. Applying the same
+recovery affordance to round-2 weights produces 17/30 in one run, suggesting
+that most of the round-2-to-round-3 stage difference may come from the
+interface. The clean weights-only comparison remains base 12/30 versus round 2
+15/30, one run per arm.
+
+The recovery mechanism detects a dropped malformed call, reconstructs the
+executable call, rewrites the retained history into canonical form, executes the
+action, and returns an explicit correction note. In the audited round, 405
+sessions contain a recovery marker; each contains exactly one such marker and
+no logged recurrence after the correction. This is a system-counting fact. It
+does not show that weights learned the format or that recovery generalizes to
+other defects.
+
+\section{A Teacher-Forcing Failure at the Interface}
+
+Round 1 introduces a malformed parameter-key pattern that is absent in the
+base run. The emitted form places a Boolean value inside the parameter key, so
+the parser silently drops the intended argument. The training records contain
+the correct syntax, and the teacher favors the correct delimiter in clean
+base-policy contexts. A targeted two-sided probe, however, gives a different
+result after the malformed prefix is already present: at the divergence token,
+the 4B teacher assigns log probability $-0.161$ (about 85\% probability) to
+continuing the malformed form, versus $-0.253$ under the student. On a matched
+correct-form state, the preference favors the correct continuation.
+
+Thus teacher generation and teacher-forced grading are distinct objects. A
+teacher that generates canonical syntax from a clean history can locally reward
+continuation of a student's defect after that defect enters the context. Under
+dense on-policy distillation, this creates wrong-signed feedback at precisely
+the visited malformed prefix. We call this a \emph{teacher-forcing copy-prior
+hypothesis}. The current evidence is one targeted defect family and a small
+probe, so the name describes a candidate mechanism rather than a general law.
+
+This observation relates to exposure bias and to failures of token-level
+teacher agreement on degraded prefixes. It also gives a testable prediction:
+paired histories differing only in canonical versus malformed prior syntax
+should change teacher log-odds while holding state and candidate continuations
+fixed. Section~\ref{sec:confirmatory} turns that prediction into a multi-state,
+multi-defect experiment.
+
+\section{Confirmatory Study Design}
+\label{sec:confirmatory}
+
+The repository contains launch and validation work for the following design;
+results are not reported until immutable run bundles exist.
+
+\paragraph{Primary endpoint and unit.}
+The independent unit is a six-hour run from a fresh seeded world. The
+preregistered primary endpoint is total \core{} stage gain across the three
+clustered agents. Quest-wall passage is secondary. All runs, confidence
+intervals, effect sizes, and stopping rules must be reported.
+
+\paragraph{Visitation ablation.}
+Train two fresh students from the same checkpoint with every setting fixed:
+natural student visitation only versus the same natural data budget mixed with
+verified milestone states. Match teacher, optimization, action-token budget,
+environment interactions, and training-seed schedule; evaluate both unseeded.
+
+\paragraph{Weights by recovery factorial.}
+Evaluate base, round-2, and round-3 weights with recovery both off and on.
+Preserve raw pre-rewrite emissions. This estimates main effects and interactions
+for stage progress and format-defect rate instead of attributing a combined
+system score to weights.
+
+\paragraph{Generalization.}
+Hold out at least one quest from state seeding and compare full walkthrough
+against no-walkthrough prompts. A second environment or model family is needed
+for any broad claim. Plain natural-visitation OPD, corrected-interface SFT, and
+a matched TCOD-style success-prefix curriculum are minimum baselines under matched interaction and
+teacher-scoring budgets.
+
+\paragraph{Copy-prior test.}
+Construct paired canonical/malformed histories across tools, states, defect
+types, and at least two teacher sizes or families. Score identical canonical
+and malformed continuations; report teacher and student log-odds with paired
+confidence intervals. Then intervene on grading context and test generation,
+rather than inferring generation from grader-side movement.
+
+\section{Related Work}
+
+GKD establishes on-policy distillation from student-generated sequences with
+teacher feedback \citep{agarwal2024gkd}; our work does not claim novelty for
+OPD itself. TCOD directly studies temporal curricula and intermediate-state
+initialization for multi-turn OPD \citep{wang2026tcod}; broad novelty for seeded
+starts is therefore preempted. DAgger formalizes iterative data collection under the learner's
+state distribution \citep{ross2011dagger}. Reset-along-demonstration, Backplay,
+and Go-Explore show that restoring intermediate states can expose useful signal
+in hard-exploration reinforcement learning
+\citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. We use
+the same control point for on-policy language-model distillation in a
+persistent, typed environment, but the current study does not establish
+superiority over those curriculum families.
+
+Game-agent benchmarks already cover long-horizon language and vision agents.
+BALROG emphasizes knowing--doing gaps across games \citep{paglieri2025balrog},
+while Orak uses MCP across twelve games and releases gameplay fine-tuning data
+\citep{park2026orak}. MCP and game play are therefore infrastructure here, not
+novelty claims. Voyager and AgentTrek use curricula, reusable skills, or guided
+replay to obtain long-horizon behavior
+\citep{wang2023voyager,zheng2025agenttrek}. Our narrower question is whether
+state visitation controls which teacher capabilities are available to a small
+student under dense grading.
+
+Supervised imitation can compound errors under distribution shift
+\citep{ross2011dagger}, and knowledge distillation does not guarantee functional
+agreement between teacher and student \citep{stanton2021kd}. The r10
+cross-vocabulary SFT regression in our development record is motivating
+evidence, but its raw artifact bundle is incomplete and it is not a primary
+result of this submission draft.
+
+\section{Conclusion}
+
+The observed case supports a concrete hypothesis: for persistent tool-using
+agents, controlling where the student acts may matter as much as optimizing how
+it matches a teacher. Natural-visitation OPD changed behavior without changing
+score; a later state-augmented training round was followed by unseeded passage
+of a previously unseen wall. A malformed-prefix probe further shows why
+teacher-forced token feedback can fail at the tool boundary. Replication,
+isolation, and held-out transfer are the next scientific results, not boxes that
+prose can check.
+
+\section*{Limitations}
+
+The central limitation is statistical: one run per principal arm cannot support
+a population claim, and three prompt variants are not independent seeds. The
+state-seeded round also differs from the preceding round in initialization and
+data. The environment is a single game with procedural walkthroughs, the
+teacher and student are from one model family, and stage counts are coarse. Some
+development analyses depend on logs whose raw inputs are not yet packaged. The
+paper must not be submitted as confirmatory until the study design above is run
+and a clean clone regenerates every main table.
+
+Direct database construction is environment-specific and may not transfer to
+systems without restorable state. The failure state was selected
+retrospectively, so selection bias is possible. Teacher competence at the target
+state is observed in a small number of trajectories, not estimated precisely.
+The syntax probe covers one defect family and should not be generalized to all
+teacher-forced grading.
+
+\section*{Ethical Considerations}
+
+The work concerns game agents acting in isolated local worlds. Risks include
+overstating autonomy, silently baking procedural knowledge into prompts, and
+mistaking recovered actions for model competence. We mitigate these by labeling
+scaffolding, logging model-visible schemas and raw emissions, separating runtime
+recovery from weights, and reporting failed interventions. No human-subject or
+private-user data are used.
+
+\section*{Acknowledgments and AI Assistance Disclosure}
+
+Large language models materially assisted literature search, code review,
+experimental-design critique, and manuscript drafting. Human authors are
+responsible for every claim, citation, artifact, and submission decision; the
+scope will also be disclosed in the Responsible NLP Checklist.
+
+\bibliography{submission}
+
+\appendix
+
+\section{Training Details}
+\label{app:training}
+
+The teacher is a scaffolded Qwen-family 4B model and the student begins from a
+2B checkpoint. Both use the same vocabulary. Student rollouts are reconstructed
+as the byte-exact serving prompt plus the verbatim emitted continuation. This
+prefix property avoids re-rendering differences caused by chat-template handling
+of reasoning delimiters. Teacher and behavior log probabilities are computed on
+the identical raw string. Every tenth session is held out for development gates.
+
+The update uses PPO-style clipped importance weighting with clip $\epsilon=0.3$,
+advantage clamp $[-3,3]$, and a 1.5 weight on the first third of each session.
+Training uses one epoch, learning rate $5\times10^{-5}$, effective batch size 32,
+and a fresh LoRA initialized over the prior merged checkpoint. Action positions
+alone receive the language-model head. These choices were development decisions,
+not independently ablated.
+
+Round 1 contains 5,564 train and 574 held-out records from the base policy's
+natural rollouts. Round 2 combines 5,523 natural round-1 records and 2,326 seeded
+records before the 7,024/825 train/held-out split. The seed encodes accepted
+Herbalist stage 1, Foraging level 5, starter inventory, and a verified tile near
+the target resource. Evaluation never loads this state.
+
+\section{Claim-to-Evidence Boundary}
+
+\begin{description}
+\item[Round-1 behavior.] Descriptive, one run: measured behavior changed while score did not.
+\item[State-seeded round.] Unreplicated: the seeded-training round was followed by unseeded wall passage in one run.
+\item[12 to 15.] Least-confounded historical weights-only observation; not an effect estimate, and exact parity remains unavailable.
+\item[18/30.] Weights-plus-interface system result only.
+\item[Copy prior.] Context-dependent endorsement reversal for the targeted historical probe.
+\item[Recovery.] No repeat marker after correction in rewritten logs; raw relapse is unavailable.
+\item[Cross-task transfer.] Unsupported; no claim.
+\end{description}
+
+\section{Reproducibility Contract}
+
+Before confirmatory runs, each immutable run bundle must contain: environment and
+game revisions; container or dependency locks; model, tokenizer, adapter, and
+dataset revisions; complete model-visible tool schemas; rendered-prompt hashes;
+sampling parameters; environment and inference seeds; raw emissions before any
+rewrite; state-transition logs; analysis outputs; and checksums. Dataset records
+must point to source runs and transformations. A clean-clone command must verify
+hashes and regenerate every table and figure without network-dependent mutable
+inputs.
+
+The current development artifact does not yet meet this bar. In particular, raw
+inputs for the historical r10 analysis and some OPD gate summaries are absent,
+and full dependency installation has not been demonstrated from the repository
+root. These omissions are release blockers, not appendix footnotes.
+
+\section{Planned Statistical Analysis}
+
+No session- or agent-level pseudo-replication will be used for policy effects.
+The run is the analysis unit. A preliminary minimum of five runs per arm may be
+used to estimate run-level variance, followed by a documented power calculation
+for the confirmatory sample. The primary comparison is two-sided unless a
+directional alternative and stopping rule are preregistered before collection.
+We will report all runs, bootstrap or randomization-based confidence intervals
+appropriate to the achieved sample, standardized and raw effect sizes, and the
+full family of secondary endpoints with multiplicity handling. Exact categorical
+wall-passage counts will be reported descriptively when sample sizes are small.
+
+\section{Venue and Disclosure Note}
+
+This PDF uses the current official ACL review style as an ARR/NAACL 2027 working
+draft. The NAACL 2027 venue-specific call is not yet published. Recheck the call,
+page limit, responsible NLP checklist, anonymity, author-review registration,
+and commitment rules before submission. ARR prohibits simultaneous archival
+review.
+
+\end{document}

@@ -4,7 +4,9 @@ Updated: July 18, 2026
 
 ## The short version
 
-Paper 1 is an audited technical report with a promising central observation, not a finished conference submission. The strongest current result is that round-two visitation-corrected OPD weights pass the prior Herbalist wall in all three agents of one unseeded run, improving the run-level Core-3 score from 12/30 to 15/30 without the format-recovery affordance. The run is not an independent replication, and the three agents inside it are clustered prompt variants rather than three independent trials.
+Paper 1 now has both a historical technical report and an evidence-safe ACL-format working manuscript. It is not a finished conference submission. The strongest current observation is that a state-augmented training round was followed by passage of the prior Herbalist wall in all three clustered prompt variants of one unseeded run, with the reported Core-3 score moving from 12/30 to 15/30 and recovery off. Exact historical parity is unavailable, the run is not independently replicated, and round one versus round two differs in more than state source.
+
+The working target is NAACL 2027 through the October 12, 2026 ARR cycle. ICLR 2027 is only a stretch option because its official call is not yet published. See `venue-and-submission-guide.md`.
 
 Do not launch expensive confirmatory experiments until the correctness PRs below are merged and the P0 launch checklist is complete.
 
@@ -32,7 +34,7 @@ Review and merge in this order:
    - Audits malformed emissions and harness recovery, and scores paired malformed/canonical continuations under repaired history/docs.
    - Records whether it reproduces the historical no-schema grading context or PR #40's canonical native-schema context; do not pool those interfaces.
 8. [PR #35 — paper audit and research plan](https://github.com/patnir411/kaetram-arena/pull/35) (this PR)
-   - Revises the technical report, audits claims and literature, and records the minimum experiment package.
+   - Adds the evidence-safe ACL-format manuscript, refreshed technical-report PDF, venue audit, adversarial reviewer simulation, claim audit, and minimum experiment package.
 
 PRs #36–#38 intentionally separate result serialization, database semantics, and wrapper completion behavior. PRs #39–#41 are separate review units. PR #42 is explicitly stacked on #40 to pre-resolve their shared harness entry-point change; after #40 merges, its prerequisite commit/files collapse from #42's diff. PR #39's canonical-schema condition also assumes #40. No new training, deployment, database mutation, or live inference was performed while preparing #39–#42.
 
@@ -67,7 +69,7 @@ KAE-79 through KAE-85 are blocked on their relevant P0 tickets so the board does
 
 ## What is currently supported
 
-- Round-two OPD provides a clean within-repository observation of a weights-only improvement: base 12/30 to r2 15/30, with prior Herbalist stage-one passage changing from 0/3 to 3/3 in one unseeded run.
+- Round two is the least-confounded historical weights-only observation: recovery was reported off, the score was 15/30 versus the base run's 12/30, and wall passage was 3/3 versus 0/3 among clustered prompt variants. Exact configuration parity and independent reproduction remain unavailable.
 - Round-three reaches 18/30 only with a model-interface recovery affordance. It must be labeled weights plus recovery, not a pure weight result.
 - Round-two weights plus recovery reaches 17/30 in one ablation run. This is suggestive, not a replicated factorial estimate.
 - The malformed-history copy-prior observation is a plausible mechanism: a teacher can locally prefer continuation of malformed syntax already present in context. The current sample is too small for a general causal claim.
@@ -148,4 +150,4 @@ Implement either an agent-specific divergence/reliability baseline or matched-in
 
 ## Paper rewrite gate
 
-The conference manuscript starts only after WP1–WP3 and WP6 have complete immutable artifacts. WP4, WP5, and WP7 determine whether the submission can make a mechanism/method claim or should remain a carefully scoped case study. The final manuscript must fit the chosen venue template and include a truthful disclosure of material LLM assistance.
+The evidence-safe manuscript shell already exists in `reference/naacl_submission.tex`; it must remain explicitly exploratory until WP1–WP3 and WP6 have complete immutable artifacts. WP4, WP5, and WP7 determine whether it can make a mechanism/method claim or must remain a carefully scoped case study. The final manuscript must remain in the official ACL template, fit eight content pages, include a required Limitations section, and truthfully disclose material LLM assistance.

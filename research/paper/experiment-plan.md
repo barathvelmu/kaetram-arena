@@ -50,6 +50,8 @@ Train two fresh students from the same base checkpoint with every setting identi
 
 Hold teacher, loss, optimizer, data budget, action-token budget, training seed schedule, and number of environment interactions fixed. Evaluate both from fresh unseeded worlds.
 
+Record environment and inference seeds before launch and randomize/blind the arm schedule. Select failure states by a frozen rule that combines low natural student visitation, demonstrated teacher competence, recoverability, and relevance to the primary endpoint. Hand-picked states without a recorded selection rule are exploratory curriculum engineering.
+
 This experiment is the paper. Round one versus round two is not a clean substitute because the rounds differ in more than visitation.
 
 ## P3 — separate weights from recovery
@@ -96,7 +98,7 @@ At minimum compare against:
 
 - Off-policy SFT with the corrected identical interface
 - Plain GKD/OPD under natural student visitation
-- A temporal or prefix curriculum comparable to TCOD/BREAD
+- A matched TCOD-style teacher-success-prefix temporal curriculum
 - Data reweighting or dead-session filtering for the r10 marginal-imbalance hypothesis
 
 Match environment interactions and teacher-scoring budget. Report compute and dollar cost as secondary resource metrics, backed by preserved billing exports.

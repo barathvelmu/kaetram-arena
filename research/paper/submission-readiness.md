@@ -2,11 +2,13 @@
 
 ## Decision
 
-**Do not submit the current manuscript to AAAI-27. Target ICLR 2027 conditionally, with COLM 2027 as the safer fallback.**
+**Do not submit the current manuscript to AAAI-27 or EACL 2027. Target NAACL 2027 through the October 12, 2026 ARR cycle. Keep ICLR 2027 only as a stretch option if its official call appears and the full experiment package is ready by early September.**
 
 AAAI-27 is not the remembered September deadline. Its abstract is due **July 21, 2026** and the full paper is due **July 28, 2026**, both AoE. The main track allows seven content pages. The current technical report is fifteen pages, the central OPD result has one run per arm, and the public artifact cannot reproduce the reported statistics. A ten-day conversion would be a rushed lottery ticket, not a serious top-paper attempt.
 
-The likely intended venue is ICLR 2027. Its call has not been published as of July 18. ICLR 2026 used September 19 for abstracts and September 24 for papers, so a similar late-September 2026 deadline is a planning estimate only. Do not represent it as confirmed.
+NAACL 2027 confirms an October 12, 2026 ARR deadline and a June 1–5, 2027 conference in San Francisco. Current ARR rules allow eight content pages for long papers, require the ACL template and a dedicated Limitations section, use two-way anonymized review, and require disclosure of material LLM assistance. The venue-specific NAACL call is not yet published, so recheck it before submission.
+
+ICLR 2027's call has not been published as of July 18. ICLR 2026 used September 19 for abstracts and September 24 for papers, so a similar late-September 2026 deadline is a planning estimate only. Do not represent it as confirmed.
 
 Official sources:
 
@@ -14,6 +16,9 @@ Official sources:
 - [AAAI-27 main-track call and seven-page limit](https://aaai.org/conference/aaai/aaai-27/main-technical-track-call/)
 - [ICLR 2026 call, including the prior September cadence](https://iclr.cc/Conferences/2026/CallForPapers)
 - [ICLR 2026 author guide](https://iclr.cc/Conferences/2026/AuthorGuide)
+- [NAACL 2027 official site](https://2027.naacl.org/)
+- [ACL Rolling Review call and rules](https://aclrollingreview.org/cfp)
+- [Official ACL style files](https://github.com/acl-org/acl-style-files)
 
 ## Working paper
 

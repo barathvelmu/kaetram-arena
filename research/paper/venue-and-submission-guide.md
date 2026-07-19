@@ -1,0 +1,65 @@
+# Venue and submission guide — July 18, 2026
+
+## Decision
+
+Target **NAACL 2027 through the October 12, 2026 ACL Rolling Review cycle**. Use the current official ACL review template and select **LLM Agents** as the primary area, with **Machine Learning for NLP** secondary.
+
+This is the best realistic path because it gives the project time to run the missing causal and transfer experiments and because ARR explicitly welcomes NLP engineering experiments, analysis, reproduction studies, and negative findings. The NAACL 2027 venue-specific call is not published yet, so recheck it before submission.
+
+ICLR 2027 remains a stretch option only if its official call appears and the entire confirmatory package is frozen by early September. Do not use ICLR 2026 dates or style as though they were 2027 rules.
+
+AAAI-27 and EACL 2027 are no-go: their deadlines arrive before the required experiments and artifact repair can be completed responsibly.
+
+## Confirmed working rules
+
+- NAACL 2027: ARR deadline October 12, 2026 AoE; conference June 1–5, 2027 in San Francisco.
+- ARR long paper: eight content pages; unlimited references; required uncounted Limitations section.
+- Official ACL template, A4, two columns, two-way anonymized review.
+- Anonymous supplementary code and data; no tracking links.
+- No simultaneous archival review.
+- All authors must complete registration and any assigned reviewing.
+- Material LLM writing, coding, literature-search, or idea assistance must be disclosed in the Responsible NLP Checklist and acknowledgments.
+
+Official sources:
+
+- https://2027.naacl.org/
+- https://aclrollingreview.org/cfp
+- https://aclrollingreview.org/authors
+- https://github.com/acl-org/acl-style-files
+- https://acl-org.github.io/ACLPUB/formatting.html
+- https://www.aclweb.org/adminwiki/index.php/ACL_Policy_on_Publication_Ethics
+
+## Novelty boundary after the July literature audit
+
+TCOD already uses teacher-success prefixes to initialize intermediate states for multi-turn OPD. Broad novelty for “starting OPD from an intermediate state” is therefore unavailable.
+
+The candidate contribution is narrower:
+
+> Select verified failure states using student-visitation deficit, teacher competence, recoverability, and task relevance; initialize student OPD from those states; and compare fully unseeded execution against natural OPD and a matched TCOD-style success-prefix curriculum.
+
+Database persistence, typed state, MCP, and game play are implementation properties, not sufficient novelty claims.
+
+## Submission gates
+
+Do not submit unless every gate is green:
+
+1. P0 fixes merged: evaluation correctness, full render/schema parity, immutable manifests, provenance validation, and clean-clone setup.
+2. Fresh natural-visitation and targeted-state students trained from the same checkpoint under matched budgets and seeds.
+3. Independent run-level replication with a locked power calculation and all runs reported.
+4. Full weights × recovery factorial completed with raw pre-rewrite emissions.
+5. Corrected-interface SFT and TCOD-style curriculum baselines completed.
+6. Held-out quest, walkthrough/no-walkthrough, and retention evaluations completed.
+7. Copy-prior probe replicated across states, defect families, and at least two teachers.
+8. Anonymous clean clone regenerates every table and figure from immutable bundles.
+9. Eight-page ACL-format main paper passes anonymity, citation, checklist, font, and PDF checks.
+
+## Internal dates
+
+- August 9: P0 artifact freeze and clean-clone smoke test.
+- August 30: weights × recovery factorial complete.
+- September 13: matched natural-versus-targeted training complete.
+- September 20: SFT, TCOD, held-out, no-walkthrough, and retention baselines complete.
+- September 27: statistics, figures, and artifacts frozen.
+- October 5: complete anonymous ACL-format draft.
+- October 12: submit only if every gate remains green.
+

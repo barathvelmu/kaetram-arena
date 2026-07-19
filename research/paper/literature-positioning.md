@@ -1,14 +1,14 @@
 # Literature positioning — verified July 18, 2026
 
-## Defensible novelty boundary
+## Candidate contribution boundary
 
-The paper is not novel because it uses games, MCP, structured actions, a persistent world, or on-policy distillation separately. Its best novelty claim is the combination of:
+The paper is not novel because it uses games, MCP, structured actions, a persistent world, intermediate-state OPD, or on-policy distillation separately. TCOD already uses teacher-success prefixes to initialize intermediate states for multi-turn OPD. The candidate contribution is contingent on the planned matched experiments:
 
-1. **Persistent environment-state seeding for on-policy distillation:** the student is launched from typed, database-persisted failure states that it rarely reaches naturally; training uses those student rollouts, while evaluation remains unseeded.
+1. **Targeted failure-state initialization for on-policy distillation:** select verified states using student-visitation deficit, teacher competence, recoverability, and task relevance; train on student rollouts from those states; and compare unseeded evaluation against natural OPD and a TCOD-style success-prefix curriculum.
 2. **A teacher-forcing copy-prior failure in an agent:** malformed student tool syntax in the context reverses the teacher's local preference even though the teacher does not generate the defect from a clean history.
 3. **A measured interface-versus-weights decomposition:** weights transfer one quest-wall competence, while a generation-time recovery affordance resolves a separate syntax defect.
 
-Phrase the first two as “to our knowledge” until the final literature search is rerun immediately before submission.
+Do not use “to our knowledge” novelty language until the matched comparisons succeed and the literature search is rerun immediately before submission.
 
 ## Closest on-policy distillation work
 

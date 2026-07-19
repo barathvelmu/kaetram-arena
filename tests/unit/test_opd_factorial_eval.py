@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import io
 import os
@@ -24,6 +25,7 @@ from scripts.opd.factorial_eval import (
     validate_cell_bundle,
     validate_completed_inventory,
     validate_live_endpoint_attestations,
+    require_environment_seed_capability,
     validate_cell_result,
 )
 
@@ -64,8 +66,26 @@ def test_manifest_generates_complete_paired_factorial_with_isolation(tmp_path: P
     assert plan.primary_metric == "core3_stages_advanced"
     assert plan.planned_replicates == 20
     assert plan.max_parallel == 6
+    assert plan.schedule_algorithm == "sha256-rank-v1"
+    assert plan.environment_seed_mechanism == "kaetram-environment-rng-attestation/v2"
+    assert plan.environment_rng_algorithm == "mulberry32-sha256-v1"
+    assert len(plan.environment_seeds) == 20
     for pair_id in {c.pair_id for c in plan.cells}:
-        assert {c.recovery for c in plan.cells if c.pair_id == pair_id} == {False, True}
+        pair = [c for c in plan.cells if c.pair_id == pair_id]
+        assert {c.recovery for c in pair} == {False, True}
+        assert abs(pair[0].schedule_index - pair[1].schedule_index) == 1
+    for start in range(0, len(plan.cells), 6):
+        batch = plan.cells[start:start + 6]
+        assert len({cell.cluster_id for cell in batch}) == 1
+        assert len({cell.batch_index for cell in batch}) == 1
+    assert all(
+        cell.inference_seed == plan.inference_seeds[cell.replicate - 1]
+        for cell in plan.cells
+    )
+    assert all(
+        cell.environment_seed == plan.environment_seeds[cell.replicate - 1]
+        for cell in plan.cells
+    )
 
 
 def test_preflight_plan_uses_endpoint_placeholders_and_never_resolves_or_launches(tmp_path: Path):
@@ -83,8 +103,11 @@ def test_preflight_plan_uses_endpoint_placeholders_and_never_resolves_or_launche
     assert all("--models-env" in command for command in commands)
     assert all("--omit-game-knowledge" not in command for command in commands)
     assert all("--sandbox" in command for command in commands)
+    assert all("--inference-seed" in command for command in commands)
     assert all("--duration-seconds" in command for command in commands)
     assert all("21600" in command for command in commands)
+    assert payload["launchability"] == "attested_environment_rng_configured"
+    assert all("--environment-seed" in command for command in commands)
 
 
 def test_cli_dry_run_has_no_endpoint_game_db_or_directory_side_effects(tmp_path: Path):
@@ -111,12 +134,70 @@ def test_cli_dry_run_has_no_endpoint_game_db_or_directory_side_effects(tmp_path:
 
 def test_cell_commands_keep_recovery_out_of_argv(tmp_path: Path):
     plan = build_plan(_manifest_copy(tmp_path))
-    off, on = [c for c in plan.cells if c.pair_id == "rep01-base-grinder"]
+    pair = [c for c in plan.cells if c.pair_id == "rep01-base-grinder"]
+    off = next(cell for cell in pair if not cell.recovery)
+    on = next(cell for cell in pair if cell.recovery)
     assert off.recovery is False and on.recovery is True
     assert cell_command(plan, off) == cell_command(
         plan, replace(on, cell_id=off.cell_id, username=off.username,
-                      server_port=off.server_port, sandbox=off.sandbox, run_dir=off.run_dir),
+                      server_port=off.server_port, sandbox=off.sandbox, run_dir=off.run_dir,
+                      schedule_index=off.schedule_index),
     )
+
+
+def test_schedule_is_deterministic_and_seed_sensitive_without_breaking_blocks(tmp_path: Path):
+    first = build_plan(_manifest_copy(tmp_path))
+    second = build_plan(_manifest_copy(tmp_path))
+    assert [cell.cell_id for cell in first.cells] == [cell.cell_id for cell in second.cells]
+
+    changed = build_plan(_manifest_copy(
+        tmp_path,
+        lambda raw: raw["randomization"].update({"schedule_seed": 20260719}),
+    ))
+    assert [cell.cell_id for cell in first.cells] != [cell.cell_id for cell in changed.cells]
+    for start in range(0, len(changed.cells), 6):
+        assert len({cell.cluster_id for cell in changed.cells[start:start + 6]}) == 1
+
+
+def test_randomization_contract_rejects_missing_environment_seed_attestation(tmp_path: Path):
+    def mutate(raw):
+        raw["randomization"].pop("environment_seed")
+
+    with pytest.raises(ManifestError, match="environment_seed"):
+        build_plan(_manifest_copy(tmp_path, mutate))
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (lambda raw: raw.update({"schema_version": 1}), "schema_version"),
+        (
+            lambda raw: raw["randomization"].update({"inference_seeds": [11001]}),
+            "one seed per replicate",
+        ),
+        (
+            lambda raw: raw["randomization"].update(
+                {"inference_seeds": [11001, 11001, *range(11003, 11021)]}
+            ),
+            "must be unique",
+        ),
+        (
+            lambda raw: raw["randomization"]["environment_seed"].update(
+                {"seeds": [21001]}
+            ),
+            "one seed per replicate",
+        ),
+        (
+            lambda raw: raw["execution"].update({"max_parallel": 5}),
+            "one analysis cluster",
+        ),
+    ],
+)
+def test_randomization_contract_rejects_unreviewed_shapes(
+    tmp_path: Path, mutate, match: str
+):
+    with pytest.raises(ManifestError, match=match):
+        build_plan(_manifest_copy(tmp_path, mutate))
 
 
 def test_manifest_is_frozen_core3_protocol_without_heldout(tmp_path: Path):
@@ -203,6 +284,10 @@ def test_launch_requires_manifest_switch_and_exact_confirmation_without_popen(tm
 def test_launch_requires_all_endpoint_environment_variables(tmp_path: Path, monkeypatch):
     plan = replace(build_plan(_manifest_copy(tmp_path)), allow_launch=True)
     monkeypatch.setattr(
+        "scripts.opd.factorial_eval.require_environment_seed_capability",
+        lambda *_args: {"entrypoint_sha256": "c" * 64},
+    )
+    monkeypatch.setattr(
         "scripts.opd.factorial_eval.subprocess.Popen",
         lambda *args, **kwargs: pytest.fail("Popen must not be reached"),
     )
@@ -250,6 +335,10 @@ def test_launch_sets_canonical_schema_recovery_and_respects_parallel_cap(tmp_pat
         lambda *args, **kwargs: FakeProcess(args, kwargs),
     )
     monkeypatch.setattr(
+        "scripts.opd.factorial_eval.require_environment_seed_capability",
+        lambda *_args: {"entrypoint_sha256": "c" * 64},
+    )
+    monkeypatch.setattr(
         "scripts.opd.factorial_eval.validate_live_endpoint_attestations",
         lambda *args, **kwargs: [],
     )
@@ -273,6 +362,71 @@ def test_launch_sets_canonical_schema_recovery_and_respects_parallel_cap(tmp_pat
     assert all(p.kwargs["env"]["KAETRAM_TOOL_SCHEMA_SOURCE"] == "canonical" for p in captured)
     assert sum("KAETRAM_TOOL_RECOVERY" in p.kwargs["env"] for p in captured) == 180
     assert all(secret not in json.dumps(p.args[0]) for p in captured)
+
+
+def test_confirmatory_launch_fails_closed_when_environment_rng_is_unavailable(
+    tmp_path: Path, monkeypatch
+):
+    plan = replace(
+        build_plan(_manifest_copy(tmp_path)),
+        allow_launch=True,
+        environment_seed_mechanism="unavailable",
+    )
+    monkeypatch.setattr(
+        "scripts.opd.factorial_eval.subprocess.Popen",
+        lambda *args, **kwargs: pytest.fail("Popen must not be reached"),
+    )
+    endpoints = {
+        cell.endpoint_env: "https://signed.example.invalid/v1"
+        for cell in plan.cells
+    }
+    with pytest.raises(ManifestError, match="unsupported Kaetram environment RNG"):
+        launch(plan, confirmation=plan.experiment_id, environ=endpoints)
+
+
+def test_environment_rng_capability_requires_exact_built_checkout(tmp_path: Path, monkeypatch):
+    plan = build_plan(_manifest_copy(tmp_path))
+    game_dir = tmp_path / "game"
+    game_dir.mkdir()
+    subprocess.run(["git", "init", "-q", str(game_dir)], check=True)
+    subprocess.run(["git", "-C", str(game_dir), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(game_dir), "config", "user.name", "Test"], check=True)
+    (game_dir / "tracked.txt").write_text("source\n")
+    subprocess.run(["git", "-C", str(game_dir), "add", "tracked.txt"], check=True)
+    subprocess.run(["git", "-C", str(game_dir), "commit", "-qm", "source"], check=True)
+    revision = subprocess.check_output(
+        ["git", "-C", str(game_dir), "rev-parse", "HEAD"], text=True
+    ).strip()
+    source_tree = subprocess.check_output(
+        ["git", "-C", str(game_dir), "rev-parse", "HEAD^{tree}"], text=True
+    ).strip()
+    plan = replace(plan, environment_game_revision=revision)
+    server_build = game_dir / "packages" / "server" / "dist" / "main.js"
+    server_build.parent.mkdir(parents=True)
+    server_build.write_text("// test build")
+    bundle_sha = hashlib.sha256(server_build.read_bytes()).hexdigest()
+    (server_build.parent / "kaetram-build-attestation.json").write_text(json.dumps({
+        "schema": "kaetram-server-build-attestation/v1",
+        "gameRevision": revision,
+        "sourceTreeGitOid": source_tree,
+        "entrypoint": "packages/server/dist/main.js",
+        "entrypointSha256": bundle_sha,
+    }))
+
+    capability = require_environment_seed_capability(
+        plan, {"KAETRAM_GAME_DIR": str(game_dir)}
+    )
+    assert capability["entrypoint_sha256"] == bundle_sha
+
+    with pytest.raises(ManifestError, match="revision mismatch"):
+        require_environment_seed_capability(
+            replace(plan, environment_game_revision="0" * 40),
+            {"KAETRAM_GAME_DIR": str(game_dir)},
+        )
+
+    server_build.write_text("// stale build")
+    with pytest.raises(ManifestError, match="bundle digest mismatch"):
+        require_environment_seed_capability(plan, {"KAETRAM_GAME_DIR": str(game_dir)})
 
 
 def test_cleanup_terminates_the_owned_process_group(monkeypatch) -> None:
@@ -323,6 +477,29 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
                 "tool_schema_source": plan.tool_schema_source,
                 "include_game_knowledge": not plan.omit_game_knowledge,
                 "held_out_quest": plan.held_out_quest,
+                "inference_seed": cell.inference_seed,
+                "factorial_schedule_algorithm": plan.schedule_algorithm,
+                "factorial_schedule_seed": plan.schedule_seed,
+                "factorial_schedule_index": cell.schedule_index,
+                "factorial_batch_index": cell.batch_index,
+                "factorial_cluster_id": cell.cluster_id,
+                "factorial_pair_id": cell.pair_id,
+                "environment_seed_mechanism": plan.environment_seed_mechanism,
+                "environment_seed": cell.environment_seed,
+                "environment_rng_algorithm": plan.environment_rng_algorithm,
+                    "environment_game_revision": plan.environment_game_revision,
+                    "environment_game_bundle_sha256": plan.environment_game_bundle_sha256,
+                "environment_seed_reason": plan.environment_seed_reason,
+                "environment_rng_attestation": {
+                    "schema": plan.environment_seed_mechanism,
+                    "algorithm": plan.environment_rng_algorithm,
+                    "seedSha256": hashlib.sha256(
+                        str(cell.environment_seed).encode()
+                    ).hexdigest(),
+                        "gameRevision": plan.environment_game_revision,
+                        "serverBundleSha256": plan.environment_game_bundle_sha256,
+                    "drawsAtAttestation": 0,
+                },
             },
             "episodes": [{
                 "episode": 1,
@@ -375,6 +552,29 @@ def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Pat
             "tool_schema_source": plan.tool_schema_source,
             "include_game_knowledge": True,
             "held_out_quest": "",
+            "inference_seed": cell.inference_seed,
+            "factorial_schedule_algorithm": plan.schedule_algorithm,
+            "factorial_schedule_seed": plan.schedule_seed,
+            "factorial_schedule_index": cell.schedule_index,
+            "factorial_batch_index": cell.batch_index,
+            "factorial_cluster_id": cell.cluster_id,
+            "factorial_pair_id": cell.pair_id,
+            "environment_seed_mechanism": plan.environment_seed_mechanism,
+            "environment_seed": cell.environment_seed,
+            "environment_rng_algorithm": plan.environment_rng_algorithm,
+                "environment_game_revision": plan.environment_game_revision,
+                "environment_game_bundle_sha256": plan.environment_game_bundle_sha256,
+            "environment_seed_reason": plan.environment_seed_reason,
+            "environment_rng_attestation": {
+                "schema": plan.environment_seed_mechanism,
+                "algorithm": plan.environment_rng_algorithm,
+                "seedSha256": hashlib.sha256(
+                    str(cell.environment_seed).encode()
+                ).hexdigest(),
+                    "gameRevision": plan.environment_game_revision,
+                    "serverBundleSha256": plan.environment_game_bundle_sha256,
+                "drawsAtAttestation": 0,
+            },
         },
         "episodes": [{
             "episode": 1,
@@ -421,6 +621,29 @@ def _write_complete_cell_artifacts(plan, cell, *, include_raw_emission=True):
             "tool_schema_source": plan.tool_schema_source,
             "include_game_knowledge": not plan.omit_game_knowledge,
             "held_out_quest": plan.held_out_quest,
+            "inference_seed": cell.inference_seed,
+            "factorial_schedule_algorithm": plan.schedule_algorithm,
+            "factorial_schedule_seed": plan.schedule_seed,
+            "factorial_schedule_index": cell.schedule_index,
+            "factorial_batch_index": cell.batch_index,
+            "factorial_cluster_id": cell.cluster_id,
+            "factorial_pair_id": cell.pair_id,
+            "environment_seed_mechanism": plan.environment_seed_mechanism,
+            "environment_seed": cell.environment_seed,
+            "environment_rng_algorithm": plan.environment_rng_algorithm,
+            "environment_game_revision": plan.environment_game_revision,
+            "environment_game_bundle_sha256": plan.environment_game_bundle_sha256,
+            "environment_seed_reason": plan.environment_seed_reason,
+            "environment_rng_attestation": {
+                "schema": plan.environment_seed_mechanism,
+                "algorithm": plan.environment_rng_algorithm,
+                "seedSha256": hashlib.sha256(
+                    str(cell.environment_seed).encode()
+                ).hexdigest(),
+                "gameRevision": plan.environment_game_revision,
+                "serverBundleSha256": plan.environment_game_bundle_sha256,
+                "drawsAtAttestation": 0,
+            },
         },
         "episodes": [{
             "episode": 1,
@@ -549,16 +772,25 @@ def test_prelaunch_ledger_is_self_hashed_create_only_and_preserves_heldout_metad
         "dirty": False,
         "dirty_paths": [],
     })
-    path = seal_prelaunch_record(plan, [])
+    server_build = {"entrypoint_sha256": "c" * 64}
+    path = seal_prelaunch_record(plan, [], server_build)
     record = json.loads(path.read_text())
     assert record["held_out"] == {
         "quest": "",
         "registration": "",
         "registration_sha256": "",
     }
+    assert record["environment_rng"] == {
+        "mechanism": plan.environment_seed_mechanism,
+        "algorithm": plan.environment_rng_algorithm,
+        "game_revision": plan.environment_game_revision,
+        "replicate_seeds": list(plan.environment_seeds),
+        "residual_nondeterminism": plan.environment_seed_reason,
+        "server_build": server_build,
+    }
     assert record["prelaunch_sha256"]
     with pytest.raises(ManifestError, match="refusing to overwrite"):
-        seal_prelaunch_record(plan, [])
+        seal_prelaunch_record(plan, [], server_build)
 
 
 def test_manifest_rejects_prompt_or_power_artifact_digest_drift(tmp_path: Path):

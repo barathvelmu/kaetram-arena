@@ -342,6 +342,8 @@ if _COMPUTED_TOOL_SCHEMA_SHA256 != MODEL_VISIBLE_TOOL_SCHEMA_SHA256:
 
 def validate_tool_definitions(tool_definitions) -> None:
     """Fail loudly if a request/dataset does not contain the frozen schema."""
+    if tool_definitions is None:
+        raise ValueError("tool_definitions cannot be None")
     names = tuple(tool["function"]["name"] for tool in tool_definitions)
     if names != MODEL_VISIBLE_TOOL_NAMES:
         raise ValueError(

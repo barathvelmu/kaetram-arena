@@ -156,6 +156,8 @@ def test_schema_hash_is_frozen_and_validates_all_model_visible_bytes():
     drifted[-1]["function"]["parameters"]["properties"]["count"]["default"] = 2
     with pytest.raises(ValueError, match="schema drift"):
         validate_tool_definitions(drifted)
+    with pytest.raises(ValueError, match="cannot be None"):
+        validate_tool_definitions(None)
 
 
 def test_canonical_runtime_handshake_rejects_live_functional_drift_only():

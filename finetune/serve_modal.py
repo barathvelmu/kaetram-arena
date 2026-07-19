@@ -198,7 +198,7 @@ class Inference:
         contract_path = merged_path / RENDER_CONTRACT_FILENAME
         if contract_path.exists():
             import json as _json
-            manifest_metadata = _json.loads(contract_path.read_text())
+            manifest_metadata = _json.loads(contract_path.read_text(encoding="utf-8"))
         else:
             manifest_metadata = None
         # r10 predates render manifests. Its absence is itself part of that

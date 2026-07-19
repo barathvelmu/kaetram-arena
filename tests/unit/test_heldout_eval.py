@@ -129,6 +129,13 @@ def test_held_out_metrics_use_alias_normalization_and_override_scenario_success(
     assert check_scenario_success("D", metrics, "Desert Quest")
 
 
+def test_held_out_metrics_treat_explicitly_null_quest_maps_as_empty():
+    registration = load_registration()
+    metrics = _held_out_quest_metrics({"quests": None}, {"quests": None}, registration)
+    assert metrics["held_out_quest_stages_advanced"] == 0
+    assert metrics["held_out_quest_completed_delta"] == 0
+
+
 def test_held_out_success_requires_registered_quest_completion():
     metrics = {
         "turns_played": 100,

@@ -25,6 +25,23 @@ Review and merge in this order:
 
 All four PRs are independently reviewable against `main`. PRs #36–#38 intentionally separate result serialization, database semantics, and wrapper completion behavior.
 
+## Linear execution board
+
+Project: [Paper 1 — Reproducible OPD Submission](https://linear.app/niral/project/paper-1-reproducible-opd-submission-74a055f466fd)
+
+Existing historical/context tickets linked into the project:
+
+- [KAE-32 — Paper 1 draft](https://linear.app/niral/issue/KAE-32/paper-1-write-arxiv-draft)
+- [KAE-74 — r11/OPD direction](https://linear.app/niral/issue/KAE-74/r11-plan-scaffold-on-policy-distillation-approach-post-narrative-open)
+- [KAE-49 — design-variable audit](https://linear.app/niral/issue/KAE-49/catalog-and-defend-every-design-variable-for-the-paper)
+
+Current execution tickets:
+
+- P0: [KAE-76](https://linear.app/niral/issue/KAE-76/paper-p0-review-and-merge-eval-correctness-prs-36-38), [KAE-77](https://linear.app/niral/issue/KAE-77/paper-p0-immutable-run-manifests-and-clean-clone-reproduction), [KAE-78](https://linear.app/niral/issue/KAE-78/paper-p0-version-and-enforce-the-model-visible-tool-render-contract)
+- Experiments: [KAE-79](https://linear.app/niral/issue/KAE-79/paper-p1-replicate-the-2b-weights-recovery-factorial) through [KAE-85](https://linear.app/niral/issue/KAE-85/paper-p7-implement-one-strong-matched-budget-alternative)
+
+KAE-79 through KAE-85 are blocked on their relevant P0 tickets so the board does not encourage spending compute on an unfrozen protocol.
+
 ## What is currently supported
 
 - Round-two OPD provides a clean within-repository observation of a weights-only improvement: base 12/30 to r2 15/30, with prior Herbalist stage-one passage changing from 0/3 to 3/3 in one unseeded run.

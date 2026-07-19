@@ -26,6 +26,7 @@ sys.path.insert(0, str(REPO))
 
 from heldout_guard import HeldOutGuardError, validate_eval_selection  # noqa: E402
 from run_manifest import (  # noqa: E402
+    ManifestError,
     atomic_write_json,
     capture_git_state,
     hash_path,
@@ -55,10 +56,6 @@ PRIMARY_ESTIMANDS = (
 ENDPOINT_ATTESTATION_SCHEMA = "kaetram.endpoint-attestation.v1"
 POWER_ANALYSIS_SCHEMA = "kaetram-opd-power-analysis-v1"
 UNRESOLVED_MARKER = "UNRESOLVED"
-
-
-class ManifestError(ValueError):
-    pass
 
 
 @dataclass(frozen=True)

@@ -83,7 +83,7 @@ SCENARIOS = {
 }
 
 MONGO_CONTAINER = "kaetram-mongo"
-MONGO_DB = "kaetram_devlopment"
+MONGO_DB = os.environ.get("KAETRAM_MONGO_DB", "kaetram_devlopment")
 MONGO_COLLECTIONS = [
     "player_info", "player_skills", "player_equipment",
     "player_inventory", "player_bank", "player_quests",
@@ -114,6 +114,14 @@ def reset_player_db(username: str) -> bool:
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         print(f"  Warning: MongoDB reset failed: {e}")
         return False
+
+
+def require_player_db_reset(username: str) -> None:
+    """Reset the player or abort rather than contaminate an evaluation run."""
+    if not reset_player_db(username):
+        raise RuntimeError(
+            f"MongoDB reset was not confirmed for {username!r} in {MONGO_DB!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -810,8 +818,7 @@ def run_model_eval(
 
         # 1. Reset player data
         print(f"  Resetting MongoDB for {username}...")
-        if not reset_player_db(username):
-            print(f"  Warning: DB reset may have failed, continuing anyway")
+        require_player_db_reset(username)
         db_before = _read_player_db_snapshot(username)
         qa_before = _read_quest_achievement_snapshot(username)
 
@@ -1106,6 +1113,7 @@ Examples:
     print(f"  Models:   {', '.join(models.keys())}")
     print(f"  Parallel: {args.parallel}")
     print(f"  Output:   {args.output_dir}")
+    print(f"  MongoDB:  {MONGO_DB}")
 
     # Check MongoDB
     try:

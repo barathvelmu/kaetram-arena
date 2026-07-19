@@ -69,6 +69,32 @@ def test_save_results_records_failed_episode(
     assert json.loads(output_path.read_text()) == results
 
 
+def test_save_results_preserves_previous_checkpoint_if_replace_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    output_path = tmp_path / "results.json"
+    previous = {"episodes": [{"episode": 1, "status": "ok"}]}
+    output_path.write_text(json.dumps(previous))
+    monkeypatch.setattr(eval_harness.subprocess, "check_output", lambda *a, **k: "abc123\n")
+
+    def fail_replace(source, destination) -> None:
+        raise OSError("simulated interrupted replacement")
+
+    monkeypatch.setattr(eval_harness.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="interrupted replacement"):
+        eval_harness._save_results(
+            output_path,
+            model_name="base",
+            endpoint="https://example.invalid/v1",
+            scenario="A",
+            episodes=[{"episode": 2, "status": "ok"}],
+        )
+
+    assert json.loads(output_path.read_text()) == previous
+    assert list(tmp_path.glob(".results.json.*.tmp")) == []
+
+
 def test_scenarios_have_one_time_budget_contract() -> None:
     for scenario in eval_harness.SCENARIOS.values():
         assert isinstance(scenario["name"], str) and scenario["name"]

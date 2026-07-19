@@ -144,7 +144,7 @@ Each agent gets its own server port (9001, 9011, 9021), log directory, capabilit
 The current method is **on-policy distillation (OPD)** (r11); the SFT pipeline below is the historical r1–r10 lane.
 
 The prospective matched six-arm causal training protocol (plus four separate
-mechanism/baseline arms) is documented in
+mechanism/baseline arms plus a separately reported four-condition history ablation) is documented in
 [`research/experiments/opd-matched-training.md`](research/experiments/opd-matched-training.md).
 Its checked-in manifest is dry-run-only and intentionally blocks compute until
 all immutable artifacts, exclusion/evidence records, and the backend adapter are

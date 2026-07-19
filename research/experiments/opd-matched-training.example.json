@@ -6,7 +6,7 @@
     "source_git_commit": "UNRESOLVED_FOR_REVIEWED_LIVE_MANIFEST",
     "artifact_registry": {
       "path": "research/experiments/opd-matched-training-artifacts.example.json",
-      "sha256": "d10b48db8b4b5342e1ce86f1adcc370500a9a1de821c2b5c12155c03f40088b7"
+      "sha256": "86b52374cfa0bf8b4b6b02d75c7503b3b5de70bcb3d413842e6aa87ac8c21dfa"
     }
   },
   "shared_inputs": {
@@ -165,40 +165,72 @@
       }
     },
     {
-      "arm_id": "sft_teacher_trajectories",
+      "arm_id": "visitation_only",
       "role": "mechanism_or_baseline",
-      "objective": "sft",
-      "training_artifact_id": "sft_teacher_trajectories",
+      "objective": "opd",
+      "training_artifact_id": "visitation_only_snapshots",
       "recovery": "on",
       "state_source": {
-        "kind": "teacher_trajectory_state",
-        "constructor": "teacher_trajectory_replay"
+        "kind": "visitation_only_persistent_player_state",
+        "constructor": "hash_verified_database_snapshot_restore"
       },
       "history_constructor": {
-        "kind": "authentic_teacher_history",
-        "source": "same_teacher_trajectory"
+        "kind": "matched_reconstructed_history",
+        "source": "snapshot_visible_fields_only"
       }
     },
     {
-      "arm_id": "natural_opd_recovery_off",
+      "arm_id": "teacher_advantage_only",
       "role": "mechanism_or_baseline",
       "objective": "opd",
-      "training_artifact_id": "natural_rollouts",
-      "recovery": "off",
+      "training_artifact_id": "teacher_advantage_only_snapshots",
+      "recovery": "on",
       "state_source": {
-        "kind": "canonical_natural_rollout",
-        "constructor": "fresh_canonical_world_online"
+        "kind": "teacher_advantage_only_persistent_player_state",
+        "constructor": "hash_verified_database_snapshot_restore"
       },
       "history_constructor": {
-        "kind": "authentic_online_history",
-        "source": "same_rollout"
+        "kind": "matched_reconstructed_history",
+        "source": "snapshot_visible_fields_only"
       }
     },
     {
-      "arm_id": "targeted_minimal_history",
+      "arm_id": "corrected_interface_sft",
       "role": "mechanism_or_baseline",
+      "objective": "sft",
+      "training_artifact_id": "corrected_interface_sft_trajectories",
+      "recovery": "on",
+      "state_source": {
+        "kind": "corrected_interface_teacher_trajectory_state",
+        "constructor": "corrected_interface_teacher_trajectory_replay"
+      },
+      "history_constructor": {
+        "kind": "corrected_interface_teacher_history",
+        "source": "same_corrected_teacher_trajectory"
+      }
+    },
+    {
+      "arm_id": "score_first_error_prefixes",
+      "role": "mechanism_or_baseline",
+      "objective": "score",
+      "training_artifact_id": "score_first_error_prefixes",
+      "recovery": "on",
+      "state_source": {
+        "kind": "verified_first_error_prefix_state",
+        "constructor": "restore_verified_pre_error_state"
+      },
+      "history_constructor": {
+        "kind": "verified_pre_error_prefix",
+        "source": "same_verified_student_trajectory"
+      }
+    }
+  ],
+  "history_ablations": [
+    {
+      "ablation_id": "snapshot_minimal_history",
+      "role": "history_ablation",
       "objective": "opd",
-      "training_artifact_id": "targeted_minimal_history",
+      "training_artifact_id": "history_snapshot_minimal",
       "recovery": "on",
       "state_source": {
         "kind": "targeted_persistent_player_state",
@@ -210,18 +242,55 @@
       }
     },
     {
-      "arm_id": "targeted_authentic_history",
-      "role": "mechanism_or_baseline",
+      "ablation_id": "teacher_replay_authentic_prefix",
+      "role": "history_ablation",
       "objective": "opd",
-      "training_artifact_id": "targeted_authentic_history",
+      "training_artifact_id": "history_teacher_replay",
+      "recovery": "on",
+      "state_source": {
+        "kind": "teacher_replay_state",
+        "constructor": "replay_witness_trajectory_to_identical_state"
+      },
+      "history_constructor": {
+        "kind": "authentic_teacher_history",
+        "source": "same_witness_trajectory_prefix"
+      }
+    },
+    {
+      "ablation_id": "snapshot_matched_reconstructed_history",
+      "role": "history_ablation",
+      "objective": "opd",
+      "training_artifact_id": "history_snapshot_reconstructed",
       "recovery": "on",
       "state_source": {
         "kind": "targeted_persistent_player_state",
         "constructor": "hash_verified_database_snapshot_restore"
       },
       "history_constructor": {
-        "kind": "authentic_teacher_history",
-        "source": "state_identical_witness_trajectory_prefix"
+        "kind": "matched_reconstructed_history",
+        "source": "snapshot_visible_fields_only"
+      }
+    },
+    {
+      "ablation_id": "backplay_witness_annealing",
+      "role": "history_ablation",
+      "objective": "opd",
+      "training_artifact_id": "history_backplay_witness",
+      "recovery": "on",
+      "state_source": {
+        "kind": "backplay_witness_state",
+        "constructor": "restore_along_registered_witness_trajectory"
+      },
+      "history_constructor": {
+        "kind": "authentic_witness_history",
+        "source": "matching_witness_trajectory_prefix"
+      },
+      "backplay_annealing": {
+        "schedule": "backward_along_witness",
+        "schedule_basis": "action_tokens",
+        "start_distance_fraction": 0.0,
+        "end_distance_fraction": 1.0,
+        "anneal_action_tokens": 2000000
       }
     }
   ],

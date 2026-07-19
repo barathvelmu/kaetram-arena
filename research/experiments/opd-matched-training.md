@@ -1,15 +1,18 @@
 # Matched six-arm OPD training protocol
 
 This is the preregistration and launcher contract for the causal training
-comparison missing from the current case study. It defines six primary arms and
-four separate mechanism/baseline arms. It does not report a result, deploy a
-model, or spend accelerator/inference compute.
+comparison missing from the current case study. It defines six primary arms,
+four mechanism/baseline arms, and a separately reported four-condition history
+ablation. It does not report a result, deploy a model, or spend
+accelerator/inference compute.
 
 The reviewed example manifest is
 [`opd-matched-training.example.json`](opd-matched-training.example.json). Its
 artifact registry is
 [`opd-matched-training-artifacts.example.json`](opd-matched-training-artifacts.example.json).
-The example expands five shared training seeds into 50 training cells.
+The example expands five shared training seeds into 50 core cells plus 20
+history-ablation cells (70 total). The latter are not silently counted as
+mechanism arms.
 
 ## Registered arms
 
@@ -21,15 +24,31 @@ The example expands five shared training seeds into 50 training cells.
 | Primary | Progress-matched state | Registered progress-stratified pool | Same reconstruction as targeted |
 | Primary | TCOD-B2F prefixes | Evidence-backed teacher-success boundary | Authentic prefix from the same trajectory |
 | Primary | Guided-OPD | Evidence-backed teacher-success boundary | Authentic prefix, annealed linearly from probability 1 to 0 |
-| Baseline | Teacher-trajectory SFT | Teacher trajectory replay | Authentic teacher history |
-| Mechanism | Natural OPD, recovery off | Same natural source as the primary arm | Same authentic online history |
-| Mechanism | Targeted + minimal history | Same targeted snapshot family | One post-restore model-visible observation |
-| Mechanism | Targeted + authentic history | State-identical witness trajectory | Authentic prefix ending at that exact state |
+| Mechanism | Visitation only | Visitation-only persistent-state pool | Matched visible-field reconstruction |
+| Mechanism | Teacher advantage only | Teacher-advantage-only persistent-state pool | Matched visible-field reconstruction |
+| Baseline | Corrected-interface SFT | Corrected-interface teacher trajectory replay | History rendered from that corrected trajectory |
+| Baseline | SCoRe first-error prefixes | Verified state immediately before the first model-visible student error | Verified prefix from the same student trajectory |
 
-The final two targeted controls separate the effect of external persistent state
-from the effect of visible history. Random-valid and progress-matched arms test
-whether any legal initialization, or progress alone, explains the targeted-arm
-effect.
+Visitation-only and teacher-advantage-only isolate the two proposed selection
+mechanisms. Corrected-interface SFT controls for learning from corrected teacher
+behavior without OPD. SCoRe requires hash-backed evidence that every prefix ends
+at the first model-visible student error. Random-valid and progress-matched arms
+test whether any legal initialization, or progress alone, explains the
+targeted-arm effect.
+
+## Separate state-by-history ablation
+
+| Condition | State construction | Model-visible history |
+|---|---|---|
+| Snapshot + minimal history | Hash-verified targeted snapshot | One post-restore observation |
+| Teacher replay + authentic prefix | Replay a witness to the identical state | Prefix from that witness |
+| Snapshot + matched reconstructed history | Same snapshot family | Visible-field reconstruction |
+| Backplay witness annealing | Restore progressively earlier witness states | Matching authentic witness prefix |
+
+Backplay moves from success toward the canonical start across the entire shared
+action-token budget. These 20 cells test state/history coupling and are reported
+as a distinct crossed-history module, not as substitutes for the four core
+mechanism/baseline arms.
 
 ## What is forced to match
 
@@ -69,6 +88,11 @@ success over action-token progress. Guided-OPD must linearly anneal teacher-pref
 probability from 1 to 0 across the entire shared action-token budget. Missing or
 unresolved evidence remains visible in dry-run and blocks execution.
 
+SCoRe accepts only verified first-error-prefix artifacts. Its evidence record
+must identify the first model-visible student error and hash both the evidence
+and prefix verifier. All four history-ablation artifacts additionally require
+passed legal-reachability evidence.
+
 ## Safe preflight
 
 ```bash
@@ -79,7 +103,7 @@ python3 scripts/opd/matched_training.py \
 
 Dry-run does not resolve the teacher endpoint, create output directories, or
 start a worker. The checked-in example intentionally reports blockers: real base
-checkpoint and teacher attestations, ten arm artifacts/exclusion records,
+checkpoint and teacher attestations, fourteen core/history artifacts and exclusion records,
 reachability and teacher-success evidence, an exact clean source commit, and a
 hash-locked backend adapter are not present.
 
@@ -105,10 +129,11 @@ Guided-OPD; the backend adapter is the remaining implementation boundary.
 
 - No immutable base-checkpoint or teacher-deployment attestation is available in
   this clone.
-- No hash-verified training bundles exist for the ten registered arms.
+- No hash-verified training bundles exist for the ten core arms or four history
+  conditions.
 - Held-out scans, legal-reachability witnesses, and DB-backed teacher-success
   evidence are unresolved examples.
 - The training backend does not yet implement the arm contract.
-- No cost/power review has approved 50 matched training cells.
+- No cost/power review has approved 50 core plus 20 history-ablation cells.
 
 No expensive compute was run while adding this protocol.

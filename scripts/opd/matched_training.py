@@ -33,19 +33,26 @@ PRIMARY_ARMS = (
     "guided_opd",
 )
 MECHANISM_ARMS = (
-    "sft_teacher_trajectories",
-    "natural_opd_recovery_off",
-    "targeted_minimal_history",
-    "targeted_authentic_history",
+    "visitation_only",
+    "teacher_advantage_only",
+    "corrected_interface_sft",
+    "score_first_error_prefixes",
 )
 ARM_IDS = PRIMARY_ARMS + MECHANISM_ARMS
+HISTORY_ABLATION_IDS = (
+    "snapshot_minimal_history",
+    "teacher_replay_authentic_prefix",
+    "snapshot_matched_reconstructed_history",
+    "backplay_witness_annealing",
+)
 PREFIX_ARMS = {"tcod_b2f_prefixes", "guided_opd"}
+FIRST_ERROR_ARMS = {"score_first_error_prefixes"}
 REACHABILITY_ARMS = {
     "targeted_persistent_state",
     "random_valid_state",
     "progress_matched_state",
-    "targeted_minimal_history",
-    "targeted_authentic_history",
+    "visitation_only",
+    "teacher_advantage_only",
 }
 EXPECTED_ARTIFACT_KINDS = {
     "natural_opd": "on_policy_rollouts",
@@ -54,10 +61,10 @@ EXPECTED_ARTIFACT_KINDS = {
     "progress_matched_state": "persistent_player_snapshots",
     "tcod_b2f_prefixes": "teacher_success_prefixes",
     "guided_opd": "teacher_success_prefixes",
-    "sft_teacher_trajectories": "teacher_trajectories",
-    "natural_opd_recovery_off": "on_policy_rollouts",
-    "targeted_minimal_history": "state_history_pairs",
-    "targeted_authentic_history": "state_history_pairs",
+    "visitation_only": "persistent_player_snapshots",
+    "teacher_advantage_only": "persistent_player_snapshots",
+    "corrected_interface_sft": "corrected_interface_teacher_trajectories",
+    "score_first_error_prefixes": "verified_first_error_prefixes",
 }
 EXPECTED_CONSTRUCTORS = {
     "natural_opd": (
@@ -84,21 +91,39 @@ EXPECTED_CONSTRUCTORS = {
         "teacher_success_prefix_state", "restore_state_at_registered_prefix_boundary",
         "authentic_teacher_success_prefix", "same_evidence_backed_teacher_trajectory",
     ),
-    "sft_teacher_trajectories": (
-        "teacher_trajectory_state", "teacher_trajectory_replay",
-        "authentic_teacher_history", "same_teacher_trajectory",
+    "visitation_only": (
+        "visitation_only_persistent_player_state", "hash_verified_database_snapshot_restore",
+        "matched_reconstructed_history", "snapshot_visible_fields_only",
     ),
-    "natural_opd_recovery_off": (
-        "canonical_natural_rollout", "fresh_canonical_world_online",
-        "authentic_online_history", "same_rollout",
+    "teacher_advantage_only": (
+        "teacher_advantage_only_persistent_player_state", "hash_verified_database_snapshot_restore",
+        "matched_reconstructed_history", "snapshot_visible_fields_only",
     ),
-    "targeted_minimal_history": (
+    "corrected_interface_sft": (
+        "corrected_interface_teacher_trajectory_state", "corrected_interface_teacher_trajectory_replay",
+        "corrected_interface_teacher_history", "same_corrected_teacher_trajectory",
+    ),
+    "score_first_error_prefixes": (
+        "verified_first_error_prefix_state", "restore_verified_pre_error_state",
+        "verified_pre_error_prefix", "same_verified_student_trajectory",
+    ),
+}
+HISTORY_ABLATION_CONSTRUCTORS = {
+    "snapshot_minimal_history": (
         "targeted_persistent_player_state", "hash_verified_database_snapshot_restore",
         "minimal_model_visible_history", "single_post_restore_observation",
     ),
-    "targeted_authentic_history": (
+    "teacher_replay_authentic_prefix": (
+        "teacher_replay_state", "replay_witness_trajectory_to_identical_state",
+        "authentic_teacher_history", "same_witness_trajectory_prefix",
+    ),
+    "snapshot_matched_reconstructed_history": (
         "targeted_persistent_player_state", "hash_verified_database_snapshot_restore",
-        "authentic_teacher_history", "state_identical_witness_trajectory_prefix",
+        "matched_reconstructed_history", "snapshot_visible_fields_only",
+    ),
+    "backplay_witness_annealing": (
+        "backplay_witness_state", "restore_along_registered_witness_trajectory",
+        "authentic_witness_history", "matching_witness_trajectory_prefix",
     ),
 }
 
@@ -134,6 +159,7 @@ class TrainingPlan:
     budgets: dict[str, int]
     training_seed_schedule: tuple[int, ...]
     arms: tuple[dict[str, Any], ...]
+    history_ablations: tuple[dict[str, Any], ...]
     allow_launch: bool
     max_parallel: int
     output_root: str
@@ -268,10 +294,15 @@ def _validate_arm(
     expected_role = "primary" if arm_id in PRIMARY_ARMS else "mechanism_or_baseline"
     if arm.get("role") != expected_role:
         raise ProtocolError(f"arm {arm_id} role must be {expected_role}")
-    expected_objective = "sft" if arm_id == "sft_teacher_trajectories" else "opd"
+    if arm_id == "corrected_interface_sft":
+        expected_objective = "sft"
+    elif arm_id == "score_first_error_prefixes":
+        expected_objective = "score"
+    else:
+        expected_objective = "opd"
     if arm.get("objective") != expected_objective:
         raise ProtocolError(f"arm {arm_id} objective must be {expected_objective}")
-    expected_recovery = "off" if arm_id == "natural_opd_recovery_off" else "on"
+    expected_recovery = "on"
     if arm.get("recovery") != expected_recovery:
         raise ProtocolError(f"arm {arm_id} recovery must be {expected_recovery}")
     artifact_id = arm.get("training_artifact_id")
@@ -327,6 +358,23 @@ def _validate_arm(
         if evidence.get("status") != "pass" or evidence_sha == "0" * 64:
             blockers.append(f"artifact {artifact_id} lacks hash-backed teacher-success evidence")
 
+    if arm_id in FIRST_ERROR_ARMS:
+        evidence = _mapping(
+            record.get("first_error_evidence"),
+            label=f"artifact {artifact_id}.first_error_evidence",
+        )
+        if evidence.get("metric") != "first_model_visible_student_error":
+            raise ProtocolError(
+                f"artifact {artifact_id} must identify the first model-visible student error"
+            )
+        if evidence.get("status") != "pass":
+            blockers.append(f"artifact {artifact_id} lacks verified SCoRe first-error evidence")
+        for field in ("evidence_sha256", "prefix_verifier_sha256"):
+            value = evidence.get(field)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value) \
+                    or value == "0" * 64:
+                blockers.append(f"artifact {artifact_id} has unresolved {field}")
+
     if arm_id == "tcod_b2f_prefixes":
         cfg = _mapping(arm.get("tcod_b2f"), label="arm tcod_b2f_prefixes.tcod_b2f")
         _exact_keys(
@@ -365,6 +413,79 @@ def _validate_arm(
     return arm
 
 
+def _validate_history_ablation(
+    raw: Any,
+    *,
+    index: int,
+    artifacts: dict[str, Any],
+    heldout_id: str,
+    action_budget: int,
+    blockers: list[str],
+) -> dict[str, Any]:
+    ablation = _mapping(raw, label=f"history_ablations[{index}]")
+    required = {
+        "ablation_id", "role", "objective", "training_artifact_id", "recovery",
+        "state_source", "history_constructor",
+    }
+    optional = {"backplay_annealing"}
+    if not required <= set(ablation) or (set(ablation) - required) - optional:
+        raise ProtocolError(f"history_ablations[{index}] has unexpected or missing fields")
+    ablation_id = ablation.get("ablation_id")
+    if ablation_id not in HISTORY_ABLATION_IDS:
+        raise ProtocolError(f"unregistered history ablation: {ablation_id!r}")
+    if ablation.get("role") != "history_ablation" or ablation.get("objective") != "opd" \
+            or ablation.get("recovery") != "on":
+        raise ProtocolError(f"history ablation {ablation_id} must be OPD/recovery-on")
+    artifact_id = ablation.get("training_artifact_id")
+    if not isinstance(artifact_id, str) or not artifact_id:
+        raise ProtocolError(f"history ablation {ablation_id} artifact ID is missing")
+    record = _artifact(artifacts, artifact_id, kind="state_history_pairs", blockers=blockers)
+    exclusion = _mapping(
+        record.get("held_out_exclusion"), label=f"artifact {artifact_id}.held_out_exclusion"
+    )
+    if exclusion.get("registration_artifact_id") != heldout_id:
+        raise ProtocolError(f"artifact {artifact_id} is not bound to held-out registration {heldout_id}")
+    if exclusion.get("status") != "pass" or not isinstance(exclusion.get("scanned_records"), int) \
+            or exclusion.get("scanned_records", 0) < 1:
+        blockers.append(f"artifact {artifact_id} has no completed held-out exclusion scan")
+    evidence = _mapping(
+        record.get("reachability_evidence"), label=f"artifact {artifact_id}.reachability_evidence"
+    )
+    if evidence.get("method") != "witness_trajectory_or_invariant_certificate":
+        raise ProtocolError(f"artifact {artifact_id} must state its legal-reachability method")
+    if evidence.get("status") != "pass":
+        blockers.append(f"artifact {artifact_id} lacks passed legal-reachability evidence")
+    state = _mapping(ablation.get("state_source"), label=f"history ablation {ablation_id}.state_source")
+    history = _mapping(
+        ablation.get("history_constructor"), label=f"history ablation {ablation_id}.history_constructor"
+    )
+    _exact_keys(state, {"kind", "constructor"}, label=f"history ablation {ablation_id}.state_source")
+    _exact_keys(history, {"kind", "source"}, label=f"history ablation {ablation_id}.history_constructor")
+    actual = (state["kind"], state["constructor"], history["kind"], history["source"])
+    if actual != HISTORY_ABLATION_CONSTRUCTORS[ablation_id]:
+        raise ProtocolError(f"history ablation {ablation_id} constructors differ from frozen protocol")
+    if ablation_id == "backplay_witness_annealing":
+        cfg = _mapping(
+            ablation.get("backplay_annealing"),
+            label="history ablation backplay_witness_annealing.backplay_annealing",
+        )
+        _exact_keys(
+            cfg,
+            {
+                "schedule", "schedule_basis", "start_distance_fraction",
+                "end_distance_fraction", "anneal_action_tokens",
+            },
+            label="backplay_annealing",
+        )
+        if cfg["schedule"] != "backward_along_witness" or cfg["schedule_basis"] != "action_tokens" \
+                or cfg["start_distance_fraction"] != 0.0 or cfg["end_distance_fraction"] != 1.0 \
+                or cfg["anneal_action_tokens"] != action_budget:
+            raise ProtocolError("Backplay must anneal from success to canonical start over full action budget")
+    elif "backplay_annealing" in ablation:
+        raise ProtocolError(f"history ablation {ablation_id} must not define Backplay annealing")
+    return ablation
+
+
 def build_plan(path: str | Path) -> TrainingPlan:
     manifest_path = Path(path).resolve()
     try:
@@ -377,7 +498,14 @@ def build_plan(path: str | Path) -> TrainingPlan:
         raise ProtocolError(f"cannot load manifest {manifest_path}: {exc}") from exc
     if not isinstance(raw, dict) or raw.get("schema_version") != 1:
         raise ProtocolError("manifest schema_version must be 1")
-    _exact_keys(raw, {"schema_version", "experiment_id", "protocol", "shared_inputs", "arms", "execution"}, label="manifest")
+    _exact_keys(
+        raw,
+        {
+            "schema_version", "experiment_id", "protocol", "shared_inputs", "arms",
+            "history_ablations", "execution",
+        },
+        label="manifest",
+    )
     experiment_id = raw.get("experiment_id")
     if not isinstance(experiment_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,63}", experiment_id):
         raise ProtocolError("experiment_id must be a lowercase filesystem-safe identifier")
@@ -493,6 +621,25 @@ def build_plan(path: str | Path) -> TrainingPlan:
     if tuple(arm["arm_id"] for arm in arms) != ARM_IDS:
         raise ProtocolError(f"arms must appear exactly in registered order: {list(ARM_IDS)}")
 
+    history_raw = raw.get("history_ablations")
+    if not isinstance(history_raw, list) or len(history_raw) != len(HISTORY_ABLATION_IDS):
+        raise ProtocolError("history_ablations must contain exactly four registered conditions")
+    history_ablations = tuple(
+        _validate_history_ablation(
+            item,
+            index=index,
+            artifacts=artifacts,
+            heldout_id=heldout_id,
+            action_budget=budgets["action_tokens"],
+            blockers=blockers,
+        )
+        for index, item in enumerate(history_raw)
+    )
+    if tuple(item["ablation_id"] for item in history_ablations) != HISTORY_ABLATION_IDS:
+        raise ProtocolError(
+            f"history_ablations must appear exactly in registered order: {list(HISTORY_ABLATION_IDS)}"
+        )
+
     execution = _mapping(raw.get("execution"), label="execution")
     _exact_keys(execution, {"allow_launch", "max_parallel", "output_root", "backend_adapter"}, label="execution")
     allow_launch = execution.get("allow_launch")
@@ -519,6 +666,8 @@ def build_plan(path: str | Path) -> TrainingPlan:
         backend_path = str(resolved_backend)
 
     shared_contract = {
+        "source_git_commit": source_git,
+        "experiment_manifest_sha256": _sha256(manifest_path),
         "base_checkpoint_artifact_id": base_id,
         "teacher_artifact_id": teacher_id,
         "teacher_endpoint_env": teacher_env,
@@ -549,6 +698,28 @@ def build_plan(path: str | Path) -> TrainingPlan:
                     "shared_contract": shared_contract,
                 },
             ))
+    for ablation in history_ablations:
+        normalized = {"arm_id": ablation["ablation_id"], **{
+            key: value for key, value in ablation.items() if key != "ablation_id"
+        }}
+        for seed in seeds:
+            cell_id = f"{normalized['arm_id']}-seed-{seed}"
+            cell_output = output_root / experiment_id / cell_id
+            cells.append(TrainingCell(
+                cell_id=cell_id,
+                arm_id=normalized["arm_id"],
+                role=normalized["role"],
+                seed=seed,
+                output_dir=str(cell_output),
+                config={
+                    "schema_version": "kaetram.matched-training-cell.v1",
+                    "experiment_id": experiment_id,
+                    "cell_id": cell_id,
+                    "arm": normalized,
+                    "training_seed": seed,
+                    "shared_contract": shared_contract,
+                },
+            ))
     if max_parallel > len(cells):
         raise ProtocolError("execution.max_parallel cannot exceed generated cell count")
     return TrainingPlan(
@@ -567,6 +738,7 @@ def build_plan(path: str | Path) -> TrainingPlan:
         budgets=budgets,
         training_seed_schedule=seeds,
         arms=arms,
+        history_ablations=history_ablations,
         allow_launch=allow_launch,
         max_parallel=max_parallel,
         output_root=str(output_root),
@@ -583,8 +755,11 @@ def plan_dict(plan: TrainingPlan) -> dict[str, Any]:
     payload["counts"] = {
         "primary_arms": len(PRIMARY_ARMS),
         "mechanism_or_baseline_arms": len(MECHANISM_ARMS),
+        "history_ablation_conditions": len(HISTORY_ABLATION_IDS),
         "seeds_per_arm": len(plan.training_seed_schedule),
-        "training_cells": len(plan.cells),
+        "core_training_cells": len(ARM_IDS) * len(plan.training_seed_schedule),
+        "history_ablation_cells": len(HISTORY_ABLATION_IDS) * len(plan.training_seed_schedule),
+        "training_cells_total": len(plan.cells),
     }
     return payload
 

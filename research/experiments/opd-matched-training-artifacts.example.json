@@ -129,24 +129,11 @@
         "scanned_records": 0
       }
     },
-    "sft_teacher_trajectories": {
-      "kind": "teacher_trajectories",
+    "visitation_only_snapshots": {
+      "kind": "persistent_player_snapshots",
       "status": "unresolved_example",
       "payload": {
-        "uri": "UNRESOLVED://sft-teacher-trajectories",
-        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
-      },
-      "held_out_exclusion": {
-        "registration_artifact_id": "heldout_registration",
-        "status": "unresolved",
-        "scanned_records": 0
-      }
-    },
-    "targeted_minimal_history": {
-      "kind": "state_history_pairs",
-      "status": "unresolved_example",
-      "payload": {
-        "uri": "UNRESOLVED://targeted-minimal-history-pairs",
+        "uri": "UNRESOLVED://visitation-only-snapshots",
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "reachability_evidence": {
@@ -159,11 +146,111 @@
         "scanned_records": 0
       }
     },
-    "targeted_authentic_history": {
+    "teacher_advantage_only_snapshots": {
+      "kind": "persistent_player_snapshots",
+      "status": "unresolved_example",
+      "payload": {
+        "uri": "UNRESOLVED://teacher-advantage-only-snapshots",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "reachability_evidence": {
+        "method": "witness_trajectory_or_invariant_certificate",
+        "status": "unresolved"
+      },
+      "held_out_exclusion": {
+        "registration_artifact_id": "heldout_registration",
+        "status": "unresolved",
+        "scanned_records": 0
+      }
+    },
+    "corrected_interface_sft_trajectories": {
+      "kind": "corrected_interface_teacher_trajectories",
+      "status": "unresolved_example",
+      "payload": {
+        "uri": "UNRESOLVED://corrected-interface-sft-trajectories",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "held_out_exclusion": {
+        "registration_artifact_id": "heldout_registration",
+        "status": "unresolved",
+        "scanned_records": 0
+      }
+    },
+    "score_first_error_prefixes": {
+      "kind": "verified_first_error_prefixes",
+      "status": "unresolved_example",
+      "payload": {
+        "uri": "UNRESOLVED://score-first-error-prefixes",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "first_error_evidence": {
+        "status": "unresolved",
+        "metric": "first_model_visible_student_error",
+        "evidence_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "prefix_verifier_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "held_out_exclusion": {
+        "registration_artifact_id": "heldout_registration",
+        "status": "unresolved",
+        "scanned_records": 0
+      }
+    },
+    "history_snapshot_minimal": {
       "kind": "state_history_pairs",
       "status": "unresolved_example",
       "payload": {
-        "uri": "UNRESOLVED://targeted-authentic-history-pairs",
+        "uri": "UNRESOLVED://history-snapshot-minimal",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "reachability_evidence": {
+        "method": "witness_trajectory_or_invariant_certificate",
+        "status": "unresolved"
+      },
+      "held_out_exclusion": {
+        "registration_artifact_id": "heldout_registration",
+        "status": "unresolved",
+        "scanned_records": 0
+      }
+    },
+    "history_teacher_replay": {
+      "kind": "state_history_pairs",
+      "status": "unresolved_example",
+      "payload": {
+        "uri": "UNRESOLVED://history-teacher-replay",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "reachability_evidence": {
+        "method": "witness_trajectory_or_invariant_certificate",
+        "status": "unresolved"
+      },
+      "held_out_exclusion": {
+        "registration_artifact_id": "heldout_registration",
+        "status": "unresolved",
+        "scanned_records": 0
+      }
+    },
+    "history_snapshot_reconstructed": {
+      "kind": "state_history_pairs",
+      "status": "unresolved_example",
+      "payload": {
+        "uri": "UNRESOLVED://history-snapshot-reconstructed",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "reachability_evidence": {
+        "method": "witness_trajectory_or_invariant_certificate",
+        "status": "unresolved"
+      },
+      "held_out_exclusion": {
+        "registration_artifact_id": "heldout_registration",
+        "status": "unresolved",
+        "scanned_records": 0
+      }
+    },
+    "history_backplay_witness": {
+      "kind": "state_history_pairs",
+      "status": "unresolved_example",
+      "payload": {
+        "uri": "UNRESOLVED://history-backplay-witness",
         "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
       },
       "reachability_evidence": {

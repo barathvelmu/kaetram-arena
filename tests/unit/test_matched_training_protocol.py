@@ -55,14 +55,16 @@ def _sandbox_manifest(tmp_path: Path, monkeypatch, mutate_manifest=None, mutate_
     return manifest_path
 
 
-def test_example_expands_six_primary_four_mechanism_arms_with_matched_contracts(
+def test_example_expands_core_and_separate_history_cells_with_matched_contracts(
     tmp_path: Path, monkeypatch
 ) -> None:
     plan = mt.build_plan(_sandbox_manifest(tmp_path, monkeypatch))
     assert tuple(arm["arm_id"] for arm in plan.arms) == mt.ARM_IDS
     assert sum(arm["role"] == "primary" for arm in plan.arms) == 6
     assert sum(arm["role"] == "mechanism_or_baseline" for arm in plan.arms) == 4
-    assert len(plan.cells) == 50
+    assert tuple(item["ablation_id"] for item in plan.history_ablations) == mt.HISTORY_ABLATION_IDS
+    assert len(plan.cells) == 70
+    assert sum(cell.role == "history_ablation" for cell in plan.cells) == 20
     assert {cell.seed for cell in plan.cells} == set(plan.training_seed_schedule)
     assert {json.dumps(cell.config["shared_contract"], sort_keys=True) for cell in plan.cells} == {
         json.dumps(plan.cells[0].config["shared_contract"], sort_keys=True)
@@ -94,6 +96,14 @@ def test_missing_or_reordered_arm_fails_closed(tmp_path: Path, monkeypatch) -> N
         raw["arms"] = raw["arms"][:-1]
 
     with pytest.raises(mt.ProtocolError, match="exactly six primary"):
+        mt.build_plan(_sandbox_manifest(tmp_path, monkeypatch, mutate_manifest=mutate))
+
+
+def test_missing_or_reordered_history_ablation_fails_closed(tmp_path: Path, monkeypatch) -> None:
+    def mutate(raw):
+        raw["history_ablations"] = list(reversed(raw["history_ablations"]))
+
+    with pytest.raises(mt.ProtocolError, match="registered order"):
         mt.build_plan(_sandbox_manifest(tmp_path, monkeypatch, mutate_manifest=mutate))
 
 
@@ -130,6 +140,28 @@ def test_tcod_prefixes_require_db_authoritative_success_evidence(tmp_path: Path,
 
     with pytest.raises(mt.ProtocolError, match="DB-authoritative teacher success"):
         mt.build_plan(_sandbox_manifest(tmp_path, monkeypatch, mutate_registry=mutate))
+
+
+def test_score_requires_first_model_visible_error_evidence(tmp_path: Path, monkeypatch) -> None:
+    def mutate(registry):
+        registry["artifacts"]["score_first_error_prefixes"]["first_error_evidence"][
+            "metric"
+        ] = "first_environment_error"
+
+    with pytest.raises(mt.ProtocolError, match="first model-visible student error"):
+        mt.build_plan(_sandbox_manifest(tmp_path, monkeypatch, mutate_registry=mutate))
+
+
+def test_backplay_must_span_full_action_budget(tmp_path: Path, monkeypatch) -> None:
+    def mutate(raw):
+        backplay = next(
+            item for item in raw["history_ablations"]
+            if item["ablation_id"] == "backplay_witness_annealing"
+        )
+        backplay["backplay_annealing"]["anneal_action_tokens"] -= 1
+
+    with pytest.raises(mt.ProtocolError, match="full action budget"):
+        mt.build_plan(_sandbox_manifest(tmp_path, monkeypatch, mutate_manifest=mutate))
 
 
 def test_every_arm_artifact_must_bind_same_heldout_registration(tmp_path: Path, monkeypatch) -> None:
@@ -290,5 +322,5 @@ def test_resolved_launch_writes_seal_configs_and_validates_every_result(
     assert launched == [cell.cell_id for cell in plan.cells]
     seal = Path(plan.output_root) / plan.experiment_id / "prelaunch.json"
     payload = json.loads(seal.read_text())
-    assert len(payload["cells"]) == 50
+    assert len(payload["cells"]) == 70
     assert all("cell_contract_sha256" in cell for cell in payload["cells"])

@@ -16,7 +16,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "log_analysis"))
 
-from parse import parse_session  # noqa: E402
+from parse import parse_session_auto  # noqa: E402
 
 
 def audit_logs(log_paths: list[Path], relapse_window: int = 5) -> dict:
@@ -26,7 +26,7 @@ def audit_logs(log_paths: list[Path], relapse_window: int = 5) -> dict:
     totals = Counter()
 
     for path in sorted(log_paths):
-        view = parse_session(path)
+        view = parse_session_auto(path)
         recovered = [
             call for call in view.tool_calls
             if isinstance(call.result_raw, str)

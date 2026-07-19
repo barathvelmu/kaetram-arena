@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 import hashlib
 import json
 import os
@@ -67,7 +68,7 @@ def parse_endpoint(value: str) -> tuple[str, str]:
 
 def restore_args(turn) -> dict | None:
     """Rebuild empty structured arguments from canonicalized raw text."""
-    message = turn_to_chat(turn)
+    message = copy.deepcopy(turn_to_chat(turn))
     bare = [
         call for call in (message.get("tool_calls") or [])
         if not (call.get("function", {}).get("arguments") or {})

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,11 +15,31 @@ from copy_prior_diag import (  # noqa: E402
     context_conditions,
     parse_endpoint,
     render_context,
+    restore_args,
     sha256_text,
     summarize,
     target_stats,
 )
 from recovery_audit import audit_logs  # noqa: E402
+
+
+def test_restore_args_does_not_mutate_logged_turn() -> None:
+    turn = SimpleNamespace(
+        text='<function=gather("Oak")></function>',
+        thinking="",
+        tool_calls=[{
+            "type": "function",
+            "function": {"name": "gather", "arguments": {}},
+        }],
+    )
+
+    repaired = restore_args(turn)
+
+    assert repaired is not None
+    assert repaired["tool_calls"][0]["function"]["arguments"] == {
+        "resource_name": "Oak"
+    }
+    assert turn.tool_calls[0]["function"]["arguments"] == {}
 
 
 def test_parse_endpoint_and_hash_are_deterministic() -> None:

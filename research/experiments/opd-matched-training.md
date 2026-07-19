@@ -1,0 +1,114 @@
+# Matched six-arm OPD training protocol
+
+This is the preregistration and launcher contract for the causal training
+comparison missing from the current case study. It defines six primary arms and
+four separate mechanism/baseline arms. It does not report a result, deploy a
+model, or spend accelerator/inference compute.
+
+The reviewed example manifest is
+[`opd-matched-training.example.json`](opd-matched-training.example.json). Its
+artifact registry is
+[`opd-matched-training-artifacts.example.json`](opd-matched-training-artifacts.example.json).
+The example expands five shared training seeds into 50 training cells.
+
+## Registered arms
+
+| Role | Arm | State source | Model-visible history |
+|---|---|---|---|
+| Primary | Natural OPD | Fresh canonical online world | Authentic online history |
+| Primary | Targeted persistent state | Hash-verified DB snapshot restore | Visible-field reconstruction |
+| Primary | Random-valid state | Uniform registered valid-snapshot pool | Same reconstruction as targeted |
+| Primary | Progress-matched state | Registered progress-stratified pool | Same reconstruction as targeted |
+| Primary | TCOD-B2F prefixes | Evidence-backed teacher-success boundary | Authentic prefix from the same trajectory |
+| Primary | Guided-OPD | Evidence-backed teacher-success boundary | Authentic prefix, annealed linearly from probability 1 to 0 |
+| Baseline | Teacher-trajectory SFT | Teacher trajectory replay | Authentic teacher history |
+| Mechanism | Natural OPD, recovery off | Same natural source as the primary arm | Same authentic online history |
+| Mechanism | Targeted + minimal history | Same targeted snapshot family | One post-restore model-visible observation |
+| Mechanism | Targeted + authentic history | State-identical witness trajectory | Authentic prefix ending at that exact state |
+
+The final two targeted controls separate the effect of external persistent state
+from the effect of visible history. Random-valid and progress-matched arms test
+whether any legal initialization, or progress alone, explains the targeted-arm
+effect.
+
+## What is forced to match
+
+The manifest has one global base checkpoint, teacher attestation/environment
+variable, optimizer, action-token budget, teacher-scoring-token budget,
+environment-interaction budget, seed schedule, held-out registration, and
+rendered-interface contract. Arm records cannot override any of them. Every
+generated cell embeds the identical shared contract.
+
+The checked optimizer contract is AdamW 8-bit, learning rate `5e-5`, cosine
+scheduling, 3% warmup, gradient norm 1, effective batch 32, and one epoch. The
+example freezes per-cell budgets at 2M action tokens, 50M teacher-scoring tokens,
+and 600k environment interactions. These numbers are protocol inputs, not a
+claim that the run is affordable or powered; review them before resolving the
+manifest.
+
+The interface contract hashes `prompts/system.md`, `prompts/game_knowledge.md`,
+and `finetune/render.py`. This follows PR #40's versioned render-contract shape.
+The registry and payload-digest rules follow PR #41's immutable provenance
+principle. The `allow_launch` + `--execute` + exact-confirmation interlock,
+create-only cell directories, source-commit check, and prelaunch seal follow PR
+#42's confirmatory launcher pattern without requiring those draft branches to be
+merged first.
+
+## Evidence and exclusion gates
+
+Every arm's training artifact is an immutable registry reference with a payload
+URI and SHA-256. Every training artifact must bind to the same held-out quest
+registration and carry a completed exclusion scan with a positive scanned-record
+count. Snapshot-based arms additionally require a passed witness-trajectory or
+invariant-certificate reachability record; “loadable by the server” is not
+treated as evidence of legal reachability.
+
+TCOD-B2F and Guided-OPD accept only teacher-success prefix artifacts with a
+hash-backed, DB-authoritative quest-completion record. TCOD moves backward from
+success over action-token progress. Guided-OPD must linearly anneal teacher-prefix
+probability from 1 to 0 across the entire shared action-token budget. Missing or
+unresolved evidence remains visible in dry-run and blocks execution.
+
+## Safe preflight
+
+```bash
+python3 scripts/opd/matched_training.py \
+  research/experiments/opd-matched-training.example.json \
+  --dry-run
+```
+
+Dry-run does not resolve the teacher endpoint, create output directories, or
+start a worker. The checked-in example intentionally reports blockers: real base
+checkpoint and teacher attestations, ten arm artifacts/exclusion records,
+reachability and teacher-success evidence, an exact clean source commit, and a
+hash-locked backend adapter are not present.
+
+## Live handoff contract
+
+A real training backend must accept:
+
+```text
+python <hash-locked-adapter> --cell-config <create-only-cell-config.json>
+```
+
+The cell config contains the arm-specific state/history constructor and the
+shared immutable contract; the teacher endpoint remains environment-indirected.
+After every placeholder is replaced and independently reviewed, live execution
+still requires `execution.allow_launch=true`, `--execute`, and
+`--confirm-launch <exact-experiment-id>`. The launcher then verifies a clean,
+exact Git commit, creates a prelaunch seal, and starts at most
+`execution.max_parallel` workers. This PR deliberately does not pretend the
+existing single-arm Modal trainer implements targeted restoration, TCOD-B2F, or
+Guided-OPD; the backend adapter is the remaining implementation boundary.
+
+## Current blockers
+
+- No immutable base-checkpoint or teacher-deployment attestation is available in
+  this clone.
+- No hash-verified training bundles exist for the ten registered arms.
+- Held-out scans, legal-reachability witnesses, and DB-backed teacher-success
+  evidence are unresolved examples.
+- The training backend does not yet implement the arm contract.
+- No cost/power review has approved 50 matched training cells.
+
+No expensive compute was run while adding this protocol.

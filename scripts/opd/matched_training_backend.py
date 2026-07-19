@@ -656,6 +656,12 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
         raise ProtocolError("cell_id must be non-empty")
     _positive_int(cell.get("training_seed"), label="training_seed")
     arm = _mapping(cell.get("arm"), label="cell arm")
+    if arm.get("arm_id") == "guided_opd":
+        raise ProtocolError(
+            "Guided-OPD materialization is blocked until the reviewed live "
+            "mixed-rollout collector and actor-conditional reverse-KL/forward-KL "
+            "trainer are available"
+        )
     shared = _mapping(cell.get("shared_contract"), label="shared_contract")
     _exact_keys(
         shared,

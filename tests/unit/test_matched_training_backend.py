@@ -159,6 +159,44 @@ def test_materializes_hash_verified_records_without_claiming_training(tmp_path, 
         backend.materialize(cell_path)
 
 
+def test_guided_opd_cannot_materialize_before_live_role_backend(tmp_path, monkeypatch) -> None:
+    cell_path = _natural_fixture(tmp_path, monkeypatch)
+    cell = json.loads(cell_path.read_text())
+    cell["arm"] = {
+        "arm_id": "guided_opd",
+        "role": "primary",
+        "objective": "opd",
+        "training_artifact_id": "guided_live_rollouts",
+        "recovery": "on",
+        "state_source": {
+            "kind": "canonical_guided_rollout",
+            "constructor": "fresh_canonical_world_online",
+        },
+        "history_constructor": {
+            "kind": "guided_mixed_history",
+            "source": "same_live_mixed_rollout",
+        },
+        "guided_annealing": {
+            "schedule": "cosine",
+            "schedule_basis": "training_progress",
+            "start_teacher_turn_probability": 1.0,
+            "end_teacher_turn_probability": 0.0,
+            "curriculum_ratio": 0.8,
+            "trajectory_probability": "held_fixed_within_trajectory",
+            "total_training_steps": 250,
+            "student_turn_loss": "reverse_kl",
+            "teacher_turn_loss": "forward_kl",
+        },
+    }
+    cell_path.write_text(json.dumps(cell, indent=2) + "\n")
+
+    with pytest.raises(mt.ProtocolError, match="Guided-OPD materialization is blocked"):
+        backend.materialize(cell_path)
+    assert not (cell_path.parent / "normalized-records.jsonl").exists()
+    assert not (cell_path.parent / "backend-plan.json").exists()
+    assert not (cell_path.parent / "result.json").exists()
+
+
 def test_rejects_source_material_hash_drift(tmp_path, monkeypatch) -> None:
     cell_path = _natural_fixture(tmp_path, monkeypatch)
     cell = json.loads(cell_path.read_text())

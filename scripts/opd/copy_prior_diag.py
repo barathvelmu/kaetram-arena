@@ -22,6 +22,7 @@ import os
 import re
 import statistics
 import sys
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -99,12 +100,21 @@ def restore_args(turn) -> dict | None:
 
 def collect_states(repo: Path, run_id: str, limit: int, max_hist_messages: int) -> list[dict]:
     logs = sorted(repo.glob(f"dataset/raw/agent_*/runs/{run_id}/session_*.log"))
-    states = []
+    parsed_logs = []
+    errors = []
     for log_path in logs:
         try:
-            base_messages, turns = reconstruct_session(log_path)
-        except Exception:
-            continue
+            parsed_logs.append((log_path, *reconstruct_session(log_path)))
+        except Exception as exc:
+            errors.append(f"{log_path.relative_to(repo)}: {type(exc).__name__}: {exc}")
+    if errors:
+        raise RuntimeError(
+            "refusing a selection-biased diagnostic because session logs could not be "
+            "reconstructed:\n" + "\n".join(errors)
+        )
+
+    states = []
+    for log_path, base_messages, turns in parsed_logs:
         real_history, repaired_history = list(base_messages), list(base_messages)
         for turn, results in turns:
             emission = (turn.text or "").strip()
@@ -323,9 +333,47 @@ async def run_scoring(args, tokenizer, states: list[dict], endpoints: list[tuple
     return rows
 
 
+def publish_new_texts(artifacts: dict[Path, str]) -> None:
+    """Atomically create a set of outputs, rolling back this publication on failure."""
+    if len(artifacts) != len(set(artifacts)):
+        raise ValueError("output paths must be unique")
+    staged: dict[Path, Path] = {}
+    published: list[Path] = []
+    try:
+        for path, content in artifacts.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.",
+                delete=False,
+            ) as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+                staged[path] = Path(handle.name)
+        for path, temporary in staged.items():
+            os.link(temporary, path)
+            published.append(path)
+        for parent in {path.parent for path in artifacts}:
+            directory_fd = os.open(parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    except BaseException:
+        for path in reversed(published):
+            path.unlink(missing_ok=True)
+        raise
+    finally:
+        for temporary in staged.values():
+            temporary.unlink(missing_ok=True)
+
+
+def jsonl_text(rows: list[dict]) -> str:
+    return "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
+
+
 def write_jsonl(path: Path, rows: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows))
+    publish_new_texts({path: jsonl_text(rows)})
 
 
 async def main_async() -> int:
@@ -408,16 +456,16 @@ async def main_async() -> int:
     )
     patch_qwen_chat_template(tokenizer)
     rows = await run_scoring(args, tokenizer, states, endpoints)
-    write_jsonl(args.out, rows)
     summary_path = args.out.with_suffix(args.out.suffix + ".summary.json")
-    summary_path.write_text(json.dumps({
+    summary_text = json.dumps({
         "schema_version": "kaetram-copy-prior-summary-v1",
         "run_id": args.run_id,
         "states": len(states),
         "endpoints": [name for name, _ in endpoints],
         "tool_schema_source": args.tool_schema_source,
         "results": summarize(rows),
-    }, indent=2, sort_keys=True) + "\n")
+    }, indent=2, sort_keys=True) + "\n"
+    publish_new_texts({args.out: jsonl_text(rows), summary_path: summary_text})
     print(f"wrote {len(rows)} scores to {args.out}")
     print(summary_path)
     return 0

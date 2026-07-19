@@ -11,7 +11,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "opd"))
 
+import copy_prior_diag as diag  # noqa: E402
 from copy_prior_diag import (  # noqa: E402
+    collect_states,
     context_conditions,
     parse_endpoint,
     render_context,
@@ -19,6 +21,7 @@ from copy_prior_diag import (  # noqa: E402
     sha256_text,
     summarize,
     target_stats,
+    write_jsonl,
 )
 from recovery_audit import audit_logs  # noqa: E402
 
@@ -141,3 +144,36 @@ def test_recovery_audit_counts_recovered_execution_and_repeat_proxy(tmp_path: Pa
     assert report["totals"]["recovered_execution_errors"] == 1
     assert report["totals"]["repeat_recoveries_within_window"] == 1
     assert report["recovered_by_tool"] == {"gather": 2}
+
+
+def test_collect_states_fails_closed_if_any_session_log_is_corrupt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    good = tmp_path / "dataset/raw/agent_0/runs/run-1/session_1.log"
+    bad = tmp_path / "dataset/raw/agent_1/runs/run-1/session_2.log"
+    good.parent.mkdir(parents=True)
+    bad.parent.mkdir(parents=True)
+    good.write_text("good\n")
+    bad.write_text("bad\n")
+    visited = []
+
+    def reconstruct(path):
+        visited.append(path)
+        if path == bad:
+            raise ValueError("corrupt JSONL")
+        return [], []
+
+    monkeypatch.setattr(diag, "reconstruct_session", reconstruct)
+    with pytest.raises(RuntimeError, match="selection-biased diagnostic"):
+        collect_states(tmp_path, "run-1", limit=1, max_hist_messages=1)
+    assert visited == [good, bad]
+
+
+def test_jsonl_publication_is_atomic_and_refuses_overwrite(tmp_path: Path) -> None:
+    output = tmp_path / "results.jsonl"
+    write_jsonl(output, [{"state_id": "a"}])
+    original = output.read_text()
+    assert json.loads(original) == {"state_id": "a"}
+    with pytest.raises(FileExistsError):
+        write_jsonl(output, [{"state_id": "replacement"}])
+    assert output.read_text() == original

@@ -522,6 +522,10 @@ def _diff_quest_achievement_metrics(before: dict | None, after: dict | None) -> 
     """Compute episode delta + cumulative metrics from quest/achievement snapshots."""
     before = before or {"quests": {}, "achievements": {}}
     after = after or {"quests": {}, "achievements": {}}
+    before_quests = before.get("quests", {})
+    after_quests = after.get("quests", {})
+    before_achievements = before.get("achievements", {})
+    after_achievements = after.get("achievements", {})
 
     def _summarize(before_map: dict, after_map: dict) -> tuple[int, int, int, int, int]:
         completed_cum = sum(1 for v in after_map.values() if v.get("finished"))
@@ -538,16 +542,18 @@ def _diff_quest_achievement_metrics(before: dict | None, after: dict | None) -> 
             stages_advanced += max(0, int(after_entry.get("stage", 0)) - int(before_entry.get("stage", 0)))
         return completed_cum, started_cum, completed_delta, started_delta, stages_advanced
 
-    q_done, q_started, q_done_delta, q_started_delta, q_stages = _summarize(before["quests"], after["quests"])
-    a_done, a_started, a_done_delta, a_started_delta, a_stages = _summarize(before["achievements"], after["achievements"])
+    q_done, q_started, q_done_delta, q_started_delta, q_stages = _summarize(before_quests, after_quests)
+    a_done, a_started, a_done_delta, a_started_delta, a_stages = _summarize(
+        before_achievements, after_achievements
+    )
 
     # Core 3 stage delta — paper headline metric, capped at 10.
     core3_stages = 0
     # Snapshot maps are keyed by the stable internal quest keys emitted by
     # ``_read_quest_achievement_snapshot``, not human-readable display names.
     for key in CORE_3_QUEST_KEYS:
-        before_entry = before["quests"].get(key, {"stage": 0})
-        after_entry = after["quests"].get(key, {"stage": 0})
+        before_entry = before_quests.get(key, {"stage": 0})
+        after_entry = after_quests.get(key, {"stage": 0})
         core3_stages += max(0, int(after_entry.get("stage", 0)) - int(before_entry.get("stage", 0)))
     core3_stages = min(core3_stages, CORE_3_TOTAL_STAGES)
 

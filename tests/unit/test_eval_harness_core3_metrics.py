@@ -41,3 +41,14 @@ def test_core3_metric_does_not_count_unrelated_quest_keys() -> None:
     )
 
     assert metrics["core3_stages_advanced"] == 0
+
+
+def test_core3_metric_treats_missing_snapshot_sections_as_empty() -> None:
+    metrics = _diff_quest_achievement_metrics(
+        {},
+        {"quests": {"foresting": {"stage": 3, "started": True, "finished": True}}},
+    )
+
+    assert metrics["core3_stages_advanced"] == 3
+    assert metrics["quests_completed_delta"] == 1
+    assert metrics["achievement_stages_advanced"] == 0

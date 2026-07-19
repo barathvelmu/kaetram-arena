@@ -22,6 +22,7 @@ import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -1050,6 +1051,10 @@ def run_model_eval(
         # Aggregate across all session logs play_qwen wrote during this episode.
         session_logs = sorted(run_dir.glob("session_*.log"),
                               key=lambda p: p.stat().st_mtime)
+        raw_session_dir = model_output_dir / f"episode_{ep_num:03d}_raw"
+        raw_session_dir.mkdir(parents=True, exist_ok=False)
+        for source in sorted(path for path in run_dir.iterdir() if path.is_file()):
+            shutil.copy2(source, raw_session_dir / source.name)
         all_log_entries: list[dict] = []
         for log_path in session_logs:
             all_log_entries.extend(parse_log(log_path))
@@ -1087,6 +1092,15 @@ def run_model_eval(
 
         db_after = _read_player_db_snapshot_with_retry(username)
         qa_after = _read_quest_achievement_snapshot_with_retry(username)
+        state_snapshot_path = model_output_dir / f"episode_{ep_num:03d}_state.json"
+        state_snapshot_path.write_text(json.dumps({
+            "schema_version": "kaetram.eval-state-boundary.v1",
+            "episode": ep_num,
+            "player_metrics_before": db_before,
+            "player_metrics_after": db_after,
+            "quest_achievement_before": qa_before,
+            "quest_achievement_after": qa_after,
+        }, indent=2, sort_keys=True) + "\n")
         metrics = compute_episode_metrics(
             all_log_entries,
             db_before=db_before, db_after=db_after,

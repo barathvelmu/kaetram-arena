@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "experiment_id": "opd-2b-targeted-external-state-v1",
+  "held_out_registration": "research/experiments/heldout-quest.json",
+  "random_seed": 20260718,
+  "max_states": 6,
+  "thresholds": {
+    "max_student_visit_rate": 0.05,
+    "min_teacher_success_rate": 0.6,
+    "min_teacher_student_success_gap": 0.3,
+    "min_recovery_rate": 0.8
+  }
+}

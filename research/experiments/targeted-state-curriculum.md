@@ -21,6 +21,11 @@ each backed by an artifact path and SHA-256 digest;
   endpoint.
 
 Rates alone are rejected because their denominators cannot be audited. A
+legal-reachability flag is not enough: its artifact must be either an ordered
+witness trajectory whose state digests connect a canonical start to the exact
+snapshot, or an invariant certificate with a versioned checker and a certified
+digest path. Loadability and a walkable final tile do not prove that a state is
+legally reachable. A
 snapshot must explicitly cover every field accepted by the database seeder, so
 omitted values cannot silently inherit defaults. Snapshot field types are
 validated, and overrides cannot replace authoritative identity, position,

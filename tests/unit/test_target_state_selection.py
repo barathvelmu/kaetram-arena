@@ -68,6 +68,10 @@ def _candidate(
             key: {
                 "artifact_path": f"artifacts/validity/{state_id}-{key}.json",
                 "artifact_sha256": "pending",
+                **({
+                    "method": "witness_trajectory",
+                    "canonical_start_sha256": "b" * 64,
+                } if key == "legal_reachable" else {}),
             }
             for key in ("legal_reachable", "internally_consistent", "e2e_seed_verified")
         },
@@ -93,7 +97,25 @@ def _candidates(tmp_path: Path, rows: list[dict]) -> Path:
                 continue
             evidence_path = tmp_path / evidence["artifact_path"]
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
-            payload = json.dumps({"state_id": row["state_id"], "check": key}).encode()
+            if key == "legal_reachable":
+                target_sha256 = hashlib.sha256(json.dumps(
+                    row["snapshot"], ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+                ).encode()).hexdigest()
+                start_sha256 = evidence["canonical_start_sha256"]
+                payload = json.dumps({
+                    "schema_version": 1,
+                    "method": evidence.get("method"),
+                    "canonical_start_sha256": start_sha256,
+                    "target_snapshot_sha256": target_sha256,
+                    "path_state_sha256s": [start_sha256, target_sha256],
+                    "transitions": [{
+                        "action": "verified_test_transition",
+                        "before_state_sha256": start_sha256,
+                        "after_state_sha256": target_sha256,
+                    }],
+                }).encode()
+            else:
+                payload = json.dumps({"state_id": row["state_id"], "check": key}).encode()
             evidence_path.write_bytes(payload)
             evidence["artifact_sha256"] = hashlib.sha256(payload).hexdigest()
     path = tmp_path / "candidates.jsonl"
@@ -175,6 +197,50 @@ def test_incomplete_snapshot_and_unverifiable_validity_fail_closed(tmp_path: Pat
     mismatched[0]["validity_evidence"]["legal_reachable"]["artifact_sha256"] = "a" * 64
     with pytest.raises(SelectionError, match="digest mismatch"):
         build_selection(_candidates(tmp_path, mismatched), _config(tmp_path))
+
+
+def test_reachability_requires_a_certified_path_or_witness(tmp_path: Path) -> None:
+    missing_method = _pool()
+    del missing_method[0]["validity_evidence"]["legal_reachable"]["method"]
+    with pytest.raises(SelectionError, match="legal reachability method"):
+        build_selection(_candidates(tmp_path, missing_method), _config(tmp_path))
+
+    broken = _pool()
+    candidates = _candidates(tmp_path, broken)
+    row = json.loads(candidates.read_text().splitlines()[0])
+    evidence = row["validity_evidence"]["legal_reachable"]
+    artifact_path = tmp_path / evidence["artifact_path"]
+    artifact = json.loads(artifact_path.read_text())
+    artifact["transitions"][0]["after_state_sha256"] = "c" * 64
+    payload = json.dumps(artifact).encode()
+    artifact_path.write_bytes(payload)
+    evidence["artifact_sha256"] = hashlib.sha256(payload).hexdigest()
+    rows = [row] + [json.loads(line) for line in candidates.read_text().splitlines()[1:]]
+    candidates.write_text("".join(json.dumps(item) + "\n" for item in rows))
+    with pytest.raises(SelectionError, match="breaks path continuity"):
+        build_selection(candidates, _config(tmp_path))
+
+    certificate = _pool()
+    certificate_evidence = certificate[0]["validity_evidence"]["legal_reachable"]
+    certificate_evidence["method"] = "invariant_certificate"
+    certificate_path = _candidates(tmp_path, certificate)
+    certificate_row = json.loads(certificate_path.read_text().splitlines()[0])
+    certificate_artifact_path = tmp_path / certificate_row["validity_evidence"]["legal_reachable"]["artifact_path"]
+    certificate_artifact = json.loads(certificate_artifact_path.read_text())
+    certificate_artifact.pop("transitions")
+    certificate_artifact.update({
+        "method": "invariant_certificate",
+        "checker_id": "kaetram-reachability-v1",
+        "checker_revision": "d" * 64,
+        "invariants": ["walkable_path", "quest_transition_legality"],
+    })
+    certificate_payload = json.dumps(certificate_artifact).encode()
+    certificate_artifact_path.write_bytes(certificate_payload)
+    certificate_row["validity_evidence"]["legal_reachable"]["artifact_sha256"] = hashlib.sha256(certificate_payload).hexdigest()
+    certificate_rows = [certificate_row] + [json.loads(line) for line in certificate_path.read_text().splitlines()[1:]]
+    certificate_path.write_text("".join(json.dumps(item) + "\n" for item in certificate_rows))
+    selection = build_selection(certificate_path, _config(tmp_path))
+    assert selection["arms"]["targeted"][0]["validity_evidence"]["legal_reachable"]["method"] == "invariant_certificate"
 
 
 def test_seed_plan_requires_three_frozen_states_and_preserves_hashes(tmp_path: Path) -> None:

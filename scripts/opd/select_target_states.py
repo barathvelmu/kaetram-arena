@@ -38,6 +38,8 @@ REQUIRED_COUNTS = (
     "student_successes", "student_trials",
     "recoveries", "recovery_trials",
 )
+REACHABILITY_METHODS = {"witness_trajectory", "invariant_certificate"}
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
 
 def _canonical_bytes(value: Any) -> bytes:
@@ -87,6 +89,89 @@ def _validate_snapshot(snapshot: dict[str, Any], state_id: str) -> None:
         raise SelectionError(
             f"candidate {state_id} player_info_overrides cannot replace authoritative fields: {forbidden}"
         )
+
+
+def _require_sha256(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+        raise SelectionError(f"{label} must be a lowercase SHA-256 digest")
+    return value
+
+
+def _validate_reachability_evidence(
+    evidence_path: Path,
+    evidence: dict[str, Any],
+    *,
+    snapshot_sha256: str,
+    state_id: str,
+) -> None:
+    method = evidence.get("method")
+    if method not in REACHABILITY_METHODS:
+        raise SelectionError(
+            f"candidate {state_id} legal reachability method must be one of "
+            f"{sorted(REACHABILITY_METHODS)}"
+        )
+    canonical_start = _require_sha256(
+        evidence.get("canonical_start_sha256"),
+        f"candidate {state_id} canonical_start_sha256",
+    )
+    try:
+        artifact = json.loads(evidence_path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SelectionError(
+            f"candidate {state_id} reachability artifact must be valid JSON: {exc}"
+        ) from exc
+    if not isinstance(artifact, dict) or artifact.get("schema_version") != 1:
+        raise SelectionError(
+            f"candidate {state_id} reachability artifact schema_version must be 1"
+        )
+    if artifact.get("method") != method:
+        raise SelectionError(f"candidate {state_id} reachability method mismatch")
+    if artifact.get("canonical_start_sha256") != canonical_start:
+        raise SelectionError(f"candidate {state_id} canonical start digest mismatch")
+    if artifact.get("target_snapshot_sha256") != snapshot_sha256:
+        raise SelectionError(f"candidate {state_id} reachability target digest mismatch")
+
+    path_digests = artifact.get("path_state_sha256s")
+    if not isinstance(path_digests, list) or len(path_digests) < 2:
+        raise SelectionError(
+            f"candidate {state_id} reachability artifact requires a nontrivial certified path"
+        )
+    if any(not isinstance(value, str) or not SHA256_RE.fullmatch(value) for value in path_digests):
+        raise SelectionError(f"candidate {state_id} reachability path digests are invalid")
+    if path_digests[0] != canonical_start or path_digests[-1] != snapshot_sha256:
+        raise SelectionError(
+            f"candidate {state_id} reachability path must connect canonical start to target"
+        )
+
+    if method == "witness_trajectory":
+        transitions = artifact.get("transitions")
+        if not isinstance(transitions, list) or len(transitions) != len(path_digests) - 1:
+            raise SelectionError(
+                f"candidate {state_id} witness transitions must cover every path edge"
+            )
+        for index, transition in enumerate(transitions):
+            if not isinstance(transition, dict) or not isinstance(transition.get("action"), str):
+                raise SelectionError(
+                    f"candidate {state_id} witness transition {index} requires an action"
+                )
+            if (
+                transition.get("before_state_sha256") != path_digests[index]
+                or transition.get("after_state_sha256") != path_digests[index + 1]
+            ):
+                raise SelectionError(
+                    f"candidate {state_id} witness transition {index} breaks path continuity"
+                )
+    else:
+        checker_id = artifact.get("checker_id")
+        checker_revision = artifact.get("checker_revision")
+        invariants = artifact.get("invariants")
+        if not isinstance(checker_id, str) or not checker_id.strip():
+            raise SelectionError(f"candidate {state_id} certificate requires checker_id")
+        _require_sha256(checker_revision, f"candidate {state_id} checker_revision")
+        if not isinstance(invariants, list) or not invariants or not all(
+            isinstance(item, str) and item.strip() for item in invariants
+        ):
+            raise SelectionError(f"candidate {state_id} certificate requires invariants")
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -202,7 +287,7 @@ def load_candidates(path: Path, *, registration_path: Path) -> list[dict[str, An
                 raise SelectionError(
                     f"candidate {state_id} validity_evidence.{key}.artifact_path is required"
                 )
-            if not isinstance(artifact_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", artifact_sha256):
+            if not isinstance(artifact_sha256, str) or not SHA256_RE.fullmatch(artifact_sha256):
                 raise SelectionError(
                     f"candidate {state_id} validity_evidence.{key}.artifact_sha256 is invalid"
                 )
@@ -218,6 +303,13 @@ def load_candidates(path: Path, *, registration_path: Path) -> list[dict[str, An
             if observed_sha256 != artifact_sha256:
                 raise SelectionError(
                     f"candidate {state_id} validity_evidence.{key} digest mismatch"
+                )
+            if key == "legal_reachable":
+                _validate_reachability_evidence(
+                    evidence_path,
+                    evidence,
+                    snapshot_sha256=snapshot_sha256,
+                    state_id=state_id,
                 )
         counts = raw.get("counts")
         if not isinstance(counts, dict) or any(key not in counts for key in REQUIRED_COUNTS):

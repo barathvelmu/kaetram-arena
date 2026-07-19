@@ -19,7 +19,9 @@ SPEC.loader.exec_module(bootstrap_unit_tests)
 def test_direct_dependencies_are_exactly_pinned_in_complete_lock() -> None:
     lock = bootstrap_unit_tests.parse_lock()
     direct = {}
-    for raw_line in (REPO_ROOT / "requirements" / "unit-tests.in").read_text().splitlines():
+    for raw_line in (
+        REPO_ROOT / "requirements" / "unit-tests.in"
+    ).read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -77,12 +79,14 @@ def test_clean_checkout_guard_rejects_user_changes(tmp_path: Path, monkeypatch) 
 
 
 def test_managed_environment_names_are_gitignored() -> None:
-    ignore = (REPO_ROOT / ".gitignore").read_text().splitlines()
+    ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ".venv-unit-tests*/" in ignore
 
 
 def test_ci_uses_the_same_bootstrap_with_immutable_action_pins() -> None:
-    workflow = (REPO_ROOT / ".github" / "workflows" / "unit-tests.yml").read_text()
+    workflow = (REPO_ROOT / ".github" / "workflows" / "unit-tests.yml").read_text(
+        encoding="utf-8"
+    )
     assert "scripts/bootstrap_unit_tests.py bootstrap --python python" in workflow
     assert "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in workflow
     assert "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405" in workflow

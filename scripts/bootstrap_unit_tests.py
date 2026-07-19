@@ -33,13 +33,16 @@ class BootstrapError(RuntimeError):
 
 
 def _run(command: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        command,
-        cwd=REPO_ROOT,
-        text=True,
-        capture_output=capture,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            command,
+            cwd=REPO_ROOT,
+            text=True,
+            capture_output=capture,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise BootstrapError(f"executable not found: {command[0]}") from exc
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
         raise BootstrapError(
@@ -83,7 +86,9 @@ def safe_venv_path(raw_path: str | Path) -> Path:
 
 def parse_lock(path: Path = LOCK_PATH) -> dict[str, str]:
     packages: dict[str, str] = {}
-    for line_number, raw_line in enumerate(path.read_text().splitlines(), start=1):
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -142,8 +147,10 @@ def marker_payload(commit: str, target: Path) -> dict[str, str]:
 def verify_marker(target: Path, commit: str) -> None:
     marker_path = target / MARKER_NAME
     try:
-        marker = json.loads(marker_path.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        if not isinstance(marker, dict):
+            raise ValueError("marker is not a JSON object")
+    except (OSError, ValueError) as exc:
         raise BootstrapError(f"missing or invalid bootstrap marker: {marker_path}") from exc
     expected = {
         "schema_version": "kaetram.local-unit-tests.v1",
@@ -179,9 +186,9 @@ def verify_installed_environment() -> None:
     unexpected = sorted(set(installed) - allowed)
     if unexpected:
         errors.append(f"unexpected packages: {', '.join(unexpected)}")
-    if importlib.metadata.version("pip") != PIP_VERSION:
+    if installed.get("pip") != PIP_VERSION:
         errors.append(
-            f"pip: expected {PIP_VERSION}, found {importlib.metadata.version('pip')}"
+            f"pip: expected {PIP_VERSION}, found {installed.get('pip', 'not installed')}"
         )
     if errors:
         raise BootstrapError("environment verification failed:\n  - " + "\n  - ".join(errors))
@@ -190,8 +197,8 @@ def verify_installed_environment() -> None:
 def run_checks(target: Path, commit: str) -> None:
     verify_marker(target, commit)
     interpreter = venv_python(target)
-    _run([str(interpreter), str(Path(__file__).resolve()), "_verify"])
-    _run([str(interpreter), "-m", "pytest", "-q", "tests/unit"])
+    _run([str(interpreter), "-I", str(Path(__file__).resolve()), "_verify"])
+    _run([str(interpreter), "-I", "-m", "pytest", "-q", "tests/unit"])
     print("Pinned local unit-test environment and full unit suite verified.")
 
 
@@ -201,7 +208,7 @@ def bootstrap(target: Path, selected_python: str) -> None:
         raise BootstrapError(
             f"refusing to reuse existing path: {target}; choose a new .venv-unit-tests* name"
         )
-    interpreter = shutil.which(selected_python) if os.sep not in selected_python else selected_python
+    interpreter = shutil.which(selected_python)
     if not interpreter or not Path(interpreter).is_file():
         raise BootstrapError(f"Python interpreter not found: {selected_python}")
     python_version(interpreter)

@@ -340,6 +340,38 @@ def log_assistant(
         })
 
 
+def log_raw_model_emission(
+    logger: SessionLogger,
+    turn: int,
+    content: str,
+    tool_calls: object,
+    usage: dict | None,
+) -> None:
+    """Preserve the server response before parsing or recovery rewrites.
+
+    This record is the authoritative format-defect artifact. Downstream
+    canonical assistant/tool records remain useful for replay, but cannot
+    substitute for the exact content and argument strings returned by the
+    model endpoint.
+    """
+    raw_calls = []
+    for call in tool_calls or []:
+        function = getattr(call, "function", None)
+        raw_calls.append({
+            "id": getattr(call, "id", ""),
+            "name": getattr(function, "name", ""),
+            "arguments": getattr(function, "arguments", None),
+        })
+    logger.emit({
+        "type": "raw_model_emission",
+        "turn": turn,
+        "timestamp": datetime.now().isoformat(),
+        "content": content,
+        "tool_calls": raw_calls,
+        "usage": _map_usage(usage),
+    })
+
+
 def log_tool_result(
     logger: SessionLogger, turn: int, tool_use_id: str, name: str, result: str
 ) -> None:
@@ -590,6 +622,7 @@ async def _run_inner_loop(
 
         content = choice.message.content or ""
         tool_calls = choice.message.tool_calls
+        log_raw_model_emission(logger, turn, content, tool_calls, usage)
 
         if content:
             display = re.sub(r"<think>.*?</think>", "[think]", content, flags=re.DOTALL)

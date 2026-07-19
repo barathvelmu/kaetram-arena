@@ -15,6 +15,8 @@ from scripts.opd.factorial_eval import (
     cell_command,
     launch,
     plan_dict,
+    seal_cell_bundle,
+    seal_completed_inventory,
     seal_prelaunch_record,
     validate_live_endpoint_attestations,
     validate_cell_result,
@@ -251,6 +253,14 @@ def test_launch_sets_canonical_schema_recovery_and_respects_parallel_cap(tmp_pat
         lambda *args, **kwargs: tmp_path / "prelaunch.json",
     )
     monkeypatch.setattr("scripts.opd.factorial_eval.validate_cell_result", lambda *args: None)
+    monkeypatch.setattr(
+        "scripts.opd.factorial_eval.seal_cell_bundle",
+        lambda *args: tmp_path / "cell-bundle.json",
+    )
+    monkeypatch.setattr(
+        "scripts.opd.factorial_eval.seal_completed_inventory",
+        lambda *args: tmp_path / "completed.json",
+    )
     assert launch(plan, confirmation=plan.experiment_id, environ=endpoint_env) == 0
     assert len(captured) == 360
     assert maximum_active == plan.max_parallel == 6
@@ -324,6 +334,81 @@ def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Pat
     }))
 
     validate_cell_result(plan, cell)
+
+
+def _write_complete_cell_artifacts(plan, cell, *, include_raw_emission=True):
+    cell_root = Path(cell.run_dir) / cell.cell_id
+    cell_root.mkdir(parents=True)
+    (Path(cell.run_dir) / "launcher.log").write_text("launcher output\n")
+    (cell_root / "system_prompt.md").write_text("resolved prompt\n")
+    (cell_root / "episode_001.jsonl").write_text('{"type":"assistant"}\n')
+    (cell_root / "episode_001_state.json").write_text(json.dumps({
+        "schema_version": "kaetram.eval-state-boundary.v1",
+        "episode": 1,
+    }))
+    raw_dir = cell_root / "episode_001_raw"
+    raw_dir.mkdir()
+    record_type = "raw_model_emission" if include_raw_emission else "assistant"
+    (raw_dir / "session_1_test.log").write_text(json.dumps({
+        "type": record_type,
+        "content": "exact endpoint response",
+    }) + "\n")
+    (raw_dir / "session_1_test.meta.json").write_text("{}\n")
+    (cell_root / "results.json").write_text(json.dumps({
+        "meta": {
+            "model": cell.cell_id,
+            "scenario": plan.scenario,
+            "duration_seconds_budget": plan.duration_seconds,
+            "protocol_id": plan.protocol_id,
+            "experiment_manifest_sha256": plan.manifest_sha256,
+            "endpoint_attestation_sha256": cell.endpoint_attestation_sha256,
+            "checkpoint_sha256": cell.checkpoint_sha256,
+            "tokenizer_sha256": cell.tokenizer_sha256,
+            "render_contract_sha256": cell.render_contract_sha256,
+            "total_episodes": 1,
+            "ok_episodes": 1,
+            "tool_schema_source": plan.tool_schema_source,
+            "include_game_knowledge": not plan.omit_game_knowledge,
+            "held_out_quest": plan.held_out_quest,
+        },
+        "episodes": [{"episode": 1, "status": "ok"}],
+    }))
+
+
+def test_completed_cell_bundle_seals_raw_prompt_state_and_inventory(tmp_path: Path):
+    full_plan = build_plan(_manifest_copy(tmp_path))
+    cell = full_plan.cells[0]
+    plan = replace(full_plan, cells=(cell,))
+    _write_complete_cell_artifacts(plan, cell)
+
+    validate_cell_result(plan, cell)
+    bundle_path = seal_cell_bundle(plan, cell)
+    bundle = json.loads(bundle_path.read_text())
+    assert bundle["schema_version"] == "kaetram.factorial-cell-bundle.v1"
+    assert {artifact["name"] for artifact in bundle["artifacts"]} == {
+        "results",
+        "resolved_prompt",
+        "launcher_log",
+        "episode_001_parsed_transcript",
+        "episode_001_raw_sessions",
+        "episode_001_state_boundary",
+    }
+    with pytest.raises(ManifestError, match="refusing to overwrite"):
+        seal_cell_bundle(plan, cell)
+
+    inventory_path = seal_completed_inventory(plan)
+    inventory = json.loads(inventory_path.read_text())
+    assert inventory["requested_cell_ids"] == [cell.cell_id]
+    assert inventory["completed_cells"][0]["bundle_sha256"] == bundle["bundle_sha256"]
+
+
+def test_cell_bundle_rejects_rewritten_only_logs(tmp_path: Path):
+    full_plan = build_plan(_manifest_copy(tmp_path))
+    cell = full_plan.cells[0]
+    plan = replace(full_plan, cells=(cell,))
+    _write_complete_cell_artifacts(plan, cell, include_raw_emission=False)
+    with pytest.raises(ManifestError, match="pre-rewrite model emissions"):
+        seal_cell_bundle(plan, cell)
 
 
 def test_live_launch_rejects_unresolved_example_attestations_before_network(tmp_path: Path):

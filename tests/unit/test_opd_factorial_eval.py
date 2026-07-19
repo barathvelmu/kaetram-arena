@@ -397,7 +397,7 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
     result_path = Path(cell.run_dir) / cell.cell_id / "results.json"
     result_path.parent.mkdir(parents=True)
 
-    def write_result(*, status="ok", model=None):
+    def write_result(*, status="ok", model=None, returncode=0, duration_seconds=None):
         result_path.write_text(json.dumps({
             "meta": {
                 "model": model or cell.cell_id,
@@ -436,7 +436,14 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
                     "drawsAtAttestation": 0,
                 },
             },
-            "episodes": [{"episode": 1, "status": status}],
+            "episodes": [{
+                "episode": 1,
+                "status": status,
+                "returncode": returncode,
+                "duration_seconds": (
+                    plan.duration_seconds if duration_seconds is None else duration_seconds
+                ),
+            }],
         }))
 
     write_result()
@@ -444,6 +451,14 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
 
     write_result(status="no_log")
     with pytest.raises(ManifestError, match="failed episode"):
+        validate_cell_result(plan, cell)
+
+    write_result(returncode=1)
+    with pytest.raises(ManifestError, match="nonzero episode return code"):
+        validate_cell_result(plan, cell)
+
+    write_result(duration_seconds=plan.duration_seconds - 1)
+    with pytest.raises(ManifestError, match="shorter than the registered duration"):
         validate_cell_result(plan, cell)
 
     write_result(model="different-cell")
@@ -494,7 +509,12 @@ def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Pat
                 "drawsAtAttestation": 0,
             },
         },
-        "episodes": [{"episode": 1, "status": "ok"}],
+        "episodes": [{
+            "episode": 1,
+            "status": "ok",
+            "returncode": 0,
+            "duration_seconds": plan.duration_seconds,
+        }],
     }))
 
     validate_cell_result(plan, cell)
@@ -556,7 +576,12 @@ def _write_complete_cell_artifacts(plan, cell, *, include_raw_emission=True):
                 "drawsAtAttestation": 0,
             },
         },
-        "episodes": [{"episode": 1, "status": "ok"}],
+        "episodes": [{
+            "episode": 1,
+            "status": "ok",
+            "returncode": 0,
+            "duration_seconds": plan.duration_seconds,
+        }],
     }))
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.opd.factorial_analyze import build_analysis
+from scripts.opd.factorial_analyze import _sign_flip_p, build_analysis
 from scripts.opd.factorial_eval import ManifestError, build_plan
 
 
@@ -142,3 +142,7 @@ def test_analysis_rejects_out_of_range_primary_metric(tmp_path: Path) -> None:
     path.write_text(json.dumps(result))
     with pytest.raises(ManifestError, match=r"integer in \[0, 10\]"):
         build_analysis(plan)
+
+
+def test_exact_sign_flip_scales_past_twenty_replicates() -> None:
+    assert _sign_flip_p([1.0] * 25) == 2 / (2 ** 25)

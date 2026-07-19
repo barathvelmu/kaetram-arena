@@ -10,12 +10,13 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
-import itertools
 import json
 import math
 import random
 import statistics
 import sys
+from collections import Counter
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -139,14 +140,17 @@ def _sign_flip_p(values: list[float]) -> float | None:
     nonzero = [value for value in values if value != 0]
     if len(values) < 5 or not nonzero:
         return None
-    observed = abs(sum(nonzero))
-    extreme = 0
-    total = 2 ** len(nonzero)
-    for signs in itertools.product((-1, 1), repeat=len(nonzero)):
-        statistic = abs(sum(sign * value for sign, value in zip(signs, nonzero, strict=True)))
-        if statistic >= observed - 1e-12:
-            extreme += 1
-    return extreme / total
+    exact_values = [Fraction(str(value)) for value in nonzero]
+    observed = abs(sum(exact_values))
+    distribution = Counter({Fraction(0): 1})
+    for value in exact_values:
+        updated: Counter[Fraction] = Counter()
+        for partial_sum, count in distribution.items():
+            updated[partial_sum + value] += count
+            updated[partial_sum - value] += count
+        distribution = updated
+    extreme = sum(count for statistic, count in distribution.items() if abs(statistic) >= observed)
+    return extreme / (2 ** len(exact_values))
 
 
 def summarize_effect(
@@ -362,6 +366,7 @@ def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str,
         "schema_version": "kaetram-opd-factorial-analysis-v2",
         "experiment_id": plan.experiment_id,
         "manifest": plan.manifest,
+        "manifest_sha256": _sha256(Path(plan.manifest)),
         "metric": metric,
         "preregistered_primary_metric": plan.primary_metric,
         "independent_unit": "DB-reset replicate",

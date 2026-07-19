@@ -42,6 +42,7 @@ from pathlib import Path
 
 from openai import OpenAI
 
+from inference_seed import derive_request_seed, validate_inference_seed
 from tool_surface import (
     MODEL_VISIBLE_TOOL_DEFINITIONS,
     MODEL_VISIBLE_TOOL_NAMES,
@@ -564,7 +565,7 @@ async def _run_inner_loop(
         # forwards them). `tools=` is sent uniformly — server decides whether
         # to render them in the chat template (base) or ignore (SFT).
         try:
-            response = client.chat.completions.create(
+            completion_kwargs = dict(
                 model=args.model,
                 messages=messages,
                 tools=tool_defs,
@@ -576,6 +577,12 @@ async def _run_inner_loop(
                     "presence_penalty": QWEN_THINK_PRESENCE_PENALTY,
                 },
             )
+            inference_seed = getattr(args, "inference_seed", None)
+            if inference_seed is not None:
+                completion_kwargs["seed"] = derive_request_seed(
+                    inference_seed, logger.session_n, turn
+                )
+            response = client.chat.completions.create(**completion_kwargs)
             choice = response.choices[0]
             usage = response.usage.model_dump() if getattr(response, "usage", None) else None
             consecutive_errors = 0
@@ -723,6 +730,9 @@ async def run_agent(args):
         "tool_schema_source",
         os.environ.get("KAETRAM_TOOL_SCHEMA_SOURCE", "live"),
     )
+    inference_seed = getattr(args, "inference_seed", None)
+    if inference_seed is not None:
+        inference_seed = validate_inference_seed(inference_seed)
 
     # Resolve run_dir: explicit flag wins, else fall back to <sandbox>/logs
     # (back-compat for solo dev invocations).
@@ -739,12 +749,16 @@ async def run_agent(args):
         "auth_mode": "subscription",
         "max_budget_usd": None,
         "tool_schema_source": tool_schema_source,
+        "inference_seed": inference_seed,
     }
     if args.harness_meta and os.path.isfile(args.harness_meta):
         try:
             harness_meta.update(json.loads(open(args.harness_meta).read()))
         except Exception as e:
             info(f"WARN: failed to load --harness-meta {args.harness_meta}: {e}")
+    # The request-driving CLI value is authoritative; a stale sidecar template
+    # must not misattribute sampling provenance.
+    harness_meta["inference_seed"] = inference_seed
 
     logger = SessionLogger(run_dir, sandbox, harness_meta)
     mcp = None
@@ -914,6 +928,10 @@ def main():
     )
     parser.add_argument("--model", default="kaetram", help="Model name")
     parser.add_argument("--api-key", default=None, help="API key (default: not-needed)")
+    parser.add_argument(
+        "--inference-seed", type=int,
+        help="Base seed; each request derives a deterministic session/turn sampling seed",
+    )
     parser.add_argument("--system-prompt", default=None, help="System prompt file or text")
     parser.add_argument("--sandbox", default="/tmp/kaetram_agent_4",
                         help="Sandbox directory (for state/, game_state.json, .session_counter)")
@@ -943,6 +961,11 @@ def main():
         ),
     )
     args = parser.parse_args()
+    if args.inference_seed is not None:
+        try:
+            validate_inference_seed(args.inference_seed)
+        except ValueError as exc:
+            parser.error(str(exc))
     asyncio.run(run_agent(args))
 
 

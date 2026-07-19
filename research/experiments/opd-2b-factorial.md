@@ -17,6 +17,19 @@ default: `execution.allow_launch` is `false`, and the launcher defaults to
 preflight without resolving endpoint variables, touching MongoDB, starting a
 game server, or creating run directories.
 
+The schema-v2 manifest also separates three randomness controls that must not
+be conflated:
+
+- `schedule_seed` deterministically orders launch batches; it does not seed a
+  game or model.
+- `inference_seeds` registers one base sampling seed per replicate. All arms in
+  that replicate share it, and `play_qwen.py` derives a distinct 31-bit request
+  seed from `sha256-session-turn-v1:<base>:<session>:<turn>` before sending the
+  OpenAI-compatible `seed` field. The base, r2, and r3 endpoints validate that
+  field and pass it to SGLang generation.
+- `environment_seed` describes the game-world RNG mechanism. It is currently
+  and truthfully registered as `unavailable`.
+
 ## Preflight and launch interlock
 
 Set these variables in the operator environment; do not put endpoint URLs in
@@ -43,13 +56,30 @@ copy-paste command: launching starts game processes and consumes inference
 compute. The launcher also refuses missing endpoint variables or any existing
 cell run directory.
 
+There is presently a fourth, intentional fail-closed interlock: confirmatory
+launch is blocked because Kaetram-Open routes combat, drops, movement, resource,
+and other gameplay randomness through unseeded `Math.random()`. A schedule seed
+is not an environment seed, and model sampling determinism does not repair this
+game-side limitation. Dry-run/preflight remains available for review.
+
+The defensible unblock is an upstream Kaetram change that routes every
+gameplay-random draw through one seeded per-server PRNG, initializes it from an
+explicit server configuration value, and exposes enough startup/health
+attestation to verify that the configured seed was accepted. After that exists,
+this manifest/launcher contract must be reviewed and extended for that real
+mechanism. Merely exporting an environment variable that Kaetram does not read
+is not acceptable.
+
 Endpoint URLs remain environment-indirected through the launcher,
 `eval_harness.py`, and `play_qwen.py`. Process arguments, preflight plans,
 session init records, and result metadata contain only `env:VARIABLE_NAME`, not
 the URL.
 
-The preflight plan and `results.json` also record `tool_schema_source`; verify
-it is `canonical` before analysis.
+The preflight plan and `results.json` record `tool_schema_source`, the registered
+inference seed, schedule algorithm/seed/index, batch, cluster and pair IDs, and
+the environment-seed mechanism. The launcher validates all of those fields
+before accepting a cell artifact. Verify the canonical schema and provenance
+before analysis.
 
 ## Isolation and pairing
 
@@ -59,6 +89,11 @@ duplicate isolation value, unexpected weight label, invalid port range, or
 unlocked held-out registration. Recovery is set explicitly per child process:
 the off cell removes `KAETRAM_TOOL_RECOVERY`; the on cell sets it to `1`.
 `execution.max_parallel` is a hard launch cap; the checked-in design uses six.
+Schema v2 requires exactly six: each randomized batch is one complete
+`replicate × weight` cluster. SHA-256 ranking randomizes whole cluster order,
+then personality-pair order within a cluster, while keeping each recovery
+off/on pair adjacent. This preserves both recovery pairing and the registered
+cluster analysis regardless of schedule seed.
 
 The confirmatory unit is the independent `replicate`, not an individual agent
 episode. Each replicate contains the three fixed historical personality lanes

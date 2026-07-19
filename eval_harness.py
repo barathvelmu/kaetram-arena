@@ -33,6 +33,7 @@ from heldout_guard import (
     normalize_quest,
     validate_eval_selection,
 )
+from inference_seed import validate_inference_seed
 
 
 # ---------------------------------------------------------------------------
@@ -207,6 +208,8 @@ def run_episode(
     held_out_quest: str = "",
     no_walkthrough: bool = False,
     endpoint_env: str = "",
+    inference_seed: int | None = None,
+    run_provenance: dict | None = None,
 ) -> dict:
     """Run one warm-session play_qwen.py episode. Returns run metadata.
 
@@ -227,6 +230,8 @@ def run_episode(
         "auth_mode": "subscription",
         "max_budget_usd": None,
         "scenario_run_dir": str(run_dir),
+        "inference_seed": inference_seed,
+        **(run_provenance or {}),
     }))
 
     cmd = [
@@ -247,6 +252,8 @@ def run_episode(
         cmd.extend(["--server-port", server_port])
     if personality:
         cmd.extend(["--personality", personality])
+    if inference_seed is not None:
+        cmd.extend(["--inference-seed", str(inference_seed)])
 
     env = {**os.environ, "KAETRAM_USERNAME": username, "PYTHONUNBUFFERED": "1"}
     if no_walkthrough:
@@ -830,6 +837,8 @@ def run_model_eval(
     model_api_name: str = "",
     endpoint_ref: str = "",
     endpoint_env: str = "",
+    inference_seed: int | None = None,
+    run_provenance: dict | None = None,
 ) -> dict:
     """Run all episodes for one model. Returns full results dict."""
     scenario_cfg = SCENARIOS[scenario]
@@ -864,6 +873,8 @@ def run_model_eval(
     print(f"  Username:  {username}")
     print(f"  Port:      {server_port}")
     print(f"  Knowledge: {'included' if include_game_knowledge else 'omitted'}")
+    if inference_seed is not None:
+        print(f"  Inference seed: {inference_seed}")
     if held_out_quest:
         print(f"  Held out:  {held_out_quest} ({held_out_registration.path})")
     print(f"{'='*60}\n")
@@ -947,6 +958,8 @@ def run_model_eval(
             held_out_quest=held_out_quest,
             no_walkthrough=bool(held_out_registration),
             endpoint_env=endpoint_env,
+            inference_seed=inference_seed,
+            run_provenance=run_provenance,
         )
         total_duration = run_info["duration_seconds"]
         last_returncode = run_info["returncode"]
@@ -976,6 +989,8 @@ def run_model_eval(
                 results_path, model_name, endpoint_ref, scenario, episodes,
                 include_game_knowledge=include_game_knowledge,
                 held_out_registration=held_out_registration,
+                inference_seed=inference_seed,
+                run_provenance=run_provenance,
             )
             print("  Aborting remaining episodes after zero-turn failure to avoid contaminating the run")
             break
@@ -1027,6 +1042,8 @@ def run_model_eval(
             results_path, model_name, endpoint_ref, scenario, episodes,
             include_game_knowledge=include_game_knowledge,
             held_out_registration=held_out_registration,
+            inference_seed=inference_seed,
+            run_provenance=run_provenance,
         )
 
     # Clean up game server if we started one
@@ -1043,13 +1060,17 @@ def run_model_eval(
         results_path, model_name, endpoint_ref, scenario, episodes,
         include_game_knowledge=include_game_knowledge,
         held_out_registration=held_out_registration,
+        inference_seed=inference_seed,
+        run_provenance=run_provenance,
     )
     return results
 
 
 def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
                   episodes: list[dict], *, include_game_knowledge: bool = True,
-                  held_out_registration: HeldOutRegistration | None = None) -> dict:
+                  held_out_registration: HeldOutRegistration | None = None,
+                  inference_seed: int | None = None,
+                  run_provenance: dict | None = None) -> dict:
     """Save results JSON with metadata and aggregated metrics."""
     # Aggregate per-metric arrays for eval_compare.py
     ok_episodes = [e for e in episodes if e.get("status") == "ok"]
@@ -1121,6 +1142,8 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "ok_episodes": len(ok_episodes),
             "timestamp": datetime.now().isoformat(),
             "git_sha": git_sha,
+            "inference_seed": inference_seed,
+            **(run_provenance or {}),
         },
         "episodes": episodes,
         "metrics": metrics,
@@ -1214,6 +1237,18 @@ Examples:
         help="Model identifier sent to the OpenAI-compatible endpoint",
     )
     parser.add_argument(
+        "--inference-seed", type=int,
+        help="Registered per-replicate base seed for deterministic model sampling",
+    )
+    parser.add_argument("--factorial-schedule-algorithm", default="")
+    parser.add_argument("--factorial-schedule-seed", type=int)
+    parser.add_argument("--factorial-schedule-index", type=int)
+    parser.add_argument("--factorial-batch-index", type=int)
+    parser.add_argument("--factorial-cluster-id", default="")
+    parser.add_argument("--factorial-pair-id", default="")
+    parser.add_argument("--environment-seed-mechanism", default="")
+    parser.add_argument("--environment-seed-reason", default="")
+    parser.add_argument(
         "--watchdog", action="store_true",
         help="Launch a background watchdog for endpoint/process/progress health",
     )
@@ -1230,6 +1265,53 @@ Examples:
         help="Have watchdog terminate eval processes if it detects failure",
     )
     args = parser.parse_args()
+
+    if args.inference_seed is not None:
+        try:
+            validate_inference_seed(args.inference_seed)
+        except ValueError as exc:
+            parser.error(str(exc))
+    provenance_values = (
+        args.factorial_schedule_algorithm,
+        args.factorial_schedule_seed,
+        args.factorial_schedule_index,
+        args.factorial_batch_index,
+        args.factorial_cluster_id,
+        args.factorial_pair_id,
+        args.environment_seed_mechanism,
+        args.environment_seed_reason,
+    )
+    if any(value not in (None, "") for value in provenance_values) and any(
+        value in (None, "") for value in provenance_values
+    ):
+        parser.error("factorial provenance arguments must be provided together")
+    run_provenance = {}
+    if args.factorial_schedule_algorithm:
+        if args.inference_seed is None:
+            parser.error("factorial provenance requires --inference-seed")
+        if args.factorial_schedule_algorithm != "sha256-rank-v1":
+            parser.error("unsupported factorial schedule algorithm")
+        try:
+            validate_inference_seed(
+                args.factorial_schedule_seed, label="factorial schedule seed"
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.factorial_schedule_index < 0 or args.factorial_batch_index < 0:
+            parser.error("factorial schedule and batch indices must be non-negative")
+        if args.environment_seed_mechanism != "unavailable":
+            parser.error("unsupported environment seed mechanism")
+        run_provenance = {
+            "factorial_schedule_algorithm": args.factorial_schedule_algorithm,
+            "factorial_schedule_seed": args.factorial_schedule_seed,
+            "factorial_schedule_index": args.factorial_schedule_index,
+            "factorial_batch_index": args.factorial_batch_index,
+            "factorial_cluster_id": args.factorial_cluster_id,
+            "factorial_pair_id": args.factorial_pair_id,
+            "environment_seed_mechanism": args.environment_seed_mechanism,
+            "environment_seed": None,
+            "environment_seed_reason": args.environment_seed_reason,
+        }
 
     held_out_registration = None
     if args.held_out_quest:
@@ -1357,6 +1439,19 @@ Examples:
                 cmd.extend(["--sandbox", args.sandbox])
             if args.model_api_name:
                 cmd.extend(["--model-api-name", args.model_api_name])
+            if args.inference_seed is not None:
+                cmd.extend(["--inference-seed", str(args.inference_seed)])
+            if run_provenance:
+                cmd.extend([
+                    "--factorial-schedule-algorithm", args.factorial_schedule_algorithm,
+                    "--factorial-schedule-seed", str(args.factorial_schedule_seed),
+                    "--factorial-schedule-index", str(args.factorial_schedule_index),
+                    "--factorial-batch-index", str(args.factorial_batch_index),
+                    "--factorial-cluster-id", args.factorial_cluster_id,
+                    "--factorial-pair-id", args.factorial_pair_id,
+                    "--environment-seed-mechanism", args.environment_seed_mechanism,
+                    "--environment-seed-reason", args.environment_seed_reason,
+                ])
             print(f"  {model_name}: port={model_cfg['server_port']} user={model_cfg['username']} personality={args.personality or 'none'} log={log_path}")
             procs[model_name] = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT)
             log_files[model_name] = log_f
@@ -1415,6 +1510,8 @@ Examples:
                 model_api_name=args.model_api_name,
                 endpoint_ref=model_cfg.get("endpoint_ref", "direct-endpoint"),
                 endpoint_env=model_cfg.get("endpoint_env", ""),
+                inference_seed=args.inference_seed,
+                run_provenance=run_provenance,
             )
             all_results[model_name] = results
 

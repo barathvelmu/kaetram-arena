@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "experiment_id": "opd-2b-weights-x-recovery-v1",
   "design": {
     "weights": [
@@ -12,6 +12,22 @@
       true
     ],
     "replicates": 5
+  },
+  "randomization": {
+    "schedule_algorithm": "sha256-rank-v1",
+    "schedule_seed": 20260718,
+    "inference_seeds": [
+      11001,
+      11002,
+      11003,
+      11004,
+      11005
+    ],
+    "environment_seed": {
+      "mechanism": "unavailable",
+      "seed": null,
+      "reason": "Kaetram-Open currently routes gameplay randomness through unseeded Math.random(); schedule and inference seeds do not control the game environment."
+    }
   },
   "models": {
     "base": {

@@ -9,12 +9,13 @@ Default behavior is preflight only. Launching requires all three of:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -22,12 +23,15 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from heldout_guard import HeldOutGuardError, validate_eval_selection  # noqa: E402
+from inference_seed import validate_inference_seed  # noqa: E402
 
 
 REQUIRED_WEIGHTS = ("base", "r2", "r3")
 REQUIRED_RECOVERY = (False, True)
 REQUIRED_PERSONALITIES = ("grinder", "completionist", "explorer_tinkerer")
 PERSONALITY_CODES = {"grinder": "g", "completionist": "c", "explorer_tinkerer": "e"}
+SCHEDULE_ALGORITHM = "sha256-rank-v1"
+CLUSTER_SIZE = len(REQUIRED_PERSONALITIES) * len(REQUIRED_RECOVERY)
 
 
 class ManifestError(ValueError):
@@ -49,6 +53,9 @@ class Cell:
     server_port: int
     sandbox: str
     run_dir: str
+    schedule_index: int
+    batch_index: int
+    inference_seed: int
 
 
 @dataclass(frozen=True)
@@ -65,6 +72,12 @@ class ExperimentPlan:
     held_out_registration: str
     allow_launch: bool
     max_parallel: int
+    schedule_algorithm: str
+    schedule_seed: int
+    inference_seeds: tuple[int, ...]
+    environment_seed_mechanism: str
+    environment_seed: int | None
+    environment_seed_reason: str
     cells: tuple[Cell, ...]
 
 
@@ -81,8 +94,8 @@ def load_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
         raw = json.loads(manifest_path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         raise ManifestError(f"cannot load manifest {manifest_path}: {exc}") from exc
-    if not isinstance(raw, dict) or raw.get("schema_version") != 1:
-        raise ManifestError("manifest schema_version must be 1")
+    if not isinstance(raw, dict) or raw.get("schema_version") != 2:
+        raise ManifestError("manifest schema_version must be 2")
     return raw, manifest_path
 
 
@@ -102,6 +115,58 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         raise ManifestError("design.recovery must contain exactly false and true")
     if isinstance(replicates, bool) or not isinstance(replicates, int) or replicates < 1:
         raise ManifestError("design.replicates must be a positive integer")
+
+    randomization = _require(raw, "randomization", dict, "manifest")
+    schedule_algorithm = _require(
+        randomization, "schedule_algorithm", str, "randomization"
+    )
+    if schedule_algorithm != SCHEDULE_ALGORITHM:
+        raise ManifestError(
+            f"randomization.schedule_algorithm must be '{SCHEDULE_ALGORITHM}'"
+        )
+    try:
+        schedule_seed = validate_inference_seed(
+            randomization.get("schedule_seed"), label="randomization.schedule_seed"
+        )
+    except ValueError as exc:
+        raise ManifestError(str(exc)) from exc
+    inference_seeds_raw = _require(
+        randomization, "inference_seeds", list, "randomization"
+    )
+    if len(inference_seeds_raw) != replicates:
+        raise ManifestError(
+            "randomization.inference_seeds must contain exactly one seed per replicate"
+        )
+    try:
+        inference_seeds = tuple(
+            validate_inference_seed(seed, label=f"randomization.inference_seeds[{index}]")
+            for index, seed in enumerate(inference_seeds_raw)
+        )
+    except ValueError as exc:
+        raise ManifestError(str(exc)) from exc
+    if len(set(inference_seeds)) != len(inference_seeds):
+        raise ManifestError("randomization.inference_seeds must be unique")
+    environment_seed_cfg = _require(
+        randomization, "environment_seed", dict, "randomization"
+    )
+    environment_seed_mechanism = _require(
+        environment_seed_cfg, "mechanism", str, "randomization.environment_seed"
+    )
+    environment_seed = environment_seed_cfg.get("seed")
+    environment_seed_reason = _require(
+        environment_seed_cfg, "reason", str, "randomization.environment_seed"
+    ).strip()
+    if environment_seed_mechanism != "unavailable":
+        raise ManifestError(
+            "randomization.environment_seed.mechanism must be 'unavailable' until Kaetram "
+            "implements and verifies an environment RNG seed interface"
+        )
+    if environment_seed is not None:
+        raise ManifestError(
+            "randomization.environment_seed.seed must be null when mechanism is unavailable"
+        )
+    if not environment_seed_reason:
+        raise ManifestError("randomization.environment_seed.reason must explain the limitation")
 
     models = _require(raw, "models", dict, "manifest")
     if set(models) != set(REQUIRED_WEIGHTS):
@@ -181,8 +246,10 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
     if not isinstance(allow_launch, bool):
         raise ManifestError("execution.allow_launch must be boolean")
     max_parallel = execution.get("max_parallel")
-    if isinstance(max_parallel, bool) or not isinstance(max_parallel, int) or max_parallel < 1:
-        raise ManifestError("execution.max_parallel must be a positive integer")
+    if max_parallel != CLUSTER_SIZE:
+        raise ManifestError(
+            f"execution.max_parallel must be {CLUSTER_SIZE} so each batch is one analysis cluster"
+        )
 
     cells: list[Cell] = []
     for replicate in range(1, replicates + 1):
@@ -215,12 +282,41 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
                         server_port=port_start + cell_index,
                         sandbox=str((sandbox_root / experiment_id / cell_id).resolve()),
                         run_dir=str((output_root / experiment_id / cell_id).resolve()),
+                        schedule_index=-1,
+                        batch_index=-1,
+                        inference_seed=inference_seeds[replicate - 1],
                     ))
 
     if cells[-1].server_port > 65535:
         raise ManifestError("generated server ports exceed 65535; lower server_port_start")
     if max_parallel > len(cells):
         raise ManifestError("execution.max_parallel cannot exceed the generated cell count")
+
+    def rank(label: str) -> bytes:
+        return hashlib.sha256(f"{schedule_seed}:{label}".encode()).digest()
+
+    scheduled_cells: list[Cell] = []
+    cluster_ids = sorted(
+        {cell.cluster_id for cell in cells},
+        key=lambda value: (rank(f"cluster:{value}"), value),
+    )
+    for batch_index, cluster_id in enumerate(cluster_ids):
+        cluster = [cell for cell in cells if cell.cluster_id == cluster_id]
+        pair_ids = sorted(
+            {cell.pair_id for cell in cluster},
+            key=lambda value: (rank(f"pair:{value}"), value),
+        )
+        for pair_id in pair_ids:
+            pair = sorted(
+                (cell for cell in cluster if cell.pair_id == pair_id),
+                key=lambda cell: (rank(f"cell:{cell.cell_id}"), cell.cell_id),
+            )
+            for cell in pair:
+                scheduled_cells.append(replace(
+                    cell,
+                    schedule_index=len(scheduled_cells),
+                    batch_index=batch_index,
+                ))
 
     plan = ExperimentPlan(
         experiment_id=experiment_id,
@@ -235,7 +331,13 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         held_out_registration=str(registration.path) if registration else "",
         allow_launch=allow_launch,
         max_parallel=max_parallel,
-        cells=tuple(cells),
+        schedule_algorithm=schedule_algorithm,
+        schedule_seed=schedule_seed,
+        inference_seeds=inference_seeds,
+        environment_seed_mechanism=environment_seed_mechanism,
+        environment_seed=environment_seed,
+        environment_seed_reason=environment_seed_reason,
+        cells=tuple(scheduled_cells),
     )
     validate_factorial_plan(plan)
     return plan
@@ -270,6 +372,21 @@ def validate_factorial_plan(plan: ExperimentPlan) -> None:
             raise ManifestError(
                 f"cluster {cluster_id} must contain all three personality lanes x recovery off/on"
             )
+        indices = sorted(c.schedule_index for c in cluster)
+        if indices != list(range(indices[0], indices[0] + CLUSTER_SIZE)):
+            raise ManifestError(f"cluster {cluster_id} must be one contiguous launch batch")
+        if len({c.batch_index for c in cluster}) != 1:
+            raise ManifestError(f"cluster {cluster_id} must use one batch_index")
+
+    for pair_id in {c.pair_id for c in plan.cells}:
+        pair = sorted(c.schedule_index for c in plan.cells if c.pair_id == pair_id)
+        if pair[1] != pair[0] + 1:
+            raise ManifestError(f"pair {pair_id} must remain adjacent in the randomized schedule")
+
+    if [c.schedule_index for c in plan.cells] != list(range(len(plan.cells))):
+        raise ManifestError("schedule_index must be complete, ordered, and duplicate-free")
+    if any(c.inference_seed != plan.inference_seeds[c.replicate - 1] for c in plan.cells):
+        raise ManifestError("all cells in a replicate must share its registered inference seed")
 
     for attr in ("username", "server_port", "sandbox", "run_dir", "cell_id"):
         values = [getattr(c, attr) for c in plan.cells]
@@ -290,6 +407,15 @@ def cell_command(plan: ExperimentPlan, cell: Cell) -> list[str]:
         "--username", cell.username,
         "--server-port", str(cell.server_port),
         "--sandbox", cell.sandbox,
+        "--inference-seed", str(cell.inference_seed),
+        "--factorial-schedule-algorithm", plan.schedule_algorithm,
+        "--factorial-schedule-seed", str(plan.schedule_seed),
+        "--factorial-schedule-index", str(cell.schedule_index),
+        "--factorial-batch-index", str(cell.batch_index),
+        "--factorial-cluster-id", cell.cluster_id,
+        "--factorial-pair-id", cell.pair_id,
+        "--environment-seed-mechanism", plan.environment_seed_mechanism,
+        "--environment-seed-reason", plan.environment_seed_reason,
     ]
     cmd.extend(["--personality", cell.personality])
     if plan.omit_game_knowledge:
@@ -306,6 +432,7 @@ def plan_dict(plan: ExperimentPlan) -> dict[str, Any]:
     payload = asdict(plan)
     payload["mode"] = "preflight_only"
     payload["factorial_validation"] = "passed"
+    payload["launchability"] = "blocked_environment_rng_unavailable"
     payload["commands"] = [
         cell_command(plan, cell)
         for cell in plan.cells
@@ -347,6 +474,16 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         "tool_schema_source": plan.tool_schema_source,
         "include_game_knowledge": not plan.omit_game_knowledge,
         "held_out_quest": plan.held_out_quest,
+        "inference_seed": cell.inference_seed,
+        "factorial_schedule_algorithm": plan.schedule_algorithm,
+        "factorial_schedule_seed": plan.schedule_seed,
+        "factorial_schedule_index": cell.schedule_index,
+        "factorial_batch_index": cell.batch_index,
+        "factorial_cluster_id": cell.cluster_id,
+        "factorial_pair_id": cell.pair_id,
+        "environment_seed_mechanism": plan.environment_seed_mechanism,
+        "environment_seed": plan.environment_seed,
+        "environment_seed_reason": plan.environment_seed_reason,
     }
     mismatches = {
         key: {"expected": expected, "actual": meta.get(key)}
@@ -357,11 +494,20 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         raise ManifestError(f"cell {cell.cell_id} result metadata mismatch: {mismatches}")
 
 
+def require_environment_seed_capability(plan: ExperimentPlan) -> None:
+    if plan.environment_seed_mechanism == "unavailable":
+        raise ManifestError(
+            "launch blocked: Kaetram environment RNG seed is unavailable; scheduling and "
+            "inference seeds do not control gameplay Math.random()"
+        )
+
+
 def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] | None = None) -> int:
     if not plan.allow_launch:
         raise ManifestError("launch blocked: set execution.allow_launch=true in the reviewed manifest")
     if confirmation != plan.experiment_id:
         raise ManifestError("launch blocked: --confirm-launch must exactly match experiment_id")
+    require_environment_seed_capability(plan)
     env_source = os.environ if environ is None else environ
     missing = sorted({c.endpoint_env for c in plan.cells if not env_source.get(c.endpoint_env)})
     if missing:

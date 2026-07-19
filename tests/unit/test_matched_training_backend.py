@@ -199,3 +199,14 @@ def test_artifact_root_rejects_traversal_and_symlinks(tmp_path) -> None:
     link.symlink_to(outside)
     with pytest.raises(mt.ProtocolError, match="symlink"):
         backend._material_path(f"file:{link}", artifact_root=root, label="payload")
+
+
+def test_heldout_alias_scan_checks_values_not_json_keys() -> None:
+    record = {
+        "state": {"content": {"secret-quest-alias": "ordinary value"}},
+        "history": {"content": ["visible history"]},
+    }
+    backend._history_alias_scan(record, ["secret-quest-alias"], record_id="record-1")
+    record["history"]["content"].append("mentions SECRET-QUEST-ALIAS here")
+    with pytest.raises(mt.ProtocolError, match="leaks held-out alias"):
+        backend._history_alias_scan(record, ["secret-quest-alias"], record_id="record-1")

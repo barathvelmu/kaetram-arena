@@ -213,11 +213,25 @@ def _interface_digest(shared: dict[str, Any]) -> str:
 
 
 def _history_alias_scan(record: dict[str, Any], aliases: list[str], *, record_id: str) -> None:
-    visible = json.dumps(
-        {"state": record["state"]["content"], "history": record["history"]["content"]},
-        sort_keys=True,
-    ).casefold()
-    leaked = [alias for alias in aliases if alias.casefold() in visible]
+    def string_values(value: Any):
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, dict):
+            for nested in value.values():
+                yield from string_values(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield from string_values(nested)
+
+    visible = tuple(string_values({
+        "state": record["state"]["content"],
+        "history": record["history"]["content"],
+    }))
+    leaked = sorted({
+        alias
+        for alias in aliases
+        if any(alias.casefold() in value.casefold() for value in visible)
+    })
     if leaked:
         raise ProtocolError(f"source record {record_id} leaks held-out alias(es): {leaked}")
 
@@ -442,7 +456,9 @@ def _validate_source_record(
     _exact_keys(state, {"kind", "constructor", "content", "content_sha256"}, label=f"record {record_id}.state")
     _exact_keys(history, {"kind", "source", "content", "content_sha256"}, label=f"record {record_id}.history")
     constructors = {**EXPECTED_CONSTRUCTORS, **HISTORY_ABLATION_CONSTRUCTORS}
-    expected = constructors[arm["arm_id"]]
+    expected = constructors.get(arm["arm_id"])
+    if expected is None:
+        raise ProtocolError(f"unsupported arm {arm['arm_id']}")
     if (state["kind"], state["constructor"], history["kind"], history["source"]) != expected:
         raise ProtocolError(f"source record {record_id} state/history constructor mismatch")
     for name, container in (("state", state), ("history", history)):

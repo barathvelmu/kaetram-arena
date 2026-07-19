@@ -156,6 +156,16 @@ def test_incomplete_snapshot_and_unverifiable_validity_fail_closed(tmp_path: Pat
     with pytest.raises(SelectionError, match="complete seed_player record"):
         build_selection(_candidates(tmp_path, incomplete), _config(tmp_path))
 
+    contradictory = _pool()
+    contradictory[0]["snapshot"]["player_info_overrides"] = {"x": 999}
+    with pytest.raises(SelectionError, match="cannot replace authoritative fields"):
+        build_selection(_candidates(tmp_path, contradictory), _config(tmp_path))
+
+    malformed = _pool()
+    malformed[0]["snapshot"]["skills"] = ["foraging"]
+    with pytest.raises(SelectionError, match="skills must be a list of objects"):
+        build_selection(_candidates(tmp_path, malformed), _config(tmp_path))
+
     unverifiable = _pool()
     unverifiable[0]["validity_evidence"]["legal_reachable"]["artifact_sha256"] = "claimed"
     with pytest.raises(SelectionError, match="artifact_sha256 is invalid"):

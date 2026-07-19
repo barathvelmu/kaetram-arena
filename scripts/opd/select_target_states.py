@@ -26,6 +26,12 @@ SNAPSHOT_FIELDS = {
     "position", "hit_points", "mana", "inventory", "bank", "equipment",
     "quests", "achievements", "skills", "statistics", "player_info_overrides",
 }
+SNAPSHOT_LIST_FIELDS = {
+    "inventory", "bank", "equipment", "quests", "achievements", "skills",
+}
+FORBIDDEN_INFO_OVERRIDES = {
+    "username", "password", "email", "x", "y", "hitPoints", "mana",
+}
 REQUIRED_COUNTS = (
     "student_visits", "natural_student_rollouts",
     "teacher_successes", "teacher_trials",
@@ -54,6 +60,33 @@ def _rate(numerator: int, denominator: int, label: str) -> float:
     if numerator > denominator:
         raise SelectionError(f"{label} numerator cannot exceed denominator")
     return numerator / denominator
+
+
+def _validate_snapshot(snapshot: dict[str, Any], state_id: str) -> None:
+    position = snapshot["position"]
+    if (
+        not isinstance(position, list) or len(position) != 2
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in position)
+    ):
+        raise SelectionError(f"candidate {state_id} snapshot.position must be two integers")
+    for key in ("hit_points", "mana"):
+        value = snapshot[key]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise SelectionError(f"candidate {state_id} snapshot.{key} must be nonnegative integer")
+    for key in SNAPSHOT_LIST_FIELDS:
+        value = snapshot[key]
+        if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+            raise SelectionError(f"candidate {state_id} snapshot.{key} must be a list of objects")
+    if not isinstance(snapshot["statistics"], dict):
+        raise SelectionError(f"candidate {state_id} snapshot.statistics must be an object")
+    overrides = snapshot["player_info_overrides"]
+    if not isinstance(overrides, dict):
+        raise SelectionError(f"candidate {state_id} snapshot.player_info_overrides must be an object")
+    forbidden = sorted(FORBIDDEN_INFO_OVERRIDES & overrides.keys())
+    if forbidden:
+        raise SelectionError(
+            f"candidate {state_id} player_info_overrides cannot replace authoritative fields: {forbidden}"
+        )
 
 
 def load_config(path: Path) -> dict[str, Any]:
@@ -134,6 +167,7 @@ def load_candidates(path: Path, *, registration_path: Path) -> list[dict[str, An
                 f"candidate {state_id} snapshot must be a complete seed_player record: "
                 + "; ".join(details)
             )
+        _validate_snapshot(snapshot, state_id)
         try:
             assert_text_not_reserved(
                 json.dumps(raw, sort_keys=True),

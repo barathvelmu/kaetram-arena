@@ -22,7 +22,9 @@ each backed by an artifact path and SHA-256 digest;
 
 Rates alone are rejected because their denominators cannot be audited. A
 snapshot must explicitly cover every field accepted by the database seeder, so
-omitted values cannot silently inherit defaults. Duplicate snapshots under
+omitted values cannot silently inherit defaults. Snapshot field types are
+validated, and overrides cannot replace authoritative identity, position,
+health, or mana fields. Duplicate snapshots under
 different IDs, unsupported database arguments, unverifiable validity claims,
 missing or digest-mismatched evidence, and any held-out-quest leakage are hard
 errors. The held-out guard scans the entire candidate record, including source

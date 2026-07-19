@@ -653,8 +653,8 @@ def _held_out_quest_metrics(
     """Return DB-authoritative progress for the preregistered quest."""
     if registration is None:
         return {}
-    before_quests = (before or {}).get("quests", {})
-    after_quests = (after or {}).get("quests", {})
+    before_quests = (before or {}).get("quests") or {}
+    after_quests = (after or {}).get("quests") or {}
 
     def _entry(quests: dict) -> dict:
         for key, value in quests.items():

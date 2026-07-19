@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import io
 import os
+import signal
 import subprocess
 import sys
 from dataclasses import replace
@@ -11,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from scripts.opd.factorial_eval import (
+    _cleanup_processes,
     ManifestError,
     build_plan,
     cell_command,
@@ -345,6 +348,7 @@ def test_launch_sets_canonical_schema_recovery_and_respects_parallel_cap(tmp_pat
     assert launch(plan, confirmation=plan.experiment_id, environ=endpoint_env) == 0
     assert len(captured) == 360
     assert maximum_active == plan.max_parallel == 6
+    assert all(p.kwargs["start_new_session"] is True for p in captured)
     assert all(p.kwargs["env"]["KAETRAM_TOOL_SCHEMA_SOURCE"] == "canonical" for p in captured)
     assert sum("KAETRAM_TOOL_RECOVERY" in p.kwargs["env"] for p in captured) == 180
     assert all(secret not in json.dumps(p.args[0]) for p in captured)
@@ -389,6 +393,31 @@ def test_environment_rng_capability_requires_exact_built_checkout(tmp_path: Path
     )
     with pytest.raises(ManifestError, match="revision mismatch"):
         require_environment_seed_capability(plan, {"KAETRAM_GAME_DIR": str(game_dir)})
+
+
+def test_cleanup_terminates_the_owned_process_group(monkeypatch) -> None:
+    sent = []
+
+    class HungProcess:
+        pid = 4321
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None):
+            if timeout is not None:
+                raise subprocess.TimeoutExpired("factorial-cell", timeout)
+            self.returncode = -signal.SIGKILL
+            return self.returncode
+
+    log_handle = io.StringIO()
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: sent.append((pid, sig)))
+
+    _cleanup_processes([(None, HungProcess(), log_handle)])
+
+    assert sent == [(4321, signal.SIGTERM), (4321, signal.SIGKILL)]
+    assert log_handle.closed
 
 
 def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_path: Path):

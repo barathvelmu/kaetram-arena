@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, replace
@@ -1211,6 +1212,25 @@ def seal_prelaunch_record(
     return path
 
 
+def _cleanup_processes(processes: list[tuple[Cell, subprocess.Popen, Any]]) -> None:
+    """Best-effort cleanup for every owned child process group and launcher log."""
+    for _cell, proc, log_handle in processes:
+        try:
+            if proc.poll() is None:
+                os.killpg(proc.pid, signal.SIGTERM)
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
+        except BaseException:
+            pass
+        try:
+            log_handle.close()
+        except BaseException:
+            pass
+
+
 def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] | None = None) -> int:
     if not plan.allow_launch:
         raise ManifestError("launch blocked: set execution.allow_launch=true in the reviewed manifest")
@@ -1238,25 +1258,27 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
                 run_dir = Path(cell.run_dir)
                 run_dir.mkdir(parents=True, exist_ok=False)
                 log_handle = (run_dir / "launcher.log").open("w", encoding="utf-8")
-                child_env = dict(env_source)
-                child_env["KAETRAM_TOOL_SCHEMA_SOURCE"] = plan.tool_schema_source
-                if cell.recovery:
-                    child_env["KAETRAM_TOOL_RECOVERY"] = "1"
-                else:
-                    child_env.pop("KAETRAM_TOOL_RECOVERY", None)
-                proc = subprocess.Popen(
-                    cell_command(plan, cell),
-                    cwd=REPO,
-                    env=child_env,
-                    stdout=log_handle,
-                    stderr=subprocess.STDOUT,
-                )
+                try:
+                    child_env = dict(env_source)
+                    child_env["KAETRAM_TOOL_SCHEMA_SOURCE"] = plan.tool_schema_source
+                    if cell.recovery:
+                        child_env["KAETRAM_TOOL_RECOVERY"] = "1"
+                    else:
+                        child_env.pop("KAETRAM_TOOL_RECOVERY", None)
+                    proc = subprocess.Popen(
+                        cell_command(plan, cell),
+                        cwd=REPO,
+                        env=child_env,
+                        stdout=log_handle,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                    )
+                except BaseException:
+                    log_handle.close()
+                    raise
                 processes.append((cell, proc, log_handle))
-        except Exception:
-            for _cell, proc, log_handle in processes:
-                if proc.poll() is None:
-                    proc.terminate()
-                log_handle.close()
+        except BaseException:
+            _cleanup_processes(processes)
             raise
 
         validation_errors = []
@@ -1303,7 +1325,14 @@ def main() -> int:
         if not args.execute:
             print("\nPreflight passed. Nothing was launched.")
             return 0
-        return launch(plan, confirmation=args.confirm_launch)
+        def interrupt_launch(signum, _frame):
+            raise ManifestError(f"launch interrupted by signal {signum}")
+
+        previous_sigterm = signal.signal(signal.SIGTERM, interrupt_launch)
+        try:
+            return launch(plan, confirmation=args.confirm_launch)
+        finally:
+            signal.signal(signal.SIGTERM, previous_sigterm)
     except ManifestError as exc:
         parser.error(str(exc))
     return 2

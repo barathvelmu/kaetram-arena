@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,19 +17,25 @@ from run_manifest import ManifestError, load_json, validate_manifest_shape  # no
 
 def clone_checkout(repository: str, commit: str, destination: Path) -> None:
     """Create a new detached checkout, refusing any existing destination."""
-    if destination.exists():
+    if os.path.lexists(destination):
         raise ManifestError(f"refusing to overwrite clone destination: {destination}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    clone = subprocess.run(
-        ["git", "clone", "--no-checkout", "--", repository, str(destination)],
-        check=False,
-    )
+    try:
+        clone = subprocess.run(
+            ["git", "clone", "--no-checkout", "--", repository, str(destination)],
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise ManifestError("git executable not found in PATH") from exc
     if clone.returncode != 0:
         raise ManifestError(f"git clone failed with exit code {clone.returncode}")
-    checkout = subprocess.run(
-        ["git", "-C", str(destination), "checkout", "--detach", commit],
-        check=False,
-    )
+    try:
+        checkout = subprocess.run(
+            ["git", "-C", str(destination), "checkout", "--detach", commit],
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise ManifestError("git executable not found in PATH") from exc
     if checkout.returncode != 0:
         raise ManifestError(f"git checkout failed with exit code {checkout.returncode}")
 
@@ -54,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
 
     command = [
         sys.executable,
-        str(args.clone_to.resolve() / "scripts" / "reproduce_run.py"),
+        str(REPO_ROOT / "scripts" / "reproduce_run.py"),
         str(args.manifest.resolve()),
         "--root",
         str(args.clone_to.resolve()),
@@ -63,7 +70,11 @@ def main(argv: list[str] | None = None) -> int:
     ]
     if args.execute:
         command.append("--execute")
-    return subprocess.run(command, check=False).returncode
+    try:
+        return subprocess.run(command, check=False).returncode
+    except FileNotFoundError as exc:
+        print(f"bootstrap FAILED: executable not found: {command[0]}", file=sys.stderr)
+        return 127
 
 
 if __name__ == "__main__":

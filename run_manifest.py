@@ -199,12 +199,15 @@ def capture_git_state(repo_root: str | Path) -> dict[str, Any]:
     root = Path(repo_root).resolve()
 
     def git(*args: str, check: bool = True) -> str:
-        result = subprocess.run(
-            ["git", "-C", str(root), *args],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise ManifestError("git executable not found in PATH") from exc
         if check and result.returncode != 0:
             detail = result.stderr.strip() or result.stdout.strip()
             raise ManifestError(f"git {' '.join(args)} failed: {detail}")
@@ -591,10 +594,14 @@ def atomic_write_json(path: str | Path, value: Any) -> None:
             os.link(tmp, target)
         except FileExistsError as exc:
             raise ManifestError(f"refusing to overwrite immutable file: {target}") from exc
-        directory_fd = os.open(target.parent, os.O_RDONLY)
         try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+            directory_fd = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            # Directory handles are unavailable on some platforms (notably Windows).
+            pass
     finally:
         tmp.unlink(missing_ok=True)

@@ -80,7 +80,11 @@ def main(argv: list[str] | None = None) -> int:
     if not args.execute:
         print("validation only; pass --execute to run the recorded command")
         return 0
-    return subprocess.run(command, cwd=args.root, check=False).returncode
+    try:
+        return subprocess.run(command, cwd=args.root, check=False).returncode
+    except FileNotFoundError:
+        print(f"reproduction FAILED: executable not found: {command[0]}", file=sys.stderr)
+        return 127
 
 
 if __name__ == "__main__":

@@ -261,3 +261,31 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
     write_result(model="different-cell")
     with pytest.raises(ManifestError, match="metadata mismatch"):
         validate_cell_result(plan, cell)
+
+
+def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Path):
+    def mutate(raw):
+        raw["evaluation"].update({
+            "omit_game_knowledge": False,
+            "held_out_quest": "",
+            "held_out_registration": "",
+        })
+
+    plan = build_plan(_manifest_copy(tmp_path, mutate))
+    cell = plan.cells[0]
+    result_path = Path(cell.run_dir) / cell.cell_id / "results.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(json.dumps({
+        "meta": {
+            "model": cell.cell_id,
+            "scenario": plan.scenario,
+            "total_episodes": 1,
+            "ok_episodes": 1,
+            "tool_schema_source": plan.tool_schema_source,
+            "include_game_knowledge": True,
+            "held_out_quest": "",
+        },
+        "episodes": [{"episode": 1, "status": "ok"}],
+    }))
+
+    validate_cell_result(plan, cell)

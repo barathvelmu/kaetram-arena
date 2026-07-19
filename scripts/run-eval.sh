@@ -81,6 +81,35 @@ reap_eval_orphans() {
     fi
   done
 }
+
+SFT_PID=""
+BASE_PID=""
+WATCHDOG_PID=""
+
+cleanup_on_signal() {
+  local exit_code="$1"
+  local child_pid eval_port server_pid
+  trap - INT TERM
+  set +e
+  for child_pid in "$WATCHDOG_PID" "$SFT_PID" "$BASE_PID"; do
+    if [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null; then
+      kill "$child_pid" 2>/dev/null
+    fi
+  done
+  for child_pid in "$WATCHDOG_PID" "$SFT_PID" "$BASE_PID"; do
+    [ -n "$child_pid" ] && wait "$child_pid" 2>/dev/null
+  done
+  for eval_port in 9071 9061; do
+    server_pid=$(ss -tlnp 2>/dev/null | grep ":${eval_port} " \
+      | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+    [ -n "$server_pid" ] && kill "$server_pid" 2>/dev/null
+  done
+  reap_eval_orphans
+  exit "$exit_code"
+}
+
+trap 'cleanup_on_signal 130' INT
+trap 'cleanup_on_signal 143' TERM
 reap_eval_orphans
 
 # Kill BOTH eval game servers by their dedicated ports (9061 r10-sft, 9071 base).

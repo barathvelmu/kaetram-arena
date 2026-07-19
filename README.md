@@ -21,6 +21,7 @@ case-study paper: [`reference/overview.pdf`](reference/overview.pdf).
 Built with [Niral Patel](https://x.com/patelnir41).
 
 > **For developers:** [`CLAUDE.md`](CLAUDE.md) is the full developer reference and [`session_log.md`](session_log.md) has the most recent decisions. Everything from **Current status** down is the operational reference for running and developing the system.
+> For confirmatory experiments, see [`docs/reproducible-runs.md`](docs/reproducible-runs.md) for immutable manifests, artifact hashes, and clean-clone preflight.
 
 ## Why this is different from prior work
 

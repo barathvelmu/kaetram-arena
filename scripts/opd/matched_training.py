@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -585,7 +586,7 @@ def build_plan(path: str | Path) -> TrainingPlan:
         actual = _sha256(item_path)
         if actual != expected:
             raise ProtocolError(f"frozen interface drift: {item_path}")
-        frozen.append({"path": str(item_path), "sha256": actual})
+        frozen.append({"path": item_path.relative_to(REPO).as_posix(), "sha256": actual})
     if len({item["path"] for item in frozen}) != len(frozen):
         raise ProtocolError("frozen interface files must be unique")
 
@@ -676,7 +677,10 @@ def build_plan(path: str | Path) -> TrainingPlan:
         "frozen_interfaces": frozen,
         "optimizer": optimizer,
         "budgets": budgets,
-        "artifact_registry": {"path": str(registry_path), "sha256": registry_sha},
+        "artifact_registry": {
+            "path": registry_path.relative_to(REPO).as_posix(),
+            "sha256": registry_sha,
+        },
     }
     cells: list[TrainingCell] = []
     for arm in arms:
@@ -835,10 +839,24 @@ def launch(plan: TrainingPlan, *, confirmation: str, environ: dict[str, str] | N
                 if process.poll() is None:
                     process.terminate()
             raise
-        for process in processes:
-            rc = process.wait()
-            if rc != 0 and return_code == 0:
-                return_code = rc
+        active_processes = list(processes)
+        while active_processes and return_code == 0:
+            for process in list(active_processes):
+                rc = process.poll()
+                if rc is None:
+                    continue
+                active_processes.remove(process)
+                if rc != 0:
+                    return_code = rc
+                    for active in active_processes:
+                        if active.poll() is None:
+                            active.terminate()
+                    for active in active_processes:
+                        active.wait()
+                    active_processes.clear()
+                    break
+            if active_processes and return_code == 0:
+                time.sleep(1)
         if return_code == 0:
             for cell in plan.cells[start:start + plan.max_parallel]:
                 validate_cell_result(plan, cell)

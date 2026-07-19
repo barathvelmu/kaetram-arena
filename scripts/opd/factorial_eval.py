@@ -33,6 +33,7 @@ from run_manifest import (  # noqa: E402
     load_json,
     sha256_json,
     tool_schema_record,
+    utc_now,
     validate_input_provenance,
 )
 
@@ -56,6 +57,8 @@ PRIMARY_ESTIMANDS = (
 ENDPOINT_ATTESTATION_SCHEMA = "kaetram.endpoint-attestation.v1"
 POWER_ANALYSIS_SCHEMA = "kaetram-opd-power-analysis-v1"
 UNRESOLVED_MARKER = "UNRESOLVED"
+CELL_BUNDLE_SCHEMA = "kaetram.factorial-cell-bundle.v1"
+COMPLETED_INVENTORY_SCHEMA = "kaetram.factorial-completed-inventory.v1"
 
 
 @dataclass(frozen=True)
@@ -677,6 +680,109 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         raise ManifestError(f"cell {cell.cell_id} result metadata mismatch: {mismatches}")
 
 
+def seal_cell_bundle(plan: ExperimentPlan, cell: Cell) -> Path:
+    """Hash and seal the complete model-visible and raw evidence for one cell."""
+    cell_root = Path(cell.run_dir) / cell.cell_id
+    raw_dirs = [cell_root / f"episode_{episode:03d}_raw" for episode in range(1, plan.episodes + 1)]
+    required: list[tuple[str, Path]] = [
+        ("results", cell_root / "results.json"),
+        ("resolved_prompt", cell_root / "system_prompt.md"),
+        ("launcher_log", Path(cell.run_dir) / "launcher.log"),
+    ]
+    for episode in range(1, plan.episodes + 1):
+        required.extend([
+            (f"episode_{episode:03d}_parsed_transcript", cell_root / f"episode_{episode:03d}.jsonl"),
+            (f"episode_{episode:03d}_raw_sessions", raw_dirs[episode - 1]),
+            (f"episode_{episode:03d}_state_boundary", cell_root / f"episode_{episode:03d}_state.json"),
+        ])
+    missing = [str(path) for _name, path in required if not path.exists()]
+    if missing:
+        raise ManifestError(
+            f"cell {cell.cell_id} cannot be sealed; missing required artifacts: {missing}"
+        )
+
+    for raw_dir in raw_dirs:
+        raw_logs = sorted(raw_dir.glob("session_*.log"))
+        if not raw_logs:
+            raise ManifestError(f"cell {cell.cell_id} has no preserved raw session log")
+        has_raw_emission = False
+        for raw_log in raw_logs:
+            for line in raw_log.read_text().splitlines():
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(record, dict) and record.get("type") == "raw_model_emission":
+                    has_raw_emission = True
+                    break
+            if has_raw_emission:
+                break
+        if not has_raw_emission:
+            raise ManifestError(
+                f"cell {cell.cell_id} raw sessions omit pre-rewrite model emissions"
+            )
+
+    artifacts = []
+    for name, path in required:
+        descriptor = hash_path(path, root=Path(cell.run_dir).parent)
+        descriptor["name"] = name
+        artifacts.append(descriptor)
+    record: dict[str, Any] = {
+        "schema_version": CELL_BUNDLE_SCHEMA,
+        "created_at_utc": utc_now(),
+        "experiment_id": plan.experiment_id,
+        "protocol_id": plan.protocol_id,
+        "cell_id": cell.cell_id,
+        "experiment_manifest_sha256": plan.manifest_sha256,
+        "endpoint_attestation_sha256": cell.endpoint_attestation_sha256,
+        "checkpoint_sha256": cell.checkpoint_sha256,
+        "tokenizer_sha256": cell.tokenizer_sha256,
+        "render_contract_sha256": cell.render_contract_sha256,
+        "artifacts": artifacts,
+    }
+    record["bundle_sha256"] = sha256_json(record)
+    path = cell_root / "cell-bundle.json"
+    atomic_write_json(path, record)
+    return path
+
+
+def seal_completed_inventory(plan: ExperimentPlan) -> Path:
+    """Seal the exact requested/completed-cell inventory after every cell passes."""
+    cells = []
+    for cell in plan.cells:
+        bundle_path = Path(cell.run_dir) / cell.cell_id / "cell-bundle.json"
+        try:
+            bundle = load_json(bundle_path)
+        except ManifestError as exc:
+            raise ManifestError(
+                f"experiment incomplete: missing sealed bundle for {cell.cell_id}: {exc}"
+            ) from exc
+        if not isinstance(bundle, dict) or bundle.get("cell_id") != cell.cell_id:
+            raise ManifestError(f"experiment incomplete: invalid bundle for {cell.cell_id}")
+        payload = dict(bundle)
+        recorded_digest = payload.pop("bundle_sha256", None)
+        if recorded_digest != sha256_json(payload):
+            raise ManifestError(f"experiment incomplete: bundle identity mismatch for {cell.cell_id}")
+        cells.append({
+            "cell_id": cell.cell_id,
+            "bundle_sha256": recorded_digest,
+            "bundle_file": hash_path(bundle_path, root=Path(cell.run_dir).parent),
+        })
+    record: dict[str, Any] = {
+        "schema_version": COMPLETED_INVENTORY_SCHEMA,
+        "created_at_utc": utc_now(),
+        "experiment_id": plan.experiment_id,
+        "protocol_id": plan.protocol_id,
+        "experiment_manifest_sha256": plan.manifest_sha256,
+        "requested_cell_ids": [cell.cell_id for cell in plan.cells],
+        "completed_cells": cells,
+    }
+    record["inventory_sha256"] = sha256_json(record)
+    path = Path(plan.cells[0].run_dir).parent / "completed.json"
+    atomic_write_json(path, record)
+    return path
+
+
 def _health_url(endpoint: str, health_path: str) -> str:
     parts = urlsplit(endpoint)
     if parts.scheme not in {"http", "https"} or not parts.netloc:
@@ -856,6 +962,7 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
             elif rc == 0:
                 try:
                     validate_cell_result(plan, cell)
+                    seal_cell_bundle(plan, cell)
                 except ManifestError as exc:
                     validation_errors.append(str(exc))
         if validation_errors:
@@ -864,6 +971,8 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
             )
         if return_code != 0:
             break
+    if return_code == 0:
+        seal_completed_inventory(plan)
     return return_code
 
 

@@ -110,7 +110,12 @@ existing prelaunch ledger.
 Every cell result must report the same protocol ID, 21,600-second budget,
 manifest digest, endpoint-attestation digest, checkpoint digest, tokenizer
 digest, render-contract digest, held-out metadata, canonical schema source, and
-one successful episode. Missing or misattributed artifacts fail the batch.
+one successful episode. The launcher then create-only seals a self-hashed cell
+bundle containing the resolved prompt, raw endpoint emissions before recovery
+rewrites, parsed tool-transition transcript, player/quest state-boundary
+snapshots, launcher log, results, and hashes for every artifact. After all 360
+cells pass, it seals an exact requested/completed-cell inventory. Missing,
+rewritten-only, misattributed, or overwritten artifacts fail the batch.
 
 ## Cost and current blockers
 

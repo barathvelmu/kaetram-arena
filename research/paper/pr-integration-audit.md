@@ -29,18 +29,28 @@ should narrow after prerequisites merge.
   Mongo database lane together with knowledge/held-out state.
 - Choosing either side wholesale drops a required safety property.
 
+## Protocol gates implemented prospectively
+
+- #42 now freezes the six-hour canonical-unseeded Core-3 protocol, seven
+  estimands, familywise alpha, an assumption-driven 20-replicate power contract,
+  checkpoint/tokenizer/render/deployment attestations, and a create-only
+  prelaunch ledger.
+- #44 now verifies the hashed protocol, computes factorial marginal effects and
+  difference-in-differences interactions, and cannot promote a five-run pilot
+  to confirmatory status.
+- The resulting weights-by-recovery plan is 20 replicate clusters, 360 six-hour
+  cells, or 2,160 cell-hours. Capacity and cost require explicit operator review.
+
+These are draft implementations pending maintainer review and ordered merge;
+they do not make the historical results reproducible.
+
 ## Compute gates still open
 
-- The launcher must freeze a six-hour Core-3 protocol, not the 30-minute Desert
-  Quest example.
-- The primary metric, factorial estimands, and difference-in-differences
-  interactions must be immutable manifest fields.
-- Endpoint labels must be replaced by digest-attested checkpoint, tokenizer,
-  adapter, render-manifest, and serving identity.
-- #41 sealing must run automatically before a cell starts; manual post-run
-  sealing is insufficient.
-- Five paired replicates cannot be called confirmatory eligible. The smallest
-  two-sided exact sign-flip p-value is 0.0625 before multiplicity correction.
+- Replace all unresolved example checkpoint/tokenizer/render/deployment hashes
+  with real immutable attestations from restored endpoints.
+- Set and verify the exact clean execution commit.
+- Restore Mongo, game services, and model endpoints, then pass the live health
+  attestation before any cell starts.
 - #47 records schedule and inference seeds, but game-side environment RNG must
   be seeded and attested before launch.
 - Raw pre-rewrite emissions and every requested/completed cell must be sealed
@@ -62,4 +72,6 @@ independent replay of those headline values.
 - #43: 5 passed.
 - Real #42 serializer into #44 analyzer on a synthetic 18-cell factorial:
   passed mechanically, but exposed the estimand and provenance gaps above.
+- Hardened #42 unit suite: 195 passed, 31 expected skips.
+- Hardened composed #42/#44 unit suite: 204 passed, 31 expected skips.
 - No open PR had a reported GitHub status check at audit time.

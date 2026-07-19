@@ -44,7 +44,8 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 
 ## Paper
 
-- [overview.pdf](../reference/overview.pdf) (`reference/overview.tex`) — **The OPD case-study paper (13pp, base→r3 end-to-end).** Imitation collapse (r10) → scaffold-over-capacity → style-without-competence (r1) → teacher-forcing copy-prior → visitation-corrected lift (r2, 15/30) → counterfactual grading + full-ladder seeding + harness recovery (r3, 18/30) + the Rick's cook-null ceiling. The clean claim is **better than base** (12→18, two quest chains cleared unseeded vs one; weights-driven — the wall falls 3/3): over base the +6 is +3 pure weights / +2 harness / +1 r3 weights, and a controlled ablation (r2 weights + recovery = 17/30) shows the harness carried the r2→r3 *stage* step while the r3 weights bought speed. One equation (the visitation-coupling spine); the rest is prose. Enumerated caveats and ~33 cited works. Regenerate: `pdflatex reference/overview.tex` (×2)
+- [overview.pdf](../reference/overview.pdf) (`reference/overview.tex`) — **The 16-page OPD case-study technical report (base→r3 end-to-end).** This is the audited evidence record, not a conference-ready manuscript. Regenerate: `pdflatex reference/overview.tex` (×2)
+- [reviewer-handoff.md](paper/reviewer-handoff.md) — Central handoff for collaborators: PR order, current truth, experiment launch gates, work packages, and review checklist
 - [contribution.md](paper/contribution.md) — Paper 1: What's novel, framing, outline, key ablations needed
 - [VARIABLES.md](paper/VARIABLES.md) — Design-variables catalog (KAE-49): every knob reviewers can question, grouped by layer
 - [submission-readiness.md](paper/submission-readiness.md) — July 18 go/no-go decision, venue calendar, critical path, and submission policy

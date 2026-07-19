@@ -653,6 +653,17 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         raise ManifestError(f"cell {cell.cell_id} episode IDs are incomplete or duplicated")
     if any(episode.get("status") != "ok" for episode in episodes):
         raise ManifestError(f"cell {cell.cell_id} contains a failed episode")
+    if any(episode.get("returncode") != 0 for episode in episodes):
+        raise ManifestError(f"cell {cell.cell_id} contains a nonzero episode return code")
+    if any(
+        isinstance(episode.get("duration_seconds"), bool)
+        or not isinstance(episode.get("duration_seconds"), (int, float))
+        or episode["duration_seconds"] < plan.duration_seconds
+        for episode in episodes
+    ):
+        raise ManifestError(
+            f"cell {cell.cell_id} contains an episode shorter than the registered duration"
+        )
 
     meta = results.get("meta")
     if not isinstance(meta, dict):

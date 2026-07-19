@@ -79,3 +79,11 @@ def test_clean_checkout_guard_rejects_user_changes(tmp_path: Path, monkeypatch) 
 def test_managed_environment_names_are_gitignored() -> None:
     ignore = (REPO_ROOT / ".gitignore").read_text().splitlines()
     assert ".venv-unit-tests*/" in ignore
+
+
+def test_ci_uses_the_same_bootstrap_with_immutable_action_pins() -> None:
+    workflow = (REPO_ROOT / ".github" / "workflows" / "unit-tests.yml").read_text()
+    assert "scripts/bootstrap_unit_tests.py bootstrap --python python" in workflow
+    assert "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in workflow
+    assert "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405" in workflow
+    assert "permissions:\n  contents: read" in workflow

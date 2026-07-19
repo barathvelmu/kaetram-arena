@@ -48,6 +48,11 @@ python3 scripts/bootstrap_unit_tests.py check
 `check` requires the bootstrap marker to match the current Git commit, lock-file
 digest, Python series, pip version, and installed package inventory.
 
+Pull requests run the same bootstrap on Ubuntu 24.04 with immutable commit pins
+for the official checkout and Python-setup actions. The workflow does not cache
+or reuse a virtual environment, so every CI run exercises installation from the
+reviewed lock before collecting tests.
+
 ## Intentional skips and optional assets
 
 The reproducible baseline is the collected CPU-only unit suite, including its

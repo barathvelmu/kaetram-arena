@@ -145,7 +145,7 @@ def _require(mapping: dict[str, Any], key: str, kind: type, context: str) -> Any
 def load_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
     manifest_path = Path(path).resolve()
     try:
-        raw = json.loads(manifest_path.read_text())
+        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ManifestError(f"cannot load manifest {manifest_path}: {exc}") from exc
     if not isinstance(raw, dict) or raw.get("schema_version") != 2:
@@ -804,7 +804,7 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
     """Require one complete, correctly attributed artifact for a launched cell."""
     path = Path(cell.run_dir) / cell.cell_id / "results.json"
     try:
-        results = json.loads(path.read_text())
+        results = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ManifestError(f"cell {cell.cell_id} has no valid results artifact: {exc}") from exc
     if not isinstance(results, dict):
@@ -1226,7 +1226,7 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
             for cell in batch_cells:
                 run_dir = Path(cell.run_dir)
                 run_dir.mkdir(parents=True, exist_ok=False)
-                log_handle = (run_dir / "launcher.log").open("w")
+                log_handle = (run_dir / "launcher.log").open("w", encoding="utf-8")
                 child_env = dict(env_source)
                 child_env["KAETRAM_TOOL_SCHEMA_SOURCE"] = plan.tool_schema_source
                 if cell.recovery:

@@ -329,7 +329,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
     output_dir = f"/checkpoints/{EXPERIMENT_NAME}"
     import os as _os
     _os.makedirs(output_dir, exist_ok=True)
-    with open(f"{output_dir}/{RENDER_CONTRACT_FILENAME}", "w") as f:
+    with open(f"{output_dir}/{RENDER_CONTRACT_FILENAME}", "w", encoding="utf-8") as f:
         json.dump(render_contract, f, indent=2)
     print(f"Loss masking: train_on_responses_only={MASK_INPUT_TOKENS}")
     sft_config = SFTConfig(
@@ -450,7 +450,7 @@ def train(train_data: bytes, val_data: bytes, metadata: bytes):
     # The serving path reads this exact manifest and refuses an unversioned
     # non-r10 checkpoint. Keep a copy beside both deployable artifact forms.
     for artifact_dir in (adapter_dir, merged_dir):
-        with open(f"{artifact_dir}/{RENDER_CONTRACT_FILENAME}", "w") as f:
+        with open(f"{artifact_dir}/{RENDER_CONTRACT_FILENAME}", "w", encoding="utf-8") as f:
             json.dump(render_contract, f, indent=2)
 
     # Save metrics
@@ -577,10 +577,10 @@ def merge_checkpoint(checkpoint_name: str):
             f"Missing {RENDER_CONTRACT_FILENAME} in {output_dir}; refusing to "
             "produce an unversioned merged checkpoint"
         )
-    with open(contract_path) as f:
+    with open(contract_path, encoding="utf-8") as f:
         render_contract = resolve_render_contract(json.load(f))
     for artifact_dir in (adapter_dir, merged_dir):
-        with open(f"{artifact_dir}/{RENDER_CONTRACT_FILENAME}", "w") as f:
+        with open(f"{artifact_dir}/{RENDER_CONTRACT_FILENAME}", "w", encoding="utf-8") as f:
             json.dump(render_contract, f, indent=2)
 
     checkpoint_vol.commit()

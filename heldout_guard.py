@@ -44,7 +44,7 @@ class HeldOutRegistration:
 def load_registration(path: str | Path = DEFAULT_REGISTRATION) -> HeldOutRegistration:
     registration_path = Path(path).resolve()
     try:
-        raw = json.loads(registration_path.read_text())
+        raw = json.loads(registration_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise HeldOutGuardError(f"cannot load held-out registration {registration_path}: {exc}") from exc
 

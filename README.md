@@ -7,7 +7,14 @@
 
 **Can a 2-billion-parameter open model learn to play a persistent MMORPG?** Kaetram Arena is a research project on **structured game-agent distillation**: teaching a small open model long-horizon, tool-mediated gameplay by having it share one typed MCP tool API with its teacher, inside [Kaetram](https://github.com/Kaetram/Kaetram-Open), a persistent open-world 2D MMORPG. The agent never writes JavaScript and never clicks pixels; it plays through 17 typed tools (`observe`, `attack("goblin")`, `navigate(188, 157)`, `craft_item(...)`), and so does everything that teaches it.
 
-**Headline result:** on-policy distillation (OPD) took a base **Qwen3.5-2B** from **12/30 to 18/30** on the Core-3 quest benchmark, clearing a quest wall the base model never passes (3/3 vs 0/3, weights-only, same harness). The teacher is a scaffolded Qwen3.5-4B. Full experiment record: [`research/experiments/opd-2b.md`](research/experiments/opd-2b.md); case-study paper: [`reference/overview.pdf`](reference/overview.pdf).
+**Historical result (not independently reproducible from this clone):** the
+project reports one base **Qwen3.5-2B** run at **12/30**, one recovery-off OPD
+round at **15/30**, and one later weights-plus-recovery run at **18/30** on the
+Core-3 quest benchmark. These runs lack immutable raw bundles and exact
+configuration parity, so the sequence is descriptive rather than a
+weights-only or causal comparison. Teacher: a scaffolded Qwen3.5-4B. Full
+experiment record: [`research/experiments/opd-2b.md`](research/experiments/opd-2b.md);
+case-study paper: [`reference/overview.pdf`](reference/overview.pdf).
 
 **The result is worth telling as a story, because it starts with a failure.** The first serious training lane (r1 to r10) did the obvious thing: collect gameplay trajectories from a frontier teacher (Claude) and fine-tune a 9B student on them. That *regressed* the student 3.5x below its own base. Cross-vocabulary imitation of a stronger model's reasoning turned out to be actively harmful, and that clean negative forced the pivot: keep the teacher in the same model family, scaffold it well, and let it grade the student's *own* visited states token by token (reverse-KL) instead of feeding it someone else's trajectories. That is the OPD lane, and it is the one that works: a 12 to 15 to 18/30 chain across three rounds, with all models and data open on Hugging Face (below).
 

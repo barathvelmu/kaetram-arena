@@ -20,10 +20,33 @@ Review and merge in this order:
    - Fails closed if a player reset cannot be confirmed.
 3. [PR #38 — fail closed on incomplete paired evaluations](https://github.com/patnir411/kaetram-arena/pull/38)
    - Preserves real child exit codes, validates both result artifacts, and moves `dataset/eval/latest` only after both arms are complete.
-4. [PR #35 — paper audit and research plan](https://github.com/patnir411/kaetram-arena/pull/35) (this PR)
+4. [PR #40 — freeze and enforce the tool render contract](https://github.com/patnir411/kaetram-arena/pull/40)
+   - Freezes the complete 17-tool schema, adds a live MCP signature handshake, versions native versus historical rendering, and makes fresh unversioned checkpoints fail closed.
+   - Does not retrofit r10 or the published 2B/OPD endpoints.
+5. [PR #41 — immutable manifests and clean-clone reproduction](https://github.com/patnir411/kaetram-arena/pull/41)
+   - Adds create-only run manifests, artifact/dataset/checkpoint hashes, secret-safe provenance, exact-commit checkout, and external-bundle reproduction preflight.
+6. [PR #42 — 2B factorial launcher and held-out evaluation](https://github.com/patnir411/kaetram-arena/pull/42)
+   - Adds the five-replicate, three-personality weights × recovery launcher and the preregistered held-out/no-walkthrough condition.
+   - Depends on PR #40's canonical-schema mode and must not be used for live compute before the P0 smoke gate.
+7. [PR #39 — recovery and copy-prior diagnostics](https://github.com/patnir411/kaetram-arena/pull/39)
+   - Audits malformed emissions and harness recovery, and scores paired malformed/canonical continuations under repaired history/docs.
+   - Records whether it reproduces the historical no-schema grading context or PR #40's canonical native-schema context; do not pool those interfaces.
+8. [PR #35 — paper audit and research plan](https://github.com/patnir411/kaetram-arena/pull/35) (this PR)
    - Revises the technical report, audits claims and literature, and records the minimum experiment package.
 
-All four PRs are independently reviewable against `main`. PRs #36–#38 intentionally separate result serialization, database semantics, and wrapper completion behavior.
+PRs #36–#38 intentionally separate result serialization, database semantics, and wrapper completion behavior. PRs #39–#42 are also separate review units. Merge #40 before #42; #39's canonical-schema condition also assumes #40. No new training, deployment, database mutation, or live inference was performed while preparing #39–#42.
+
+## Historical scope of PR #37's database-lane bug
+
+The wrong-database path was introduced with the `scripts/run-eval.sh` / `eval_harness.py` lane on April 25, 2026, and remained until PR #37. That path used ports 9061/9071 while resetting and reading a different database from the eval servers.
+
+The checked headline OPD and r10 numbers were not produced through that lane:
+
+- base 2B `run_20260608_185339`, r1 `run_20260610_140358`, r2 `run_20260612_044933`, r3 `run_20260613_112422`, and r2 plus recovery `run_20260613_214956` were orchestrated on ports 9001/9011/9021 and scored from raw session logs;
+- the r10 base `[7,7,7,7]` versus SFT `[3,1,2]` comparison was likewise scored from orchestrator logs; and
+- checked-in dataset/evaluation artifacts used by the report predate the April 25 lane change.
+
+Therefore PR #37 does not currently invalidate E3-prime, E4, Arm-C, or the historical r10 headline values. It does invalidate trust in any un-audited result produced through `run-eval.sh` between April 25 and July 18. Missing raw May/June bundles remain a separate reproducibility weakness: this scope conclusion is based on the preserved run IDs, port topology, scripts, and summaries, not on a complete independent replay of every historical run.
 
 ## Linear execution board
 

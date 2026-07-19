@@ -54,8 +54,9 @@ def test_save_results_records_failed_episode(
         "check_output",
         lambda *args, **kwargs: "abc123\n",
     )
+    output_path = tmp_path / "results.json"
     results = eval_harness._save_results(
-        tmp_path / "results.json",
+        output_path,
         model_name="base",
         endpoint="https://example.invalid/v1",
         scenario="A",
@@ -65,6 +66,7 @@ def test_save_results_records_failed_episode(
     assert results["meta"]["total_episodes"] == 1
     assert results["meta"]["ok_episodes"] == 0
     assert results["metrics"] == {}
+    assert json.loads(output_path.read_text()) == results
 
 
 def test_scenarios_have_one_time_budget_contract() -> None:

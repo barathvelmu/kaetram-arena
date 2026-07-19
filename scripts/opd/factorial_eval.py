@@ -47,8 +47,9 @@ REQUIRED_RECOVERY = (False, True)
 REQUIRED_PERSONALITIES = ("grinder", "completionist", "explorer_tinkerer")
 PERSONALITY_CODES = {"grinder": "g", "completionist": "c", "explorer_tinkerer": "e"}
 SCHEDULE_ALGORITHM = "sha256-rank-v1"
-ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v1"
+ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v2"
 ENVIRONMENT_RNG_ALGORITHM = "mulberry32-sha256-v1"
+SERVER_BUILD_ATTESTATION_SCHEMA = "kaetram-server-build-attestation/v1"
 CLUSTER_SIZE = len(REQUIRED_PERSONALITIES) * len(REQUIRED_RECOVERY)
 CORE3_PROTOCOL_ID = "core3_canonical_unseeded_6h_v1"
 CORE3_DURATION_SECONDS = 6 * 60 * 60
@@ -131,6 +132,7 @@ class ExperimentPlan:
     environment_seed_mechanism: str
     environment_rng_algorithm: str
     environment_game_revision: str
+    environment_game_bundle_sha256: str
     environment_seeds: tuple[int, ...]
     environment_seed_reason: str
     cells: tuple[Cell, ...]
@@ -684,6 +686,7 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         environment_seed_mechanism=environment_seed_mechanism,
         environment_rng_algorithm=environment_rng_algorithm,
         environment_game_revision=environment_game_revision,
+        environment_game_bundle_sha256="0" * 64,
         environment_seeds=environment_seeds,
         environment_seed_reason=environment_seed_reason,
         cells=tuple(scheduled_cells),
@@ -776,6 +779,7 @@ def cell_command(plan: ExperimentPlan, cell: Cell) -> list[str]:
         "--environment-seed", str(cell.environment_seed),
         "--environment-rng-algorithm", plan.environment_rng_algorithm,
         "--environment-game-revision", plan.environment_game_revision,
+        "--environment-game-bundle-sha256", plan.environment_game_bundle_sha256,
         "--environment-seed-reason", plan.environment_seed_reason,
     ]
     cmd.extend(["--personality", cell.personality])
@@ -864,13 +868,15 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         "environment_seed": cell.environment_seed,
         "environment_rng_algorithm": plan.environment_rng_algorithm,
         "environment_game_revision": plan.environment_game_revision,
+        "environment_game_bundle_sha256": plan.environment_game_bundle_sha256,
         "environment_seed_reason": plan.environment_seed_reason,
-        "environment_rng_attestation": {
+            "environment_rng_attestation": {
             "schema": plan.environment_seed_mechanism,
             "algorithm": plan.environment_rng_algorithm,
             "seedSha256": hashlib.sha256(str(cell.environment_seed).encode()).hexdigest(),
-            "gameRevision": plan.environment_game_revision,
-            "drawsAtAttestation": 0,
+                "gameRevision": plan.environment_game_revision,
+                "serverBundleSha256": plan.environment_game_bundle_sha256,
+                "drawsAtAttestation": 0,
         },
     }
     mismatches = {
@@ -884,7 +890,7 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
 
 def require_environment_seed_capability(
     plan: ExperimentPlan, environ: dict[str, str]
-) -> None:
+) -> dict[str, str]:
     if plan.environment_seed_mechanism != ENVIRONMENT_RNG_MECHANISM:
         raise ManifestError(
             "launch blocked: unsupported Kaetram environment RNG attestation mechanism"
@@ -907,10 +913,60 @@ def require_environment_seed_capability(
             "launch blocked: Kaetram checkout revision mismatch: "
             f"expected {plan.environment_game_revision}, found {revision}"
         )
-    if not (game_dir / "packages" / "server" / "dist" / "main.js").is_file():
+    try:
+        dirty = subprocess.check_output(
+            ["git", "-C", str(game_dir), "status", "--porcelain", "--untracked-files=no"],
+            stderr=subprocess.STDOUT,
+            text=True,
+        ).strip()
+        source_tree_oid = subprocess.check_output(
+            ["git", "-C", str(game_dir), "rev-parse", "HEAD^{tree}"],
+            stderr=subprocess.STDOUT,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ManifestError(f"launch blocked: cannot verify Kaetram source tree: {exc}") from exc
+    if dirty:
+        raise ManifestError("launch blocked: Kaetram tracked source tree is dirty")
+
+    build_record_path = game_dir / "packages" / "server" / "dist" / "kaetram-build-attestation.json"
+    try:
+        build_record = json.loads(build_record_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ManifestError(f"launch blocked: invalid Kaetram build attestation: {exc}") from exc
+    expected_build = {
+        "schema": SERVER_BUILD_ATTESTATION_SCHEMA,
+        "gameRevision": plan.environment_game_revision,
+        "sourceTreeGitOid": source_tree_oid,
+        "entrypoint": "packages/server/dist/main.js",
+    }
+    mismatches = {
+        key: {"expected": value, "actual": build_record.get(key)}
+        for key, value in expected_build.items()
+        if build_record.get(key) != value
+    }
+    if mismatches:
+        raise ManifestError(f"launch blocked: Kaetram build attribution mismatch: {mismatches}")
+    bundle_sha256 = build_record.get("entrypointSha256")
+    if not isinstance(bundle_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", bundle_sha256):
+        raise ManifestError("launch blocked: Kaetram build attestation has no valid entrypoint SHA-256")
+    entrypoint = game_dir / build_record["entrypoint"]
+    if not entrypoint.is_file():
         raise ManifestError(
             f"launch blocked: attested Kaetram server build is missing under {game_dir}"
         )
+    actual_bundle_sha256 = hashlib.sha256(entrypoint.read_bytes()).hexdigest()
+    if actual_bundle_sha256 != bundle_sha256:
+        raise ManifestError("launch blocked: Kaetram server bundle digest mismatch")
+    return {
+        "schema": SERVER_BUILD_ATTESTATION_SCHEMA,
+        "game_revision": revision,
+        "source_tree_git_oid": source_tree_oid,
+        "entrypoint": build_record["entrypoint"],
+        "entrypoint_sha256": bundle_sha256,
+        "build_attestation_path": str(build_record_path),
+        "build_attestation_sha256": hashlib.sha256(build_record_path.read_bytes()).hexdigest(),
+    }
 
 
 
@@ -1150,6 +1206,7 @@ def validate_live_endpoint_attestations(
 def seal_prelaunch_record(
     plan: ExperimentPlan,
     endpoint_attestations: list[dict[str, Any]],
+    game_build_attestation: dict[str, str] | None = None,
 ) -> Path:
     """Create the immutable provenance ledger before any cell process starts."""
     current_manifest_sha = hash_path(plan.manifest, root=REPO)["sha256"]
@@ -1204,6 +1261,7 @@ def seal_prelaunch_record(
             "game_revision": plan.environment_game_revision,
             "replicate_seeds": list(plan.environment_seeds),
             "residual_nondeterminism": plan.environment_seed_reason,
+            "server_build": game_build_attestation,
         },
     }
     record["prelaunch_sha256"] = sha256_json(record)
@@ -1236,8 +1294,13 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
         raise ManifestError("launch blocked: set execution.allow_launch=true in the reviewed manifest")
     if confirmation != plan.experiment_id:
         raise ManifestError("launch blocked: --confirm-launch must exactly match experiment_id")
-    env_source = os.environ if environ is None else environ
-    require_environment_seed_capability(plan, env_source)
+    env_source = dict(os.environ if environ is None else environ)
+    game_build_attestation = require_environment_seed_capability(plan, env_source)
+    plan = replace(
+        plan,
+        environment_game_bundle_sha256=game_build_attestation["entrypoint_sha256"],
+    )
+    env_source["KAETRAM_GAME_BUNDLE_SHA256"] = plan.environment_game_bundle_sha256
     missing = sorted({c.endpoint_env for c in plan.cells if not env_source.get(c.endpoint_env)})
     if missing:
         raise ManifestError(f"launch blocked: missing endpoint environment variables: {', '.join(missing)}")
@@ -1248,7 +1311,7 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
             "launch blocked: refusing to reuse existing run directories: " + ", ".join(existing)
         )
     verified_attestations = validate_live_endpoint_attestations(plan, dict(env_source))
-    seal_prelaunch_record(plan, verified_attestations)
+    seal_prelaunch_record(plan, verified_attestations, game_build_attestation)
     return_code = 0
     for start in range(0, len(plan.cells), plan.max_parallel):
         batch_cells = plan.cells[start:start + plan.max_parallel]

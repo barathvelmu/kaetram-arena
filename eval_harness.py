@@ -95,7 +95,7 @@ SCENARIOS = {
 
 MONGO_CONTAINER = "kaetram-mongo"
 MONGO_DB = "kaetram_devlopment"
-ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v1"
+ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v2"
 ENVIRONMENT_RNG_ALGORITHM = "mulberry32-sha256-v1"
 MONGO_COLLECTIONS = [
     "player_info", "player_skills", "player_equipment",
@@ -119,6 +119,7 @@ def verify_environment_rng_attestation(
             str(provenance["environment_seed"]).encode()
         ).hexdigest(),
         "gameRevision": provenance["environment_game_revision"],
+        "serverBundleSha256": provenance["environment_game_bundle_sha256"],
         "drawsAtAttestation": 0,
     }
     mismatches = {
@@ -949,6 +950,9 @@ def run_model_eval(
                         "KAETRAM_ENV_SEED": str(provenance_meta["environment_seed"]),
                         "KAETRAM_ENV_RNG_ATTESTATION_PATH": str(attestation_path.resolve()),
                         "KAETRAM_GAME_REVISION": provenance_meta["environment_game_revision"],
+                        "KAETRAM_GAME_BUNDLE_SHA256": provenance_meta[
+                            "environment_game_bundle_sha256"
+                        ],
                     })
                 gs_log = open(f"/tmp/eval_gameserver_{server_port}.log", "w")
                 _game_server_proc = subprocess.Popen(
@@ -1363,6 +1367,7 @@ Examples:
     parser.add_argument("--environment-seed", type=int)
     parser.add_argument("--environment-rng-algorithm", default="")
     parser.add_argument("--environment-game-revision", default="")
+    parser.add_argument("--environment-game-bundle-sha256", default="")
     parser.add_argument("--environment-seed-reason", default="")
     parser.add_argument(
         "--watchdog", action="store_true",
@@ -1398,6 +1403,7 @@ Examples:
         args.environment_seed,
         args.environment_rng_algorithm,
         args.environment_game_revision,
+        args.environment_game_bundle_sha256,
         args.environment_seed_reason,
     )
     if any(value not in (None, "") for value in provenance_values) and any(
@@ -1430,6 +1436,8 @@ Examples:
             r"[0-9a-f]{40}|[0-9a-f]{64}", args.environment_game_revision
         ):
             parser.error("environment game revision must be an exact lowercase commit hash")
+        if not re.fullmatch(r"[0-9a-f]{64}", args.environment_game_bundle_sha256):
+            parser.error("environment game bundle SHA-256 must be exact lowercase hex")
         run_provenance = {
             "factorial_schedule_algorithm": args.factorial_schedule_algorithm,
             "factorial_schedule_seed": args.factorial_schedule_seed,
@@ -1441,6 +1449,7 @@ Examples:
             "environment_seed": args.environment_seed,
             "environment_rng_algorithm": args.environment_rng_algorithm,
             "environment_game_revision": args.environment_game_revision,
+            "environment_game_bundle_sha256": args.environment_game_bundle_sha256,
             "environment_seed_reason": args.environment_seed_reason,
         }
 

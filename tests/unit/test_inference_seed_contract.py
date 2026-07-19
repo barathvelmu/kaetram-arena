@@ -62,7 +62,7 @@ def test_eval_harness_propagates_seed_and_provenance_to_play_qwen(
         "factorial_batch_index": 0,
         "factorial_cluster_id": "rep01-base",
         "factorial_pair_id": "rep01-base-grinder",
-        "environment_seed_mechanism": "kaetram-environment-rng-attestation/v1",
+        "environment_seed_mechanism": "kaetram-environment-rng-attestation/v2",
         "environment_seed": 21001,
         "environment_rng_algorithm": "mulberry32-sha256-v1",
         "environment_game_revision": "6a75dea54983e5a3a10da71c03bf9ece218f56bb",
@@ -89,16 +89,18 @@ def test_eval_harness_propagates_seed_and_provenance_to_play_qwen(
 
 def test_environment_rng_attestation_verification_is_fail_closed(tmp_path: Path):
     provenance = {
-        "environment_seed_mechanism": "kaetram-environment-rng-attestation/v1",
+        "environment_seed_mechanism": "kaetram-environment-rng-attestation/v2",
         "environment_seed": 21001,
         "environment_rng_algorithm": "mulberry32-sha256-v1",
         "environment_game_revision": "6a75dea54983e5a3a10da71c03bf9ece218f56bb",
+        "environment_game_bundle_sha256": "c" * 64,
     }
     attestation = {
         "schema": provenance["environment_seed_mechanism"],
         "algorithm": provenance["environment_rng_algorithm"],
         "seedSha256": hashlib.sha256(b"21001").hexdigest(),
         "gameRevision": provenance["environment_game_revision"],
+        "serverBundleSha256": provenance["environment_game_bundle_sha256"],
         "drawsAtAttestation": 0,
         "coverage": ["audited gameplay helpers"],
     }
@@ -106,7 +108,8 @@ def test_environment_rng_attestation_verification_is_fail_closed(tmp_path: Path)
     path.write_text(json.dumps(attestation))
     verified = verify_environment_rng_attestation(path, provenance)
     assert verified == {key: attestation[key] for key in (
-        "schema", "algorithm", "seedSha256", "gameRevision", "drawsAtAttestation"
+        "schema", "algorithm", "seedSha256", "gameRevision", "serverBundleSha256",
+        "drawsAtAttestation",
     )}
 
     attestation["seedSha256"] = "0" * 64

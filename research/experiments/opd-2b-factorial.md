@@ -40,9 +40,10 @@ training protocol.
   field and pass it to SGLang generation.
 - `environment_seed` registers one game-world seed per replicate. Every arm in
   a replicate shares that seed. The exact Kaetram revision must implement
-  `kaetram-environment-rng-attestation/v1`; the launcher verifies the checkout,
-  and the harness verifies the server-written seed digest before the first
-  episode.
+  `kaetram-environment-rng-attestation/v2`; the launcher verifies the clean
+  checkout, build-time source attribution, and exact `dist/main.js` digest.
+  The harness then verifies that same executed-bundle digest in the
+  server-written seed attestation before the first episode.
 The seven ordered primary estimands are frozen in the manifest:
 
 1. r2 − base with recovery off;

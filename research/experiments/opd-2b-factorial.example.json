@@ -67,9 +67,9 @@
       11020
     ],
     "environment_seed": {
-      "mechanism": "kaetram-environment-rng-attestation/v1",
+      "mechanism": "kaetram-environment-rng-attestation/v2",
       "algorithm": "mulberry32-sha256-v1",
-      "game_revision": "0cea38307066683661d54d2c50be085397caf878",
+      "game_revision": "0b1f5e4c180b91db54e3a5d0e2ec5aa9a28d96ed",
       "seeds": [
         21001,
         21002,

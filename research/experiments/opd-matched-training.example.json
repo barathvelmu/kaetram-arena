@@ -302,9 +302,10 @@
     "allow_launch": false,
     "max_parallel": 1,
     "output_root": "artifacts/opd-matched-training",
+    "artifact_root": "UNRESOLVED_FOR_IMMUTABLE_ARTIFACT_ROOT",
     "backend_adapter": {
-      "path": "UNRESOLVED_FOR_BACKEND_ADAPTER",
-      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      "path": "scripts/opd/matched_training_backend.py",
+      "sha256": "caf0c8024ccf8e941fe154faefea3062e09b048ca599f595e188277acc909abc"
     }
   }
 }

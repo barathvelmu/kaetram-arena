@@ -718,6 +718,11 @@ async def run_agent(args):
     sandbox = Path(args.sandbox)
     state_dir = sandbox / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
+    tool_schema_source = getattr(
+        args,
+        "tool_schema_source",
+        os.environ.get("KAETRAM_TOOL_SCHEMA_SOURCE", "live"),
+    )
 
     # Resolve run_dir: explicit flag wins, else fall back to <sandbox>/logs
     # (back-compat for solo dev invocations).
@@ -733,7 +738,7 @@ async def run_agent(args):
         "username": os.environ.get("KAETRAM_USERNAME", "QwenCompletionist"),
         "auth_mode": "subscription",
         "max_budget_usd": None,
-        "tool_schema_source": args.tool_schema_source,
+        "tool_schema_source": tool_schema_source,
     }
     if args.harness_meta and os.path.isfile(args.harness_meta):
         try:
@@ -784,7 +789,7 @@ async def run_agent(args):
     #   - historical r10 serve_modal.py ignores them.
     #   - native_tools_v1 checkpoints require the canonical frozen schema.
     # The default remains live so published OPD/r10 evaluations do not change.
-    tool_defs = mcp.get_tool_definitions(args.tool_schema_source)
+    tool_defs = mcp.get_tool_definitions(tool_schema_source)
 
     # Load system prompt once.
     system_prompt = ""
@@ -803,7 +808,7 @@ async def run_agent(args):
     info(
         f"Warm-loop started: personality={args.personality}, "
         f"endpoint={args.endpoint}, "
-        f"tool_schema_source={args.tool_schema_source}, "
+        f"tool_schema_source={tool_schema_source}, "
         f"max_duration_seconds={args.max_duration_seconds or 'unbounded'}"
     )
 

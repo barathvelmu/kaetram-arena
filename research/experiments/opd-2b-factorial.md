@@ -7,7 +7,7 @@ preparing it.
 
 The reviewed input is
 [`opd-2b-factorial.example.json`](opd-2b-factorial.example.json). It expands 20
-independent fresh-world replicate clusters into the complete 3 weights × 2
+independent fresh-world evaluation-trajectory clusters into the complete 3 weights × 2
 recovery × 3 fixed personality-lane design: 360 six-hour cell-episodes. Each
 lane runs exactly once after its own DB reset. The launcher rejects any other
 duration, a seeded world, extra episodes, missing arm, different personality
@@ -19,6 +19,13 @@ The primary metric is `core3_stages_advanced`. Within each
 `replicate × weights × recovery` arm, sum the DB-authoritative stage deltas from
 the grinder, completionist, and explorer/tinkerer lanes. The replicate-arm
 outcome is therefore bounded 0–30. A lane is not an independent observation.
+
+All uncertainty in this factorial is conditional on the three registered,
+fixed checkpoint artifacts. The repetitions resample evaluation seeds and
+fresh-world trajectories; they do not retrain any method, estimate
+training-seed variance, or support inference about a training procedure's
+across-run variability. Fresh training runs require the separate matched
+training protocol.
 
 The seven ordered primary estimands are frozen in the manifest:
 

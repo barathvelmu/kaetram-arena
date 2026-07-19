@@ -34,6 +34,13 @@ def test_agent_run_check_requires_nonempty_session_bundle(tmp_path: Path) -> Non
     )
     assert missing == [str(raw / "agent_1" / "runs" / "run_a")]
 
+    empty_run = raw / "agent_0" / "runs" / "run_empty"
+    empty_run.mkdir(parents=True)
+    (empty_run / "session_1_test.log").touch()
+    assert missing_agent_run_logs(
+        raw, agents=["agent_0"], run_ids=["run_empty"]
+    ) == [str(empty_run / "session_*.log")]
+
 
 def test_requirements_fail_closed_with_actionable_paths(tmp_path: Path) -> None:
     with pytest.raises(MissingEvidenceError, match="Restore the immutable artifacts"):

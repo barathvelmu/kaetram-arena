@@ -28,7 +28,10 @@ def missing_agent_run_logs(
             run_dir = root / agent / "runs" / run_id
             if not run_dir.is_dir():
                 missing.append(str(run_dir))
-            elif not any(run_dir.glob("session_*.log")):
+            elif not any(
+                path.is_file() and path.stat().st_size > 0
+                for path in run_dir.glob("session_*.log")
+            ):
                 missing.append(str(run_dir / "session_*.log"))
     return missing
 

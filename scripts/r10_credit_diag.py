@@ -11,12 +11,13 @@ import sys, bisect
 from pathlib import Path
 from collections import defaultdict
 
-sys.path.insert(0, str(Path("scripts/log_analysis")))
-from parse import (  # noqa: E402
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from scripts.log_analysis.parse import (  # noqa: E402
     list_agent_dirs, list_runs, parse_run_sessions,
     progression_for_quests, quest_stage_counts,
 )
-from artifact_requirements import (  # noqa: E402
+from scripts.log_analysis.artifact_requirements import (  # noqa: E402
     MissingEvidenceError,
     require_agent_run_logs,
 )

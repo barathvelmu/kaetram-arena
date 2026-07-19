@@ -23,11 +23,12 @@ Run:  python3 scripts/r10_stats.py
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path("scripts/log_analysis")))
-from parse import (  # noqa: E402
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from scripts.log_analysis.parse import (  # noqa: E402
     list_agent_dirs, list_runs, parse_run_sessions, progression_for_quests,
 )
-from artifact_requirements import (  # noqa: E402
+from scripts.log_analysis.artifact_requirements import (  # noqa: E402
     MissingEvidenceError,
     require_agent_run_logs,
     require_files,

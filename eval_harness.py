@@ -20,6 +20,7 @@ import argparse
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 import time
@@ -838,12 +839,13 @@ def run_model_eval(
     endpoint_ref: str = "",
     endpoint_env: str = "",
     inference_seed: int | None = None,
-    run_provenance: dict | None = None,
+    duration_seconds_override: int = 0,
+    provenance_meta: dict | None = None,
 ) -> dict:
     """Run all episodes for one model. Returns full results dict."""
     scenario_cfg = SCENARIOS[scenario]
-    duration_minutes = scenario_cfg["duration_minutes"]
-    duration_seconds = duration_minutes * 60
+    duration_seconds = duration_seconds_override or scenario_cfg["duration_minutes"] * 60
+    duration_minutes = duration_seconds / 60
     sandbox = sandbox or f"/tmp/kaetram_eval_{model_name}"
     model_output_dir = output_dir / model_name
     model_output_dir.mkdir(parents=True, exist_ok=True)
@@ -959,7 +961,7 @@ def run_model_eval(
             no_walkthrough=bool(held_out_registration),
             endpoint_env=endpoint_env,
             inference_seed=inference_seed,
-            run_provenance=run_provenance,
+            run_provenance=provenance_meta,
         )
         total_duration = run_info["duration_seconds"]
         last_returncode = run_info["returncode"]
@@ -990,7 +992,8 @@ def run_model_eval(
                 include_game_knowledge=include_game_knowledge,
                 held_out_registration=held_out_registration,
                 inference_seed=inference_seed,
-                run_provenance=run_provenance,
+                duration_seconds_budget=duration_seconds,
+                provenance_meta=provenance_meta,
             )
             print("  Aborting remaining episodes after zero-turn failure to avoid contaminating the run")
             break
@@ -1043,7 +1046,8 @@ def run_model_eval(
             include_game_knowledge=include_game_knowledge,
             held_out_registration=held_out_registration,
             inference_seed=inference_seed,
-            run_provenance=run_provenance,
+            duration_seconds_budget=duration_seconds,
+            provenance_meta=provenance_meta,
         )
 
     # Clean up game server if we started one
@@ -1061,7 +1065,8 @@ def run_model_eval(
         include_game_knowledge=include_game_knowledge,
         held_out_registration=held_out_registration,
         inference_seed=inference_seed,
-        run_provenance=run_provenance,
+        duration_seconds_budget=duration_seconds,
+        provenance_meta=provenance_meta,
     )
     return results
 
@@ -1070,7 +1075,8 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
                   episodes: list[dict], *, include_game_knowledge: bool = True,
                   held_out_registration: HeldOutRegistration | None = None,
                   inference_seed: int | None = None,
-                  run_provenance: dict | None = None) -> dict:
+                  duration_seconds_budget: int | None = None,
+                  provenance_meta: dict | None = None) -> dict:
     """Save results JSON with metadata and aggregated metrics."""
     # Aggregate per-metric arrays for eval_compare.py
     ok_episodes = [e for e in episodes if e.get("status") == "ok"]
@@ -1127,13 +1133,15 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
     except Exception:
         pass
 
+    budget_seconds = duration_seconds_budget or SCENARIOS[scenario]["duration_minutes"] * 60
     results = {
         "meta": {
             "model": model_name,
             "endpoint": endpoint,
             "scenario": scenario,
             "scenario_name": SCENARIOS[scenario]["name"],
-            "duration_minutes": SCENARIOS[scenario]["duration_minutes"],
+            "duration_minutes": budget_seconds / 60,
+            "duration_seconds_budget": budget_seconds,
             "include_game_knowledge": include_game_knowledge,
             "held_out_quest": held_out_registration.quest_name if held_out_registration else "",
             "held_out_registration": str(held_out_registration.path) if held_out_registration else "",
@@ -1143,7 +1151,7 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "timestamp": datetime.now().isoformat(),
             "git_sha": git_sha,
             "inference_seed": inference_seed,
-            **(run_provenance or {}),
+            **(provenance_meta or {}),
         },
         "episodes": episodes,
         "metrics": metrics,
@@ -1187,6 +1195,16 @@ Examples:
         "--scenario", default="D", choices=list(SCENARIOS.keys()),
         help="Evaluation scenario (default: D = Open Play)",
     )
+    parser.add_argument(
+        "--duration-seconds", type=int, default=0,
+        help="Explicit wall-clock budget per episode; required by frozen long-run protocols",
+    )
+    parser.add_argument("--protocol-id", default="")
+    parser.add_argument("--experiment-manifest-sha256", default="")
+    parser.add_argument("--endpoint-attestation-sha256", default="")
+    parser.add_argument("--checkpoint-sha256", default="")
+    parser.add_argument("--tokenizer-sha256", default="")
+    parser.add_argument("--render-contract-sha256", default="")
     parser.add_argument(
         "--output-dir", type=Path, default=Path("dataset/eval"),
         help="Output directory (default: dataset/eval/)",
@@ -1313,6 +1331,31 @@ Examples:
             "environment_seed_reason": args.environment_seed_reason,
         }
 
+    if args.duration_seconds < 0:
+        parser.error("--duration-seconds cannot be negative")
+    provenance_values = {
+        "experiment_manifest_sha256": args.experiment_manifest_sha256,
+        "endpoint_attestation_sha256": args.endpoint_attestation_sha256,
+        "checkpoint_sha256": args.checkpoint_sha256,
+        "tokenizer_sha256": args.tokenizer_sha256,
+        "render_contract_sha256": args.render_contract_sha256,
+    }
+    supplied = [bool(value) for value in provenance_values.values()]
+    if any(supplied) and not all(supplied):
+        parser.error("factorial provenance SHA-256 arguments must be supplied together")
+    if args.protocol_id and not args.duration_seconds:
+        parser.error("--protocol-id requires --duration-seconds")
+    for label, value in provenance_values.items():
+        if value and not re.fullmatch(r"[0-9a-f]{64}", value):
+            parser.error(f"--{label.replace('_', '-')} must be a lowercase SHA-256")
+    provenance_meta = (
+        {"protocol_id": args.protocol_id, **provenance_values}
+        if args.protocol_id or any(supplied)
+        else None
+    )
+    combined_provenance = {**(provenance_meta or {}), **run_provenance}
+    provenance_meta = combined_provenance or None
+
     held_out_registration = None
     if args.held_out_quest:
         if not args.omit_game_knowledge:
@@ -1420,6 +1463,13 @@ Examples:
                 "--username", model_cfg["username"],
                 "--server-port", model_cfg["server_port"],
             ]
+            if args.duration_seconds:
+                cmd.extend(["--duration-seconds", str(args.duration_seconds)])
+            if args.protocol_id:
+                cmd.extend(["--protocol-id", args.protocol_id])
+            for key, value in provenance_values.items():
+                if value:
+                    cmd.extend([f"--{key.replace('_', '-')}", value])
             if model_cfg.get("endpoint_env"):
                 cmd.extend(["--models-env", f"{model_name}={model_cfg['endpoint_env']}"])
             else:
@@ -1511,7 +1561,8 @@ Examples:
                 endpoint_ref=model_cfg.get("endpoint_ref", "direct-endpoint"),
                 endpoint_env=model_cfg.get("endpoint_env", ""),
                 inference_seed=args.inference_seed,
-                run_provenance=run_provenance,
+                duration_seconds_override=args.duration_seconds,
+                provenance_meta=provenance_meta,
             )
             all_results[model_name] = results
 

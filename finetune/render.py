@@ -192,7 +192,7 @@ def adapt_messages_for_qwen_template(messages: list[dict]) -> list[dict]:
                         arguments = json.loads(arguments) if arguments.strip() else {}
                     except json.JSONDecodeError:
                         arguments = {}
-                function["arguments"] = arguments or {}
+                function["arguments"] = arguments if isinstance(arguments, dict) else {}
                 fixed_calls.append({**call, "function": function})
             new_message["tool_calls"] = fixed_calls
             content = new_message.get("content") or ""

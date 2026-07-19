@@ -126,5 +126,5 @@ def assert_text_not_reserved(
     if matches:
         raise HeldOutGuardError(
             f"held-out quest leakage blocked for {use} in {source}: "
-            f"matched {registration.quest_name!r}"
+            f"matched {registration.quest_name!r} (via aliases: {', '.join(matches)})"
         )

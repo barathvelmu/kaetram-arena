@@ -10,8 +10,8 @@
 % FORMAT NOTE: Built with the current official ACL review template for ARR.
 % Recheck the NAACL 2027 venue-specific CFP before submission.
 
-\title{Reachability-Targeted External-State Initialization for On-Policy Distillation:\\
-A Falsifiable Protocol and Audited Agent Case Study}
+\title{State-Visitation Failures in On-Policy Distillation:\\
+An Audited Agent Case Study and Confirmatory Protocol}
 
 \author{Anonymous submission}
 
@@ -33,16 +33,16 @@ interaction tempo but leaves the quest score at 12/30. A second round augments
 student rollouts with hand-selected, verified intermediate world states. Evaluated from a fresh,
 unseeded world, the resulting policy scores 15/30; all three clustered prompt
 variants pass a wall that none passes under the reported base or first-round
-policy. This is a weights-only observation, not a replicated causal estimate:
+policy. This is a reported recovery-off observation, not a replicated causal estimate:
 the training rounds differ in more than state source. A targeted teacher-forcing
 probe also finds that malformed history can locally reverse the teacher's syntax
 preference. In rewritten runtime logs, correction markers do not repeat within a
-session. These observations motivate a confirmatory six-arm comparison in which
+session. These observations motivate a confirmatory comparison in which
 training-only external states are selected by frozen student-visitation, teacher-
 advantage, validity, and recoverability criteria. Random-valid, progress-matched,
 teacher-success-prefix, natural-OPD, and guided-OPD controls separate targeted
 coverage from generic resets and prefix curricula. We present a falsifiable
-protocol and audited case study, not an established method effect.
+protocol and audited failure analysis, not an established method effect.
 \end{abstract}
 
 \section{Introduction}
@@ -62,8 +62,8 @@ chains of gathering, navigation, dialogue, and quest actions. A scaffolded 4B
 teacher reaches states that the 2B student does not. We apply reverse-KL
 on-policy distillation to the student's own emitted tokens. The historical
 comparison contrasts natural student visitation with a mixture that begins some
-rollouts from verified intermediate database states; the proposed confirmatory
-method additionally freezes a measurable state-selection rule before training.
+rollouts from verified intermediate database states; the confirmatory protocol
+additionally freezes a measurable state-selection rule before training.
 
 The present evidence is hypothesis-generating and under-replicated. It contains
 one complete six-hour run per principal arm; the three agents within a run are
@@ -78,17 +78,18 @@ round-to-round changes or estimate population-level uncertainty.
 This working draft makes three bounded contributions:
 
 \begin{enumerate}
-  \item We define \emph{reachability-targeted external-state initialization}:
-  training-only resets into legally reachable persistent states selected for
-  low natural student occupancy, teacher conditional advantage, and
-  recoverability. We pair it with controls that can falsify the method claim.
-  \item We distinguish behavioral imitation from competence: the first round
+  \item We audit a state-visitation failure case and separate observations that
+  survive artifact review from causal claims that do not. We provide a
+  confirmatory protocol with controls capable of falsifying the proposed
+  external-state intervention.
+  \item We distinguish behavioral imitation from competence in the surviving
+  historical record: the first round
   closely changes measured tool mix and tempo toward the teacher while the
   benchmark score remains fixed.
-  \item We expose an interface failure that token-average analyses obscure: in
+  \item We document an interface failure that token-average analyses obscure: in
   a targeted teacher-forcing probe, malformed history reverses the teacher's
-  local preference. We separate this grading-side observation from a runtime
-  recovery result and specify the experiments required to test generality.
+  local preference. This secondary diagnostic is separated from a runtime
+  recovery result and from any general mechanism claim.
 \end{enumerate}
 
 The broader lesson is methodological. Model weights, visited states, and
@@ -129,15 +130,21 @@ parity across training and every evaluation arm.
 
 \section{On-Policy Distillation Under Visitation Constraints}
 
-Let $\pi_S$ and $\pi_T$ denote student and teacher policies, and let
-$d^{\pi_S}$ be the serving-state distribution induced by student rollouts. A
-reverse-KL on-policy objective can be written
+Let $x\in\mathcal{X}$ denote the persistent external world state and
+$h\in\mathcal{H}$ the model-visible interaction history. The policy state is
+their joint value $z=(x,h)$; two rollouts with the same database snapshot but
+different visible histories need not induce the same action distribution. Let
+$\mu$ initialize external states, $q(h\mid x)$ initialize visible histories,
+and $d^{\pi}_{\mu,q}(x,h)$ denote the joint occupancy induced thereafter by
+policy $\pi$ and the environment dynamics. The canonical serving initializers
+are $\mu_0$ and $q_0$. A reverse-KL on-policy objective can
+be written
 \begin{equation}
 \begin{aligned}
 \mathcal{L}_{\mathrm{OPD}}
-&=\mathbb{E}_{s\sim d^{\pi_S}}
-  \mathbb{E}_{a\sim\pi_S(\cdot\mid s)} \\
-&\quad\left[\log\pi_S(a\mid s)-\log\pi_T(a\mid s)\right].
+&=\mathbb{E}_{(x,h)\sim d^{\pi_S}_{\mu,q}}
+  \mathbb{E}_{a\sim\pi_S(\cdot\mid x,h)} \\
+&\quad\left[\log\pi_S(a\mid x,h)-\log\pi_T(a\mid x,h)\right].
 \end{aligned}
 \label{eq:opd}
 \end{equation}
@@ -146,18 +153,23 @@ importance-weighted update around the rollout policy, with advantages frozen at
 data-build time. Full implementation details appear in Appendix~\ref{app:training}.
 
 Equation~\ref{eq:opd} makes the bottleneck explicit. If a teacher advantage is
-concentrated on a set of states $H$ for which
-$\Pr_{s\sim d^{\pi_S}}[s\in H]\approx0$, token-dense grading supplies almost no
+concentrated on a set $H\subseteq\mathcal{X}\times\mathcal{H}$ for which
+$\Pr_{(x,h)\sim d^{\pi_S}_{\mu_0,q_0}}[(x,h)\in H]\approx0$, token-dense grading supplies almost no
 information about that advantage. We change the state source, not the loss:
 some student rollouts begin from verified intermediate environment states, and
 their records are mixed with natural student rollouts. The student still acts
-and the same teacher still grades every emitted token.
+and the same teacher still grades every emitted token. Because changing $x$
+can also change the compatible $h$, the confirmatory design crosses external-
+state initialization with matched history construction rather than treating a
+database snapshot as the complete policy state.
 
 The seeded states are typed game states rather than textual demonstrations.
 Player rows specify quest stage, skill level, inventory, and a verified walkable
-position. End-to-end checks confirm that the game loads each state and exposes
-the intended condition through the same tools used at evaluation. Evaluation is
-always unseeded. This resembles reset-based curricula in reinforcement learning
+position. End-to-end loadability is necessary but not sufficient for legal
+reachability. Each confirmatory candidate must also carry either a hash-verified
+witness trajectory from the canonical start or an invariant certificate whose
+checker establishes a valid path to the snapshot. Evaluation is always
+unseeded. This resembles reset-based curricula in reinforcement learning
 \citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. TCOD
 uses teacher-success prefixes to initialize multi-turn OPD curricula
 \citep{wang2026tcod}; Guided-OPD mixes teacher and student turns and anneals
@@ -168,11 +180,12 @@ object is a direct, prefix-independent external-state initializer. A candidate
 state need not lie on a successful teacher trajectory and is selected by a
 frozen rule rather than by progress alone.
 
-Let $v(s)$ be estimated natural student visitation, and let $p_T(s)$ and
-$p_S(s)$ be repeated teacher and student success rates when initialized at
-$s$. The confirmatory selector admits a state only if it passes world invariants,
-is unfinished and task-relevant, is recoverable, satisfies $v(s)\leq\tau_v$,
-and satisfies $p_T(s)-p_S(s)\geq\tau_\Delta$ together with a minimum teacher
+Let $v(x)$ be estimated natural student visitation, and let $p_T(x,q)$ and
+$p_S(x,q)$ be repeated teacher and student success rates under a frozen history
+constructor $q$. The confirmatory selector admits an external state only if it
+passes world invariants, is unfinished and task-relevant, is recoverable,
+satisfies $v(x)\leq\tau_v$, has certified reachability, and satisfies
+$p_T(x,q)-p_S(x,q)\geq\tau_\Delta$ together with a minimum teacher
 success threshold. Counts and denominators, source-run identifiers, complete
 snapshots, and hash-verified validation artifacts are frozen before outcomes.
 This rule distinguishes the proposed method from the hand-selected milestone
@@ -261,8 +274,10 @@ specific token update caused downstream quest behavior.
 
 \subsection{The seeded-training round is followed by unseeded wall passage}
 
-The 4B teacher demonstrates competence beyond the Herbalist stage-1 wall, while
-the base 2B almost never visits the required state naturally. Seeded collection
+The 4B teacher demonstrates competence beyond the Herbalist stage-1 wall. In the
+reported base and round-1 runs, zero of three prompt variants crosses that wall;
+the available record does not provide a defensible denominator for a broader
+natural-visitation rate. Seeded collection
 starts the round-1 policy at the accepted quest with the required gathering
 skill and near the target resource. All three seeded collectors pass the wall,
 creating student-authored actions and teacher scores in this region.
@@ -288,8 +303,9 @@ Round 3 combines broader state seeding with a runtime recovery affordance and
 scores 18/30. That number is not a pure-weights result. Applying the same
 recovery affordance to round-2 weights produces 17/30 in one run, suggesting
 that most of the round-2-to-round-3 stage difference may come from the
-interface. The clean weights-only comparison remains base 12/30 versus round 2
-15/30, one run per arm.
+interface. The reported recovery-off contrast is base 12/30 versus round 2
+15/30, one run per arm; exact checkpoint, render, seed, and artifact parity is
+unavailable, so even this contrast is not a clean causal weights comparison.
 
 The recovery mechanism detects a dropped malformed call, reconstructs the
 executable call, rewrites the retained history into canonical form, executes the
@@ -329,26 +345,37 @@ multi-defect experiment.
 \section{Confirmatory Study Design}
 \label{sec:confirmatory}
 
-The repository contains launch and validation work for the following design;
-results are not reported until immutable run bundles exist.
+The repository contains prospective components for parts of the following
+design, but not yet an integrated matched training launcher. Results are not
+reported until the full protocol and immutable run bundles exist.
 
 \paragraph{Primary endpoint and unit.}
-The independent unit is a six-hour run from a fresh seeded world. The
+The independent unit is a six-hour run from a fresh canonical unseeded world. The
 preregistered primary endpoint is total \core{} stage gain across the three
 clustered agents. Quest-wall passage is secondary. All runs, confidence
 intervals, effect sizes, and stopping rules must be reported.
 
 \paragraph{State-source ablation.}
-Train fresh students from the same checkpoint under five matched initial-state
-distributions: natural OPD; targeted states; random valid states; progress-
-matched states; and TCOD-B2F teacher-success-prefix states. Add visitation-only
-and teacher-advantage-only selectors to identify which criterion matters. A
-Guided-OPD arm tests whether turn-level teacher anchoring already addresses the
-failure. Match teacher, optimizer, action-token and teacher-scoring budgets,
+The six primary training arms are natural OPD, targeted external states,
+random-valid external states, progress-matched external states, TCOD-B2F
+teacher-success prefixes, and Guided-OPD. Four prespecified mechanism/baseline
+arms---visitation-only selection, teacher-advantage-only selection,
+corrected-interface SFT, and SCoRe-style first-error prefixes---are analyzed
+separately rather than silently counted as extra primary arms. Match teacher,
+optimizer, action-token and teacher-scoring budgets,
 environment interactions, and training-seed schedule; evaluate every arm from
 the original unseeded state. The method claim fails if random or progress-
 matched resets, TCOD-B2F, or Guided-OPD ties the targeted arm within the
 preregistered smallest effect of interest.
+
+\paragraph{External-state by history ablation.}
+For the same certified external state, compare (i) a direct snapshot with the
+minimal canonical observation history, (ii) replay of a teacher trajectory with
+its authentic prefix, and (iii) a direct snapshot with a matched reconstructed
+history. A fourth Backplay condition anneals starts backward along a witness
+trajectory. This distinguishes access to $x$ from information or error patterns
+carried in $h$, and tests whether a direct snapshot adds value beyond successful
+prefix replay.
 
 \paragraph{Weights by recovery factorial.}
 Evaluate base, round-2, and round-3 weights with recovery both off and on.
@@ -376,7 +403,10 @@ rather than inferring generation from grader-side movement.
 
 GKD establishes on-policy distillation from student-generated sequences with
 teacher feedback \citep{agarwal2024gkd}; our work does not claim novelty for
-OPD itself. TCOD directly studies temporal curricula and intermediate-state
+OPD itself. OPCD distills contextual experience on student-generated
+trajectories, including in text games \citep{ye2026opcd}; On-Policy Expert
+Corrections switch from student to expert within a trajectory to address
+covariate shift \citep{lauffer2025oec}. TCOD directly studies temporal curricula and intermediate-state
 initialization for multi-turn OPD \citep{wang2026tcod}; broad novelty for seeded
 starts is therefore preempted. Guided-OPD changes live occupancy by mixing
 teacher and student turns \citep{li2026guidedopd}; ReOPD designs reliable prefix
@@ -386,7 +416,9 @@ instead alter or terminate supervision on degraded prefixes
 \citep{zhong2026sod,xin2026kat}. These methods make intermediate-state,
 student-failure, and state-centric novelty claims unavailable. DAgger formalizes
 iterative data collection under the learner's state distribution
-\citep{ross2011dagger}. Reset-along-demonstration, Backplay,
+\citep{ross2011dagger}. A recent state-distribution analysis likewise argues
+that the source and locality of training states can matter as much as the loss
+\citep{nie2026states}. Reset-along-demonstration, Backplay,
 and Go-Explore show that restoring intermediate states can expose useful signal
 in hard-exploration reinforcement learning
 \citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. We use
@@ -414,7 +446,7 @@ result of this submission draft.
 
 \section{Conclusion}
 
-The observed case supports a concrete hypothesis: low-occupancy external states
+The audited case supports a concrete hypothesis: low-occupancy external states
 may hide useful teacher competence from natural OPD. Natural-visitation OPD
 changed behavior without changing score; a later hand-selected state-augmented
 round was followed by unseeded passage of a previously unseen wall. That sequence
@@ -491,7 +523,7 @@ the target resource. Evaluation never loads this state.
 \item[Round-1 behavior.] Descriptive, one run: measured behavior changed while score did not.
 \item[State-seeded round.] Unreplicated: the seeded-training round was followed by unseeded wall passage in one run.
 \item[Targeted selector.] Protocol only: no candidate-state bundle, trained checkpoint, or outcome is currently available.
-\item[12 to 15.] Least-confounded historical weights-only observation; not an effect estimate, and exact parity remains unavailable.
+\item[12 to 15.] Reported recovery-off historical contrast; not an effect estimate or clean weights comparison, and exact parity remains unavailable.
 \item[18/30.] Weights-plus-interface system result only.
 \item[Copy prior.] Context-dependent endorsement reversal for the targeted historical probe.
 \item[Recovery.] No repeat marker after correction in rewritten logs; raw relapse is unavailable.
@@ -514,15 +546,22 @@ inputs for the historical r10 analysis and some OPD gate summaries are absent,
 and the dedicated r10 eval path reset a different database from its game servers
 after April 25. The June OPD runs used a separate database-aligned orchestrator
 lane, but their raw bundles are also absent. Full dependency installation has
-not been demonstrated from the repository root. These omissions are release
-blockers, not appendix footnotes.
+now been demonstrated for the prospective CPU unit suite in a fresh clone, but
+not for training, live game execution, checkpoints, or paper-table regeneration.
+The prospective launcher can seed inference, but the game still uses unseeded
+environment randomness and therefore fails closed for confirmatory launch.
+These omissions are release blockers, not appendix footnotes.
 
 \section{Planned Statistical Analysis}
 
 No session- or agent-level pseudo-replication will be used for policy effects.
-The run is the analysis unit. A preliminary minimum of five runs per arm may be
-used to estimate run-level variance, followed by a documented power calculation
-for the confirmatory sample. The primary comparison is two-sided unless a
+The run is the analysis unit. Before confirmatory outcome collection, the team
+must preregister a smallest effect of interest and determine the run count from
+a documented power calculation using independent pilot variance or a
+conservative prespecified variance grid. If variance is not defensibly known,
+the protocol must use blinded variance re-estimation with a fixed maximum sample
+size; there is no default ``five runs per arm.'' The primary comparison is
+two-sided unless a
 directional alternative and stopping rule are preregistered before collection.
 We will report all runs, bootstrap or randomization-based confidence intervals
 appropriate to the achieved sample, standardized and raw effect sizes, and the

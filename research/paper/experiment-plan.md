@@ -2,7 +2,7 @@
 
 ## Experimental unit and primary endpoint
 
-The independent unit is a complete run from a fresh, seeded world—not an individual personality agent and not a session rollover. The three prompt variants within a run share a policy, harness, launch, and analysis pipeline and are clustered observations.
+The independent unit is a complete run from a fresh canonical unseeded world—not an individual personality agent and not a session rollover. The three prompt variants within a run share a policy, harness, launch, and analysis pipeline and are clustered observations.
 
 Use one preregistered primary endpoint:
 
@@ -22,6 +22,7 @@ Before spending compute:
 6. Make dataset provenance fail closed on explicit harness metadata.
 7. Store immutable run bundles: raw logs, run manifest, DB seed, analysis output, and checksums.
 8. Restore r10 and OPD inputs and demonstrate a one-command clean-clone reproduction of every existing number.
+9. Replace unseeded Kaetram `Math.random()` use with a recorded environment RNG stream; refuse confirmatory launch until both environment and inference seeds are effective.
 
 Stop if P0 is not complete. More runs on a moving or unreproducible harness will not strengthen the paper.
 
@@ -37,7 +38,7 @@ Protocol:
 - Six hours per run, fresh world, eval always unseeded
 - Independent recorded environment and inference seeds
 - Matched launch time and compute allocation across arms
-- At least five runs per arm for a preliminary checkpoint; continue to a power-analysis-driven sample based on observed run-level variance before using confirmatory language
+- Before collection, preregister a smallest effect of interest and determine the run count from an independent pilot variance or conservative variance grid; if needed, use blinded variance re-estimation with a fixed maximum sample size
 
 Success criterion: the round-two arm consistently improves the preregistered run-level endpoint and the Herbalist wall without a material regression on Foresting.
 
@@ -60,7 +61,16 @@ Selection ablations:
 
 Hold teacher, loss, optimizer, data budget, action-token budget, training seed schedule, and number of environment interactions fixed. Evaluate both from fresh unseeded worlds.
 
-Record environment and inference seeds before launch and randomize/blind the arm schedule. Select states by a frozen rule that combines low natural student visitation, demonstrated teacher competence, recoverability, and relevance to the primary endpoint. Every candidate must include repeated-trial counts, a complete direct-seed snapshot, source-run provenance, and hash-verified legality, consistency, and end-to-end seed evidence. Hand-picked states without a recorded selection rule are exploratory curriculum engineering.
+Record environment and inference seeds before launch and randomize/blind the arm schedule. Select states by a frozen rule that combines low natural student visitation, demonstrated teacher competence, recoverability, and relevance to the primary endpoint. Every candidate must include repeated-trial counts, a complete direct-seed snapshot, source-run provenance, and hash-verified legality, consistency, and end-to-end seed evidence. Legal reachability requires either a witness trajectory from the canonical start or an invariant-certified path; loadability alone is insufficient. Hand-picked states without a recorded selection rule are exploratory curriculum engineering.
+
+Cross external state and model-visible history at the same target condition:
+
+- Direct snapshot plus minimal canonical observation history
+- Teacher replay to the state with its authentic prefix
+- Direct snapshot plus a matched reconstructed history
+- Backplay-style annealing backward along the reachability witness
+
+This ablation separates access to persistent state from information carried in the visible prefix.
 
 The method claim is falsified if random-valid or progress-matched resets tie the targeted arm, if TCOD-B2F or Guided-OPD ties it, if selected-state teacher reliability is low, or if gains appear only when evaluation is seeded. Decompose unseeded success into reaching the bottleneck, crossing it conditional on arrival, and downstream completion conditional on crossing.
 

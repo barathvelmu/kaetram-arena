@@ -22,15 +22,15 @@ Official sources:
 
 ## Working paper
 
-**Working title:** *Visitation-Corrected On-Policy Distillation for Persistent Tool-Using Agents*
+**Working title:** *State-Visitation Failures in On-Policy Distillation: An Audited Agent Case Study and Confirmatory Protocol*
 
 **Core question:** When a small agent never visits the states where its teacher is more capable, can changing the training-state distribution—without changing the reverse-KL objective—transfer long-horizon competence?
 
-**Primary claim to validate:** Environment-state seeding exposes the student to teacher-competent failure states and produces an unseeded, weights-only improvement on a previously unpassed quest wall.
+**Primary claim to validate:** A frozen, witness-certified external-state selector improves unseeded run-level performance beyond matched generic resets, successful-prefix curricula, and natural OPD. The current paper does not yet make this claim.
 
-**Secondary mechanism:** A teacher-forcing copy prior can make a generatively clean teacher endorse malformed student tool syntax inside the student's history, causing dense on-policy distillation to preserve the defect.
+**Secondary diagnostic:** A targeted probe shows context-dependent endorsement reversal on one malformed tool-syntax family. The broader teacher-forcing copy-prior mechanism remains unvalidated.
 
-**System conclusion:** Harness affordances and model weights solve different failure classes. The final 18/30 result is a weights-plus-interface result; the clean weights-only result is 12/30 to 15/30 in round two.
+**System conclusion:** Harness affordances and model weights solve different failure classes. The final 18/30 result is a weights-plus-interface result. The reported recovery-off 12/30-to-15/30 contrast lacks exact historical parity and is not a clean causal weights comparison.
 
 Do not frame the paper as the first MCP game agent, embodied learning, continual learning, autonomous skill learning, or world-model learning. Orak already uses MCP across twelve games, and the present system operates on symbolic state and typed actions with procedural walkthroughs.
 

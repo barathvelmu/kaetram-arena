@@ -22,7 +22,7 @@
 8. Historical r10 raw inputs are missing, its analysis script fails, and the model-visible render contract differs.
 9. The old report’s capacity and development-envelope claims mix durations and selected runs.
 10. PRs #39–#42 add infrastructure and launchers, not scientific evidence.
-11. The April 25–July 18 dedicated r10 eval path reset and snapshotted a different Mongo database from the game servers. R10 numbers are quarantined; the June OPD sequence used a separate correctly aligned orchestrator lane, but its raw bundles are still missing.
+11. The April 25–July 18 dedicated `run-eval.sh` path reset and snapshotted a different Mongo database from its game servers. Results from that dedicated lane are quarantined. The headline r10 and June OPD paths used the separate database-aligned orchestrator lane, so this specific mismatch does not implicate them; their raw bundles are still missing.
 
 ## Required experiments
 
@@ -53,3 +53,27 @@
 ## Manuscript consequence
 
 The 15-page report remains a historical record. The submission draft is organized around the research question, evidence grades, and confirmatory design. It must not be rewritten into success language until the experiments change the evidence status.
+
+## Independent pass 2 — July 19, 2026
+
+Verdict: **reject (confidence 4/5)**. Subscores were soundness 2/5,
+excitement 2/5, novelty 2/5, reproducibility 1/5, and clarity 4/5.
+
+The decisive objection was manuscript identity: a method-centered title and
+contribution list implied a causal result that the paper does not have. The
+draft was therefore reframed as an audited state-visitation failure analysis
+plus a confirmatory protocol. This pass also required and triggered:
+
+- explicit joint policy state $z=(x,h)$ for external state and visible history;
+- direct-snapshot/history, teacher-prefix, matched-history, and Backplay controls;
+- corrected-interface SFT, OEC, OPCD, and SCoRe coverage;
+- witness-trajectory or invariant-certified reachability, beyond loadability;
+- removal of the "clean weights-only" and unquantified "almost never" claims;
+- a canonical unseeded evaluation endpoint and explicit six-primary-arm count;
+- a power calculation before confirmatory collection, with no default five-run rule;
+- demotion of the copy-prior observation from a main mechanism contribution; and
+- an explicit warning that `reference/overview.pdf` is historical and not a
+  submission artifact.
+
+The verdict remains reject until the matched causal matrix and immutable result
+bundles exist. Editorial repair cannot substitute for those experiments.

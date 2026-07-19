@@ -89,8 +89,10 @@ For the latest run state, training results, and what's in flight, see
 - **Training.** Dataset stats: [`dataset/DATA.md`](dataset/DATA.md).
 - **Eval.** Core-3 evals run via `orchestrate.py` / `play_qwen.py`, read with
   `scripts/log_analysis/analyze.py` (last-vs-first observe stage deltas).
-  `eval_harness.py` (ports 9061/9071) is the older r10-sft-vs-base scaffold,
-  superseded for the OPD work.
+  The preregistered OPD 2B weights × recovery follow-up uses the safe,
+  manifest-driven [`factorial runbook`](research/experiments/opd-2b-factorial.md);
+  it extends `eval_harness.py` with isolated cells and held-out no-walkthrough
+  evaluation. The older fixed r10-sft-vs-base shell remains superseded.
 - **World model.** Deprecated — [`world/`](world/) is not in use (targets an older log shape).
 - **Iteration history.** r1–r9 were rapid SFT exploration; **r10** was the clean
   negative (9B Claude-SFT regressed 3.5× below base); **r11** is the current phase —

@@ -1,4 +1,4 @@
-# Adversarial reviewer simulation — July 18, 2026
+# Adversarial reviewer simulation — updated July 19, 2026
 
 ## Current verdict
 
@@ -9,6 +9,32 @@
 | Empirical design and statistics | 1/10 | 5/5 | Strong reject |
 | Overall today | 2/10 | — | Do not submit |
 | Potential after required work | 7/10 | — | Competitive case study/method paper |
+
+## Pass 4 — full-stack red team, July 19
+
+The verdict remains **2/10, strong reject**, but the failure surface is now sharper:
+
+1. The dedicated eval lane has two independent correctness failures: the post-April-25 database
+   mismatch and an internal-quest-key/display-name scoring mismatch that can turn a completed
+   Core-3 quest into zero.
+2. The public “12 to 18 weights-only, same harness” claim was false. The 18/30 run used recovery;
+   12/15/17/18 are one unmatched historical run per cell and their raw bundles are absent.
+3. The 20 frozen-checkpoint evaluation clusters do not replicate training. Only fresh training
+   seeds can support a method-level uncertainty claim.
+4. A stacked launcher could have made an unfaithful Guided-OPD approximation executable. Guided
+   must remain unconditionally blocked until fresh mixed-turn collection and actor-conditional
+   forward/reverse-KL training exist.
+5. The copy-prior evidence does not contain the four paired cells required for a preference
+   reversal. It supports, at most, a reported positive teacher-over-student advantage for one
+   malformed continuation.
+6. CCOPD directly preempts the broad clean-context/self-anchored-drift framing; SOD directly covers
+   unreliable supervision after erroneous tool calls; Privileged Information Distillation covers
+   the selector's use of training-time privileged signal; TRB is a missing occupancy baseline.
+7. The paper is format-clean but scientifically incomplete: two descriptive tables, zero figures,
+   one historical run per arm, and no executed confirmatory result.
+
+The complete severity and release-gate ledger is in
+`research/paper/gargantua-review-2026-07-19.md`.
 
 ## Fatal findings
 

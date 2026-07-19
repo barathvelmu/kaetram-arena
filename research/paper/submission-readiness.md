@@ -28,7 +28,7 @@ Official sources:
 
 **Primary claim to validate:** A frozen, witness-certified persistent-player-state selector improves canonical-start run-level performance beyond matched generic resets, successful-prefix curricula, and natural OPD. Evaluation loads no intermediate player state but still uses recorded gameplay-RNG seeds. The current paper does not yet make this claim, and the implementation does not restore a complete shared world.
 
-**Secondary diagnostic:** A targeted probe shows context-dependent endorsement reversal on one malformed tool-syntax family. The broader teacher-forcing copy-prior mechanism remains unvalidated.
+**Secondary diagnostic:** Historical notes report positive teacher-over-student distillation advantage for one malformed continuation. Because both candidates were not scored in the same matched contexts and the probe artifact is absent, preference reversal and the broader teacher-forcing copy-prior mechanism remain unvalidated.
 
 **System conclusion:** Harness affordances and model weights solve different failure classes. The final 18/30 result is a weights-plus-interface result. The reported recovery-off 12/30-to-15/30 contrast lacks exact historical parity and is not a clean causal weights comparison.
 
@@ -39,13 +39,14 @@ Do not frame the paper as the first MCP game agent, embodied learning, continual
 The paper moves from **no-go** to **submission candidate** only when all of these are true:
 
 1. The harness, game revision, prompts, tool schemas, model revisions, checkpoints, and datasets are frozen and hashed.
-2. A clean clone reproduces every main table and figure from preserved artifacts.
-3. Round two's reported recovery-off wall passage is replicated under an exact frozen configuration with the run as the independent unit.
-4. Training-state seeding is isolated from other round-to-round changes.
-5. Tool-recovery is crossed with weights so the interface and training effects are identifiable.
-6. The main result transfers to a held-out quest or second environment.
-7. At least one serious OPD baseline is run under the same harness and budget.
-8. The manuscript is anonymous, within the venue page limit, and includes reproducibility, ethics, and required LLM-use disclosure.
+2. The dedicated DB lane and internal-key/display-name Core-3 scoring bugs are fixed, regression-tested, deployed, and attested in a clean live run.
+3. A clean clone reproduces every main table and figure from preserved artifacts.
+4. Round two's reported recovery-off wall passage is replicated under an exact frozen configuration with the run as the independent unit.
+5. Training-state seeding is isolated from other round-to-round changes.
+6. Tool-recovery is crossed with weights so the interface and training effects are identifiable.
+7. The main result transfers to a held-out quest or second environment.
+8. At least one serious OPD baseline is run under the same harness and budget.
+9. The manuscript is anonymous, within the venue page limit, and includes reproducibility, ethics, and required LLM-use disclosure.
 
 If gates 3–6 are not complete before the eventual ICLR deadline, wait for COLM or ICML rather than submit an underpowered case study.
 

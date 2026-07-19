@@ -32,14 +32,16 @@ acting for six hours through 17 typed tools in an open-source MMORPG. In one
 reported run per arm, natural-visitation distillation changes tool use and
 interaction tempo but leaves the quest score at 12/30. A second round augments
 student rollouts with hand-selected, loadable and walkability-checked intermediate
-player states whose legal reachability was not certified. Evaluated from a fresh
-canonical-start world with no intermediate-state initialization, the resulting policy scores 15/30; all three clustered prompt
+player states whose legal reachability was not certified. Evaluated from what the
+historical notes describe as a canonical-start player state in a restarted server,
+with no intermediate-state initialization, the resulting policy scores 15/30; all three clustered prompt
 variants pass a wall that none passes under the reported base or first-round
 policy. This is a reported recovery-off observation, not a replicated causal estimate:
 the training rounds differ in more than state source. A targeted teacher-forcing
-probe also finds that malformed history can locally reverse the teacher's syntax
-preference. In rewritten runtime logs, correction markers do not repeat within a
-session. These observations motivate a confirmatory comparison in which
+probe reportedly gives one malformed continuation positive teacher-over-student
+distillation advantage; it does not compare both candidate continuations in the
+same context. Historical notes state that correction markers do not repeat within
+rewritten sessions; the source logs are not packaged. These observations motivate a confirmatory comparison in which
 training-only player states are selected by frozen student-visitation, teacher-
 advantage, validity, and recoverability criteria. Random-valid, progress-matched,
 teacher-success-prefix, natural-OPD, and guided-OPD controls separate targeted
@@ -89,9 +91,10 @@ This working draft makes three bounded contributions:
   historical record: the first round
   closely changes measured tool mix and tempo toward the teacher while the
   benchmark score remains fixed.
-  \item We document an interface failure that token-average analyses obscure: in
-  a targeted teacher-forcing probe, malformed history reverses the teacher's
-  local preference. This secondary diagnostic is separated from a runtime
+  \item We document an interface diagnostic that token-average analyses obscure:
+  in one targeted teacher-forcing probe, a malformed continuation reportedly has
+  positive teacher-over-student distillation advantage. This secondary diagnostic
+  does not yet establish a within-context preference reversal and is separated from a runtime
   recovery result and from any general mechanism claim.
 \end{enumerate}
 
@@ -114,10 +117,12 @@ world-model discovery.
 The primary development metric, \core{}, counts newly reached stages in three
 quest chains: Foresting (3 stages), Herbalist's Desperation (3), and Rick's Roll
 (4). Each agent can gain at most ten stages; a three-agent run therefore scores
-in $[0,30]$. Runs begin from a freshly initialized world and continue for six
-hours. Conversation sessions roll over under a fixed context budget while game
-state persists. The intended confirmatory experimental unit is a full run from
-a fresh world. Prompt variants are clustered observations within that run.
+in $[0,30]$. Historical notes describe runs as beginning from a freshly
+initialized player state in a restarted server, but no fail-closed reset receipt
+or complete shared-world hash survives. Runs continue for six hours while
+conversation sessions roll over under a fixed context budget and game state
+persists. The intended confirmatory experimental unit is a full run with an
+attested reset. Prompt variants are clustered observations within that run.
 
 \subsection{Agent and interface contract}
 
@@ -291,9 +296,10 @@ starts the round-1 policy at the accepted quest with the required gathering
 skill and near the target resource. All three seeded collectors pass the wall,
 creating student-authored actions and teacher scores in this region.
 
-After training on the natural-plus-seeded mixture, round 2 is evaluated from a
-fresh canonical-start world with no intermediate-state initialization and with
-recovery disabled. Its historical gameplay-RNG seed was not preserved. It scores 15/30, with each prompt
+After training on the natural-plus-seeded mixture, round 2 is reported as
+evaluated from a canonical-start player state in a restarted server, with no
+intermediate-state initialization and with recovery disabled. Neither a reset
+receipt nor its historical gameplay-RNG seed was preserved. It scores 15/30, with each prompt
 variant at 5/10. All three pass Herbalist stage 1, compared with zero of three
 under both the base and round-1 policies. Logs show earlier quest acceptance,
 explicit tracking of the skill gate, resource rotation after empty harvests,
@@ -310,43 +316,48 @@ included (Section~\ref{sec:confirmatory}).
 \subsection{Weights and recovery solve different failures}
 
 Round 3 combines broader state seeding with a runtime recovery affordance and
-scores 18/30. That number is not a pure-weights result. Applying the same
-recovery affordance to round-2 weights produces 17/30 in one run, suggesting
-that most of the round-2-to-round-3 stage difference may come from the
-interface. The reported recovery-off contrast is base 12/30 versus round 2
+scores 18/30. That number is not a pure-weights result. A separate unmatched run
+of round-2 weights with recovery reports 17/30; missing raw bundles,
+configuration parity, and gameplay seeds prevent attribution of either score
+difference to the interface or weights. The reported recovery-off contrast is base 12/30 versus round 2
 15/30, one run per arm; exact checkpoint, render, seed, and artifact parity is
 unavailable, so even this contrast is not a clean causal weights comparison.
 
 The recovery mechanism detects a dropped malformed call, reconstructs the
 executable call, rewrites the retained history into canonical form, executes the
-action, and returns an explicit correction note. In the audited round, 405
-sessions contain a recovery marker; each contains exactly one such marker and
-no logged recurrence after the correction. This is a system-counting fact. It
-does not show that weights learned the format or that recovery generalizes to
-other defects.
+action, and returns an explicit correction note. Historical notes report 405
+rewritten sessions with exactly one recovery marker and no later marker. Because
+the source logs and raw pre-rewrite emissions are absent, that count is not
+independently auditable and does not show that weights learned the format, that
+the model self-corrected, or that recovery generalizes to other defects.
 
 \section{A Teacher-Forcing Failure at the Interface}
 
 Round 1 introduces a malformed parameter-key pattern that is absent in the
 base run. The emitted form places a Boolean value inside the parameter key, so
 the parser silently drops the intended argument. The training records contain
-the correct syntax, and the teacher favors the correct delimiter in clean
-base-policy contexts. A targeted two-sided probe, however, gives a different
-result after the malformed prefix is already present: at the divergence token,
-the 4B teacher assigns log probability $-0.161$ (about 85\% probability) to
-continuing the malformed form, versus $-0.253$ under the student. On a matched
-correct-form state, the preference favors the correct continuation.
+the correct syntax, and historical notes report that the teacher favors the
+correct delimiter in clean base-policy contexts. After the malformed prefix is
+already present, the same notes report teacher log probability $-0.161$ (about
+85\% probability) for continuing the malformed form, versus $-0.253$ under the
+student. This is a positive teacher-over-student distillation advantage for one
+candidate. The reported correct-form observation uses a different state; without
+both canonical and malformed candidates scored in each matched context, the
+record does not establish a preference reversal.
 
-Thus teacher generation and teacher-forced grading are distinct objects. A
-teacher that generates canonical syntax from a clean history can locally reward
-continuation of a student's defect after that defect enters the context. Under
-dense on-policy distillation, this creates wrong-signed feedback at precisely
-the visited malformed prefix. We call this a \emph{teacher-forcing copy-prior
-hypothesis}. The current evidence is one targeted defect family and a small
-probe, so the name describes a candidate mechanism rather than a general law.
+Thus teacher generation and teacher-forced grading are distinct objects, but the
+historical probe establishes only a candidate failure mode. A teacher that
+generates canonical syntax from a clean history may still assign a locally useful
+distillation signal to continuation of a student's defect after that defect enters
+the context. We call this a \emph{teacher-forcing copy-prior hypothesis}. The
+current record lacks the paired artifact needed to show that the teacher actively
+prefers the malformed candidate.
 
-This observation relates to exposure bias and to failures of token-level
-teacher agreement on degraded prefixes. It also gives a testable prediction:
+This hypothesis relates to exposure bias and to failures of token-level teacher
+agreement on degraded prefixes. CCOPD already conditions a teacher on clean,
+canonical evidence to reduce self-anchored drift in a multi-turn student
+\citep{lin2026ccopd}; that broad clean-context intervention is not novel here.
+The narrower tool-syntax hypothesis gives a testable prediction:
 paired histories differing only in canonical versus malformed prior syntax
 should change teacher log-odds while holding state and candidate continuations
 fixed. Section~\ref{sec:confirmatory} turns that prediction into a multi-state,
@@ -429,10 +440,16 @@ covariate shift \citep{lauffer2025oec}. TCOD directly studies temporal curricula
 initialization for multi-turn OPD \citep{wang2026tcod}; broad novelty for seeded
 starts is therefore preempted. Guided-OPD changes live occupancy by mixing
 teacher and student turns \citep{li2026guidedopd}; ReOPD designs reliable prefix
-distributions offline \citep{liao2026reopd}; and SCoRe localizes the first
-student error before short-horizon training \citep{lyu2025score}. SOD and KAT
-instead alter or terminate supervision on degraded prefixes
-\citep{zhong2026sod,xin2026kat}. These methods make intermediate-state,
+distributions offline \citep{liao2026reopd}; TRB anneals a teacher-near rollout
+policy inside a student-centered trust region \citep{plyusov2026trb}; and SCoRe
+localizes the first student error before short-horizon training
+\citep{lyu2025score}. SOD and KAT study supervision on degraded prefixes
+\citep{zhong2026sod,xin2026kat}. SOD in particular treats post-tool-error
+high-divergence steps as increasingly unreliable and reweights them; our
+unvalidated hypothesis is narrower, predicting locally wrong-signed candidate
+preference. Unmasking OPD likewise motivates per-token, per-context diagnostics
+rather than aggregate-loss interpretation \citep{armandpour2026unmasking}.
+These methods make intermediate-state,
 student-failure, and state-centric novelty claims unavailable. DAgger formalizes
 iterative data collection under the learner's state distribution
 \citep{ross2011dagger}. A recent state-distribution analysis likewise argues
@@ -444,6 +461,15 @@ in hard-exploration reinforcement learning
 the same control point for on-policy language-model distillation in a
 persistent, typed environment, but the current study does not establish
 superiority over those curriculum families.
+
+The proposed state selector uses quest stage, inventory, position, and repeated
+teacher--student success gaps during training. This is privileged information and
+must be costed and evaluated for held-out transfer. Privileged Information
+Distillation and its on-policy self-distillation variant already study action-only
+transfer from privileged agent signals \citep{penaloza2026pid}. SERL separately
+shows that the source and insertion point of environmental feedback matter in
+multi-turn agents \citep{li2026serl}; neither privilege nor feedback selection is
+novel here.
 
 Game-agent benchmarks already cover long-horizon language and vision agents.
 BALROG emphasizes knowing--doing gaps across games \citep{paglieri2025balrog},
@@ -468,11 +494,12 @@ result of this submission draft.
 The audited case supports a concrete hypothesis: low-occupancy player states
 may hide useful teacher competence from natural OPD. Natural-visitation OPD
 changed behavior without changing score; a later hand-selected state-augmented
-round was followed by canonical-start passage of a previously unseen wall. That sequence
+round was followed by reported canonical-start passage of a wall that the earlier
+reported policies had not passed. That sequence
 does not establish the proposed selector. Random and progress-matched resets,
 TCOD-B2F, Guided-OPD, replication, and held-out transfer decide whether the
-narrow method survives. A malformed-prefix probe separately shows why teacher-
-forced token feedback can fail at the tool boundary.
+narrow method survives. A malformed-prefix probe separately motivates, but does
+not yet establish, a wrong-signed teacher-feedback mechanism at the tool boundary.
 
 \section*{Limitations}
 
@@ -522,6 +549,10 @@ private-user data are used.
 \section{Training Details}
 \label{app:training}
 
+The settings below are reconstructed from the current implementation and project
+notes committed after the June runs; they are reported settings, not a
+hash-attested historical training configuration.
+
 The teacher is a scaffolded Qwen-family 4B model and the student begins from a
 2B checkpoint. Both use the same vocabulary. Student rollouts are reconstructed
 as the byte-exact serving prompt plus the verbatim emitted continuation. This
@@ -550,8 +581,10 @@ the target resource. Evaluation never loads this state.
 \item[Targeted selector.] Protocol only: no candidate-state bundle, trained checkpoint, or outcome is currently available.
 \item[12 to 15.] Reported recovery-off historical contrast; not an effect estimate or clean weights comparison, and exact parity remains unavailable.
 \item[18/30.] Weights-plus-interface system result only.
-\item[Copy prior.] Context-dependent endorsement reversal for the targeted historical probe.
-\item[Recovery.] No repeat marker after correction in rewritten logs; raw relapse is unavailable.
+\item[Copy prior.] Positive teacher-over-student advantage for one malformed
+continuation in a targeted historical probe; no matched preference reversal.
+\item[Recovery.] Historical notes report no repeat marker after correction in
+rewritten sessions; source logs and raw relapse are unavailable.
 \item[Cross-task transfer.] Unsupported; no claim.
 \end{description}
 

@@ -1,5 +1,6 @@
 .venv
 .venv/
+.venv-unit-tests*/
 
 # Screenshots and session state (generated at runtime)
 state/*.png
@@ -32,6 +33,7 @@ __pycache__/
 tests/state/
 logs/
 artifacts/
+/tmp/
 
 # Training data (generated, stays on VM — do not commit)
 dataset/extracted*/

@@ -10,6 +10,7 @@ import pytest
 from scripts.audit_historical_artifacts import AGENTS, CLAIM_RUNS, build_inventory
 from scripts.log_analysis.artifact_requirements import (
     MissingEvidenceError,
+    has_semantic_session_evidence,
     missing_agent_run_logs,
     require_agent_run_logs,
     require_files,
@@ -22,7 +23,13 @@ REPO = Path(__file__).resolve().parents[2]
 def _write_run(root: Path, agent: str, run_id: str) -> None:
     run = root / agent / "runs" / run_id
     run.mkdir(parents=True)
-    (run / "session_1_test.log").write_text("{}\n")
+    records = [
+        {"type": "user", "message": {"content": "play"}},
+        {"type": "assistant", "message": {"content": "act"}},
+    ]
+    (run / "session_1_test.log").write_text(
+        "".join(json.dumps(record) + "\n" for record in records)
+    )
 
 
 def test_agent_run_check_requires_nonempty_session_bundle(tmp_path: Path) -> None:
@@ -40,6 +47,17 @@ def test_agent_run_check_requires_nonempty_session_bundle(tmp_path: Path) -> Non
     assert missing_agent_run_logs(
         raw, agents=["agent_0"], run_ids=["run_empty"]
     ) == [str(empty_run / "session_*.log")]
+
+
+@pytest.mark.parametrize(
+    "content",
+    ("x", "{}\n", '{"type":"assistant","message":{"content":"act"}}\n', "{broken\n{}\n"),
+)
+def test_session_evidence_rejects_trivial_or_corrupt_logs(tmp_path: Path, content: str) -> None:
+    path = tmp_path / "session_1_test.log"
+    path.write_text(content)
+
+    assert not has_semantic_session_evidence(path)
 
 
 def test_requirements_fail_closed_with_actionable_paths(tmp_path: Path) -> None:

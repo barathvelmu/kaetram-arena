@@ -6,12 +6,40 @@ before an analysis starts.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Iterable
 
 
 class MissingEvidenceError(RuntimeError):
     """Raised when a claimed analysis input is absent or incomplete."""
+
+
+def has_semantic_session_evidence(path: Path) -> bool:
+    """Require a well-formed interaction, not merely a nonempty log file."""
+    try:
+        lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, UnicodeError):
+        return False
+    if len(lines) < 2:
+        return False
+
+    saw_model = False
+    saw_environment = False
+    for line in lines:
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(record, dict):
+            return False
+        record_type = record.get("type")
+        payload = record.get("message", record.get("content"))
+        if record_type in {"assistant", "raw_model_emission"} and payload not in (None, "", [], {}):
+            saw_model = True
+        if record_type in {"user", "tool_result", "game_state"} and payload not in (None, "", [], {}):
+            saw_environment = True
+    return saw_model and saw_environment
 
 
 def missing_agent_run_logs(
@@ -28,10 +56,10 @@ def missing_agent_run_logs(
             run_dir = root / agent / "runs" / run_id
             if not run_dir.is_dir():
                 missing.append(str(run_dir))
-            elif not any(
-                path.is_file() and path.stat().st_size > 0
-                for path in run_dir.glob("session_*.log")
-            ):
+            else:
+                logs = sorted(run_dir.glob("session_*.log"))
+                if logs and all(path.is_file() and has_semantic_session_evidence(path) for path in logs):
+                    continue
                 missing.append(str(run_dir / "session_*.log"))
     return missing
 

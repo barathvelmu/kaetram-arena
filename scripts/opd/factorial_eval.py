@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
@@ -985,15 +986,15 @@ def seal_prelaunch_record(
 
 
 def _cleanup_processes(processes: list[tuple[Cell, subprocess.Popen, Any]]) -> None:
-    """Best-effort cleanup for every child and launcher log in a batch."""
+    """Best-effort cleanup for every owned child process group and launcher log."""
     for _cell, proc, log_handle in processes:
         try:
             if proc.poll() is None:
-                proc.terminate()
+                os.killpg(proc.pid, signal.SIGTERM)
                 try:
                     proc.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    os.killpg(proc.pid, signal.SIGKILL)
                     proc.wait()
         except BaseException:
             pass
@@ -1042,6 +1043,7 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
                         env=child_env,
                         stdout=log_handle,
                         stderr=subprocess.STDOUT,
+                        start_new_session=True,
                     )
                 except BaseException:
                     log_handle.close()
@@ -1094,7 +1096,14 @@ def main() -> int:
         if not args.execute:
             print("\nPreflight passed. Nothing was launched.")
             return 0
-        return launch(plan, confirmation=args.confirm_launch)
+        def interrupt_launch(signum, _frame):
+            raise ManifestError(f"launch interrupted by signal {signum}")
+
+        previous_sigterm = signal.signal(signal.SIGTERM, interrupt_launch)
+        try:
+            return launch(plan, confirmation=args.confirm_launch)
+        finally:
+            signal.signal(signal.SIGTERM, previous_sigterm)
     except ManifestError as exc:
         parser.error(str(exc))
     return 2

@@ -42,7 +42,8 @@ PERS_FLAG=""
 RUN_TAG="$(date +%Y%m%d_%H%M%S)"
 [ -n "$PERSONALITY" ] && RUN_TAG="${RUN_TAG}_${PERSONALITY}"
 RUN_DIR="$PROJECT_DIR/dataset/eval/runs/${RUN_TAG}"
-mkdir -p "$RUN_DIR"
+# A timestamp collision must fail instead of reusing artifacts from another run.
+mkdir "$RUN_DIR"
 
 # ── Cleanup ──
 # Scope every kill to the eval lane — never a bare pkill on the generic names
@@ -220,6 +221,7 @@ validate_arm() {
   local result_path="$RUN_DIR/$model_name/results.json"
   python3 "$PROJECT_DIR/scripts/validate_eval_results.py" \
     --results "$result_path" \
+    --model "$model_name" \
     --episodes "$EPISODES" \
     --scenario "$SCENARIO"
 }

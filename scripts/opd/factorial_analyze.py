@@ -10,11 +10,14 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import io
 import json
 import math
+import os
 import random
 import statistics
 import sys
+import tempfile
 from collections import Counter
 from fractions import Fraction
 from pathlib import Path
@@ -60,6 +63,10 @@ def load_cell_metric(plan: ExperimentPlan, cell: Cell, metric: str) -> dict[str,
     git_sha = meta.get("git_sha")
     if not isinstance(git_sha, str) or not git_sha.strip():
         raise ManifestError(f"cell {cell.cell_id} has no source git SHA")
+    if git_sha != plan.source_git_commit:
+        raise ManifestError(
+            f"cell {cell.cell_id} source git SHA does not match the registered source commit"
+        )
     if episode.get("returncode") != 0:
         raise ManifestError(f"cell {cell.cell_id} episode returncode is not zero")
     turns = episode.get("turns_played")
@@ -448,6 +455,70 @@ def write_cluster_csv(path: Path, analysis: dict[str, Any]) -> None:
             })
 
 
+def _cluster_csv_text(analysis: dict[str, Any]) -> str:
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        output,
+        fieldnames=("replicate", "weight", "recovery", "cluster_value", "turns_played", "cell_ids"),
+    )
+    writer.writeheader()
+    for row in analysis["clusters"]:
+        writer.writerow({
+            **{key: row[key] for key in ("replicate", "weight", "recovery", "cluster_value", "turns_played")},
+            "cell_ids": ";".join(row["cell_ids"]),
+        })
+    return output.getvalue()
+
+
+def publish_analysis_artifacts(
+    json_path: Path,
+    csv_path: Path,
+    analysis: dict[str, Any],
+) -> None:
+    """Stage both outputs, then publish create-only with rollback on failure."""
+    targets = (
+        (json_path, json.dumps(analysis, indent=2, sort_keys=True, allow_nan=False) + "\n"),
+        (csv_path, _cluster_csv_text(analysis)),
+    )
+    existing = [str(path) for path, _content in targets if path.exists()]
+    if existing:
+        raise ManifestError(
+            "refusing to overwrite analysis artifact(s): " + ", ".join(existing)
+        )
+
+    staged: list[tuple[Path, Path]] = []
+    published: list[Path] = []
+    try:
+        for target, content in targets:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            fd, temporary_name = tempfile.mkstemp(
+                prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+            )
+            temporary = Path(temporary_name)
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            staged.append((temporary, target))
+
+        for temporary, target in staged:
+            os.link(temporary, target)
+            published.append(target)
+        for directory in {target.parent for _temporary, target in staged}:
+            directory_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+    except (OSError, ValueError) as exc:
+        for target in reversed(published):
+            target.unlink(missing_ok=True)
+        raise ManifestError(f"failed to publish complete analysis artifact pair: {exc}") from exc
+    finally:
+        for temporary, _target in staged:
+            temporary.unlink(missing_ok=True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
@@ -459,14 +530,8 @@ def main() -> int:
     parser.add_argument("--clusters-csv", type=Path, required=True)
     args = parser.parse_args()
     try:
-        existing = [str(path) for path in (args.out, args.clusters_csv) if path.exists()]
-        if existing:
-            raise ManifestError(
-                "refusing to overwrite analysis artifact(s): " + ", ".join(existing)
-            )
         analysis = build_analysis(build_plan(args.manifest), args.metric)
-        _write_new(args.out, json.dumps(analysis, indent=2, sort_keys=True) + "\n")
-        write_cluster_csv(args.clusters_csv, analysis)
+        publish_analysis_artifacts(args.out, args.clusters_csv, analysis)
     except ManifestError as exc:
         parser.error(str(exc))
     print(args.out)

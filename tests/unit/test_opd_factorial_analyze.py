@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.opd.factorial_analyze import _sign_flip_p, build_analysis
+from scripts.opd.factorial_analyze import _sign_flip_p, build_analysis, publish_analysis_artifacts
 from scripts.opd.factorial_eval import (
     ManifestError,
     build_plan,
@@ -17,12 +17,14 @@ from scripts.opd.factorial_eval import (
 
 REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "research" / "experiments" / "opd-2b-factorial.example.json"
+SOURCE_SHA = "a" * 40
 
 
 def _plan(tmp_path: Path, replicates: int = 20, *, phase: str = "confirmatory"):
     raw = json.loads(MANIFEST.read_text())
     raw["isolation"]["output_root"] = str(tmp_path / "runs")
     raw["isolation"]["sandbox_root"] = str(tmp_path / "sandboxes")
+    raw["protocol"]["source_git_commit"] = SOURCE_SHA
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(raw))
     plan = build_plan(manifest)
@@ -74,7 +76,7 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
                 "tool_schema_source": plan.tool_schema_source,
                 "include_game_knowledge": not plan.omit_game_knowledge,
                 "held_out_quest": plan.held_out_quest,
-                "git_sha": "different" if cell.cell_id == alternate_sha_cell else "abc123",
+                "git_sha": "b" * 40 if cell.cell_id == alternate_sha_cell else SOURCE_SHA,
             },
             "episodes": [{
                 "episode": 1,
@@ -162,12 +164,34 @@ def test_analysis_fails_closed_on_missing_cell(tmp_path: Path) -> None:
         build_analysis(plan, "core3_stages_advanced")
 
 
-def test_analysis_rejects_mixed_source_commits(tmp_path: Path) -> None:
+def test_analysis_rejects_result_commit_that_differs_from_registration(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     _write_results(plan, alternate_sha_cell=plan.cells[-1].cell_id)
     _seal(plan)
-    with pytest.raises(ManifestError, match="multiple source commits"):
+    with pytest.raises(ManifestError, match="registered source commit"):
         build_analysis(plan, "core3_stages_advanced")
+
+
+def test_pair_publication_rolls_back_if_second_artifact_fails(tmp_path: Path, monkeypatch) -> None:
+    json_path = tmp_path / "analysis.json"
+    csv_path = tmp_path / "clusters.csv"
+    real_link = __import__("os").link
+    calls = 0
+
+    def fail_second_link(source, target):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated CSV publication failure")
+        return real_link(source, target)
+
+    monkeypatch.setattr("scripts.opd.factorial_analyze.os.link", fail_second_link)
+
+    with pytest.raises(ManifestError, match="complete analysis artifact pair"):
+        publish_analysis_artifacts(json_path, csv_path, {"clusters": []})
+
+    assert not json_path.exists()
+    assert not csv_path.exists()
 
 
 def test_analysis_rejects_missing_metric(tmp_path: Path) -> None:

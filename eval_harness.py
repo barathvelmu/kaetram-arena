@@ -1125,7 +1125,7 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
     git_sha = ""
     try:
         git_sha = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
+            ["git", "rev-parse", "HEAD"],
             stderr=subprocess.DEVNULL, text=True,
         ).strip()
     except Exception:

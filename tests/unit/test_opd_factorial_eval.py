@@ -18,6 +18,8 @@ from scripts.opd.factorial_eval import (
     seal_cell_bundle,
     seal_completed_inventory,
     seal_prelaunch_record,
+    validate_cell_bundle,
+    validate_completed_inventory,
     validate_live_endpoint_attestations,
     validate_cell_result,
 )
@@ -387,11 +389,24 @@ def test_completed_cell_bundle_seals_raw_prompt_state_and_inventory(tmp_path: Pa
     }
     with pytest.raises(ManifestError, match="refusing to overwrite"):
         seal_cell_bundle(plan, cell)
+    assert validate_cell_bundle(plan, cell)["bundle_sha256"] == bundle["bundle_sha256"]
+
+    prompt_path = Path(cell.run_dir) / cell.cell_id / "system_prompt.md"
+    prompt_path.write_text("tampered prompt\n")
+    with pytest.raises(ManifestError, match="sha256 mismatch"):
+        validate_cell_bundle(plan, cell)
+    prompt_path.write_text("resolved prompt\n")
 
     inventory_path = seal_completed_inventory(plan)
     inventory = json.loads(inventory_path.read_text())
     assert inventory["requested_cell_ids"] == [cell.cell_id]
     assert inventory["completed_cells"][0]["bundle_sha256"] == bundle["bundle_sha256"]
+    assert validate_completed_inventory(plan)["inventory_sha256"] == inventory["inventory_sha256"]
+
+    raw_log = Path(cell.run_dir) / cell.cell_id / "episode_001_raw" / "session_1_test.log"
+    raw_log.write_text('{"type":"raw_model_emission","content":"changed"}\n')
+    with pytest.raises(ManifestError, match="sha256 mismatch"):
+        validate_completed_inventory(plan)
 
 
 def test_cell_bundle_rejects_rewritten_only_logs(tmp_path: Path):

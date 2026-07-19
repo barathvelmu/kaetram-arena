@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -13,18 +14,22 @@ REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "research" / "experiments" / "opd-2b-factorial.example.json"
 
 
-def _plan(tmp_path: Path, replicates: int = 5):
+def _plan(tmp_path: Path, replicates: int = 20, *, phase: str = "confirmatory"):
     raw = json.loads(MANIFEST.read_text())
-    raw["design"]["replicates"] = replicates
-    raw["analysis"]["sample_size"]["planned_replicates"] = replicates
-    raw["evaluation"]["held_out_registration"] = str(
-        REPO / "research" / "experiments" / "heldout-quest.json"
-    )
     raw["isolation"]["output_root"] = str(tmp_path / "runs")
     raw["isolation"]["sandbox_root"] = str(tmp_path / "sandboxes")
     manifest = tmp_path / "manifest.json"
     manifest.write_text(json.dumps(raw))
-    return build_plan(manifest)
+    plan = build_plan(manifest)
+    if replicates == 20 and phase == "confirmatory":
+        return plan
+    return replace(
+        plan,
+        sampling_phase=phase,
+        planned_replicates=replicates,
+        confirmatory_replicates=replicates,
+        cells=tuple(cell for cell in plan.cells if cell.replicate <= replicates),
+    )
 
 
 def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -> None:
@@ -32,7 +37,7 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
     for cell in plan.cells:
         if cell.cell_id == omit_cell:
             continue
-        value = cell.replicate + weight_offset[cell.weight] + int(cell.recovery)
+        value = weight_offset[cell.weight] + int(cell.recovery)
         path = Path(cell.run_dir) / cell.cell_id / "results.json"
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps({
@@ -40,6 +45,13 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
                 "model": cell.cell_id,
                 "endpoint": f"env:{cell.endpoint_env}",
                 "scenario": plan.scenario,
+                "duration_seconds_budget": plan.duration_seconds,
+                "protocol_id": plan.protocol_id,
+                "experiment_manifest_sha256": plan.manifest_sha256,
+                "endpoint_attestation_sha256": cell.endpoint_attestation_sha256,
+                "checkpoint_sha256": cell.checkpoint_sha256,
+                "tokenizer_sha256": cell.tokenizer_sha256,
+                "render_contract_sha256": cell.render_contract_sha256,
                 "total_episodes": 1,
                 "ok_episodes": 1,
                 "tool_schema_source": plan.tool_schema_source,
@@ -61,39 +73,39 @@ def test_analysis_uses_replicates_not_personality_cells_as_n(tmp_path: Path) -> 
     plan = _plan(tmp_path)
     _write_results(plan)
     analysis = build_analysis(plan, "core3_stages_advanced")
-    assert analysis["n_cells"] == 90
-    assert analysis["n_cluster_arms"] == 30
-    assert analysis["n_replicates"] == 5
+    assert analysis["n_cells"] == 360
+    assert analysis["n_cluster_arms"] == 120
+    assert analysis["n_replicates"] == 20
     recovery_r3 = next(
         effect for effect in analysis["primary_estimands"]
         if effect["name"] == "recovery_on_minus_off_r3"
     )
-    assert recovery_r3["paired_deltas"] == [3.0] * 5
+    assert recovery_r3["paired_deltas"] == [3.0] * 20
     assert recovery_r3["mean_delta"] == 3.0
-    assert recovery_r3["exact_two_sided_sign_flip_p"] == 0.0625
-    assert recovery_r3["bonferroni_adjusted_p"] == 0.4375
-    assert recovery_r3["inference_status"] == "preliminary_only"
+    assert recovery_r3["exact_two_sided_sign_flip_p"] == 2 / (2 ** 20)
+    assert recovery_r3["bonferroni_adjusted_p"] == 14 / (2 ** 20)
+    assert recovery_r3["inference_status"] == "confirmatory_preregistered"
     r3_base = next(
         effect for effect in analysis["primary_estimands"]
         if effect["name"] == "r3_minus_base_recovery_off"
     )
-    assert r3_base["paired_deltas"] == [12.0] * 5
+    assert r3_base["paired_deltas"] == [12.0] * 20
     recovery_main = next(
         effect for effect in analysis["factorial_main_effects"]
         if effect["name"] == "recovery_main_effect"
     )
-    assert recovery_main["paired_deltas"] == [3.0] * 5
+    assert recovery_main["paired_deltas"] == [3.0] * 20
     interaction = next(
         effect for effect in analysis["primary_estimands"]
         if effect["name"] == "r3_minus_base_recovery_interaction"
     )
-    assert interaction["paired_deltas"] == [0.0] * 5
+    assert interaction["paired_deltas"] == [0.0] * 20
     assert interaction["exact_two_sided_sign_flip_p"] == 1.0
-    assert analysis["sample_size_contract"]["status"] == "pilot_preliminary"
+    assert analysis["sample_size_contract"]["status"] == "power_preregistered_confirmatory"
 
 
 def test_one_replicate_is_explicitly_preliminary_only(tmp_path: Path) -> None:
-    plan = _plan(tmp_path, replicates=1)
+    plan = _plan(tmp_path, replicates=1, phase="pilot")
     _write_results(plan)
     analysis = build_analysis(plan, "core3_stages_advanced")
     assert all(effect["inference_status"] == "preliminary_only" for effect in analysis["effects"])

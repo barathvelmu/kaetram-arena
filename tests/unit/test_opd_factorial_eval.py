@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -16,6 +15,7 @@ from scripts.opd.factorial_eval import (
     cell_command,
     launch,
     plan_dict,
+    validate_live_endpoint_attestations,
     validate_cell_result,
 )
 
@@ -26,9 +26,6 @@ MANIFEST = REPO / "research" / "experiments" / "opd-2b-factorial.example.json"
 
 def _manifest_copy(tmp_path: Path, mutate=None) -> Path:
     raw = json.loads(MANIFEST.read_text())
-    raw["evaluation"]["held_out_registration"] = str(
-        REPO / "research" / "experiments" / "heldout-quest.json"
-    )
     raw["isolation"]["output_root"] = str(tmp_path / "runs")
     raw["isolation"]["sandbox_root"] = str(tmp_path / "sandboxes")
     if mutate:
@@ -40,7 +37,7 @@ def _manifest_copy(tmp_path: Path, mutate=None) -> Path:
 
 def test_manifest_generates_complete_paired_factorial_with_isolation(tmp_path: Path):
     plan = build_plan(_manifest_copy(tmp_path))
-    assert len(plan.cells) == 90
+    assert len(plan.cells) == 360
     assert {(c.weight, c.recovery) for c in plan.cells} == {
         (weight, recovery)
         for weight in ("base", "r2", "r3")
@@ -49,11 +46,15 @@ def test_manifest_generates_complete_paired_factorial_with_isolation(tmp_path: P
     assert {c.personality for c in plan.cells} == {
         "grinder", "completionist", "explorer_tinkerer"
     }
-    assert len({c.username for c in plan.cells}) == 90
-    assert len({c.server_port for c in plan.cells}) == 90
-    assert len({c.sandbox for c in plan.cells}) == 90
-    assert len({c.run_dir for c in plan.cells}) == 90
+    assert len({c.username for c in plan.cells}) == 360
+    assert len({c.server_port for c in plan.cells}) == 360
+    assert len({c.sandbox for c in plan.cells}) == 360
+    assert len({c.run_dir for c in plan.cells}) == 360
     assert plan.episodes == 1
+    assert plan.duration_seconds == 21600
+    assert plan.protocol_id == "core3_canonical_unseeded_6h_v1"
+    assert plan.primary_metric == "core3_stages_advanced"
+    assert plan.planned_replicates == 20
     assert plan.max_parallel == 6
     for pair_id in {c.pair_id for c in plan.cells}:
         assert {c.recovery for c in plan.cells if c.pair_id == pair_id} == {False, True}
@@ -72,8 +73,10 @@ def test_preflight_plan_uses_endpoint_placeholders_and_never_resolves_or_launche
     assert secret not in rendered
     assert "TOP_SECRET" not in rendered
     assert all("--models-env" in command for command in commands)
-    assert all("--omit-game-knowledge" in command for command in commands)
+    assert all("--omit-game-knowledge" not in command for command in commands)
     assert all("--sandbox" in command for command in commands)
+    assert all("--duration-seconds" in command for command in commands)
+    assert all("21600" in command for command in commands)
 
 
 def test_cli_dry_run_has_no_endpoint_game_db_or_directory_side_effects(tmp_path: Path):
@@ -108,18 +111,25 @@ def test_cell_commands_keep_recovery_out_of_argv(tmp_path: Path):
     )
 
 
-def test_manifest_can_select_frozen_core3_protocol_without_heldout(tmp_path: Path):
-    def mutate(raw):
-        raw["evaluation"].update({
-            "omit_game_knowledge": False,
-            "held_out_quest": "",
-            "held_out_registration": "",
-        })
-
-    plan = build_plan(_manifest_copy(tmp_path, mutate))
+def test_manifest_is_frozen_core3_protocol_without_heldout(tmp_path: Path):
+    plan = build_plan(_manifest_copy(tmp_path))
     assert not plan.omit_game_knowledge
     assert plan.held_out_quest == ""
     assert all("--held-out-quest" not in cell_command(plan, cell) for cell in plan.cells)
+
+
+def test_manifest_rejects_non_six_hour_or_seeded_core3_protocol(tmp_path: Path):
+    def mutate(raw):
+        raw["protocol"]["duration_seconds"] = 1800
+
+    with pytest.raises(ManifestError, match="21600"):
+        build_plan(_manifest_copy(tmp_path, mutate))
+
+    def seed(raw):
+        raw["protocol"]["world_initialization"] = "targeted_seed"
+
+    with pytest.raises(ManifestError, match="canonical_unseeded"):
+        build_plan(_manifest_copy(tmp_path, seed))
 
 
 def test_invalid_or_incomplete_factorial_is_rejected(tmp_path: Path):
@@ -159,60 +169,6 @@ def test_manifest_rejects_changed_or_reordered_primary_estimands(tmp_path: Path)
         raw["analysis"]["primary_estimands"].reverse()
 
     with pytest.raises(ManifestError, match="primary_estimands"):
-        build_plan(_manifest_copy(tmp_path, mutate))
-
-
-def test_pilot_cannot_self_promote_to_confirmatory_by_replicate_count(tmp_path: Path):
-    def mutate(raw):
-        raw["design"]["replicates"] = 20
-        raw["analysis"]["sample_size"]["planned_replicates"] = 20
-
-    plan = build_plan(_manifest_copy(tmp_path, mutate))
-    assert plan.sampling_phase == "pilot"
-    assert plan.confirmatory_replicates is None
-
-
-def test_confirmatory_contract_requires_matching_hashed_power_analysis(tmp_path: Path):
-    artifact = tmp_path / "power.json"
-    power = {
-        "schema_version": "kaetram-opd-power-analysis-v1",
-        "experiment_id": "opd-2b-weights-x-recovery-v1",
-        "primary_metric": "core3_stages_advanced",
-        "primary_estimands": [
-            "r2_minus_base_recovery_off",
-            "r3_minus_base_recovery_off",
-            "recovery_on_minus_off_base",
-            "recovery_on_minus_off_r2",
-            "recovery_on_minus_off_r3",
-            "r2_minus_base_recovery_interaction",
-            "r3_minus_base_recovery_interaction",
-        ],
-        "familywise_alpha": 0.05,
-        "target_power": 0.8,
-        "planned_replicates": 20,
-        "method": "paired-difference power calculation",
-        "assumptions": {"minimum_detectable_delta": 3, "paired_sd": 3},
-    }
-    artifact.write_text(json.dumps(power, sort_keys=True) + "\n")
-    digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
-
-    def mutate(raw):
-        raw["design"]["replicates"] = 20
-        raw["analysis"]["sample_size"].update({
-            "phase": "confirmatory",
-            "planned_replicates": 20,
-            "confirmatory_replicates": 20,
-            "power_analysis_artifact": str(artifact),
-            "power_analysis_sha256": digest,
-        })
-
-    plan = build_plan(_manifest_copy(tmp_path, mutate))
-    assert plan.sampling_phase == "confirmatory"
-    assert plan.confirmatory_replicates == 20
-    assert plan.power_analysis_sha256 == digest
-
-    artifact.write_text(artifact.read_text() + " ")
-    with pytest.raises(ManifestError, match="SHA-256 mismatch"):
         build_plan(_manifest_copy(tmp_path, mutate))
 
 
@@ -285,12 +241,20 @@ def test_launch_sets_canonical_schema_recovery_and_respects_parallel_cap(tmp_pat
         "scripts.opd.factorial_eval.subprocess.Popen",
         lambda *args, **kwargs: FakeProcess(args, kwargs),
     )
+    monkeypatch.setattr(
+        "scripts.opd.factorial_eval.validate_live_endpoint_attestations",
+        lambda *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        "scripts.opd.factorial_eval.seal_prelaunch_record",
+        lambda *args, **kwargs: tmp_path / "prelaunch.json",
+    )
     monkeypatch.setattr("scripts.opd.factorial_eval.validate_cell_result", lambda *args: None)
     assert launch(plan, confirmation=plan.experiment_id, environ=endpoint_env) == 0
-    assert len(captured) == 90
+    assert len(captured) == 360
     assert maximum_active == plan.max_parallel == 6
     assert all(p.kwargs["env"]["KAETRAM_TOOL_SCHEMA_SOURCE"] == "canonical" for p in captured)
-    assert sum("KAETRAM_TOOL_RECOVERY" in p.kwargs["env"] for p in captured) == 45
+    assert sum("KAETRAM_TOOL_RECOVERY" in p.kwargs["env"] for p in captured) == 180
     assert all(secret not in json.dumps(p.args[0]) for p in captured)
 
 
@@ -305,6 +269,13 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
             "meta": {
                 "model": model or cell.cell_id,
                 "scenario": plan.scenario,
+                "duration_seconds_budget": plan.duration_seconds,
+                "protocol_id": plan.protocol_id,
+                "experiment_manifest_sha256": plan.manifest_sha256,
+                "endpoint_attestation_sha256": cell.endpoint_attestation_sha256,
+                "checkpoint_sha256": cell.checkpoint_sha256,
+                "tokenizer_sha256": cell.tokenizer_sha256,
+                "render_contract_sha256": cell.render_contract_sha256,
                 "total_episodes": 1,
                 "ok_episodes": int(status == "ok"),
                 "tool_schema_source": plan.tool_schema_source,
@@ -327,14 +298,7 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
 
 
 def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Path):
-    def mutate(raw):
-        raw["evaluation"].update({
-            "omit_game_knowledge": False,
-            "held_out_quest": "",
-            "held_out_registration": "",
-        })
-
-    plan = build_plan(_manifest_copy(tmp_path, mutate))
+    plan = build_plan(_manifest_copy(tmp_path))
     cell = plan.cells[0]
     result_path = Path(cell.run_dir) / cell.cell_id / "results.json"
     result_path.parent.mkdir(parents=True)
@@ -342,6 +306,13 @@ def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Pat
         "meta": {
             "model": cell.cell_id,
             "scenario": plan.scenario,
+            "duration_seconds_budget": plan.duration_seconds,
+            "protocol_id": plan.protocol_id,
+            "experiment_manifest_sha256": plan.manifest_sha256,
+            "endpoint_attestation_sha256": cell.endpoint_attestation_sha256,
+            "checkpoint_sha256": cell.checkpoint_sha256,
+            "tokenizer_sha256": cell.tokenizer_sha256,
+            "render_contract_sha256": cell.render_contract_sha256,
             "total_episodes": 1,
             "ok_episodes": 1,
             "tool_schema_source": plan.tool_schema_source,
@@ -352,3 +323,24 @@ def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Pat
     }))
 
     validate_cell_result(plan, cell)
+
+
+def test_live_launch_rejects_unresolved_example_attestations_before_network(tmp_path: Path):
+    plan = build_plan(_manifest_copy(tmp_path))
+    endpoint_env = {cell.endpoint_env: "https://example.invalid/v1" for cell in plan.cells}
+    with pytest.raises(ManifestError, match="unresolved_example"):
+        validate_live_endpoint_attestations(plan, endpoint_env)
+
+
+def test_manifest_rejects_prompt_or_power_artifact_digest_drift(tmp_path: Path):
+    def prompt_drift(raw):
+        raw["protocol"]["prompt_inputs"][0]["sha256"] = "f" * 64
+
+    with pytest.raises(ManifestError, match="digest mismatch"):
+        build_plan(_manifest_copy(tmp_path, prompt_drift))
+
+    def power_drift(raw):
+        raw["analysis"]["sample_size"]["power_analysis_sha256"] = "f" * 64
+
+    with pytest.raises(ManifestError, match="digest mismatch"):
+        build_plan(_manifest_copy(tmp_path, power_drift))

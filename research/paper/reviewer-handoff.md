@@ -77,7 +77,7 @@ KAE-79 through KAE-85 are blocked on their relevant P0 tickets so the board does
 
 ## What is not currently supported
 
-- A general claim that visitation-corrected OPD outperforms ordinary on-policy distillation.
+- A general claim that reachability-targeted OPD outperforms ordinary on-policy distillation or modern prefix/guidance curricula.
 - A general claim that OPD outperforms matched off-policy SFT or outcome RL.
 - A clean base-versus-SFT causal comparison: training and serving do not share an identical model-visible tool-schema render.
 - Independent statistical replication of the 2B OPD result.
@@ -104,9 +104,9 @@ The historical r10 checkpoint cannot be repaired by merely passing native tools 
 
 Evaluate base 2B, r2, and r3 weights with recovery off and on under identical fresh-world, prompt, schema, duration, sampling, and hardware conditions. Use independent complete runs as the statistical unit. Preserve raw model emissions before any recovery rewrite.
 
-### WP2 — Natural visitation versus state-seeded OPD
+### WP2 — Natural visitation versus targeted external-state OPD
 
-Train two fresh students from the same checkpoint. Hold teacher, optimizer, scored-token budget, environment interactions, recovery setting, and training seeds fixed. Change only natural student visitation versus the documented natural-plus-seeded state mixture. This is the central causal test.
+Train fresh students from the same checkpoint. Hold teacher, optimizer, scored-token budget, environment interactions, recovery setting, and training seeds fixed. Compare natural visitation, targeted external states, random-valid states, progress-matched states, TCOD-B2F, and Guided-OPD. This is the central causal test.
 
 ### WP3 — Corrected same-family SFT baseline
 

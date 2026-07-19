@@ -31,11 +31,11 @@ Official sources:
 
 ## Novelty boundary after the July literature audit
 
-TCOD already uses teacher-success prefixes to initialize intermediate states for multi-turn OPD. Broad novelty for “starting OPD from an intermediate state” is therefore unavailable.
+TCOD already uses teacher-success prefixes to initialize intermediate states for multi-turn OPD. Guided-OPD changes state occupancy through scheduled teacher turns, ReOPD makes prefix-distribution design explicit, and SCoRe starts training from verified pre-error prefixes. Broad novelty for “starting OPD from an intermediate or failure state” is therefore unavailable.
 
 The candidate contribution is narrower:
 
-> Select verified failure states using student-visitation deficit, teacher competence, recoverability, and task relevance; initialize student OPD from those states; and compare fully unseeded execution against natural OPD and a matched TCOD-style success-prefix curriculum.
+> Directly restore verified persistent external states that need not lie on successful teacher trajectories; select them using a frozen student-visitation, teacher-advantage, recoverability, and task-relevance rule; and compare fully unseeded execution against natural OPD, generic matched resets, TCOD-B2F, and Guided-OPD.
 
 Database persistence, typed state, MCP, and game play are implementation properties, not sufficient novelty claims.
 
@@ -47,7 +47,7 @@ Do not submit unless every gate is green:
 2. Fresh natural-visitation and targeted-state students trained from the same checkpoint under matched budgets and seeds.
 3. Independent run-level replication with a locked power calculation and all runs reported.
 4. Full weights × recovery factorial completed with raw pre-rewrite emissions.
-5. Corrected-interface SFT and TCOD-style curriculum baselines completed.
+5. Corrected-interface SFT, random/progress reset, TCOD-B2F, and Guided-OPD baselines completed.
 6. Held-out quest, walkthrough/no-walkthrough, and retention evaluations completed.
 7. Copy-prior probe replicated across states, defect families, and at least two teachers.
 8. Anonymous clean clone regenerates every table and figure from immutable bundles.
@@ -62,4 +62,3 @@ Do not submit unless every gate is green:
 - September 27: statistics, figures, and artifacts frozen.
 - October 5: complete anonymous ACL-format draft.
 - October 12: submit only if every gate remains green.
-

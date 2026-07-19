@@ -16,17 +16,19 @@
 2. There is one full run per OPD arm. The three prompt variants are clustered observations, not independent replications.
 3. Historical render contracts and immutable raw bundles are incomplete. Prospective PRs do not retroactively repair old checkpoints.
 4. The 18/30 configuration combines weights and recovery. One 17-versus-18 contrast does not identify main or interaction effects.
-5. TCOD substantially preempts broad intermediate-state OPD novelty.
+5. TCOD, Guided-OPD, ReOPD, and SCoRe preempt broad intermediate-state, state-distribution, and student-failure curriculum novelty.
 6. The copy-prior probe is post-hoc, small, single-family, and uses a length-sensitive score.
 7. No held-out quest, no-walkthrough transfer, retention suite, or serious matched baseline has results.
 8. Historical r10 raw inputs are missing, its analysis script fails, and the model-visible render contract differs.
 9. The old report’s capacity and development-envelope claims mix durations and selected runs.
 10. PRs #39–#42 add infrastructure and launchers, not scientific evidence.
+11. The April 25–July 18 dedicated r10 eval path reset and snapshotted a different Mongo database from the game servers. R10 numbers are quarantined; the June OPD sequence used a separate correctly aligned orchestrator lane, but its raw bundles are still missing.
 
 ## Required experiments
 
-- Matched natural OPD versus targeted failure-state OPD from the same checkpoint.
-- Matched TCOD-style success-prefix curriculum.
+- Matched natural OPD versus reachability-targeted external-state OPD from the same checkpoint.
+- Random-valid, progress-matched, visitation-only, and teacher-advantage-only reset controls.
+- Matched TCOD-B2F and Guided-OPD curricula; preferably SCoRe-style first-error prefixes.
 - Corrected-interface SFT baseline.
 - Independent environment and inference seeds; run-level analysis and power calculation.
 - Base/round-two/round-three weights crossed with recovery off/on.
@@ -38,7 +40,8 @@
 
 - What is randomized, and what is held fixed?
 - Is the gain from state coverage, successful replay, extra data, or teacher grading?
-- How is the selected state different from Backplay or TCOD?
+- Does targeted selection beat Backplay-like generic resets, TCOD-B2F, and Guided-OPD?
+- Are direct snapshots useful beyond replaying a teacher prefix to the identical state?
 - Is the state reachable and internally consistent?
 - Does the intervention improve states not adjacent to the seed?
 - Does it transfer to a quest never used for seeding or grading?

@@ -43,14 +43,26 @@ Success criterion: the round-two arm consistently improves the preregistered run
 
 ## P2 — isolate environment-state seeding
 
-Train two fresh students from the same base checkpoint with every setting identical except rollout-state source:
+Train fresh students from the same base checkpoint with every setting identical except rollout-state source. Primary arms:
 
 - Natural student visitation only
-- The same natural visitation mixed with the documented seeded failure states
+- Reachability-targeted external states selected by the frozen rule
+- Random valid external states
+- Progress-matched valid external states
+- TCOD-B2F successful-teacher-prefix states
+- Guided-OPD with its published decaying teacher-turn schedule
+
+Selection ablations:
+
+- Visitation-deficit only
+- Teacher-advantage only
+- Combined frozen rule
 
 Hold teacher, loss, optimizer, data budget, action-token budget, training seed schedule, and number of environment interactions fixed. Evaluate both from fresh unseeded worlds.
 
-Record environment and inference seeds before launch and randomize/blind the arm schedule. Select failure states by a frozen rule that combines low natural student visitation, demonstrated teacher competence, recoverability, and relevance to the primary endpoint. Hand-picked states without a recorded selection rule are exploratory curriculum engineering.
+Record environment and inference seeds before launch and randomize/blind the arm schedule. Select states by a frozen rule that combines low natural student visitation, demonstrated teacher competence, recoverability, and relevance to the primary endpoint. Every candidate must include repeated-trial counts, a complete direct-seed snapshot, source-run provenance, and hash-verified legality, consistency, and end-to-end seed evidence. Hand-picked states without a recorded selection rule are exploratory curriculum engineering.
+
+The method claim is falsified if random-valid or progress-matched resets tie the targeted arm, if TCOD-B2F or Guided-OPD ties it, if selected-state teacher reliability is low, or if gains appear only when evaluation is seeded. Decompose unseeded success into reaching the bottleneck, crossing it conditional on arrival, and downstream completion conditional on crossing.
 
 This experiment is the paper. Round one versus round two is not a clean substitute because the rounds differ in more than visitation.
 
@@ -98,7 +110,9 @@ At minimum compare against:
 
 - Off-policy SFT with the corrected identical interface
 - Plain GKD/OPD under natural student visitation
-- A matched TCOD-style teacher-success-prefix temporal curriculum
+- TCOD-F2B and TCOD-B2F under matched budgets
+- Guided-OPD with its teacher-turn schedule
+- A SCoRe-style verified first-error-prefix condition
 - Data reweighting or dead-session filtering for the r10 marginal-imbalance hypothesis
 
 Match environment interactions and teacher-scoring budget. Report compute and dollar cost as secondary resource metrics, backed by preserved billing exports.

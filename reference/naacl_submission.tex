@@ -10,8 +10,8 @@
 % FORMAT NOTE: Built with the current official ACL review template for ARR.
 % Recheck the NAACL 2027 venue-specific CFP before submission.
 
-\title{Targeted Failure-State Initialization for On-Policy Distillation:\\
-An Audited Case Study in a Persistent Tool-Use Agent}
+\title{Reachability-Targeted External-State Initialization for On-Policy Distillation:\\
+A Falsifiable Protocol and Audited Agent Case Study}
 
 \author{Anonymous submission}
 
@@ -24,23 +24,25 @@ An Audited Case Study in a Persistent Tool-Use Agent}
 \maketitle
 
 \begin{abstract}
-On-policy distillation supervises only states visited by the student. This is
-restrictive for persistent agents: early failures can prevent them from reaching
-states at which a teacher is more capable. We study a 2B-parameter language model
+On-policy distillation supervises states visited by the student, but long-horizon
+agents may rarely reach external world states where a teacher has a measurable
+conditional advantage. We study a 2B-parameter language model
 acting for six hours through 17 typed tools in an open-source MMORPG. In one
 reported run per arm, natural-visitation distillation changes tool use and
 interaction tempo but leaves the quest score at 12/30. A second round augments
-student rollouts with verified intermediate world states. Evaluated from a fresh,
+student rollouts with hand-selected, verified intermediate world states. Evaluated from a fresh,
 unseeded world, the resulting policy scores 15/30; all three clustered prompt
 variants pass a wall that none passes under the reported base or first-round
 policy. This is a weights-only observation, not a replicated causal estimate:
 the training rounds differ in more than state source. A targeted teacher-forcing
 probe also finds that malformed history can locally reverse the teacher's syntax
 preference. In rewritten runtime logs, correction markers do not repeat within a
-session. These observations motivate a confirmatory comparison against natural
-OPD and a success-prefix temporal curriculum, with model weights and interface
-recovery isolated. We present an audited case study and falsifiable protocol,
-not established cross-task generality.
+session. These observations motivate a confirmatory six-arm comparison in which
+training-only external states are selected by frozen student-visitation, teacher-
+advantage, validity, and recoverability criteria. Random-valid, progress-matched,
+teacher-success-prefix, natural-OPD, and guided-OPD controls separate targeted
+coverage from generic resets and prefix curricula. We present a falsifiable
+protocol and audited case study, not an established method effect.
 \end{abstract}
 
 \section{Introduction}
@@ -58,9 +60,10 @@ student plays a tile-based MMORPG through a typed action interface. The world
 persists across conversation rollovers, and benchmark progress requires long
 chains of gathering, navigation, dialogue, and quest actions. A scaffolded 4B
 teacher reaches states that the 2B student does not. We apply reverse-KL
-on-policy distillation to the student's own emitted tokens and compare natural
-student visitation with a mixture that begins some rollouts from verified
-intermediate database states.
+on-policy distillation to the student's own emitted tokens. The historical
+comparison contrasts natural student visitation with a mixture that begins some
+rollouts from verified intermediate database states; the proposed confirmatory
+method additionally freezes a measurable state-selection rule before training.
 
 The present evidence is hypothesis-generating and under-replicated. It contains
 one complete six-hour run per principal arm; the three agents within a run are
@@ -72,12 +75,13 @@ same wall from an unseeded evaluation world. This supports the hypothesis that
 training visitation matters, but it does not isolate state seeding from all
 round-to-round changes or estimate population-level uncertainty.
 
-This paper makes three bounded contributions:
+This working draft makes three bounded contributions:
 
 \begin{enumerate}
-  \item We instantiate targeted failure-state reset as a control point for
-  on-policy distillation and document an exploratory case in which a seeded
-  training round is followed by unseeded passage of a previously unseen wall.
+  \item We define \emph{reachability-targeted external-state initialization}:
+  training-only resets into legally reachable persistent states selected for
+  low natural student occupancy, teacher conditional advantage, and
+  recoverability. We pair it with controls that can falsify the method claim.
   \item We distinguish behavioral imitation from competence: the first round
   closely changes measured tool mix and tempo toward the teacher while the
   benchmark score remains fixed.
@@ -156,9 +160,23 @@ the intended condition through the same tools used at evaluation. Evaluation is
 always unseeded. This resembles reset-based curricula in reinforcement learning
 \citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. TCOD
 uses teacher-success prefixes to initialize multi-turn OPD curricula
-\citep{wang2026tcod}. Our narrower target is a verified failure state selected
-for high student-visitation deficit and teacher competence, evaluated against
-both natural OPD and a TCOD-style success-prefix baseline.
+\citep{wang2026tcod}; Guided-OPD mixes teacher and student turns and anneals
+guidance to zero \citep{li2026guidedopd}; ReOPD treats prefix selection as a
+teacher-reliability problem \citep{liao2026reopd}. These works preempt generic
+novelty for intermediate starts or state-distribution design. Our narrower
+object is a direct, prefix-independent external-state initializer. A candidate
+state need not lie on a successful teacher trajectory and is selected by a
+frozen rule rather than by progress alone.
+
+Let $v(s)$ be estimated natural student visitation, and let $p_T(s)$ and
+$p_S(s)$ be repeated teacher and student success rates when initialized at
+$s$. The confirmatory selector admits a state only if it passes world invariants,
+is unfinished and task-relevant, is recoverable, satisfies $v(s)\leq\tau_v$,
+and satisfies $p_T(s)-p_S(s)\geq\tau_\Delta$ together with a minimum teacher
+success threshold. Counts and denominators, source-run identifiers, complete
+snapshots, and hash-verified validation artifacts are frozen before outcomes.
+This rule distinguishes the proposed method from the hand-selected milestone
+used in the exploratory round.
 
 \section{Evidence Protocol}
 
@@ -320,11 +338,17 @@ preregistered primary endpoint is total \core{} stage gain across the three
 clustered agents. Quest-wall passage is secondary. All runs, confidence
 intervals, effect sizes, and stopping rules must be reported.
 
-\paragraph{Visitation ablation.}
-Train two fresh students from the same checkpoint with every setting fixed:
-natural student visitation only versus the same natural data budget mixed with
-verified milestone states. Match teacher, optimization, action-token budget,
-environment interactions, and training-seed schedule; evaluate both unseeded.
+\paragraph{State-source ablation.}
+Train fresh students from the same checkpoint under five matched initial-state
+distributions: natural OPD; targeted states; random valid states; progress-
+matched states; and TCOD-B2F teacher-success-prefix states. Add visitation-only
+and teacher-advantage-only selectors to identify which criterion matters. A
+Guided-OPD arm tests whether turn-level teacher anchoring already addresses the
+failure. Match teacher, optimizer, action-token and teacher-scoring budgets,
+environment interactions, and training-seed schedule; evaluate every arm from
+the original unseeded state. The method claim fails if random or progress-
+matched resets, TCOD-B2F, or Guided-OPD ties the targeted arm within the
+preregistered smallest effect of interest.
 
 \paragraph{Weights by recovery factorial.}
 Evaluate base, round-2, and round-3 weights with recovery both off and on.
@@ -333,11 +357,13 @@ for stage progress and format-defect rate instead of attributing a combined
 system score to weights.
 
 \paragraph{Generalization.}
-Hold out at least one quest from state seeding and compare full walkthrough
-against no-walkthrough prompts. A second environment or model family is needed
-for any broad claim. Plain natural-visitation OPD, corrected-interface SFT, and
-a matched TCOD-style success-prefix curriculum are minimum baselines under matched interaction and
-teacher-scoring budgets.
+Hold out at least one quest from candidate discovery, state selection, and
+training, then compare full-walkthrough against no-walkthrough prompts. Report
+the probability of reaching the bottleneck, crossing it conditional on arrival,
+and finishing downstream. A second environment or model family is needed for
+any broad claim. Corrected-interface SFT and a SCoRe-style first-error-prefix
+condition are additional baselines under matched interaction and teacher-
+scoring budgets \citep{lyu2025score}.
 
 \paragraph{Copy-prior test.}
 Construct paired canonical/malformed histories across tools, states, defect
@@ -352,8 +378,15 @@ GKD establishes on-policy distillation from student-generated sequences with
 teacher feedback \citep{agarwal2024gkd}; our work does not claim novelty for
 OPD itself. TCOD directly studies temporal curricula and intermediate-state
 initialization for multi-turn OPD \citep{wang2026tcod}; broad novelty for seeded
-starts is therefore preempted. DAgger formalizes iterative data collection under the learner's
-state distribution \citep{ross2011dagger}. Reset-along-demonstration, Backplay,
+starts is therefore preempted. Guided-OPD changes live occupancy by mixing
+teacher and student turns \citep{li2026guidedopd}; ReOPD designs reliable prefix
+distributions offline \citep{liao2026reopd}; and SCoRe localizes the first
+student error before short-horizon training \citep{lyu2025score}. SOD and KAT
+instead alter or terminate supervision on degraded prefixes
+\citep{zhong2026sod,xin2026kat}. These methods make intermediate-state,
+student-failure, and state-centric novelty claims unavailable. DAgger formalizes
+iterative data collection under the learner's state distribution
+\citep{ross2011dagger}. Reset-along-demonstration, Backplay,
 and Go-Explore show that restoring intermediate states can expose useful signal
 in hard-exploration reinforcement learning
 \citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. We use
@@ -367,9 +400,10 @@ while Orak uses MCP across twelve games and releases gameplay fine-tuning data
 \citep{park2026orak}. MCP and game play are therefore infrastructure here, not
 novelty claims. Voyager and AgentTrek use curricula, reusable skills, or guided
 replay to obtain long-horizon behavior
-\citep{wang2023voyager,zheng2025agenttrek}. Our narrower question is whether
-state visitation controls which teacher capabilities are available to a small
-student under dense grading.
+\citep{wang2023voyager,zheng2025agenttrek}. Our narrower question is whether a
+frozen selector over low-occupancy, teacher-competent persistent external states
+adds value beyond natural OPD, successful-prefix replay, turn-level guidance,
+and matched generic resets.
 
 Supervised imitation can compound errors under distribution shift
 \citep{ross2011dagger}, and knowledge distillation does not guarantee functional
@@ -380,14 +414,14 @@ result of this submission draft.
 
 \section{Conclusion}
 
-The observed case supports a concrete hypothesis: for persistent tool-using
-agents, controlling where the student acts may matter as much as optimizing how
-it matches a teacher. Natural-visitation OPD changed behavior without changing
-score; a later state-augmented training round was followed by unseeded passage
-of a previously unseen wall. A malformed-prefix probe further shows why
-teacher-forced token feedback can fail at the tool boundary. Replication,
-isolation, and held-out transfer are the next scientific results, not boxes that
-prose can check.
+The observed case supports a concrete hypothesis: low-occupancy external states
+may hide useful teacher competence from natural OPD. Natural-visitation OPD
+changed behavior without changing score; a later hand-selected state-augmented
+round was followed by unseeded passage of a previously unseen wall. That sequence
+does not establish the proposed selector. Random and progress-matched resets,
+TCOD-B2F, Guided-OPD, replication, and held-out transfer decide whether the
+narrow method survives. A malformed-prefix probe separately shows why teacher-
+forced token feedback can fail at the tool boundary.
 
 \section*{Limitations}
 
@@ -401,9 +435,10 @@ paper must not be submitted as confirmatory until the study design above is run
 and a clean clone regenerates every main table.
 
 Direct database construction is environment-specific and may not transfer to
-systems without restorable state. The failure state was selected
-retrospectively, so selection bias is possible. Teacher competence at the target
-state is observed in a small number of trajectories, not estimated precisely.
+systems without restorable state. The historical failure state was selected
+retrospectively, so selection bias is possible; the prospective selector has no
+outcome yet. Teacher competence at the target state is observed in a small number
+of trajectories, not estimated precisely.
 The syntax probe covers one defect family and should not be generalized to all
 teacher-forced grading.
 
@@ -455,6 +490,7 @@ the target resource. Evaluation never loads this state.
 \begin{description}
 \item[Round-1 behavior.] Descriptive, one run: measured behavior changed while score did not.
 \item[State-seeded round.] Unreplicated: the seeded-training round was followed by unseeded wall passage in one run.
+\item[Targeted selector.] Protocol only: no candidate-state bundle, trained checkpoint, or outcome is currently available.
 \item[12 to 15.] Least-confounded historical weights-only observation; not an effect estimate, and exact parity remains unavailable.
 \item[18/30.] Weights-plus-interface system result only.
 \item[Copy prior.] Context-dependent endorsement reversal for the targeted historical probe.
@@ -475,8 +511,11 @@ inputs.
 
 The current development artifact does not yet meet this bar. In particular, raw
 inputs for the historical r10 analysis and some OPD gate summaries are absent,
-and full dependency installation has not been demonstrated from the repository
-root. These omissions are release blockers, not appendix footnotes.
+and the dedicated r10 eval path reset a different database from its game servers
+after April 25. The June OPD runs used a separate database-aligned orchestrator
+lane, but their raw bundles are also absent. Full dependency installation has
+not been demonstrated from the repository root. These omissions are release
+blockers, not appendix footnotes.
 
 \section{Planned Statistical Analysis}
 

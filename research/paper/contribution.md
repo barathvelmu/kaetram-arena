@@ -2,11 +2,11 @@
 
 Working notes for Paper 1 of the two-paper roadmap. This is a historical thinking document, not paper-ready prose. The July 18, 2026 submission audit in [submission-readiness.md](submission-readiness.md), [claims-evidence-matrix.md](claims-evidence-matrix.md), and [literature-positioning.md](literature-positioning.md) supersedes any conflicting framing below.
 
-**Context:** This is Paper 1 (Kaetram distillation). Paper 2 (RuneScape adversarial multi-agent) is in [paper2-runescape-vision.md](paper2-runescape-vision.md). The two papers are fully independent — do not conflate them. Paper 1 proves the distillation infrastructure. Paper 2 is the agent safety contribution. Both publish under the arXiv.
+**Context:** This is Paper 1 (Kaetram distillation). Paper 2 (RuneScape adversarial multi-agent) is in [paper2-runescape-vision.md](paper2-runescape-vision.md). The two papers are fully independent — do not conflate them. Paper 1 evaluates a distillation hypothesis and its infrastructure; it does not yet prove a method effect. Paper 2 is the agent safety contribution.
 
 **Publication strategy:** arXiv plus one archival conference at a time. Simultaneous ICLR/NeurIPS submission is prohibited by the venues' parallel-submission policies. The working target is ICLR 2027 only if the replicated causal and transfer experiments are complete; otherwise wait for COLM or ICML.
 
-**Current framing:** visitation-corrected on-policy distillation for persistent tool-using agents (4B teacher to 2B student). The clean weights-only observation is round two, 12/30 to 15/30 in one run per arm; the 18/30 round-three result combines weights with a recovery affordance. The original 9B SFT result is a motivating negative result, not the current method contribution.
+**Current framing:** reachability-targeted external-state initialization for on-policy distillation in persistent tool-using agents (4B teacher to 2B student). The method is prospective: direct snapshots must be selected by a frozen visitation/teacher-advantage/recoverability rule and compared against natural OPD, random-valid and progress-matched resets, TCOD-B2F, and Guided-OPD. The historical round-two 12/30 to 15/30 sequence used a hand-selected milestone and is motivation, not validation; the 18/30 round-three result combines weights with a recovery affordance. The original 9B SFT result is a motivating negative result, not the current method contribution.
 
 ---
 

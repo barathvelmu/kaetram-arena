@@ -92,13 +92,14 @@ rm -rf /tmp/kaetram_eval_*
 # Reset eval player data in MongoDB
 source "$PROJECT_DIR/.venv/bin/activate" 2>/dev/null || true
 export KAETRAM_MONGO_DB="kaetram_eval"
-python3 -c "
+PYTHONPATH="$PROJECT_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 -c "
 import os
+from eval_harness import MONGO_COLLECTIONS
 from pymongo import MongoClient
 c = MongoClient('localhost', 27017)
 db = c[os.environ['KAETRAM_MONGO_DB']]
 for username in ['evalbotsft', 'evalbotbase']:
-    for col in ['player_info','player_skills','player_equipment','player_inventory','player_bank','player_quests','player_achievements','player_statistics','player_abilities']:
+    for col in MONGO_COLLECTIONS:
         db[col].delete_many({'username': username})
 print('  Eval player data cleared')
 "

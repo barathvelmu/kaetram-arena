@@ -13,6 +13,13 @@ sys.path.insert(0, str(REPO_ROOT))
 import eval_harness
 
 
+def test_run_eval_reset_reuses_harness_collection_contract() -> None:
+    source = (REPO_ROOT / "scripts" / "run-eval.sh").read_text()
+    assert "from eval_harness import MONGO_COLLECTIONS" in source
+    assert "for col in MONGO_COLLECTIONS" in source
+    assert "for col in ['player_info'" not in source
+
+
 def test_reset_player_db_targets_configured_database(monkeypatch) -> None:
     calls = []
 

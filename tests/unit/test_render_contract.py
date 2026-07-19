@@ -84,8 +84,11 @@ def test_native_tools_v1_passes_full_schema_and_adapts_openai_arguments():
     assert messages[1]["tool_calls"][0]["function"]["arguments"] == '{"location":"aynor"}'
 
 
-@pytest.mark.parametrize("arguments", ('["aynor"]', '"aynor"', "true"))
-def test_native_tools_v1_rejects_json_arguments_that_are_not_objects(arguments):
+@pytest.mark.parametrize(
+    "arguments",
+    ('["aynor"]', '"aynor"', "true", "", "{not-json", None, ["aynor"], True),
+)
+def test_native_tools_v1_rejects_malformed_or_nonobject_arguments(arguments):
     tokenizer = RecordingTokenizer()
     messages = [{
         "role": "assistant",
@@ -96,17 +99,16 @@ def test_native_tools_v1_rejects_json_arguments_that_are_not_objects(arguments):
         }],
     }]
 
-    render_messages(
-        tokenizer,
-        messages,
-        render_mode=NATIVE_TOOLS_V1,
-        tools=MODEL_VISIBLE_TOOL_DEFINITIONS,
-        add_generation_prompt=False,
-    )
+    with pytest.raises(ValueError, match="tool arguments must be a(?: valid)? JSON object"):
+        render_messages(
+            tokenizer,
+            messages,
+            render_mode=NATIVE_TOOLS_V1,
+            tools=MODEL_VISIBLE_TOOL_DEFINITIONS,
+            add_generation_prompt=False,
+        )
 
-    assert tokenizer.calls[-1]["messages"][0]["tool_calls"][0]["function"][
-        "arguments"
-    ] == {}
+    assert tokenizer.calls == []
 
 
 def test_legacy_markdown_r10_omits_tools_keyword_entirely():

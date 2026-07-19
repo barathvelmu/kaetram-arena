@@ -179,20 +179,28 @@ def adapt_messages_for_qwen_template(messages: list[dict]) -> list[dict]:
     ``<tool_call>`` copy redundant, so remove it when structured calls exist.
     """
     out: list[dict] = []
-    for message in messages:
+    for message_index, message in enumerate(messages):
         new_message = dict(message)
         calls = new_message.get("tool_calls") or []
         if calls:
             fixed_calls = []
-            for call in calls:
+            for call_index, call in enumerate(calls):
                 function = dict(call.get("function") or {})
                 arguments = function.get("arguments")
                 if isinstance(arguments, str):
                     try:
-                        arguments = json.loads(arguments) if arguments.strip() else {}
-                    except json.JSONDecodeError:
-                        arguments = {}
-                function["arguments"] = arguments if isinstance(arguments, dict) else {}
+                        arguments = json.loads(arguments)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(
+                            "native tool arguments must be a valid JSON object "
+                            f"at messages[{message_index}].tool_calls[{call_index}]"
+                        ) from exc
+                if not isinstance(arguments, dict):
+                    raise ValueError(
+                        "native tool arguments must be a JSON object "
+                        f"at messages[{message_index}].tool_calls[{call_index}]"
+                    )
+                function["arguments"] = arguments
                 fixed_calls.append({**call, "function": function})
             new_message["tool_calls"] = fixed_calls
             content = new_message.get("content") or ""

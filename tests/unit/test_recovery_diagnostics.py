@@ -93,6 +93,9 @@ def test_render_context_preserves_historical_none_and_supports_canonical_schema(
 
 def test_target_stats_and_summary_ignore_failed_scores() -> None:
     assert target_stats({"target_logprobs": [-1.0, None, -3.0]}) == (-4.0, -2.0, 2)
+    assert target_stats({
+        "target_logprobs": [True, False, float("nan"), float("inf"), -2.0]
+    }) == (-2.0, -2.0, 1)
     rows = [
         {"state_id": "a", "endpoint": "t", "context_condition": "real", "candidate": "malformed",
          "mean_target_logprob": -2.0},

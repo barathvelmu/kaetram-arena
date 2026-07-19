@@ -17,6 +17,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import math
 import os
 import re
 import statistics
@@ -169,7 +170,11 @@ def context_conditions(state: dict) -> dict[str, list[dict]]:
 def target_stats(response: dict) -> tuple[float | None, float | None, int]:
     values = [
         value for value in response.get("target_logprobs", [])
-        if isinstance(value, (int, float))
+        if (
+            not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(value)
+        )
     ]
     if not values:
         return None, None, 0
@@ -200,7 +205,7 @@ async def score(client: httpx.AsyncClient, semaphore: asyncio.Semaphore, endpoin
                     return response.json()
                 if response.status_code == 400:
                     return None
-            except (httpx.HTTPError, httpx.TimeoutException):
+            except (httpx.HTTPError, httpx.TimeoutException, ValueError):
                 pass
             await asyncio.sleep(2 * (attempt + 1))
     return None
@@ -349,6 +354,10 @@ async def main_async() -> int:
 
     if args.limit < 1 or args.max_history_messages < 1:
         parser.error("limits must be positive")
+    if args.concurrency < 1:
+        parser.error("--concurrency must be positive")
+    if args.retries < 1:
+        parser.error("--retries must be positive")
     endpoints = list(args.endpoint)
     if not endpoints and os.environ.get("FOURB_EP"):
         endpoints.append(("teacher-4b", os.environ["FOURB_EP"].rstrip("/")))

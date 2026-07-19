@@ -346,7 +346,7 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         "ok_episodes": plan.episodes,
         "tool_schema_source": plan.tool_schema_source,
         "include_game_knowledge": not plan.omit_game_knowledge,
-        "held_out_quest": plan.held_out_quest or None,
+        "held_out_quest": plan.held_out_quest,
     }
     mismatches = {
         key: {"expected": expected, "actual": meta.get(key)}

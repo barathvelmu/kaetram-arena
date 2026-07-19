@@ -138,8 +138,10 @@ def _bootstrap_ci(
 
 def _sign_flip_p(values: list[float]) -> float | None:
     nonzero = [value for value in values if value != 0]
-    if len(values) < 5 or not nonzero:
+    if len(values) < 5:
         return None
+    if not nonzero:
+        return 1.0
     exact_values = [Fraction(str(value)) for value in nonzero]
     observed = abs(sum(exact_values))
     distribution = Counter({Fraction(0): 1})

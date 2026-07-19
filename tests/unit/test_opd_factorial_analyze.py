@@ -88,6 +88,7 @@ def test_analysis_uses_replicates_not_personality_cells_as_n(tmp_path: Path) -> 
         if effect["name"] == "r3_minus_base_recovery_interaction"
     )
     assert interaction["paired_deltas"] == [0.0] * 5
+    assert interaction["exact_two_sided_sign_flip_p"] == 1.0
     assert analysis["sample_size_contract"]["status"] == "pilot_preliminary"
 
 

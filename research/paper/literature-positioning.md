@@ -5,8 +5,8 @@
 The paper is not novel because it uses games, MCP, structured actions, a persistent world, intermediate-state OPD, or on-policy distillation separately. TCOD already uses teacher-success prefixes to initialize intermediate states for multi-turn OPD; Guided-OPD changes live state occupancy through decaying teacher turns; ReOPD explicitly frames multi-turn OPD as reliability-aware prefix-distribution design; and SCoRe trains from verified prefixes immediately before student errors. The candidate contribution is contingent on the planned matched experiments:
 
 1. **Reachability-targeted external-state initialization for on-policy distillation:** directly restore complete, verified persistent world states that need not lie on a successful teacher path; select them using a frozen student-visitation, teacher-advantage, recoverability, and task-relevance rule; train on student rollouts from those states; and compare unseeded evaluation against natural OPD, random-valid and progress-matched resets, TCOD-B2F, and Guided-OPD.
-2. **A teacher-forcing copy-prior failure in an agent:** malformed student tool syntax in the context reverses the teacher's local preference even though the teacher does not generate the defect from a clean history.
-3. **A measured interface-versus-weights decomposition:** weights transfer one quest-wall competence, while a generation-time recovery affordance resolves a separate syntax defect.
+2. **A teacher-forcing copy-prior diagnostic:** one targeted historical probe shows context-dependent endorsement reversal. A multi-defect, multi-state, multi-teacher paired intervention is required before treating this as a mechanism contribution.
+3. **An interface-versus-weights decomposition protocol:** the historical 18/30 system combines weights and recovery. Only a fully replicated weights-by-recovery factorial can identify main or interaction effects.
 
 Do not use “to our knowledge” novelty language until the matched comparisons succeed and the literature search is rerun immediately before submission.
 
@@ -35,10 +35,11 @@ Do not use “to our knowledge” novelty language until the matched comparisons
 - **CRADLE** operates through screenshots and keyboard/mouse control across commercial games and applications, contrasting with Kaetram's symbolic state and typed actions. [OpenReview](https://openreview.net/forum?id=aIAFDFpNXz)
 - **Voyager** establishes persistent open-world Minecraft agents with an automatic curriculum and skill library. It preempts generic open-world, persistent, or autonomous-skill-learning claims. [arXiv:2305.16291](https://arxiv.org/abs/2305.16291)
 - **GITM** uses structured actions and LLM-generated plans in open-world Minecraft. [arXiv:2305.17144](https://arxiv.org/abs/2305.17144)
+- **Backplay** restores states from a demonstration and anneals starts backward toward the canonical initial state. A direct-snapshot claim therefore needs a matched Backplay/history control, not only random resets. [arXiv:1807.06919](https://arxiv.org/abs/1807.06919)
 
 ## Positioning sentence
 
-> Prior work changes rollout horizons, replays successful prefixes, mixes teacher and student turns, or corrects errors on encountered student trajectories. We isolate a narrower control point: direct, prefix-independent restoration of verified persistent world states selected because the student rarely reaches them and the teacher has a measured conditional advantage there. All headline evaluation begins from the original unseeded world.
+> Prior work changes rollout horizons, replays successful prefixes, mixes teacher and student turns, or corrects errors on encountered student trajectories. We test a narrower control point: direct restoration of witness-certified persistent world states selected by frozen visitation and teacher-advantage criteria. The confirmatory design matches model-visible history and evaluates every arm from a fresh canonical unseeded world; no superiority result is currently reported.
 
 ## Claims to avoid
 

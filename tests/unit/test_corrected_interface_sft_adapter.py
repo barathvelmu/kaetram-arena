@@ -132,6 +132,8 @@ def _fixture(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
                 "status": "verified",
                 "quest": "held-out-quest",
                 "aliases": ["secret-held-out-alias"],
+                "tokenizer_vocab_size": 1000,
+                "forbidden_token_sequences": [[777, 778]],
             },
             "corrected": {
                 "kind": "corrected_interface_teacher_trajectories",

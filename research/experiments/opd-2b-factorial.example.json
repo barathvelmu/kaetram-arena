@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "experiment_id": "opd-2b-weights-x-recovery-v1",
+  "design": {
+    "weights": [
+      "base",
+      "r2",
+      "r3"
+    ],
+    "recovery": [
+      false,
+      true
+    ],
+    "replicates": 5
+  },
+  "models": {
+    "base": {
+      "endpoint_env": "KAETRAM_QWEN_2B_BASE_ENDPOINT",
+      "api_model": "2b-base"
+    },
+    "r2": {
+      "endpoint_env": "KAETRAM_QWEN_2B_R2_ENDPOINT",
+      "api_model": "2b-opd-r2"
+    },
+    "r3": {
+      "endpoint_env": "KAETRAM_QWEN_2B_R3_ENDPOINT",
+      "api_model": "2b-opd-r3"
+    }
+  },
+  "evaluation": {
+    "episodes": 1,
+    "scenario": "D",
+    "personalities": [
+      "grinder",
+      "completionist",
+      "explorer_tinkerer"
+    ],
+    "tool_schema_source": "canonical",
+    "omit_game_knowledge": true,
+    "held_out_quest": "Desert Quest",
+    "held_out_registration": "research/experiments/heldout-quest.json"
+  },
+  "isolation": {
+    "username_prefix": "opdfx",
+    "server_port_start": 9300,
+    "sandbox_root": "/tmp/kaetram_opd_factorial",
+    "output_root": "dataset/eval/opd_factorial"
+  },
+  "execution": {
+    "allow_launch": false,
+    "max_parallel": 6
+  }
+}

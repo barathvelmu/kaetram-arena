@@ -731,8 +731,21 @@ async def run_agent(args):
     logger = SessionLogger(run_dir, sandbox, harness_meta)
     mcp = None
 
+    # Resolve endpoint indirection only inside this process. Factorial evals use
+    # --endpoint-env so signed URLs never appear in argv or persisted logs.
+    endpoint_env = getattr(args, "endpoint_env", "")
+    if endpoint_env:
+        endpoint = os.environ.get(endpoint_env, "")
+        if not endpoint:
+            raise RuntimeError(f"endpoint environment variable is empty: {endpoint_env}")
+        endpoint_ref = f"env:{endpoint_env}"
+    else:
+        endpoint = args.endpoint
+        endpoint_ref = "direct-endpoint"
+    args.endpoint = endpoint
+
     # Init OpenAI client (Modal SGLang endpoint) — shared across warm sessions.
-    client = OpenAI(base_url=args.endpoint, api_key=args.api_key or "not-needed", timeout=300)
+    client = OpenAI(base_url=endpoint, api_key=args.api_key or "not-needed", timeout=300)
 
     # Spawn MCP game server — shared across warm sessions. Browser stays
     # logged in for the entire process lifetime; sessions only reset the
@@ -757,6 +770,13 @@ async def run_agent(args):
     # turns/session) to the MCP subprocess when the launcher enabled it.
     if os.environ.get("KAETRAM_OBSERVE_COMPACT"):
         mcp_env["KAETRAM_OBSERVE_COMPACT"] = "1"
+    # Held-out eval policy: redact walkthrough/advisory fields for exactly the
+    # preregistered quest at the query_quest tool boundary. These variables are
+    # set only by eval_harness; normal collection/inference is unchanged.
+    if os.environ.get("KAETRAM_NO_WALKTHROUGH"):
+        mcp_env["KAETRAM_NO_WALKTHROUGH"] = os.environ["KAETRAM_NO_WALKTHROUGH"]
+    if os.environ.get("KAETRAM_HELDOUT_QUEST"):
+        mcp_env["KAETRAM_HELDOUT_QUEST"] = os.environ["KAETRAM_HELDOUT_QUEST"]
 
     mcp = MCPClient(venv_python, server_script, mcp_env)
     info("Connecting to MCP game server...")
@@ -787,7 +807,7 @@ async def run_agent(args):
 
     info(
         f"Warm-loop started: personality={args.personality}, "
-        f"endpoint={args.endpoint}, "
+        f"endpoint={endpoint_ref}, "
         f"max_duration_seconds={args.max_duration_seconds or 'unbounded'}"
     )
 
@@ -807,7 +827,7 @@ async def run_agent(args):
                 logger,
                 personality=args.personality,
                 model=args.model,
-                endpoint=args.endpoint,
+                endpoint=endpoint_ref,
                 tools=tool_names,
             )
 
@@ -865,7 +885,12 @@ def main():
             "rollovers; only the conversation resets."
         )
     )
-    parser.add_argument("--endpoint", required=True, help="OpenAI-compatible API base URL")
+    endpoint = parser.add_mutually_exclusive_group(required=True)
+    endpoint.add_argument("--endpoint", help="OpenAI-compatible API base URL")
+    endpoint.add_argument(
+        "--endpoint-env",
+        help="Environment variable containing the API base URL (keeps signed URLs out of argv/logs)",
+    )
     parser.add_argument("--model", default="kaetram", help="Model name")
     parser.add_argument("--api-key", default=None, help="API key (default: not-needed)")
     parser.add_argument("--system-prompt", default=None, help="System prompt file or text")

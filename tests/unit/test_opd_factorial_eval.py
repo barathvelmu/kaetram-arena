@@ -172,6 +172,14 @@ def test_confirmatory_manifest_requires_three_historical_personality_lanes(tmp_p
         build_plan(_manifest_copy(tmp_path, mutate))
 
 
+def test_manifest_rejects_changed_or_reordered_primary_estimands(tmp_path: Path):
+    def mutate(raw):
+        raw["analysis"]["primary_estimands"].reverse()
+
+    with pytest.raises(ManifestError, match="primary_estimands"):
+        build_plan(_manifest_copy(tmp_path, mutate))
+
+
 def test_launch_requires_manifest_switch_and_exact_confirmation_without_popen(tmp_path: Path, monkeypatch):
     plan = build_plan(_manifest_copy(tmp_path))
     called = False

@@ -127,6 +127,55 @@ Every later validation re-hashes every sealed artifact and the inventory; a
 post-run change to any prompt, raw/parsed log, state snapshot, result, bundle,
 or cell list invalidates the experiment rather than silently updating a summary.
 
+## Fail-closed clustered analysis
+
+After every cell completes, analyze the manifest-registered primary metric with
+the three personality lanes summed inside each independent DB-reset replicate:
+
+```bash
+python3 scripts/opd/factorial_analyze.py \
+  research/experiments/opd-2b-factorial.example.json \
+  --out artifacts/opd-factorial-analysis.json \
+  --clusters-csv artifacts/opd-factorial-clusters.csv
+```
+
+The analyzer rejects a missing/failed cell, zero-turn episode, endpoint
+misattribution, absent or out-of-range metric, mixed source commits,
+non-canonical schema, a metric override, or an attempt to overwrite an existing
+analysis artifact. It reports `n=20` independent replicate clusters—not `n=360`
+cells—and verifies that the manifest's primary metric and ordered estimands are
+the preregistered contract used for analysis.
+
+The seven ordered primary estimands are frozen in `analysis.primary_estimands`:
+the r2 and r3 weights effects versus base with recovery off, recovery on-minus-off
+within each of base/r2/r3, and the r2-vs-base and r3-vs-base recovery
+difference-in-differences interactions. They receive exact two-sided sign-flip
+tests, deterministic percentile-bootstrap intervals, and one Bonferroni family.
+The analyzer also reports equally weighted factorial main effects over recovery
+and weights, plus the remaining simple effects, as explicitly secondary
+estimates without confirmatory p-values.
+
+## Isolation and pairing
+
+Every cell has a unique username, server port, sandbox, output directory, and
+cell ID. Preflight rejects an incomplete/duplicate grid, missing recovery mate,
+duplicate isolation value, unexpected weight label, invalid port range, or
+unlocked held-out registration. Recovery is set explicitly per child process:
+the off cell removes `KAETRAM_TOOL_RECOVERY`; the on cell sets it to `1`.
+`execution.max_parallel` is a hard launch cap; the checked-in design uses six.
+
+The independent unit is the `replicate`, not an individual agent episode. Each
+replicate contains the three fixed historical personality lanes
+(`grinder`, `completionist`, `explorer_tinkerer`) under all six weights ×
+recovery arms. Each lane runs exactly one DB-reset episode; the launcher rejects
+`episodes != 1`, so additional independent observations must be added through
+`design.replicates`. Aggregate the three personality strata within each
+`replicate × arm`, then make paired arm comparisons across replicate clusters.
+Do not report the 360 lane cells as `n=360`; the registered sample is `n=20`
+independent replicate clusters per arm. `pair_id` pairs recovery off/on
+within a replicate, weight, and personality; `cluster_id` groups all three
+personality lanes for a replicate and weight.
+
 ## Cost and current blockers
 
 The frozen plan is 2,160 cell-hours. With six simultaneous cells the nominal

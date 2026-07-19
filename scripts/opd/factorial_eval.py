@@ -9,6 +9,7 @@ Default behavior is preflight only. Launching requires all three of:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re

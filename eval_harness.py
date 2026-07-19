@@ -4,7 +4,7 @@ eval_harness.py — Standardized evaluation harness for Kaetram AI agents.
 
 Runs N episodes per model with controlled conditions:
 1. Resets MongoDB player data between episodes (fresh Level 1)
-2. Runs play_qwen.py with fixed max turns
+2. Runs play_qwen.py with a fixed wall-clock budget
 3. Parses session logs for per-episode metrics
 4. Outputs aggregated results JSON for eval_compare.py
 
@@ -984,7 +984,7 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "endpoint": endpoint,
             "scenario": scenario,
             "scenario_name": SCENARIOS[scenario]["name"],
-            "max_turns": SCENARIOS[scenario]["max_turns"],
+            "duration_minutes": SCENARIOS[scenario]["duration_minutes"],
             "total_episodes": len(episodes),
             "ok_episodes": len(ok_episodes),
             "timestamp": datetime.now().isoformat(),

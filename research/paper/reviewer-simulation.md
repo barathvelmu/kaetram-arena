@@ -99,6 +99,14 @@ The fatal scientific issue is unchanged: the six primary training arms have not
 been run from one base checkpoint under matched budgets. PR #48 freezes 50 core
 cells plus 20 separately reported state--history cells, and stacked PR #49 now
 hash-verifies and normalizes all registered record types without claiming
-training. Verified training inputs, several trainer extensions, and accelerator
-execution remain unresolved. The paper remains an audited hypothesis report and
+training. Stacked PR #51 freezes a common LoRA parameterization and adds an
+unexecuted direct-token corrected-interface SFT path. PR #50 prepares only the
+first stage of a SCoRe-style condition and fails closed before Stage 2. A
+primary-source audit rejected an unfaithful Guided-OPD prefix approximation;
+the published baseline requires complete teacher/student turn mixing with a
+trajectory-constant, training-step cosine schedule and actor-conditional
+forward/reverse KL. PR #52 now freezes and validates that collection contract,
+but blocks before the missing live collector and asymmetric objective. Verified
+training inputs, that faithful Guided execution, and accelerator execution
+remain unresolved. The paper remains an audited hypothesis report and
 confirmatory protocol.

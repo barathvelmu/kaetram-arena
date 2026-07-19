@@ -18,8 +18,12 @@ compose across the stack.
 8. merge #48 matched-training launcher after #40/#41 contracts stabilize
 9. review and merge stacked #49 preparation adapter after #48; preserve its
    explicit `prepared_not_trained` boundary
-10. merge structurally independent #39, #43, and #46 when reviewed
-11. merge #35 paper/audit after its cited code contracts stabilize
+10. review and merge stacked #51 after #49; it freezes the shared LoRA
+    parameterization and adds the direct-token corrected-interface SFT path
+11. review #50 and #52 on top of #51 so SCoRe-style Stage 1 and the Guided-OPD
+    contract inherit the identical parameterization contract
+12. merge structurally independent #39, #43, and #46 when reviewed
+13. merge #35 paper/audit after its cited code contracts stabilize
 
 #42 already contains #40. #44 and #45 each contain #42/#40, so their diffs
 should narrow after prerequisites merge.
@@ -75,8 +79,26 @@ they do not make the historical results reproducible.
   and history conditions. It verifies source hashes, held-out exclusions,
   arm-specific evidence, budgets, and frozen interfaces, then emits create-only
   normalized records with `prepared_not_trained`/`not_run` status. It does not
-  supply verified arm bundles, Guided sampling, the corrected-interface SFT
-  adapter, the SCoRe objective, or accelerator execution.
+  supply verified arm bundles or accelerator execution.
+- Stacked #51 freezes one hash-pinned fresh-bf16-LoRA contract across all 70
+  cells and adds a direct-token corrected-interface SFT adapter/trainer. The
+  trainer consumes frozen token IDs and labels without a tokenizer or render
+  pass and remains `not_run` pending verified inputs, execution dependencies,
+  compute approval, and an accelerator.
+- Stacked #50 prepares correction-SFT records for a SCoRe-style first-error
+  condition and validates a short-horizon target-reward loss contract. It
+  deliberately fails closed before Stage 2 until a Stage-1 checkpoint,
+  post-Stage-1 rollouts and reward evidence, and disjoint stage budgets exist;
+  it is not a faithful reproduction or outcome claim for published SCoRe.
+- A primary-source audit rejected the first Guided-OPD draft before PR because
+  it treated guidance as a teacher prefix before a student turn. Stacked #52
+  now samples complete actor-turn roles, freezes the published 250-step cosine
+  curriculum with an 0.8 decay ratio, holds its probability fixed within each
+  trajectory, and binds each hashed complete pre-observation response to its
+  action-position token IDs, labels, append-only mixed history, and
+  teacher/forward-KL or student/reverse-KL metadata. It remains explicitly objective-blocked:
+  live mixed-rollout collection and the actor-conditional trainer do not exist,
+  and the legacy PPO-style trainer aborts before model loading.
 
 ## Historical database-bug scope
 
@@ -110,4 +132,13 @@ independent replay of those headline values.
 - Stacked #49 preparation adapter: 22 focused passed; broader unit suite 153
   passed with 31 expected dependency skips. Optional MCP/PyMongo and live
   services remain unavailable for collection/e2e tests.
+- Stacked #50 SCoRe-style objective adapter: 32 focused tests passed; no trainer
+  or accelerator execution occurred and Stage 2 remains blocked.
+- Stacked #51 corrected-interface SFT path: 37 focused tests passed; broader
+  prospective suite 168 passed with 31 expected dependency skips. No model,
+  tokenizer, trainer, endpoint, or accelerator was invoked.
+- Stacked #52 Guided-OPD contract: 46 combined focused tests passed after the
+  #51 rebase; its broader unit suite reports 183 passed and 31 environment/data
+  skips. Manifest dry-run and compilation passed; no live collector, model, or
+  accelerator was invoked.
 - No open PR had a reported GitHub status check at audit time.

@@ -357,10 +357,13 @@ multi-defect experiment.
 
 The repository contains a draft fail-closed launcher contract that enumerates
 the following matched arms. A hash-pinned preparation adapter validates and
-normalizes every arm's immutable record contract, but verified arm artifacts,
-several trainer-objective extensions, and accelerator execution do not yet
-exist. Results are not reported until those remaining implementation boundaries,
-the full protocol, and immutable run bundles exist.
+normalizes every arm's immutable record contract. Stacked drafts additionally
+freeze one fresh LoRA parameterization across the matrix, provide a direct-token
+corrected-interface SFT trainer, and prepare the first stage of the SCoRe-style
+condition. They do not supply verified arm artifacts, a completed SCoRe-style
+second stage, a faithful Guided-OPD objective, or accelerator execution. Results
+are not reported until those remaining implementation boundaries, the full
+protocol, and immutable run bundles exist.
 
 \paragraph{Primary endpoint and unit.}
 The independent unit is a six-hour run from a fresh canonical-start world with no
@@ -582,8 +585,16 @@ freezes 50 core arm--seed cells plus 20 separately reported state--history
 ablation cells, shared budgets, interfaces, and held-out exclusion. A stacked
 draft adapter hash-verifies source material, checks held-out and arm-specific
 evidence, and emits normalized records marked \texttt{prepared\_not\_trained};
-verified training bundles and the Guided, corrected-SFT, and SCoRe trainer
-extensions remain absent. These
+another stacked draft freezes a fresh bf16 LoRA ($r=64$, $\alpha=64$) over the
+same seven attention/MLP projections for every cell and provides a direct-token
+corrected-interface SFT execution path without re-rendering. A separate
+SCoRe-style adapter prepares correction SFT but fails closed before its
+short-horizon reward stage. A third draft corrects Guided-OPD to complete-turn
+teacher/student sampling, freezes its cosine training-step curriculum, and
+validates mixed-history role traces, but deliberately blocks the legacy trainer.
+Verified training bundles, a live Guided-OPD mixed-turn collector and
+actor-conditional forward/reverse-KL objective, the SCoRe-style second-stage
+artifacts, and accelerator execution remain absent. These
 omissions are release blockers, not appendix footnotes.
 
 \section{Planned Statistical Analysis}

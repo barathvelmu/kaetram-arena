@@ -106,11 +106,19 @@ Evaluate base 2B, r2, and r3 weights with recovery off and on under identical fr
 
 ### WP2 — Natural visitation versus targeted persistent-player-state OPD
 
-Train fresh students from the same checkpoint. Hold teacher, optimizer, scored-token budget, environment interactions, recovery setting, and training seeds fixed. Compare natural visitation, targeted persistent player states, random-valid player states, progress-matched player states, TCOD-B2F, and Guided-OPD. This is the central causal test; it is not a complete shared-world-state intervention.
+Train fresh students from the same checkpoint. Hold teacher, optimizer, scored-token budget, environment interactions, recovery setting, and training seeds fixed. Compare natural visitation, targeted persistent player states, random-valid player states, progress-matched player states, TCOD-B2F, and faithful Guided-OPD. For Guided-OPD, sample each complete turn from teacher or student, keep the teacher probability constant within a trajectory, decay it by training step with the published cosine curriculum, and apply forward KL to teacher turns and reverse KL to student turns. This is the central causal test; it is not a complete shared-world-state intervention.
 
 ### WP3 — Corrected same-family SFT baseline
 
 Collect successful same-family 4B trajectories and train a fresh 2B student with the same native schema render used at evaluation. Match the OPD action-token or compute budget. The historical Claude-to-9B r10 result is not a substitute.
+
+Draft PR #51 now supplies a direct-token, hash-pinned execution path and freezes
+the shared fresh-LoRA parameterization, but no verified trajectory bundle or
+accelerator run exists. Draft PR #50 prepares SCoRe-style correction SFT and
+blocks before its second stage; it is not a completed SCoRe baseline. Draft PR
+#52 freezes and validates the published Guided complete-turn cosine schedule,
+but live mixed collection and actor-conditional forward/reverse-KL training are
+still absent and the legacy trainer aborts before model loading.
 
 ### WP4 — Recovery-mechanism controls
 

@@ -51,7 +51,10 @@ Train fresh students from the same base checkpoint with every setting identical 
 - Random valid player states
 - Progress-matched valid player states
 - TCOD-B2F successful-teacher-prefix states
-- Guided-OPD with its published decaying teacher-turn schedule
+- Guided-OPD with complete teacher/student turn sampling, a cosine teacher-turn
+  probability that is fixed within each trajectory and decays from 1 to 0 over
+  the first 80% of training steps, reverse KL on student turns, and forward KL
+  on teacher turns
 
 Selection ablations:
 
@@ -121,7 +124,8 @@ At minimum compare against:
 - Off-policy SFT with the corrected identical interface
 - Plain GKD/OPD under natural student visitation
 - TCOD-F2B and TCOD-B2F under matched budgets
-- Guided-OPD with its teacher-turn schedule
+- Guided-OPD with its published mixed-turn, cosine-curriculum, asymmetric-KL
+  objective (not a teacher-prefix or loss-weight approximation)
 - A SCoRe-style verified first-error-prefix condition
 - Data reweighting or dead-session filtering for the r10 marginal-imbalance hypothesis
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -76,6 +77,29 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
                 "tool_schema_source": plan.tool_schema_source,
                 "include_game_knowledge": not plan.omit_game_knowledge,
                 "held_out_quest": plan.held_out_quest,
+                "inference_seed": cell.inference_seed,
+                "factorial_schedule_algorithm": plan.schedule_algorithm,
+                "factorial_schedule_seed": plan.schedule_seed,
+                "factorial_schedule_index": cell.schedule_index,
+                "factorial_batch_index": cell.batch_index,
+                "factorial_cluster_id": cell.cluster_id,
+                "factorial_pair_id": cell.pair_id,
+                "environment_seed_mechanism": plan.environment_seed_mechanism,
+                "environment_seed": cell.environment_seed,
+                "environment_rng_algorithm": plan.environment_rng_algorithm,
+                "environment_game_revision": plan.environment_game_revision,
+                "environment_game_bundle_sha256": plan.environment_game_bundle_sha256,
+                "environment_seed_reason": plan.environment_seed_reason,
+                "environment_rng_attestation": {
+                    "schema": plan.environment_seed_mechanism,
+                    "algorithm": plan.environment_rng_algorithm,
+                    "seedSha256": hashlib.sha256(
+                        str(cell.environment_seed).encode()
+                    ).hexdigest(),
+                    "gameRevision": plan.environment_game_revision,
+                    "serverBundleSha256": plan.environment_game_bundle_sha256,
+                    "drawsAtAttestation": 0,
+                },
                 "git_sha": "b" * 40 if cell.cell_id == alternate_sha_cell else SOURCE_SHA,
             },
             "episodes": [{

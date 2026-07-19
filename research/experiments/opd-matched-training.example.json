@@ -29,7 +29,7 @@
         },
         {
           "path": "finetune/render.py",
-          "sha256": "137c6e92ba0830787a3e65132fdf7389294f59e54857180900a16fdb2669e03b"
+          "sha256": "cc02dc16226a8c3fb48f1f035d9660526ee69a56e1eab1c31fc0e6038c87791f"
         }
       ]
     },

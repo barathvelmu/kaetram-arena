@@ -100,6 +100,15 @@ def test_analysis_uses_replicates_not_personality_cells_as_n(tmp_path: Path) -> 
     assert analysis["n_cells"] == 360
     assert analysis["n_cluster_arms"] == 120
     assert analysis["n_replicates"] == 20
+    assert analysis["inference_scope"] == {
+        "population": "evaluation seeds and fresh-world trajectories",
+        "checkpoint_treatment": "three fixed registered checkpoint artifacts",
+        "conditional_on_fixed_checkpoints": True,
+        "excluded_uncertainty": [
+            "training-procedure variance",
+            "training-seed variance",
+        ],
+    }
     recovery_r3 = next(
         effect for effect in analysis["primary_estimands"]
         if effect["name"] == "recovery_on_minus_off_r3"

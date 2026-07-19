@@ -14,6 +14,7 @@ import argparse
 import hashlib
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -264,7 +265,10 @@ def torch_correction_sft_loss(model: Any, batch: dict[str, Any]) -> Any:
     if set(batch) != required:
         raise ObjectiveContractError(f"Stage-1 tensor batch fields must be exactly {sorted(required)}")
     labels = batch["labels"]
-    base = model.get_base_model() if hasattr(model, "get_base_model") else model
+    unwrapped = model
+    while hasattr(unwrapped, "module"):
+        unwrapped = unwrapped.module
+    base = unwrapped.get_base_model() if hasattr(unwrapped, "get_base_model") else unwrapped
     body = base.model
     lm_head = base.lm_head
     hidden = body(
@@ -279,7 +283,7 @@ def torch_correction_sft_loss(model: Any, batch: dict[str, Any]) -> Any:
     token_loss = torch.nn.functional.cross_entropy(
         logits, shifted_labels[rows, positions], reduction="none"
     )
-    weights = batch["step_weight"][rows].float()
+    weights = batch["step_weight"].to(token_loss.device)[rows].float()
     if not torch.isfinite(weights).all() or (weights <= 0).any():
         raise ObjectiveContractError("Stage-1 tensor step weights must be positive and finite")
     return (token_loss * weights).sum() / weights.sum()
@@ -297,6 +301,11 @@ def torch_short_horizon_target_reward_loss(
         import torch
     except ImportError as exc:  # pragma: no cover - accelerator image boundary
         raise ObjectiveContractError("PyTorch is required only for live trainer integration") from exc
+    device = sampled_action_log_probabilities.device
+    action_masks = action_masks.to(device)
+    target_rewards = target_rewards.to(device)
+    baselines = baselines.to(device)
+    step_weights = step_weights.to(device)
     if sampled_action_log_probabilities.shape != action_masks.shape:
         raise ObjectiveContractError("Stage-2 tensor log probabilities and masks must align")
     if sampled_action_log_probabilities.ndim != 2:
@@ -697,6 +706,9 @@ def materialize(backend_result_path: str | Path) -> dict[str, Any]:
         "trainer_execution_status": "not_run",
         "checkpoint_artifact": None,
     }
+    for path in (records_path, plan_path, result_path):
+        if path.exists():
+            raise FileExistsError(f"target file already exists: {path}")
     _write_new(records_path, records_content)
     _write_new(plan_path, plan_content)
     _write_new(result_path, json.dumps(result, indent=2, sort_keys=True) + "\n")
@@ -716,7 +728,8 @@ def main() -> int:
         else:
             print(json.dumps(materialize(args.backend_result), indent=2, sort_keys=True))
     except (OSError, ObjectiveContractError, json.JSONDecodeError) as exc:
-        parser.error(str(exc))
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

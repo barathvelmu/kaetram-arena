@@ -34,7 +34,8 @@ should narrow after prerequisites merge.
 
 ## Protocol gates implemented prospectively
 
-- #42 now freezes the six-hour canonical-unseeded Core-3 protocol, seven
+- #42 now freezes the six-hour canonical-start Core-3 protocol with no
+  intermediate-state evaluation initialization and registered gameplay-RNG seeds, seven
   estimands, familywise alpha, an assumption-driven 20-replicate power contract,
   checkpoint/tokenizer/render/deployment attestations, and a create-only
   prelaunch ledger. It also seals each completed cell's resolved prompt, exact

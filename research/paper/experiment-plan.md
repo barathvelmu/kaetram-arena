@@ -2,11 +2,11 @@
 
 ## Experimental unit and primary endpoint
 
-The independent unit is a complete run from a fresh canonical unseeded world—not an individual personality agent and not a session rollover. The three prompt variants within a run share a policy, harness, launch, and analysis pipeline and are clustered observations.
+The independent unit is a complete run from a fresh canonical-start world with no intermediate player-state initialization—not an individual personality agent and not a session rollover. Each prospective run still uses recorded inference and gameplay-RNG seeds. The three prompt variants within a run share a policy, harness, launch, and analysis pipeline and are clustered observations.
 
 Use one preregistered primary endpoint:
 
-**Run-level Core-3 stage gain over six hours, summed over the three agents, evaluated from a fresh unseeded world.**
+**Run-level Core-3 stage gain over six hours, summed over the three agents, evaluated from a fresh canonical-start world with no intermediate-state initialization.**
 
 Report quest-wall passage as a prespecified secondary endpoint and all other tool/error/tempo metrics as mechanism analyses. Use two-sided tests unless a directional alternative is preregistered before data collection. Report every run, confidence intervals, and effect sizes; do not select the best-run envelope.
 
@@ -22,11 +22,11 @@ Before spending compute:
 6. Make dataset provenance fail closed on explicit harness metadata.
 7. Store immutable run bundles: raw logs, run manifest, DB seed, analysis output, and checksums.
 8. Restore r10 and OPD inputs and demonstrate a one-command clean-clone reproduction of every existing number.
-9. Replace unseeded Kaetram `Math.random()` use with a recorded environment RNG stream; refuse confirmatory launch until both environment and inference seeds are effective.
+9. Replace unrecorded Kaetram `Math.random()` use with a registered environment RNG stream; refuse confirmatory launch until both environment and inference seeds are effective.
 
 Stop if P0 is not complete. More runs on a moving or unreproducible harness will not strengthen the paper.
 
-## P1 — replicate the weights-only result
+## P1 — replicate the reported recovery-off result
 
 Arms:
 
@@ -35,7 +35,7 @@ Arms:
 
 Protocol:
 
-- Six hours per run, fresh world, eval always unseeded
+- Six hours per run; fresh canonical-start world; no intermediate-state initialization during evaluation; recorded gameplay-RNG seeds
 - Independent recorded environment and inference seeds
 - Matched launch time and compute allocation across arms
 - Before collection, preregister a smallest effect of interest and determine the run count from an independent pilot variance or conservative variance grid; if needed, use blinded variance re-estimation with a fixed maximum sample size
@@ -59,7 +59,7 @@ Selection ablations:
 - Teacher-advantage only
 - Combined frozen rule
 
-Hold teacher, loss, optimizer, data budget, action-token budget, training seed schedule, and number of environment interactions fixed. Evaluate both from fresh unseeded worlds.
+Hold teacher, loss, optimizer, data budget, action-token budget, training seed schedule, and number of environment interactions fixed. Evaluate both from fresh canonical-start worlds with registered gameplay-RNG seeds.
 
 Record environment and inference seeds before launch and randomize/blind the arm schedule. Select states by a frozen rule that combines low natural student visitation, demonstrated teacher competence, recoverability, and relevance to the primary endpoint. Every candidate must include repeated-trial counts, a complete direct-seed snapshot, source-run provenance, and hash-verified legality, consistency, and end-to-end seed evidence. Legal reachability requires either a witness trajectory replayed by a pinned checker or an invariant-certified path established by an executed pinned checker; digest continuity and loadability alone are insufficient. The seeder restores player state, not NPC, mob, resource, concurrent-player, clock, or full environment state. Hand-picked states without a recorded selection rule are exploratory curriculum engineering.
 
@@ -72,7 +72,7 @@ Cross player-state initialization and model-visible history at the same target c
 
 This ablation separates access to persistent state from information carried in the visible prefix.
 
-The method claim is falsified if random-valid or progress-matched resets tie the targeted arm, if TCOD-B2F or Guided-OPD ties it, if selected-state teacher reliability is low, or if gains appear only when evaluation is seeded. Decompose unseeded success into reaching the bottleneck, crossing it conditional on arrival, and downstream completion conditional on crossing.
+The method claim is falsified if random-valid or progress-matched resets tie the targeted arm, if TCOD-B2F or Guided-OPD ties it, if selected-state teacher reliability is low, or if gains appear only when evaluation itself loads an intermediate player state. Decompose canonical-start success into reaching the bottleneck, crossing it conditional on arrival, and downstream completion conditional on crossing.
 
 This experiment is the paper. Round one versus round two is not a clean substitute because the rounds differ in more than visitation.
 

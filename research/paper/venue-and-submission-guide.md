@@ -35,7 +35,7 @@ TCOD already uses teacher-success prefixes to initialize intermediate states for
 
 The candidate contribution is narrower:
 
-> Directly restore verified persistent player states that need not lie on successful teacher trajectories; select them using a frozen student-visitation, teacher-advantage, recoverability, and task-relevance rule; and compare fully unseeded execution against natural OPD, generic matched resets, TCOD-B2F, and Guided-OPD. This is not a complete-world-state intervention.
+> Directly restore witness-certified persistent player states that need not lie on successful teacher trajectories; select them using a frozen student-visitation, teacher-advantage, recoverability, and task-relevance rule; and compare canonical-start execution with registered gameplay-RNG seeds against natural OPD, generic matched resets, TCOD-B2F, and Guided-OPD. This is not a complete-world-state intervention.
 
 Database persistence, typed state, MCP, and game play are implementation properties, not sufficient novelty claims.
 

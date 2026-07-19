@@ -31,8 +31,9 @@ conditional advantage. We study a 2B-parameter language model
 acting for six hours through 17 typed tools in an open-source MMORPG. In one
 reported run per arm, natural-visitation distillation changes tool use and
 interaction tempo but leaves the quest score at 12/30. A second round augments
-student rollouts with hand-selected, verified intermediate player states. Evaluated from a fresh,
-unseeded world, the resulting policy scores 15/30; all three clustered prompt
+student rollouts with hand-selected, loadable and walkability-checked intermediate
+player states whose legal reachability was not certified. Evaluated from a fresh
+canonical-start world with no intermediate-state initialization, the resulting policy scores 15/30; all three clustered prompt
 variants pass a wall that none passes under the reported base or first-round
 policy. This is a reported recovery-off observation, not a replicated causal estimate:
 the training rounds differ in more than state source. A targeted teacher-forcing
@@ -63,7 +64,7 @@ chains of gathering, navigation, dialogue, and quest actions. A scaffolded 4B
 teacher reaches states that the 2B student does not. We apply reverse-KL
 on-policy distillation to the student's own emitted tokens. The historical
 comparison contrasts natural student visitation with a mixture that begins some
-rollouts from verified intermediate database states; the confirmatory protocol
+rollouts from loadable, walkability-checked intermediate database states; the confirmatory protocol
 additionally freezes a measurable state-selection rule before training.
 
 The present evidence is hypothesis-generating and under-replicated. It contains
@@ -72,7 +73,8 @@ prompt variants sharing weights, harness, and launch conditions, not independent
 experimental units. We therefore separate observations from claims throughout.
 The observed sequence is: base 12/30, natural-visitation round 12/30, and
 state-augmented round 15/30. In the last arm, every prompt variant passes the
-same wall from an unseeded evaluation world. This supports the hypothesis that
+same wall from a canonical-start evaluation world with no intermediate-state
+initialization. This supports the hypothesis that
 training visitation matters, but it does not isolate state seeding from all
 round-to-round changes or estimate population-level uncertainty.
 
@@ -160,7 +162,7 @@ Equation~\ref{eq:opd} makes the bottleneck explicit. If a teacher advantage is
 concentrated on a set $H\subseteq\mathcal{X}\times\mathcal{H}$ for which
 $\Pr_{(x,h)\sim d^{\pi_S}_{\mu_0,q_0}}[(x,h)\in H]\approx0$, token-dense grading supplies almost no
 information about that advantage. We change the state source, not the loss:
-some student rollouts begin from verified intermediate player states, and
+some student rollouts begin from intermediate player states, and
 their records are mixed with natural student rollouts. The student still acts
 and the same teacher still grades every emitted token. Because changing $x$
 can also change the compatible $h$, the confirmatory design crosses
@@ -168,14 +170,14 @@ player-state initialization with matched history construction rather than treati
 database snapshot as the complete policy state.
 
 The seeded states are typed persistent player states rather than textual demonstrations.
-Player rows specify quest stage, skill level, inventory, and a verified walkable
+Player rows specify quest stage, skill level, inventory, and a walkability-checked
 position. End-to-end loadability is necessary but not sufficient for legal
 reachability. Each confirmatory candidate must also carry either a hash-verified
 witness trajectory from the canonical start that is replayed by a pinned checker,
 or an invariant certificate executed by a pinned checker that establishes a valid
 path to the snapshot. Hash continuity or certificate-shaped metadata alone is not
-sufficient. Evaluation is always
-unseeded. This resembles reset-based curricula in reinforcement learning
+sufficient. Evaluation always starts from the canonical initial player state;
+prospective runs nevertheless record distinct gameplay-RNG seeds. This resembles reset-based curricula in reinforcement learning
 \citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. TCOD
 uses teacher-success prefixes to initialize multi-turn OPD curricula
 \citep{wang2026tcod}; Guided-OPD mixes teacher and student turns and anneals
@@ -205,14 +207,15 @@ pipeline. Exact scores from single runs are descriptive. Counts over agents or
 sessions diagnose mechanisms but cannot be treated as independent replications
 of a policy effect.
 
-The principal comparison uses the same 2B base checkpoint, six-hour unseeded
-evaluation protocol, benchmark, and nominal harness. Round 1 trains on natural
-base-policy rollouts. Round 2 initializes from round 1 and mixes natural
+The principal historical sequence uses a 2B model lineage, six-hour
+canonical-start evaluation protocol, benchmark, and nominal harness, but it is
+not a same-checkpoint comparison. Round 1 trains on natural base-policy rollouts.
+Round 2 initializes from round 1 and mixes natural
 round-1 rollouts with 2,326 records collected by the round-1 policy from a
-verified Herbalist milestone state. The round-2 corpus contains 7,849 states,
+loadable, walkability-checked Herbalist milestone state. The round-2 corpus contains 7,849 states,
 split into 7,024 training and 825 held-out records. Because round 2 also changes
 the initialization and data batch, round 1 versus round 2 is not a clean
-seeded-versus-unseeded training ablation.
+state-augmented-versus-natural-only training ablation.
 
 \begin{table*}[t]
 \caption{Observed development runs and the claims they permit. Scores are
@@ -228,7 +231,7 @@ Policy & Training states & Recovery & \core{} & Wall & Interpretation \\
 \midrule
 Base 2B & -- & off & 12 & 0/3 & Reference run \\
 OPD round 1 & natural & off & 12 & 0/3 & Behavior changed; score did not \\
-OPD round 2 & natural + seeded & off & 15 & 3/3 & Weights-only, unseeded observation \\
+OPD round 2 & natural + seeded & off & 15 & 3/3 & Reported recovery-off observation \\
 Round-2 weights & -- & on & 17 & -- & Recovery ablation; one run \\
 Round-3 weights & broader seeded & on & 18 & -- & Weights plus interface; not pure weights \\
 \bottomrule
@@ -278,7 +281,7 @@ the teacher's usage, while query-quest both diverges and behaviorally overshoots
 the teacher. This is descriptive triangulation. It does not establish that a
 specific token update caused downstream quest behavior.
 
-\subsection{The seeded-training round is followed by unseeded wall passage}
+\subsection{The seeded-training round is followed by canonical-start wall passage}
 
 The 4B teacher demonstrates competence beyond the Herbalist stage-1 wall. In the
 reported base and round-1 runs, zero of three prompt variants crosses that wall;
@@ -289,7 +292,8 @@ skill and near the target resource. All three seeded collectors pass the wall,
 creating student-authored actions and teacher scores in this region.
 
 After training on the natural-plus-seeded mixture, round 2 is evaluated from a
-fresh unseeded world with recovery disabled. It scores 15/30, with each prompt
+fresh canonical-start world with no intermediate-state initialization and with
+recovery disabled. Its historical gameplay-RNG seed was not preserved. It scores 15/30, with each prompt
 variant at 5/10. All three pass Herbalist stage 1, compared with zero of three
 under both the base and round-1 policies. Logs show earlier quest acceptance,
 explicit tracking of the skill gate, resource rotation after empty harvests,
@@ -297,10 +301,10 @@ and less premature return to the quest giver. These are concrete trajectory
 differences consistent with the intended mechanism.
 
 The valid statement is deliberately narrow: \emph{a seeded-training round was
-followed by unanimous unseeded wall passage in one run}. The present data do not
+followed by unanimous canonical-start wall passage in one run}. The present data do not
 show that seeding alone caused the improvement. The required causal experiment
 trains fresh students from the same checkpoint under identical budgets, seeds,
-and data construction, varying only whether the verified state mixture is
+and data construction, varying only whether the legally certified state mixture is
 included (Section~\ref{sec:confirmatory}).
 
 \subsection{Weights and recovery solve different failures}
@@ -359,7 +363,8 @@ exist. Results are not reported until those remaining implementation boundaries,
 the full protocol, and immutable run bundles exist.
 
 \paragraph{Primary endpoint and unit.}
-The independent unit is a six-hour run from a fresh canonical unseeded world. The
+The independent unit is a six-hour run from a fresh canonical-start world with no
+intermediate player-state initialization and with a registered gameplay-RNG seed. The
 preregistered primary endpoint is total \core{} stage gain across the three
 clustered agents. Quest-wall passage is secondary. All runs, confidence
 intervals, effect sizes, and stopping rules must be reported.
@@ -373,7 +378,7 @@ corrected-interface SFT, and SCoRe-style first-error prefixes---are analyzed
 separately rather than silently counted as extra primary arms. Match teacher,
 optimizer, action-token and teacher-scoring budgets,
 environment interactions, and training-seed schedule; evaluate every arm from
-the original unseeded state. The method claim fails if random or progress-
+the original canonical-start state. The method claim fails if random or progress-
 matched resets, TCOD-B2F, or Guided-OPD ties the targeted arm within the
 preregistered smallest effect of interest.
 
@@ -460,7 +465,7 @@ result of this submission draft.
 The audited case supports a concrete hypothesis: low-occupancy player states
 may hide useful teacher competence from natural OPD. Natural-visitation OPD
 changed behavior without changing score; a later hand-selected state-augmented
-round was followed by unseeded passage of a previously unseen wall. That sequence
+round was followed by canonical-start passage of a previously unseen wall. That sequence
 does not establish the proposed selector. Random and progress-matched resets,
 TCOD-B2F, Guided-OPD, replication, and held-out transfer decide whether the
 narrow method survives. A malformed-prefix probe separately shows why teacher-
@@ -531,14 +536,14 @@ not independently ablated.
 Round 1 contains 5,564 train and 574 held-out records from the base policy's
 natural rollouts. Round 2 combines 5,523 natural round-1 records and 2,326 seeded
 records before the 7,024/825 train/held-out split. The seed encodes accepted
-Herbalist stage 1, Foraging level 5, starter inventory, and a verified tile near
+Herbalist stage 1, Foraging level 5, starter inventory, and a walkability-checked tile near
 the target resource. Evaluation never loads this state.
 
 \section{Claim-to-Evidence Boundary}
 
 \begin{description}
 \item[Round-1 behavior.] Descriptive, one run: measured behavior changed while score did not.
-\item[State-seeded round.] Unreplicated: the seeded-training round was followed by unseeded wall passage in one run.
+\item[State-seeded round.] Unreplicated: the seeded-training round was followed by canonical-start wall passage in one run.
 \item[Targeted selector.] Protocol only: no candidate-state bundle, trained checkpoint, or outcome is currently available.
 \item[12 to 15.] Reported recovery-off historical contrast; not an effect estimate or clean weights comparison, and exact parity remains unavailable.
 \item[18/30.] Weights-plus-interface system result only.
@@ -559,10 +564,11 @@ hashes and regenerate every table and figure without network-dependent mutable
 inputs.
 
 The current development artifact does not yet meet this bar. In particular, raw
-inputs for the historical r10 analysis and some OPD gate summaries are absent,
-and the dedicated r10 eval path reset a different database from its game servers
-after April 25. The June OPD runs used a separate database-aligned orchestrator
-lane, but their raw bundles are also absent. Full dependency installation has
+inputs for the historical r10 analysis and some OPD gate summaries are absent.
+After April 25 the dedicated \texttt{run-eval.sh} lane reset a different database
+from its game servers. The headline r10 and June OPD values used a separate
+database-aligned orchestrator and are not implicated by that specific mismatch,
+but their raw bundles are also absent. Full dependency installation has
 now been demonstrated for the prospective CPU unit suite in a fresh clone, but
 not for training, live game execution, checkpoints, or paper-table regeneration.
 The prospective launcher can seed inference. A draft game-side patch centralizes

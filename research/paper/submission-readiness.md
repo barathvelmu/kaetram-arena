@@ -26,7 +26,7 @@ Official sources:
 
 **Core question:** When a small agent never visits the states where its teacher is more capable, can changing the training-state distribution—without changing the reverse-KL objective—transfer long-horizon competence?
 
-**Primary claim to validate:** A frozen, witness-certified persistent-player-state selector improves unseeded run-level performance beyond matched generic resets, successful-prefix curricula, and natural OPD. The current paper does not yet make this claim, and the implementation does not restore a complete shared world.
+**Primary claim to validate:** A frozen, witness-certified persistent-player-state selector improves canonical-start run-level performance beyond matched generic resets, successful-prefix curricula, and natural OPD. Evaluation loads no intermediate player state but still uses recorded gameplay-RNG seeds. The current paper does not yet make this claim, and the implementation does not restore a complete shared world.
 
 **Secondary diagnostic:** A targeted probe shows context-dependent endorsement reversal on one malformed tool-syntax family. The broader teacher-forcing copy-prior mechanism remains unvalidated.
 
@@ -40,7 +40,7 @@ The paper moves from **no-go** to **submission candidate** only when all of thes
 
 1. The harness, game revision, prompts, tool schemas, model revisions, checkpoints, and datasets are frozen and hashed.
 2. A clean clone reproduces every main table and figure from preserved artifacts.
-3. Round two's weights-only wall passage is replicated with the run as the independent unit.
+3. Round two's reported recovery-off wall passage is replicated under an exact frozen configuration with the run as the independent unit.
 4. Training-state seeding is isolated from other round-to-round changes.
 5. Tool-recovery is crossed with weights so the interface and training effects are identifiable.
 6. The main result transfers to a held-out quest or second environment.
@@ -73,7 +73,7 @@ The authors must also retain full responsibility for the paper and follow the ch
 ### Weeks 3–4: identify the lever
 
 - Train otherwise matched OPD arms with and without environment-state seeding.
-- Evaluate all arms unseeded.
+- Evaluate all arms from the canonical initial player state with registered gameplay-RNG seeds.
 - Cross round-two/round-three weights with tool recovery off/on.
 
 ### Weeks 4–5: test generalization

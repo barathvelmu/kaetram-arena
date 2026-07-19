@@ -4,7 +4,7 @@ Updated: July 18, 2026
 
 ## The short version
 
-Paper 1 now has both a historical technical report and an evidence-safe ACL-format working manuscript. It is not a finished conference submission. The strongest current observation is that a state-augmented training round was followed by passage of the prior Herbalist wall in all three clustered prompt variants of one unseeded run, with the reported Core-3 score moving from 12/30 to 15/30 and recovery off. Exact historical parity is unavailable, the run is not independently replicated, and round one versus round two differs in more than state source.
+Paper 1 now has both a historical technical report and an evidence-safe ACL-format working manuscript. It is not a finished conference submission. The strongest current observation is that a state-augmented training round was followed by passage of the prior Herbalist wall in all three clustered prompt variants of one canonical-start run with no intermediate-state initialization, with the reported Core-3 score moving from 12/30 to 15/30 and recovery off. Its gameplay-RNG seed was not preserved. Exact historical parity is unavailable, the run is not independently replicated, and round one versus round two differs in more than state source.
 
 The working target is NAACL 2027 through the October 12, 2026 ARR cycle. ICLR 2027 is only a stretch option because its official call is not yet published. See `venue-and-submission-guide.md`.
 
@@ -69,7 +69,7 @@ KAE-79 through KAE-85 are blocked on their relevant P0 tickets so the board does
 
 ## What is currently supported
 
-- Round two is the least-confounded historical weights-only observation: recovery was reported off, the score was 15/30 versus the base run's 12/30, and wall passage was 3/3 versus 0/3 among clustered prompt variants. Exact configuration parity and independent reproduction remain unavailable.
+- Round two is the least-confounded historical recovery-off observation: the score was 15/30 versus the base run's 12/30, and wall passage was 3/3 versus 0/3 among clustered prompt variants. Exact checkpoint/configuration parity, the gameplay-RNG seed, and independent reproduction remain unavailable, so it is not a clean weights-only comparison.
 - Round-three reaches 18/30 only with a model-interface recovery affordance. It must be labeled weights plus recovery, not a pure weight result.
 - Round-two weights plus recovery reaches 17/30 in one ablation run. This is suggestive, not a replicated factorial estimate.
 - The malformed-history copy-prior observation is a plausible mechanism: a teacher can locally prefer continuation of malformed syntax already present in context. The current sample is too small for a general causal claim.

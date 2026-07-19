@@ -69,7 +69,7 @@ plus a confirmatory protocol. This pass also required and triggered:
 - corrected-interface SFT, OEC, OPCD, and SCoRe coverage;
 - witness-trajectory or invariant-certified reachability, beyond loadability;
 - removal of the "clean weights-only" and unquantified "almost never" claims;
-- a canonical unseeded evaluation endpoint and explicit six-primary-arm count;
+- a canonical-start/no-intermediate-state evaluation endpoint with registered gameplay-RNG seeds and explicit six-primary-arm count;
 - a power calculation before confirmatory collection, with no default five-run rule;
 - demotion of the copy-prior observation from a main mechanism contribution; and
 - an explicit warning that `reference/overview.pdf` is historical and not a

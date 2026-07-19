@@ -51,6 +51,28 @@ the URL.
 The preflight plan and `results.json` also record `tool_schema_source`; verify
 it is `canonical` before analysis.
 
+## Fail-closed clustered analysis
+
+After every cell completes, analyze a preregistered episode metric with the
+three personality lanes summed inside each independent DB-reset replicate:
+
+```bash
+python3 scripts/opd/factorial_analyze.py \
+  research/experiments/opd-2b-factorial.example.json \
+  --metric held_out_quest_completed_delta \
+  --out artifacts/opd-factorial-analysis.json \
+  --clusters-csv artifacts/opd-factorial-clusters.csv
+```
+
+The analyzer rejects a missing/failed cell, zero-turn episode, endpoint
+misattribution, absent metric, mixed source commits, non-canonical schema, or
+attempt to overwrite an existing analysis artifact. It reports `n=5`
+replicates—not `n=90` cells—and computes paired recovery and weights contrasts
+on replicate-level cluster sums. The nine prespecified contrasts use exact
+two-sided sign-flip tests with Bonferroni adjustment and deterministic
+percentile-bootstrap intervals. Designs with fewer than five replicates are
+marked `pilot_only` and receive no p-value.
+
 ## Isolation and pairing
 
 Every cell has a unique username, server port, sandbox, output directory, and

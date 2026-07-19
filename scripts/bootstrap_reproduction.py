@@ -33,6 +33,28 @@ def clone_checkout(repository: str, commit: str, destination: Path) -> None:
         raise ManifestError(f"git checkout failed with exit code {checkout.returncode}")
 
 
+def reproduction_command(
+    manifest: Path,
+    bundle_root: Path,
+    clone_root: Path,
+    *,
+    execute: bool = False,
+) -> list[str]:
+    """Build the preflight command from the exact checked-out source tree."""
+    command = [
+        sys.executable,
+        str(clone_root.resolve() / "scripts" / "reproduce_run.py"),
+        str(manifest.resolve()),
+        "--root",
+        str(clone_root.resolve()),
+        "--artifact-root",
+        str(bundle_root.resolve()),
+    ]
+    if execute:
+        command.append("--execute")
+    return command
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
@@ -52,18 +74,17 @@ def main(argv: list[str] | None = None) -> int:
         print(f"bootstrap FAILED: {exc}", file=sys.stderr)
         return 1
 
-    command = [
-        sys.executable,
-        str(args.clone_to.resolve() / "scripts" / "reproduce_run.py"),
-        str(args.manifest.resolve()),
-        "--root",
-        str(args.clone_to.resolve()),
-        "--artifact-root",
-        str(args.bundle_root.resolve()),
-    ]
-    if args.execute:
-        command.append("--execute")
-    return subprocess.run(command, check=False).returncode
+    command = reproduction_command(
+        args.manifest,
+        args.bundle_root,
+        args.clone_to,
+        execute=args.execute,
+    )
+    try:
+        return subprocess.run(command, check=False).returncode
+    except FileNotFoundError as exc:
+        print(f"bootstrap FAILED: executable not found: {command[0]}", file=sys.stderr)
+        return 127
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@ from run_manifest import (
     validate_git_constraints,
     validate_manifest_shape,
 )
-from scripts.bootstrap_reproduction import clone_checkout
+from scripts.bootstrap_reproduction import clone_checkout, reproduction_command
 from scripts.reproduce_run import expand_reproduction_argv
 
 
@@ -243,6 +243,24 @@ def test_clone_checkout_creates_exact_detached_commit(tmp_path: Path) -> None:
     ).returncode != 0
     with pytest.raises(ManifestError, match="refusing to overwrite"):
         clone_checkout(str(source), commit, destination)
+
+
+def test_bootstrap_runs_reproducer_from_exact_clone(tmp_path: Path) -> None:
+    manifest = tmp_path / "input" / "manifest.json"
+    bundle = tmp_path / "bundle"
+    clone = tmp_path / "exact-source-clone"
+
+    command = reproduction_command(manifest, bundle, clone, execute=True)
+
+    assert command[1] == str(clone.resolve() / "scripts" / "reproduce_run.py")
+    assert command[2:] == [
+        str(manifest.resolve()),
+        "--root",
+        str(clone.resolve()),
+        "--artifact-root",
+        str(bundle.resolve()),
+        "--execute",
+    ]
 
 
 def test_reproduction_placeholders_expand_to_external_bundle(tmp_path: Path) -> None:

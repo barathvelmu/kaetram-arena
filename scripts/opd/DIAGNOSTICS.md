@@ -39,6 +39,7 @@ python3 scripts/opd/copy_prior_diag.py \
   --run-id run_YYYYMMDD_HHMMSS \
   --endpoint teacher-4b=https://ENDPOINT.example \
   --endpoint student-2b=https://ENDPOINT.example \
+  --tool-schema-source canonical \
   --out artifacts/copy-prior-scores.jsonl
 ```
 
@@ -49,6 +50,12 @@ syntax). The JSONL retains state IDs, source locations, semantic calls, hashes,
 and token-level aggregate scores. `--include-text` additionally records full
 messages and completions for review; omit it when prompts may contain sensitive
 run data. Endpoint URLs are never written.
+
+`--tool-schema-source none` is the default and reproduces the historical OPD
+teacher-grading renderer, which omitted `tools=`. Use `canonical` to include the
+frozen full schema and test the model-visible native context introduced by the
+versioned render-contract PR. Record and report this choice: the two conditions
+are different experimental interfaces and must not be pooled.
 
 The sibling `*.summary.json` reports within-state paired effects. Positive
 `canonical_minus_malformed` means the canonical rendering received higher

@@ -25,6 +25,7 @@ from pathlib import Path
 import httpx
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts" / "opd"))
 sys.path.insert(0, str(REPO / "finetune"))
 
@@ -37,6 +38,7 @@ from canonicalize import (  # noqa: E402
 from opd_probe import reconstruct_session  # noqa: E402
 from opd_round1 import turn_to_chat  # noqa: E402
 from render import patch_qwen_chat_template  # noqa: E402
+from tool_surface import MODEL_VISIBLE_TOOL_DEFINITIONS  # noqa: E402
 
 NO_ARG_OK = {
     "observe", "loot", "respawn", "stuck_reset", "cancel_nav",
@@ -173,6 +175,16 @@ def target_stats(response: dict) -> tuple[float | None, float | None, int]:
     return sum(values), statistics.fmean(values), len(values)
 
 
+def render_context(tokenizer, messages: list[dict], tool_schema_source: str) -> str:
+    """Render exactly one declared model-visible schema condition."""
+    kwargs = {"tokenize": False, "add_generation_prompt": True}
+    if tool_schema_source == "canonical":
+        kwargs["tools"] = MODEL_VISIBLE_TOOL_DEFINITIONS
+    elif tool_schema_source != "none":
+        raise ValueError(f"unsupported tool schema source: {tool_schema_source!r}")
+    return tokenizer.apply_chat_template(messages, **kwargs)
+
+
 async def score(client: httpx.AsyncClient, semaphore: asyncio.Semaphore, endpoint: str,
                 context_text: str, full_text: str, retries: int) -> dict | None:
     async with semaphore:
@@ -262,9 +274,7 @@ async def run_scoring(args, tokenizer, states: list[dict], endpoints: list[tuple
     specs = []
     for state in states:
         for condition, messages in context_conditions(state).items():
-            context_text = tokenizer.apply_chat_template(
-                messages, tokenize=False, add_generation_prompt=True
-            )
+            context_text = render_context(tokenizer, messages, args.tool_schema_source)
             for candidate in ("malformed", "canonical"):
                 completion = state[f"{candidate}_completion"]
                 for endpoint_name, endpoint_url in endpoints:
@@ -289,6 +299,7 @@ async def run_scoring(args, tokenizer, states: list[dict], endpoints: list[tuple
             "line": state["line"],
             "history_changed": state["history_changed"],
             "endpoint": endpoint_name,
+            "tool_schema_source": args.tool_schema_source,
             "context_condition": condition,
             "candidate": candidate,
             "semantic_calls": state["semantic_calls"],
@@ -324,6 +335,13 @@ async def main_async() -> int:
         help="Include prompts/completions in output; hashes are always included",
     )
     parser.add_argument("--tokenizer", default="Qwen/Qwen3.5-2B")
+    parser.add_argument(
+        "--tool-schema-source", choices=("none", "canonical"), default="none",
+        help=(
+            "Model-visible tool schema: none reproduces historical OPD grading; "
+            "canonical tests the frozen native schema used by new contracts"
+        ),
+    )
     parser.add_argument("--concurrency", type=int, default=4)
     parser.add_argument("--retries", type=int, default=4)
     args = parser.parse_args()
@@ -350,6 +368,15 @@ async def main_async() -> int:
             "history_changed": state["history_changed"],
             "semantic_calls": state["semantic_calls"],
             "context_conditions": list(context_conditions(state)),
+            "tool_schema_source": args.tool_schema_source,
+            "tool_schema_sha256": (
+                sha256_text(json.dumps(
+                    MODEL_VISIBLE_TOOL_DEFINITIONS,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )) if args.tool_schema_source == "canonical" else None
+            ),
             "malformed_completion_sha256": sha256_text(state["malformed_completion"]),
             "canonical_completion_sha256": sha256_text(state["canonical_completion"]),
         }
@@ -378,6 +405,7 @@ async def main_async() -> int:
         "run_id": args.run_id,
         "states": len(states),
         "endpoints": [name for name, _ in endpoints],
+        "tool_schema_source": args.tool_schema_source,
         "results": summarize(rows),
     }, indent=2, sort_keys=True) + "\n")
     print(f"wrote {len(rows)} scores to {args.out}")

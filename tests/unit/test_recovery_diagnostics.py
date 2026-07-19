@@ -13,6 +13,7 @@ sys.path.insert(0, str(REPO / "scripts" / "opd"))
 from copy_prior_diag import (  # noqa: E402
     context_conditions,
     parse_endpoint,
+    render_context,
     sha256_text,
     summarize,
     target_stats,
@@ -48,6 +49,25 @@ def test_context_conditions_change_only_requested_context_parts() -> None:
     assert "[params:" in conditions["docs_repaired"][0]["content"]
     assert conditions["docs_repaired"][2]["content"] == "real"
     assert conditions["history_and_docs_repaired"][2]["content"] == "repaired"
+
+
+def test_render_context_preserves_historical_none_and_supports_canonical_schema() -> None:
+    class Tokenizer:
+        def __init__(self):
+            self.kwargs = []
+
+        def apply_chat_template(self, messages, **kwargs):
+            self.kwargs.append(kwargs)
+            return "rendered"
+
+    tokenizer = Tokenizer()
+    messages = [{"role": "user", "content": "play"}]
+    assert render_context(tokenizer, messages, "none") == "rendered"
+    assert "tools" not in tokenizer.kwargs[-1]
+    assert render_context(tokenizer, messages, "canonical") == "rendered"
+    assert tokenizer.kwargs[-1]["tools"]
+    with pytest.raises(ValueError, match="unsupported tool schema"):
+        render_context(tokenizer, messages, "live")
 
 
 def test_target_stats_and_summary_ignore_failed_scores() -> None:

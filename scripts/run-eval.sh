@@ -21,6 +21,9 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# NODE_ENV=eval pins both game servers to this database. Export the same value
+# for eval_harness DB snapshots and the pre-run reset.
+export KAETRAM_MONGO_DB="kaetram_eval"
 
 EPISODES=3
 SCENARIO=D
@@ -93,9 +96,10 @@ rm -rf /tmp/kaetram_eval_*
 # Reset eval player data in MongoDB
 source "$PROJECT_DIR/.venv/bin/activate" 2>/dev/null || true
 python3 -c "
+import os
 from pymongo import MongoClient
 c = MongoClient('localhost', 27017)
-db = c['kaetram_devlopment']
+db = c[os.environ['KAETRAM_MONGO_DB']]
 for username in ['evalbotsft', 'evalbotbase']:
     for col in ['player_info','player_skills','player_equipment','player_inventory','player_bank','player_quests','player_achievements','player_statistics','player_abilities']:
         db[col].delete_many({'username': username})

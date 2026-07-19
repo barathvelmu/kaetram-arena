@@ -818,7 +818,10 @@ def seal_completed_inventory(plan: ExperimentPlan) -> Path:
 def validate_completed_inventory(plan: ExperimentPlan) -> dict[str, Any]:
     """Require an exact, untampered inventory and revalidate every cell bundle."""
     path = Path(plan.cells[0].run_dir).parent / "completed.json"
-    inventory = load_json(path)
+    try:
+        inventory = load_json(path)
+    except ManifestError as exc:
+        raise ManifestError(f"completed factorial inventory is missing or unreadable: {exc}") from exc
     if not isinstance(inventory, dict) or inventory.get("schema_version") != COMPLETED_INVENTORY_SCHEMA:
         raise ManifestError("completed factorial inventory is missing or invalid")
     payload = dict(inventory)

@@ -17,6 +17,7 @@ running on --server-port, MongoDB in Docker (kaetram-mongo).
 """
 
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -93,11 +94,40 @@ SCENARIOS = {
 
 MONGO_CONTAINER = "kaetram-mongo"
 MONGO_DB = "kaetram_devlopment"
+ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v1"
+ENVIRONMENT_RNG_ALGORITHM = "mulberry32-sha256-v1"
 MONGO_COLLECTIONS = [
     "player_info", "player_skills", "player_equipment",
     "player_inventory", "player_bank", "player_quests",
     "player_achievements", "player_statistics", "player_abilities",
 ]
+
+
+def verify_environment_rng_attestation(
+    path: Path, provenance: dict
+) -> dict:
+    """Load and verify the game-server startup attestation, returning its stable core."""
+    try:
+        attestation = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"missing or invalid environment RNG attestation at {path}: {exc}") from exc
+    expected = {
+        "schema": provenance["environment_seed_mechanism"],
+        "algorithm": provenance["environment_rng_algorithm"],
+        "seedSha256": hashlib.sha256(
+            str(provenance["environment_seed"]).encode()
+        ).hexdigest(),
+        "gameRevision": provenance["environment_game_revision"],
+        "drawsAtAttestation": 0,
+    }
+    mismatches = {
+        key: {"expected": value, "actual": attestation.get(key)}
+        for key, value in expected.items()
+        if attestation.get(key) != value
+    }
+    if mismatches:
+        raise RuntimeError(f"environment RNG attestation mismatch: {mismatches}")
+    return expected
 
 
 # ---------------------------------------------------------------------------
@@ -885,20 +915,47 @@ def run_model_eval(
     # Uses direct node command (same as orchestrate.GameServer)
     _game_server_proc = None
     if server_port:
-        import shutil
         check_cmd = f"ss -tlnp 2>/dev/null | grep -q ':{server_port} '"
-        if subprocess.run(check_cmd, shell=True).returncode != 0:
+        server_running = subprocess.run(check_cmd, shell=True).returncode == 0
+        rng_required = bool(
+            provenance_meta
+            and provenance_meta.get("environment_seed_mechanism")
+            == ENVIRONMENT_RNG_MECHANISM
+        )
+        if rng_required and server_running:
+            raise RuntimeError(
+                f"refusing pre-existing game server on port {server_port}; "
+                "its environment RNG cannot be attested for this cell"
+            )
+        if not server_running:
             nvm_sh = os.path.expanduser("~/.nvm/nvm.sh")
-            server_dir = os.path.expanduser("~/projects/Kaetram-Open/packages/server")
+            game_dir = Path(
+                os.environ.get("KAETRAM_GAME_DIR", "~/projects/Kaetram-Open")
+            ).expanduser().resolve()
+            server_dir = game_dir / "packages" / "server"
             if os.path.isdir(server_dir):
                 print(f"  Starting game server on port {server_port}...")
                 gs_cmd = f'source "{nvm_sh}" && nvm use 20 --silent && exec node --enable-source-maps dist/main.js --port {server_port}'
+                game_env = {**os.environ, "ACCEPT_LICENSE": "true", "SKIP_DATABASE": "false"}
+                attestation_path = model_output_dir / "environment-rng.json"
+                if rng_required:
+                    if attestation_path.exists():
+                        raise RuntimeError(
+                            f"refusing existing environment RNG attestation: {attestation_path}"
+                        )
+                    game_env.update({
+                        "KAETRAM_ENV_RNG_REQUIRED": "1",
+                        "KAETRAM_ENV_SEED": str(provenance_meta["environment_seed"]),
+                        "KAETRAM_ENV_RNG_ATTESTATION_PATH": str(attestation_path.resolve()),
+                        "KAETRAM_GAME_REVISION": provenance_meta["environment_game_revision"],
+                    })
                 gs_log = open(f"/tmp/eval_gameserver_{server_port}.log", "w")
                 _game_server_proc = subprocess.Popen(
                     ["bash", "-c", gs_cmd], cwd=server_dir,
                     stdout=gs_log, stderr=gs_log,
-                    env={**os.environ, "ACCEPT_LICENSE": "true", "SKIP_DATABASE": "false"},
+                    env=game_env,
                 )
+                gs_log.close()
                 # Wait for port
                 for _i in range(60):
                     if subprocess.run(check_cmd, shell=True).returncode == 0:
@@ -906,9 +963,33 @@ def run_model_eval(
                         # Listening is not enough; give the world a few seconds to finish booting.
                         time.sleep(5)
                         break
+                    if _game_server_proc.poll() is not None:
+                        raise RuntimeError(
+                            f"game server exited with code {_game_server_proc.returncode} "
+                            f"before opening port {server_port}"
+                        )
                     time.sleep(1)
                 else:
-                    print(f"  WARNING: Game server on port {server_port} not detected after 60s")
+                    if _game_server_proc.poll() is None:
+                        _game_server_proc.terminate()
+                    raise RuntimeError(
+                        f"game server on port {server_port} not detected after 60s"
+                    )
+                if rng_required:
+                    try:
+                        verified_attestation = verify_environment_rng_attestation(
+                            attestation_path, provenance_meta
+                        )
+                    except RuntimeError:
+                        if _game_server_proc.poll() is None:
+                            _game_server_proc.terminate()
+                        raise
+                    provenance_meta = {
+                        **provenance_meta,
+                        "environment_rng_attestation": verified_attestation,
+                    }
+            elif rng_required:
+                raise RuntimeError(f"attested Kaetram server directory is missing: {server_dir}")
 
     episodes = []
 
@@ -1265,6 +1346,9 @@ Examples:
     parser.add_argument("--factorial-cluster-id", default="")
     parser.add_argument("--factorial-pair-id", default="")
     parser.add_argument("--environment-seed-mechanism", default="")
+    parser.add_argument("--environment-seed", type=int)
+    parser.add_argument("--environment-rng-algorithm", default="")
+    parser.add_argument("--environment-game-revision", default="")
     parser.add_argument("--environment-seed-reason", default="")
     parser.add_argument(
         "--watchdog", action="store_true",
@@ -1297,6 +1381,9 @@ Examples:
         args.factorial_cluster_id,
         args.factorial_pair_id,
         args.environment_seed_mechanism,
+        args.environment_seed,
+        args.environment_rng_algorithm,
+        args.environment_game_revision,
         args.environment_seed_reason,
     )
     if any(value not in (None, "") for value in provenance_values) and any(
@@ -1317,8 +1404,18 @@ Examples:
             parser.error(str(exc))
         if args.factorial_schedule_index < 0 or args.factorial_batch_index < 0:
             parser.error("factorial schedule and batch indices must be non-negative")
-        if args.environment_seed_mechanism != "unavailable":
+        if args.environment_seed_mechanism != ENVIRONMENT_RNG_MECHANISM:
             parser.error("unsupported environment seed mechanism")
+        try:
+            validate_inference_seed(args.environment_seed, label="environment seed")
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.environment_rng_algorithm != ENVIRONMENT_RNG_ALGORITHM:
+            parser.error("unsupported environment RNG algorithm")
+        if not re.fullmatch(
+            r"[0-9a-f]{40}|[0-9a-f]{64}", args.environment_game_revision
+        ):
+            parser.error("environment game revision must be an exact lowercase commit hash")
         run_provenance = {
             "factorial_schedule_algorithm": args.factorial_schedule_algorithm,
             "factorial_schedule_seed": args.factorial_schedule_seed,
@@ -1327,7 +1424,9 @@ Examples:
             "factorial_cluster_id": args.factorial_cluster_id,
             "factorial_pair_id": args.factorial_pair_id,
             "environment_seed_mechanism": args.environment_seed_mechanism,
-            "environment_seed": None,
+            "environment_seed": args.environment_seed,
+            "environment_rng_algorithm": args.environment_rng_algorithm,
+            "environment_game_revision": args.environment_game_revision,
             "environment_seed_reason": args.environment_seed_reason,
         }
 
@@ -1500,6 +1599,9 @@ Examples:
                     "--factorial-cluster-id", args.factorial_cluster_id,
                     "--factorial-pair-id", args.factorial_pair_id,
                     "--environment-seed-mechanism", args.environment_seed_mechanism,
+                    "--environment-seed", str(args.environment_seed),
+                    "--environment-rng-algorithm", args.environment_rng_algorithm,
+                    "--environment-game-revision", args.environment_game_revision,
                     "--environment-seed-reason", args.environment_seed_reason,
                 ])
             print(f"  {model_name}: port={model_cfg['server_port']} user={model_cfg['username']} personality={args.personality or 'none'} log={log_path}")

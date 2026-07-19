@@ -44,6 +44,8 @@ REQUIRED_RECOVERY = (False, True)
 REQUIRED_PERSONALITIES = ("grinder", "completionist", "explorer_tinkerer")
 PERSONALITY_CODES = {"grinder": "g", "completionist": "c", "explorer_tinkerer": "e"}
 SCHEDULE_ALGORITHM = "sha256-rank-v1"
+ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v1"
+ENVIRONMENT_RNG_ALGORITHM = "mulberry32-sha256-v1"
 CLUSTER_SIZE = len(REQUIRED_PERSONALITIES) * len(REQUIRED_RECOVERY)
 CORE3_PROTOCOL_ID = "core3_canonical_unseeded_6h_v1"
 CORE3_DURATION_SECONDS = 6 * 60 * 60
@@ -84,6 +86,7 @@ class Cell:
     schedule_index: int
     batch_index: int
     inference_seed: int
+    environment_seed: int
 
 
 @dataclass(frozen=True)
@@ -121,7 +124,9 @@ class ExperimentPlan:
     schedule_seed: int
     inference_seeds: tuple[int, ...]
     environment_seed_mechanism: str
-    environment_seed: int | None
+    environment_rng_algorithm: str
+    environment_game_revision: str
+    environment_seeds: tuple[int, ...]
     environment_seed_reason: str
     cells: tuple[Cell, ...]
 
@@ -265,21 +270,51 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
     environment_seed_mechanism = _require(
         environment_seed_cfg, "mechanism", str, "randomization.environment_seed"
     )
-    environment_seed = environment_seed_cfg.get("seed")
+    environment_rng_algorithm = _require(
+        environment_seed_cfg, "algorithm", str, "randomization.environment_seed"
+    )
+    environment_game_revision = _require(
+        environment_seed_cfg, "game_revision", str, "randomization.environment_seed"
+    )
+    environment_seeds_raw = _require(
+        environment_seed_cfg, "seeds", list, "randomization.environment_seed"
+    )
     environment_seed_reason = _require(
         environment_seed_cfg, "reason", str, "randomization.environment_seed"
     ).strip()
-    if environment_seed_mechanism != "unavailable":
+    if environment_seed_mechanism != ENVIRONMENT_RNG_MECHANISM:
         raise ManifestError(
-            "randomization.environment_seed.mechanism must be 'unavailable' until Kaetram "
-            "implements and verifies an environment RNG seed interface"
+            "randomization.environment_seed.mechanism must be "
+            f"'{ENVIRONMENT_RNG_MECHANISM}'"
         )
-    if environment_seed is not None:
+    if environment_rng_algorithm != ENVIRONMENT_RNG_ALGORITHM:
         raise ManifestError(
-            "randomization.environment_seed.seed must be null when mechanism is unavailable"
+            "randomization.environment_seed.algorithm must be "
+            f"'{ENVIRONMENT_RNG_ALGORITHM}'"
         )
+    if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", environment_game_revision):
+        raise ManifestError(
+            "randomization.environment_seed.game_revision must be an exact lowercase commit hash"
+        )
+    if len(environment_seeds_raw) != replicates:
+        raise ManifestError(
+            "randomization.environment_seed.seeds must contain exactly one seed per replicate"
+        )
+    try:
+        environment_seeds = tuple(
+            validate_inference_seed(
+                seed, label=f"randomization.environment_seed.seeds[{index}]"
+            )
+            for index, seed in enumerate(environment_seeds_raw)
+        )
+    except ValueError as exc:
+        raise ManifestError(str(exc)) from exc
+    if len(set(environment_seeds)) != len(environment_seeds):
+        raise ManifestError("randomization.environment_seed.seeds must be unique")
     if not environment_seed_reason:
-        raise ManifestError("randomization.environment_seed.reason must explain the limitation")
+        raise ManifestError(
+            "randomization.environment_seed.reason must describe residual nondeterminism"
+        )
 
     models = _require(raw, "models", dict, "manifest")
     if set(models) != set(REQUIRED_WEIGHTS):
@@ -572,6 +607,7 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
                         schedule_index=-1,
                         batch_index=-1,
                         inference_seed=inference_seeds[replicate - 1],
+                        environment_seed=environment_seeds[replicate - 1],
                     ))
 
     if cells[-1].server_port > 65535:
@@ -641,7 +677,9 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         schedule_seed=schedule_seed,
         inference_seeds=inference_seeds,
         environment_seed_mechanism=environment_seed_mechanism,
-        environment_seed=environment_seed,
+        environment_rng_algorithm=environment_rng_algorithm,
+        environment_game_revision=environment_game_revision,
+        environment_seeds=environment_seeds,
         environment_seed_reason=environment_seed_reason,
         cells=tuple(scheduled_cells),
     )
@@ -693,6 +731,8 @@ def validate_factorial_plan(plan: ExperimentPlan) -> None:
         raise ManifestError("schedule_index must be complete, ordered, and duplicate-free")
     if any(c.inference_seed != plan.inference_seeds[c.replicate - 1] for c in plan.cells):
         raise ManifestError("all cells in a replicate must share its registered inference seed")
+    if any(c.environment_seed != plan.environment_seeds[c.replicate - 1] for c in plan.cells):
+        raise ManifestError("all cells in a replicate must share its registered environment seed")
 
     for attr in ("username", "server_port", "sandbox", "run_dir", "cell_id"):
         values = [getattr(c, attr) for c in plan.cells]
@@ -728,6 +768,9 @@ def cell_command(plan: ExperimentPlan, cell: Cell) -> list[str]:
         "--factorial-cluster-id", cell.cluster_id,
         "--factorial-pair-id", cell.pair_id,
         "--environment-seed-mechanism", plan.environment_seed_mechanism,
+        "--environment-seed", str(cell.environment_seed),
+        "--environment-rng-algorithm", plan.environment_rng_algorithm,
+        "--environment-game-revision", plan.environment_game_revision,
         "--environment-seed-reason", plan.environment_seed_reason,
     ]
     cmd.extend(["--personality", cell.personality])
@@ -745,7 +788,7 @@ def plan_dict(plan: ExperimentPlan) -> dict[str, Any]:
     payload = asdict(plan)
     payload["mode"] = "preflight_only"
     payload["factorial_validation"] = "passed"
-    payload["launchability"] = "blocked_environment_rng_unavailable"
+    payload["launchability"] = "attested_environment_rng_configured"
     payload["commands"] = [
         cell_command(plan, cell)
         for cell in plan.cells
@@ -802,8 +845,17 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         "factorial_cluster_id": cell.cluster_id,
         "factorial_pair_id": cell.pair_id,
         "environment_seed_mechanism": plan.environment_seed_mechanism,
-        "environment_seed": plan.environment_seed,
+        "environment_seed": cell.environment_seed,
+        "environment_rng_algorithm": plan.environment_rng_algorithm,
+        "environment_game_revision": plan.environment_game_revision,
         "environment_seed_reason": plan.environment_seed_reason,
+        "environment_rng_attestation": {
+            "schema": plan.environment_seed_mechanism,
+            "algorithm": plan.environment_rng_algorithm,
+            "seedSha256": hashlib.sha256(str(cell.environment_seed).encode()).hexdigest(),
+            "gameRevision": plan.environment_game_revision,
+            "drawsAtAttestation": 0,
+        },
     }
     mismatches = {
         key: {"expected": expected, "actual": meta.get(key)}
@@ -814,11 +866,34 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         raise ManifestError(f"cell {cell.cell_id} result metadata mismatch: {mismatches}")
 
 
-def require_environment_seed_capability(plan: ExperimentPlan) -> None:
-    if plan.environment_seed_mechanism == "unavailable":
+def require_environment_seed_capability(
+    plan: ExperimentPlan, environ: dict[str, str]
+) -> None:
+    if plan.environment_seed_mechanism != ENVIRONMENT_RNG_MECHANISM:
         raise ManifestError(
-            "launch blocked: Kaetram environment RNG seed is unavailable; scheduling and "
-            "inference seeds do not control gameplay Math.random()"
+            "launch blocked: unsupported Kaetram environment RNG attestation mechanism"
+        )
+    game_dir = Path(
+        environ.get("KAETRAM_GAME_DIR", "~/projects/Kaetram-Open")
+    ).expanduser().resolve()
+    try:
+        revision = subprocess.check_output(
+            ["git", "-C", str(game_dir), "rev-parse", "HEAD"],
+            stderr=subprocess.STDOUT,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ManifestError(
+            f"launch blocked: cannot attest Kaetram checkout at {game_dir}: {exc}"
+        ) from exc
+    if revision != plan.environment_game_revision:
+        raise ManifestError(
+            "launch blocked: Kaetram checkout revision mismatch: "
+            f"expected {plan.environment_game_revision}, found {revision}"
+        )
+    if not (game_dir / "packages" / "server" / "dist" / "main.js").is_file():
+        raise ManifestError(
+            f"launch blocked: attested Kaetram server build is missing under {game_dir}"
         )
 
 
@@ -938,6 +1013,13 @@ def seal_prelaunch_record(
             "power_analysis_artifact": plan.power_analysis_artifact,
             "power_analysis_sha256": plan.power_analysis_sha256,
         },
+        "environment_rng": {
+            "mechanism": plan.environment_seed_mechanism,
+            "algorithm": plan.environment_rng_algorithm,
+            "game_revision": plan.environment_game_revision,
+            "replicate_seeds": list(plan.environment_seeds),
+            "residual_nondeterminism": plan.environment_seed_reason,
+        },
     }
     record["prelaunch_sha256"] = sha256_json(record)
     path = experiment_root / "prelaunch.json"
@@ -950,8 +1032,8 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
         raise ManifestError("launch blocked: set execution.allow_launch=true in the reviewed manifest")
     if confirmation != plan.experiment_id:
         raise ManifestError("launch blocked: --confirm-launch must exactly match experiment_id")
-    require_environment_seed_capability(plan)
     env_source = os.environ if environ is None else environ
+    require_environment_seed_capability(plan, env_source)
     missing = sorted({c.endpoint_env for c in plan.cells if not env_source.get(c.endpoint_env)})
     if missing:
         raise ManifestError(f"launch blocked: missing endpoint environment variables: {', '.join(missing)}")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -17,6 +18,7 @@ from scripts.opd.factorial_eval import (
     plan_dict,
     seal_prelaunch_record,
     validate_live_endpoint_attestations,
+    require_environment_seed_capability,
     validate_cell_result,
 )
 
@@ -58,7 +60,9 @@ def test_manifest_generates_complete_paired_factorial_with_isolation(tmp_path: P
     assert plan.planned_replicates == 20
     assert plan.max_parallel == 6
     assert plan.schedule_algorithm == "sha256-rank-v1"
-    assert plan.environment_seed_mechanism == "unavailable"
+    assert plan.environment_seed_mechanism == "kaetram-environment-rng-attestation/v1"
+    assert plan.environment_rng_algorithm == "mulberry32-sha256-v1"
+    assert len(plan.environment_seeds) == 20
     for pair_id in {c.pair_id for c in plan.cells}:
         pair = [c for c in plan.cells if c.pair_id == pair_id]
         assert {c.recovery for c in pair} == {False, True}
@@ -69,6 +73,10 @@ def test_manifest_generates_complete_paired_factorial_with_isolation(tmp_path: P
         assert len({cell.batch_index for cell in batch}) == 1
     assert all(
         cell.inference_seed == plan.inference_seeds[cell.replicate - 1]
+        for cell in plan.cells
+    )
+    assert all(
+        cell.environment_seed == plan.environment_seeds[cell.replicate - 1]
         for cell in plan.cells
     )
 
@@ -89,9 +97,10 @@ def test_preflight_plan_uses_endpoint_placeholders_and_never_resolves_or_launche
     assert all("--omit-game-knowledge" not in command for command in commands)
     assert all("--sandbox" in command for command in commands)
     assert all("--inference-seed" in command for command in commands)
-    assert payload["launchability"] == "blocked_environment_rng_unavailable"
     assert all("--duration-seconds" in command for command in commands)
     assert all("21600" in command for command in commands)
+    assert payload["launchability"] == "attested_environment_rng_configured"
+    assert all("--environment-seed" in command for command in commands)
 
 
 def test_cli_dry_run_has_no_endpoint_game_db_or_directory_side_effects(tmp_path: Path):
@@ -164,6 +173,12 @@ def test_randomization_contract_rejects_missing_environment_seed_attestation(tmp
                 {"inference_seeds": [11001, 11001, *range(11003, 11021)]}
             ),
             "must be unique",
+        ),
+        (
+            lambda raw: raw["randomization"]["environment_seed"].update(
+                {"seeds": [21001]}
+            ),
+            "one seed per replicate",
         ),
         (
             lambda raw: raw["execution"].update({"max_parallel": 5}),
@@ -254,7 +269,7 @@ def test_launch_requires_manifest_switch_and_exact_confirmation_without_popen(tm
 def test_launch_requires_all_endpoint_environment_variables(tmp_path: Path, monkeypatch):
     plan = replace(build_plan(_manifest_copy(tmp_path)), allow_launch=True)
     monkeypatch.setattr(
-        "scripts.opd.factorial_eval.require_environment_seed_capability", lambda _plan: None
+        "scripts.opd.factorial_eval.require_environment_seed_capability", lambda *_args: None
     )
     monkeypatch.setattr(
         "scripts.opd.factorial_eval.subprocess.Popen",
@@ -304,7 +319,7 @@ def test_launch_sets_canonical_schema_recovery_and_respects_parallel_cap(tmp_pat
         lambda *args, **kwargs: FakeProcess(args, kwargs),
     )
     monkeypatch.setattr(
-        "scripts.opd.factorial_eval.require_environment_seed_capability", lambda _plan: None
+        "scripts.opd.factorial_eval.require_environment_seed_capability", lambda *_args: None
     )
     monkeypatch.setattr(
         "scripts.opd.factorial_eval.validate_live_endpoint_attestations",
@@ -326,7 +341,11 @@ def test_launch_sets_canonical_schema_recovery_and_respects_parallel_cap(tmp_pat
 def test_confirmatory_launch_fails_closed_when_environment_rng_is_unavailable(
     tmp_path: Path, monkeypatch
 ):
-    plan = replace(build_plan(_manifest_copy(tmp_path)), allow_launch=True)
+    plan = replace(
+        build_plan(_manifest_copy(tmp_path)),
+        allow_launch=True,
+        environment_seed_mechanism="unavailable",
+    )
     monkeypatch.setattr(
         "scripts.opd.factorial_eval.subprocess.Popen",
         lambda *args, **kwargs: pytest.fail("Popen must not be reached"),
@@ -335,8 +354,29 @@ def test_confirmatory_launch_fails_closed_when_environment_rng_is_unavailable(
         cell.endpoint_env: "https://signed.example.invalid/v1"
         for cell in plan.cells
     }
-    with pytest.raises(ManifestError, match="environment RNG seed is unavailable"):
+    with pytest.raises(ManifestError, match="unsupported Kaetram environment RNG"):
         launch(plan, confirmation=plan.experiment_id, environ=endpoints)
+
+
+def test_environment_rng_capability_requires_exact_built_checkout(tmp_path: Path, monkeypatch):
+    plan = build_plan(_manifest_copy(tmp_path))
+    game_dir = tmp_path / "game"
+    server_build = game_dir / "packages" / "server" / "dist" / "main.js"
+    server_build.parent.mkdir(parents=True)
+    server_build.write_text("// test build")
+
+    monkeypatch.setattr(
+        "scripts.opd.factorial_eval.subprocess.check_output",
+        lambda *args, **kwargs: plan.environment_game_revision + "\n",
+    )
+    require_environment_seed_capability(plan, {"KAETRAM_GAME_DIR": str(game_dir)})
+
+    monkeypatch.setattr(
+        "scripts.opd.factorial_eval.subprocess.check_output",
+        lambda *args, **kwargs: "0" * 40 + "\n",
+    )
+    with pytest.raises(ManifestError, match="revision mismatch"):
+        require_environment_seed_capability(plan, {"KAETRAM_GAME_DIR": str(game_dir)})
 
 
 def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_path: Path):
@@ -370,8 +410,19 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
                 "factorial_cluster_id": cell.cluster_id,
                 "factorial_pair_id": cell.pair_id,
                 "environment_seed_mechanism": plan.environment_seed_mechanism,
-                "environment_seed": None,
+                "environment_seed": cell.environment_seed,
+                "environment_rng_algorithm": plan.environment_rng_algorithm,
+                "environment_game_revision": plan.environment_game_revision,
                 "environment_seed_reason": plan.environment_seed_reason,
+                "environment_rng_attestation": {
+                    "schema": plan.environment_seed_mechanism,
+                    "algorithm": plan.environment_rng_algorithm,
+                    "seedSha256": hashlib.sha256(
+                        str(cell.environment_seed).encode()
+                    ).hexdigest(),
+                    "gameRevision": plan.environment_game_revision,
+                    "drawsAtAttestation": 0,
+                },
             },
             "episodes": [{"episode": 1, "status": status}],
         }))
@@ -417,8 +468,19 @@ def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Pat
             "factorial_cluster_id": cell.cluster_id,
             "factorial_pair_id": cell.pair_id,
             "environment_seed_mechanism": plan.environment_seed_mechanism,
-            "environment_seed": None,
+            "environment_seed": cell.environment_seed,
+            "environment_rng_algorithm": plan.environment_rng_algorithm,
+            "environment_game_revision": plan.environment_game_revision,
             "environment_seed_reason": plan.environment_seed_reason,
+            "environment_rng_attestation": {
+                "schema": plan.environment_seed_mechanism,
+                "algorithm": plan.environment_rng_algorithm,
+                "seedSha256": hashlib.sha256(
+                    str(cell.environment_seed).encode()
+                ).hexdigest(),
+                "gameRevision": plan.environment_game_revision,
+                "drawsAtAttestation": 0,
+            },
         },
         "episodes": [{"episode": 1, "status": "ok"}],
     }))
@@ -501,6 +563,13 @@ def test_prelaunch_ledger_is_self_hashed_create_only_and_preserves_heldout_metad
         "quest": "",
         "registration": "",
         "registration_sha256": "",
+    }
+    assert record["environment_rng"] == {
+        "mechanism": plan.environment_seed_mechanism,
+        "algorithm": plan.environment_rng_algorithm,
+        "game_revision": plan.environment_game_revision,
+        "replicate_seeds": list(plan.environment_seeds),
+        "residual_nondeterminism": plan.environment_seed_reason,
     }
     assert record["prelaunch_sha256"]
     with pytest.raises(ManifestError, match="refusing to overwrite"):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from inference_seed import MAX_INFERENCE_SEED, derive_request_seed, validate_inference_seed
-from eval_harness import run_episode
+from eval_harness import run_episode, verify_environment_rng_attestation
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -61,9 +62,11 @@ def test_eval_harness_propagates_seed_and_provenance_to_play_qwen(
         "factorial_batch_index": 0,
         "factorial_cluster_id": "rep01-base",
         "factorial_pair_id": "rep01-base-grinder",
-        "environment_seed_mechanism": "unavailable",
-        "environment_seed": None,
-        "environment_seed_reason": "Kaetram gameplay RNG is unavailable",
+        "environment_seed_mechanism": "kaetram-environment-rng-attestation/v1",
+        "environment_seed": 21001,
+        "environment_rng_algorithm": "mulberry32-sha256-v1",
+        "environment_game_revision": "6a75dea54983e5a3a10da71c03bf9ece218f56bb",
+        "environment_seed_reason": "server gameplay RNG only",
     }
     run_dir = tmp_path / "run"
     run_episode(
@@ -82,6 +85,34 @@ def test_eval_harness_propagates_seed_and_provenance_to_play_qwen(
     meta = json.loads((run_dir / "harness_meta_template.json").read_text())
     assert meta["inference_seed"] == 11001
     assert all(meta[key] == value for key, value in provenance.items())
+
+
+def test_environment_rng_attestation_verification_is_fail_closed(tmp_path: Path):
+    provenance = {
+        "environment_seed_mechanism": "kaetram-environment-rng-attestation/v1",
+        "environment_seed": 21001,
+        "environment_rng_algorithm": "mulberry32-sha256-v1",
+        "environment_game_revision": "6a75dea54983e5a3a10da71c03bf9ece218f56bb",
+    }
+    attestation = {
+        "schema": provenance["environment_seed_mechanism"],
+        "algorithm": provenance["environment_rng_algorithm"],
+        "seedSha256": hashlib.sha256(b"21001").hexdigest(),
+        "gameRevision": provenance["environment_game_revision"],
+        "drawsAtAttestation": 0,
+        "coverage": ["audited gameplay helpers"],
+    }
+    path = tmp_path / "environment-rng.json"
+    path.write_text(json.dumps(attestation))
+    verified = verify_environment_rng_attestation(path, provenance)
+    assert verified == {key: attestation[key] for key in (
+        "schema", "algorithm", "seedSha256", "gameRevision", "drawsAtAttestation"
+    )}
+
+    attestation["seedSha256"] = "0" * 64
+    path.write_text(json.dumps(attestation))
+    with pytest.raises(RuntimeError, match="attestation mismatch"):
+        verify_environment_rng_attestation(path, provenance)
 
 
 @pytest.mark.parametrize("relative_path", ENDPOINTS)

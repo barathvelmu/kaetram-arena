@@ -6,25 +6,94 @@ from pathlib import Path
 
 import pytest
 
-from scripts.opd.seed_selected_states import (
-    SeedPlanError,
-    build_seed_plan,
-    execute_seed_plan,
+from scripts.opd.seed_selected_states import SeedPlanError, build_seed_plan, execute_seed_plan
+from scripts.opd.select_target_states import (
+    SelectionError,
+    build_selection,
+    progress_bin,
+    state_equivalence,
 )
-from scripts.opd.select_target_states import SelectionError, build_selection
 
 
 REPO = Path(__file__).resolve().parents[2]
 
+CHECKER_SOURCE = r'''#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--artifact", required=True)
+parser.add_argument("--method", required=True)
+parser.add_argument("--canonical-start-sha256", required=True)
+parser.add_argument("--target-snapshot-sha256", required=True)
+args = parser.parse_args()
+path = Path(args.artifact)
+artifact = json.loads(path.read_text())
+states = artifact["path_state_sha256s"]
+assert states[0] == args.canonical_start_sha256
+assert states[-1] == args.target_snapshot_sha256
+result = {
+    "schema_version": "kaetram-player-state-reachability-check-v1",
+    "status": "passed",
+    "method": args.method,
+    "checker_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    "artifact_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    "canonical_start_sha256": args.canonical_start_sha256,
+    "target_snapshot_sha256": args.target_snapshot_sha256,
+}
+if args.method == "witness_trajectory":
+    transitions = artifact["transitions"]
+    assert len(transitions) == len(states) - 1
+    for index, transition in enumerate(transitions):
+        assert transition["before_state_sha256"] == states[index]
+        assert transition["after_state_sha256"] == states[index + 1]
+        assert transition["action"] == "fixture_replay_transition"
+    result.update({
+        "verification_kind": "transition_replay",
+        "replayed_transition_count": len(transitions),
+    })
+else:
+    assert artifact["invariants"]
+    result.update({
+        "verification_kind": "executed_invariant_checker",
+        "checked_invariants": artifact["invariants"],
+    })
+print(json.dumps(result))
+'''
+
+
+def _digest(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
+
 
 def _config(tmp_path: Path, max_states: int = 2) -> Path:
+    checker_path = tmp_path / "fixture_reachability_checker.py"
+    checker_path.write_text(CHECKER_SOURCE)
+    checker_sha256 = _digest(checker_path.read_bytes())
     path = tmp_path / "config.json"
     path.write_text(json.dumps({
-        "schema_version": 1,
-        "experiment_id": "target-test-v1",
+        "schema_version": 2,
+        "experiment_id": "target-player-test-v2",
         "held_out_registration": str(REPO / "research" / "experiments" / "heldout-quest.json"),
         "random_seed": 7,
         "max_states": max_states,
+        "confidence_level": 0.95,
+        "minimum_trials": {
+            "natural_student_rollouts": 200,
+            "teacher_trials": 50,
+            "student_trials": 50,
+            "recovery_trials": 50,
+        },
+        "reachability_checkers": {
+            method: {
+                "path": str(checker_path),
+                "sha256": checker_sha256,
+                "timeout_seconds": 5,
+            }
+            for method in ("witness_trajectory", "invariant_certificate")
+        },
         "thresholds": {
             "max_student_visit_rate": 0.05,
             "min_teacher_success_rate": 0.6,
@@ -36,27 +105,31 @@ def _config(tmp_path: Path, max_states: int = 2) -> Path:
 
 
 def _candidate(
-    state_id: str, *, progress_bin: str, position: int,
-    student_visits: int = 1, teacher_successes: int = 8,
-    student_successes: int = 2, recoveries: int = 9,
+    state_id: str, *, quest_stage: int, position: int,
+    student_visits: int = 0, natural_student_rollouts: int = 1000,
+    teacher_successes: int = 90, teacher_trials: int = 100,
+    student_successes: int = 10, student_trials: int = 100,
+    recoveries: int = 98, recovery_trials: int = 100,
 ) -> dict:
+    snapshot = {
+        "position": [position, 20],
+        "hit_points": 100,
+        "mana": 20,
+        "inventory": [],
+        "bank": [],
+        "equipment": [],
+        "quests": [{"key": "foresting", "stage": quest_stage}],
+        "achievements": [],
+        "skills": [],
+        "statistics": {},
+        "player_info_overrides": {},
+    }
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "state_id": state_id,
-        "snapshot": {
-            "position": [position, 20],
-            "hit_points": 100,
-            "mana": 20,
-            "inventory": [],
-            "bank": [],
-            "equipment": [],
-            "quests": [{"key": "foresting", "stage": 1}],
-            "achievements": [],
-            "skills": [],
-            "statistics": {},
-            "player_info_overrides": {},
-        },
-        "progress_bin": progress_bin,
+        "snapshot": snapshot,
+        "state_equivalence": state_equivalence(snapshot),
+        "progress_bin": progress_bin(snapshot),
         "source_kind": "direct_snapshot",
         "source_run_ids": ["run_source"],
         "validity": {
@@ -75,19 +148,59 @@ def _candidate(
             }
             for key in ("legal_reachable", "internally_consistent", "e2e_seed_verified")
         },
+        "trial_evidence": {
+            name: {
+                "artifact_path": f"artifacts/trials/{state_id}-{name}.json",
+                "artifact_sha256": "pending",
+            }
+            for name in ("visitation", "teacher_success", "student_success", "recovery")
+        },
         "counts": {
             "student_visits": student_visits,
-            "natural_student_rollouts": 100,
+            "natural_student_rollouts": natural_student_rollouts,
             "teacher_successes": teacher_successes,
-            "teacher_trials": 10,
+            "teacher_trials": teacher_trials,
             "student_successes": student_successes,
-            "student_trials": 10,
+            "student_trials": student_trials,
             "recoveries": recoveries,
-            "recovery_trials": 10,
+            "recovery_trials": recovery_trials,
         },
         "task_relevant": True,
         "endpoint_already_completed": False,
     }
+
+
+def _trial_payload(row: dict, name: str) -> bytes:
+    specs = {
+        "visitation": ("natural_student_visitation", "student", "student_visits", "natural_student_rollouts"),
+        "teacher_success": ("conditional_task_success", "teacher", "teacher_successes", "teacher_trials"),
+        "student_success": ("conditional_task_success", "student", "student_successes", "student_trials"),
+        "recovery": ("player_state_recovery", "student", "recoveries", "recovery_trials"),
+    }
+    kind, role, numerator_key, denominator_key = specs[name]
+    successes = row["counts"][numerator_key]
+    trials = row["counts"][denominator_key]
+    snapshot_sha256 = _digest(json.dumps(
+        row["snapshot"], ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+    ).encode())
+    success_id = "conditional-task-success-v1" if name in {"teacher_success", "student_success"} else f"{kind}-v1"
+    return json.dumps({
+        "schema_version": "kaetram-player-state-trials-v1",
+        "kind": kind,
+        "state_id": row["state_id"],
+        "snapshot_sha256": snapshot_sha256,
+        "state_equivalence": row["state_equivalence"],
+        "policy": {
+            "role": role,
+            "policy_id": f"fixture-{role}-policy",
+            "checkpoint_sha256": ("1" if role == "teacher" else "2") * 64,
+        },
+        "history_constructor": {"id": "fixture-history-v1", "revision": "3" * 64},
+        "horizon": {"value": 128, "unit": "turns"},
+        "success_definition": {"id": success_id, "revision": "4" * 64},
+        "seeds": list(range(trials)),
+        "outcomes": [True] * successes + [False] * (trials - successes),
+    }, sort_keys=True).encode()
 
 
 def _candidates(tmp_path: Path, rows: list[dict]) -> Path:
@@ -98,26 +211,39 @@ def _candidates(tmp_path: Path, rows: list[dict]) -> Path:
             evidence_path = tmp_path / evidence["artifact_path"]
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
             if key == "legal_reachable":
-                target_sha256 = hashlib.sha256(json.dumps(
+                target_sha256 = _digest(json.dumps(
                     row["snapshot"], ensure_ascii=False, separators=(",", ":"), sort_keys=True,
-                ).encode()).hexdigest()
+                ).encode())
                 start_sha256 = evidence["canonical_start_sha256"]
-                payload = json.dumps({
-                    "schema_version": 1,
-                    "method": evidence.get("method"),
+                method = evidence.get("method")
+                artifact = {
+                    "schema_version": 2,
+                    "method": method,
                     "canonical_start_sha256": start_sha256,
                     "target_snapshot_sha256": target_sha256,
                     "path_state_sha256s": [start_sha256, target_sha256],
-                    "transitions": [{
-                        "action": "verified_test_transition",
+                }
+                if method != "invariant_certificate":
+                    artifact["transitions"] = [{
+                        "action": "fixture_replay_transition",
                         "before_state_sha256": start_sha256,
                         "after_state_sha256": target_sha256,
-                    }],
-                }).encode()
+                    }]
+                else:
+                    artifact["invariants"] = ["fixture_path_legality", "fixture_quest_legality"]
+                payload = json.dumps(artifact, sort_keys=True).encode()
             else:
-                payload = json.dumps({"state_id": row["state_id"], "check": key}).encode()
+                payload = json.dumps({"state_id": row["state_id"], "check": key}, sort_keys=True).encode()
             evidence_path.write_bytes(payload)
-            evidence["artifact_sha256"] = hashlib.sha256(payload).hexdigest()
+            evidence["artifact_sha256"] = _digest(payload)
+        for name, evidence in row["trial_evidence"].items():
+            if evidence["artifact_sha256"] != "pending":
+                continue
+            evidence_path = tmp_path / evidence["artifact_path"]
+            evidence_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = _trial_payload(row, name)
+            evidence_path.write_bytes(payload)
+            evidence["artifact_sha256"] = _digest(payload)
     path = tmp_path / "candidates.jsonl"
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
     return path
@@ -125,33 +251,54 @@ def _candidates(tmp_path: Path, rows: list[dict]) -> Path:
 
 def _pool() -> list[dict]:
     return [
-        _candidate("target_a", progress_bin="p1", position=1),
-        _candidate("target_b", progress_bin="p2", position=2),
-        _candidate("control_a1", progress_bin="p1", position=3, student_visits=20, teacher_successes=4),
-        _candidate("control_a2", progress_bin="p1", position=4, student_visits=30, teacher_successes=3),
-        _candidate("control_b1", progress_bin="p2", position=5, student_visits=20, teacher_successes=4),
-        _candidate("control_b2", progress_bin="p2", position=6, student_visits=30, teacher_successes=3),
+        _candidate("target_a", quest_stage=1, position=1),
+        _candidate("target_b", quest_stage=2, position=34),
+        _candidate("progress_control_a", quest_stage=1, position=65, student_visits=100, natural_student_rollouts=200, teacher_successes=40),
+        _candidate("progress_control_b", quest_stage=2, position=97, student_visits=100, natural_student_rollouts=200, teacher_successes=40),
+        _candidate("visitation_only_a", quest_stage=3, position=129, teacher_successes=40),
+        _candidate("visitation_only_b", quest_stage=4, position=161, teacher_successes=40),
+        _candidate("teacher_only_a", quest_stage=5, position=193, student_visits=100, natural_student_rollouts=200),
+        _candidate("teacher_only_b", quest_stage=6, position=225, student_visits=100, natural_student_rollouts=200),
     ]
 
 
-def test_selection_freezes_targeted_and_matched_controls_deterministically(tmp_path: Path) -> None:
+def _rewrite_artifact(candidates: Path, row_index: int, group: str, name: str, mutate) -> None:
+    rows = [json.loads(line) for line in candidates.read_text().splitlines()]
+    evidence = rows[row_index][group][name]
+    artifact_path = candidates.parent / evidence["artifact_path"]
+    artifact = json.loads(artifact_path.read_text())
+    mutate(artifact)
+    payload = json.dumps(artifact, sort_keys=True).encode()
+    artifact_path.write_bytes(payload)
+    evidence["artifact_sha256"] = _digest(payload)
+    candidates.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+
+def test_selection_freezes_uncertainty_aware_non_degenerate_arms(tmp_path: Path) -> None:
     candidates = _candidates(tmp_path, _pool())
     config = _config(tmp_path)
     first = build_selection(candidates, config)
     second = build_selection(candidates, config)
     assert first == second
+    assert first["schema_version"] == "kaetram-target-player-state-selection-v2"
     assert [row["state_id"] for row in first["arms"]["targeted"]] == ["target_a", "target_b"]
-    assert len(first["arms"]["progress_matched"]) == 2
+    target_ids = {row["state_id"] for row in first["arms"]["targeted"]}
+    for name, arm in first["arms"].items():
+        assert len(arm) == 2
+        if name != "targeted":
+            assert {row["state_id"] for row in arm} != target_ids
     assert {
-        row["progress_bin"] for row in first["arms"]["progress_matched"]
-    } == {"p1", "p2"}
-    assert all(row["snapshot_sha256"] for rows in first["arms"].values() for row in rows)
+        row["progress_bin"]["key"] for row in first["arms"]["progress_matched"]
+    } == {progress_bin(_pool()[0]["snapshot"])["key"], progress_bin(_pool()[1]["snapshot"])["key"]}
+    target = first["arms"]["targeted"][0]
+    assert target["derived"]["teacher_success_interval"][0] > 0.6
+    assert target["reachability_checker_result"]["verification_kind"] == "transition_replay"
 
 
 def test_duplicate_snapshot_and_heldout_leak_fail_closed(tmp_path: Path) -> None:
     duplicate = _pool()
     duplicate[1]["snapshot"] = duplicate[0]["snapshot"]
-    with pytest.raises(SelectionError, match="duplicate external snapshot"):
+    with pytest.raises(SelectionError, match="duplicate persistent player snapshot"):
         build_selection(_candidates(tmp_path, duplicate), _config(tmp_path))
 
     leaking = _pool()
@@ -165,11 +312,16 @@ def test_duplicate_snapshot_and_heldout_leak_fail_closed(tmp_path: Path) -> None
         build_selection(_candidates(tmp_path, provenance_leak), _config(tmp_path))
 
 
-def test_missing_progress_control_is_a_hard_error(tmp_path: Path) -> None:
-    rows = _pool()
-    rows = [row for row in rows if row["progress_bin"] != "p2" or row["state_id"] == "target_b"]
-    with pytest.raises(SelectionError, match="progress-matched control"):
-        build_selection(_candidates(tmp_path, rows), _config(tmp_path))
+def test_progress_and_equivalence_are_calculated_not_free_text(tmp_path: Path) -> None:
+    bad_progress = _pool()
+    bad_progress[0]["progress_bin"]["key"] = "0" * 64
+    with pytest.raises(SelectionError, match="progress_bin does not match"):
+        build_selection(_candidates(tmp_path, bad_progress), _config(tmp_path))
+
+    bad_equivalence = _pool()
+    bad_equivalence[0]["state_equivalence"]["predicate_id"] = "self-reported-equivalence"
+    with pytest.raises(SelectionError, match="state_equivalence does not match"):
+        build_selection(_candidates(tmp_path, bad_equivalence), _config(tmp_path))
 
 
 def test_incomplete_snapshot_and_unverifiable_validity_fail_closed(tmp_path: Path) -> None:
@@ -188,59 +340,106 @@ def test_incomplete_snapshot_and_unverifiable_validity_fail_closed(tmp_path: Pat
     with pytest.raises(SelectionError, match="skills must be a list of objects"):
         build_selection(_candidates(tmp_path, malformed), _config(tmp_path))
 
-    unverifiable = _pool()
-    unverifiable[0]["validity_evidence"]["legal_reachable"]["artifact_sha256"] = "claimed"
-    with pytest.raises(SelectionError, match="artifact_sha256 is invalid"):
-        build_selection(_candidates(tmp_path, unverifiable), _config(tmp_path))
-
     mismatched = _pool()
     mismatched[0]["validity_evidence"]["legal_reachable"]["artifact_sha256"] = "a" * 64
     with pytest.raises(SelectionError, match="digest mismatch"):
         build_selection(_candidates(tmp_path, mismatched), _config(tmp_path))
 
 
-def test_reachability_requires_a_certified_path_or_witness(tmp_path: Path) -> None:
+def test_reachability_requires_executed_pinned_checker(tmp_path: Path) -> None:
     missing_method = _pool()
     del missing_method[0]["validity_evidence"]["legal_reachable"]["method"]
     with pytest.raises(SelectionError, match="legal reachability method"):
         build_selection(_candidates(tmp_path, missing_method), _config(tmp_path))
 
-    broken = _pool()
-    candidates = _candidates(tmp_path, broken)
-    row = json.loads(candidates.read_text().splitlines()[0])
-    evidence = row["validity_evidence"]["legal_reachable"]
-    artifact_path = tmp_path / evidence["artifact_path"]
-    artifact = json.loads(artifact_path.read_text())
-    artifact["transitions"][0]["after_state_sha256"] = "c" * 64
-    payload = json.dumps(artifact).encode()
-    artifact_path.write_bytes(payload)
-    evidence["artifact_sha256"] = hashlib.sha256(payload).hexdigest()
-    rows = [row] + [json.loads(line) for line in candidates.read_text().splitlines()[1:]]
-    candidates.write_text("".join(json.dumps(item) + "\n" for item in rows))
+    candidates = _candidates(tmp_path, _pool())
+    config = _config(tmp_path)
+    config_raw = json.loads(config.read_text())
+    config_raw["reachability_checkers"]["witness_trajectory"]["sha256"] = "a" * 64
+    config.write_text(json.dumps(config_raw))
+    with pytest.raises(SelectionError, match="checker.*digest mismatch"):
+        build_selection(candidates, config)
+
+    candidates = _candidates(tmp_path, _pool())
+    config = _config(tmp_path)
+    config_raw = json.loads(config.read_text())
+    checker_path = Path(config_raw["reachability_checkers"]["witness_trajectory"]["path"])
+    checker_path.write_text(CHECKER_SOURCE.replace('"transition_replay"', '"declared_witness"'))
+    changed_checker_sha256 = _digest(checker_path.read_bytes())
+    config_raw["reachability_checkers"]["witness_trajectory"]["sha256"] = changed_checker_sha256
+    config_raw["reachability_checkers"]["invariant_certificate"]["sha256"] = changed_checker_sha256
+    config.write_text(json.dumps(config_raw))
+    with pytest.raises(SelectionError, match="did not replay witness transitions"):
+        build_selection(candidates, config)
+
+    candidates = _candidates(tmp_path, _pool())
+    _rewrite_artifact(
+        candidates, 0, "validity_evidence", "legal_reachable",
+        lambda artifact: artifact["transitions"][0].update(after_state_sha256="c" * 64),
+    )
     with pytest.raises(SelectionError, match="breaks path continuity"):
         build_selection(candidates, _config(tmp_path))
 
-    certificate = _pool()
-    certificate_evidence = certificate[0]["validity_evidence"]["legal_reachable"]
-    certificate_evidence["method"] = "invariant_certificate"
-    certificate_path = _candidates(tmp_path, certificate)
-    certificate_row = json.loads(certificate_path.read_text().splitlines()[0])
-    certificate_artifact_path = tmp_path / certificate_row["validity_evidence"]["legal_reachable"]["artifact_path"]
-    certificate_artifact = json.loads(certificate_artifact_path.read_text())
-    certificate_artifact.pop("transitions")
-    certificate_artifact.update({
-        "method": "invariant_certificate",
-        "checker_id": "kaetram-reachability-v1",
-        "checker_revision": "d" * 64,
-        "invariants": ["walkable_path", "quest_transition_legality"],
-    })
-    certificate_payload = json.dumps(certificate_artifact).encode()
-    certificate_artifact_path.write_bytes(certificate_payload)
-    certificate_row["validity_evidence"]["legal_reachable"]["artifact_sha256"] = hashlib.sha256(certificate_payload).hexdigest()
-    certificate_rows = [certificate_row] + [json.loads(line) for line in certificate_path.read_text().splitlines()[1:]]
-    certificate_path.write_text("".join(json.dumps(item) + "\n" for item in certificate_rows))
-    selection = build_selection(certificate_path, _config(tmp_path))
-    assert selection["arms"]["targeted"][0]["validity_evidence"]["legal_reachable"]["method"] == "invariant_certificate"
+
+def test_executed_invariant_checker_is_accepted(tmp_path: Path) -> None:
+    rows = _pool()
+    rows[0]["validity_evidence"]["legal_reachable"]["method"] = "invariant_certificate"
+    selection = build_selection(_candidates(tmp_path, rows), _config(tmp_path))
+    selected = next(row for row in selection["arms"]["targeted"] if row["state_id"] == "target_a")
+    assert selected["reachability_checker_result"]["verification_kind"] == "executed_invariant_checker"
+    assert selected["reachability_checker_result"]["checked_invariants"]
+
+
+def test_hashed_trial_evidence_binds_counts_and_provenance(tmp_path: Path) -> None:
+    candidates = _candidates(tmp_path, _pool())
+    rows = [json.loads(line) for line in candidates.read_text().splitlines()]
+    rows[0]["counts"]["teacher_successes"] = 89
+    candidates.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    with pytest.raises(SelectionError, match="counts do not match hashed trial outcomes"):
+        build_selection(candidates, _config(tmp_path))
+
+    candidates = _candidates(tmp_path, _pool())
+    artifact_path = tmp_path / json.loads(candidates.read_text().splitlines()[0])["trial_evidence"]["teacher_success"]["artifact_path"]
+    artifact_path.write_text(artifact_path.read_text() + " ")
+    with pytest.raises(SelectionError, match="digest mismatch"):
+        build_selection(candidates, _config(tmp_path))
+
+    candidates = _candidates(tmp_path, _pool())
+    _rewrite_artifact(
+        candidates, 0, "trial_evidence", "student_success",
+        lambda artifact: artifact["history_constructor"].update(revision="9" * 64),
+    )
+    with pytest.raises(SelectionError, match="teacher/student history_constructor mismatch"):
+        build_selection(candidates, _config(tmp_path))
+
+
+def test_minimum_trials_and_confidence_bounds_fail_closed(tmp_path: Path) -> None:
+    one_shot = _pool()
+    one_shot[0] = _candidate(
+        "target_a", quest_stage=1, position=1,
+        teacher_successes=1, teacher_trials=1,
+    )
+    with pytest.raises(SelectionError, match="teacher_trials has 1 trials; minimum is 50"):
+        build_selection(_candidates(tmp_path, one_shot), _config(tmp_path))
+
+    uncertain = _pool()
+    uncertain[0] = _candidate(
+        "target_a", quest_stage=1, position=1,
+        teacher_successes=33, teacher_trials=50,
+        student_successes=5, student_trials=50,
+    )
+    assert uncertain[0]["counts"]["teacher_successes"] / 50 >= 0.6
+    with pytest.raises(SelectionError, match="targeted rule selected 1 states"):
+        build_selection(_candidates(tmp_path, uncertain), _config(tmp_path))
+
+
+def test_missing_progress_control_is_a_hard_error(tmp_path: Path) -> None:
+    rows = [
+        row for row in _pool()
+        if row["state_id"] != "progress_control_b"
+    ]
+    with pytest.raises(SelectionError, match="progress-matched control"):
+        build_selection(_candidates(tmp_path, rows), _config(tmp_path))
 
 
 def test_seed_plan_requires_three_frozen_states_and_preserves_hashes(tmp_path: Path) -> None:
@@ -249,8 +448,10 @@ def test_seed_plan_requires_three_frozen_states_and_preserves_hashes(tmp_path: P
         build_seed_plan(selection, arm="targeted", batch=0)
 
     larger = _pool() + [
-        _candidate("target_c", progress_bin="p3", position=7),
-        _candidate("control_c", progress_bin="p3", position=8, student_visits=20, teacher_successes=4),
+        _candidate("target_c", quest_stage=3, position=257),
+        _candidate("progress_control_c", quest_stage=3, position=289, student_visits=100, natural_student_rollouts=200, teacher_successes=40),
+        _candidate("visitation_only_c", quest_stage=7, position=321, teacher_successes=40),
+        _candidate("teacher_only_c", quest_stage=8, position=353, student_visits=100, natural_student_rollouts=200),
     ]
     selection = build_selection(_candidates(tmp_path, larger), _config(tmp_path, max_states=3))
     plan = build_seed_plan(selection, arm="targeted", batch=0)
@@ -268,8 +469,10 @@ def test_seed_plan_requires_three_frozen_states_and_preserves_hashes(tmp_path: P
 
 def test_seed_plan_detects_snapshot_tampering(tmp_path: Path) -> None:
     rows = _pool() + [
-        _candidate("target_c", progress_bin="p3", position=7),
-        _candidate("control_c", progress_bin="p3", position=8, student_visits=20, teacher_successes=4),
+        _candidate("target_c", quest_stage=3, position=257),
+        _candidate("progress_control_c", quest_stage=3, position=289, student_visits=100, natural_student_rollouts=200, teacher_successes=40),
+        _candidate("visitation_only_c", quest_stage=7, position=321, teacher_successes=40),
+        _candidate("teacher_only_c", quest_stage=8, position=353, student_visits=100, natural_student_rollouts=200),
     ]
     selection = build_selection(_candidates(tmp_path, rows), _config(tmp_path, max_states=3))
     selection["arms"]["targeted"][0]["snapshot"]["hit_points"] = 1

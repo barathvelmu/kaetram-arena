@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply a frozen target-state curriculum to the three Qwen training lanes."""
+"""Apply a frozen persistent player-state curriculum to three Qwen training lanes."""
 from __future__ import annotations
 
 import argparse
@@ -32,7 +32,10 @@ def load_selection(path: Path) -> dict[str, Any]:
         selection = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError) as exc:
         raise SeedPlanError(f"cannot load selection {path}: {exc}") from exc
-    if not isinstance(selection, dict) or selection.get("schema_version") != "kaetram-target-state-selection-v1":
+    if (
+        not isinstance(selection, dict)
+        or selection.get("schema_version") != "kaetram-target-player-state-selection-v2"
+    ):
         raise SeedPlanError("selection schema_version is invalid")
     if not isinstance(selection.get("arms"), dict):
         raise SeedPlanError("selection arms must be an object")
@@ -78,7 +81,7 @@ def build_seed_plan(selection: dict[str, Any], *, arm: str, batch: int) -> dict[
             "snapshot": snapshot,
         })
     return {
-        "schema_version": "kaetram-target-state-seed-plan-v1",
+        "schema_version": "kaetram-target-player-state-seed-plan-v2",
         "experiment_id": selection["experiment_id"],
         "arm": arm,
         "batch": batch,

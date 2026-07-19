@@ -36,6 +36,7 @@ from run_manifest import (  # noqa: E402
     tool_schema_record,
     utc_now,
     validate_input_provenance,
+    verify_descriptor,
 )
 
 
@@ -747,23 +748,54 @@ def seal_cell_bundle(plan: ExperimentPlan, cell: Cell) -> Path:
     return path
 
 
+def validate_cell_bundle(plan: ExperimentPlan, cell: Cell) -> dict[str, Any]:
+    """Revalidate bundle identity, attribution, and every sealed artifact."""
+    bundle_path = Path(cell.run_dir) / cell.cell_id / "cell-bundle.json"
+    bundle = load_json(bundle_path)
+    if not isinstance(bundle, dict) or bundle.get("schema_version") != CELL_BUNDLE_SCHEMA:
+        raise ManifestError(f"cell {cell.cell_id} has no valid sealed bundle")
+    payload = dict(bundle)
+    recorded_digest = payload.pop("bundle_sha256", None)
+    if recorded_digest != sha256_json(payload):
+        raise ManifestError(f"cell {cell.cell_id} bundle identity mismatch")
+    expected = {
+        "experiment_id": plan.experiment_id,
+        "protocol_id": plan.protocol_id,
+        "cell_id": cell.cell_id,
+        "experiment_manifest_sha256": plan.manifest_sha256,
+        "endpoint_attestation_sha256": cell.endpoint_attestation_sha256,
+        "checkpoint_sha256": cell.checkpoint_sha256,
+        "tokenizer_sha256": cell.tokenizer_sha256,
+        "render_contract_sha256": cell.render_contract_sha256,
+    }
+    mismatches = {
+        key: {"expected": value, "actual": bundle.get(key)}
+        for key, value in expected.items() if bundle.get(key) != value
+    }
+    if mismatches:
+        raise ManifestError(f"cell {cell.cell_id} bundle attribution mismatch: {mismatches}")
+    artifacts = bundle.get("artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise ManifestError(f"cell {cell.cell_id} bundle has no artifacts")
+    names = [artifact.get("name") for artifact in artifacts if isinstance(artifact, dict)]
+    if len(names) != len(artifacts) or len(names) != len(set(names)):
+        raise ManifestError(f"cell {cell.cell_id} bundle artifact names are invalid or duplicated")
+    root = Path(cell.run_dir).parent
+    errors = []
+    for index, artifact in enumerate(artifacts):
+        errors.extend(verify_descriptor(artifact, root, f"cell {cell.cell_id} artifacts[{index}]"))
+    if errors:
+        raise ManifestError("; ".join(errors))
+    return bundle
+
+
 def seal_completed_inventory(plan: ExperimentPlan) -> Path:
     """Seal the exact requested/completed-cell inventory after every cell passes."""
     cells = []
     for cell in plan.cells:
         bundle_path = Path(cell.run_dir) / cell.cell_id / "cell-bundle.json"
-        try:
-            bundle = load_json(bundle_path)
-        except ManifestError as exc:
-            raise ManifestError(
-                f"experiment incomplete: missing sealed bundle for {cell.cell_id}: {exc}"
-            ) from exc
-        if not isinstance(bundle, dict) or bundle.get("cell_id") != cell.cell_id:
-            raise ManifestError(f"experiment incomplete: invalid bundle for {cell.cell_id}")
-        payload = dict(bundle)
-        recorded_digest = payload.pop("bundle_sha256", None)
-        if recorded_digest != sha256_json(payload):
-            raise ManifestError(f"experiment incomplete: bundle identity mismatch for {cell.cell_id}")
+        bundle = validate_cell_bundle(plan, cell)
+        recorded_digest = bundle["bundle_sha256"]
         cells.append({
             "cell_id": cell.cell_id,
             "bundle_sha256": recorded_digest,
@@ -782,6 +814,38 @@ def seal_completed_inventory(plan: ExperimentPlan) -> Path:
     path = Path(plan.cells[0].run_dir).parent / "completed.json"
     atomic_write_json(path, record)
     return path
+
+
+def validate_completed_inventory(plan: ExperimentPlan) -> dict[str, Any]:
+    """Require an exact, untampered inventory and revalidate every cell bundle."""
+    path = Path(plan.cells[0].run_dir).parent / "completed.json"
+    inventory = load_json(path)
+    if not isinstance(inventory, dict) or inventory.get("schema_version") != COMPLETED_INVENTORY_SCHEMA:
+        raise ManifestError("completed factorial inventory is missing or invalid")
+    payload = dict(inventory)
+    identity = payload.pop("inventory_sha256", None)
+    if identity != sha256_json(payload):
+        raise ManifestError("completed factorial inventory identity mismatch")
+    expected_ids = [cell.cell_id for cell in plan.cells]
+    if inventory.get("experiment_id") != plan.experiment_id \
+            or inventory.get("protocol_id") != plan.protocol_id \
+            or inventory.get("experiment_manifest_sha256") != plan.manifest_sha256 \
+            or inventory.get("requested_cell_ids") != expected_ids:
+        raise ManifestError("completed factorial inventory attribution or requested cells mismatch")
+    completed = inventory.get("completed_cells")
+    if not isinstance(completed, list) or [row.get("cell_id") for row in completed if isinstance(row, dict)] != expected_ids:
+        raise ManifestError("completed factorial inventory is incomplete, duplicated, or reordered")
+    for cell, row in zip(plan.cells, completed):
+        bundle = validate_cell_bundle(plan, cell)
+        if row.get("bundle_sha256") != bundle.get("bundle_sha256"):
+            raise ManifestError(f"completed inventory bundle digest mismatch for {cell.cell_id}")
+        errors = verify_descriptor(
+            row.get("bundle_file"), Path(cell.run_dir).parent,
+            f"completed inventory bundle {cell.cell_id}",
+        )
+        if errors:
+            raise ManifestError("; ".join(errors))
+    return inventory
 
 
 def _health_url(endpoint: str, health_path: str) -> str:

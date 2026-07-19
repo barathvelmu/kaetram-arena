@@ -116,6 +116,9 @@ rewrites, parsed tool-transition transcript, player/quest state-boundary
 snapshots, launcher log, results, and hashes for every artifact. After all 360
 cells pass, it seals an exact requested/completed-cell inventory. Missing,
 rewritten-only, misattributed, or overwritten artifacts fail the batch.
+Every later validation re-hashes every sealed artifact and the inventory; a
+post-run change to any prompt, raw/parsed log, state snapshot, result, bundle,
+or cell list invalidates the experiment rather than silently updating a summary.
 
 ## Fail-closed clustered analysis
 

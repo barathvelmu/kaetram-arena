@@ -15,6 +15,7 @@ from scripts.opd.factorial_eval import (
     cell_command,
     launch,
     plan_dict,
+    seal_prelaunch_record,
     validate_live_endpoint_attestations,
     validate_cell_result,
 )
@@ -330,6 +331,80 @@ def test_live_launch_rejects_unresolved_example_attestations_before_network(tmp_
     endpoint_env = {cell.endpoint_env: "https://example.invalid/v1" for cell in plan.cells}
     with pytest.raises(ManifestError, match="unresolved_example"):
         validate_live_endpoint_attestations(plan, endpoint_env)
+
+
+def test_live_endpoint_identity_is_verified_against_health_payload(tmp_path: Path, monkeypatch):
+    plan = build_plan(_manifest_copy(tmp_path))
+    model_provenance = tuple({
+        **model,
+        "attestation_status": "attested",
+        "checkpoint_sha256": "b" * 64,
+        "expected_health": {**model["expected_health"], "checkpoint_sha256": "b" * 64},
+    } for model in plan.model_provenance)
+    plan = replace(plan, model_provenance=model_provenance)
+    endpoint_env = {
+        model["endpoint_env"]: f"https://{model['weight']}.example.invalid/v1"
+        for model in model_provenance
+    }
+    expected_by_host = {
+        f"{model['weight']}.example.invalid": model["expected_health"]
+        for model in model_provenance
+    }
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return json.dumps({"attestation": self.payload}).encode()
+
+    def fake_urlopen(request, timeout):
+        host = request.full_url.split("/", 3)[2]
+        assert request.full_url.endswith("/health")
+        assert timeout == 60.0
+        return Response(expected_by_host[host])
+
+    monkeypatch.setattr("scripts.opd.factorial_eval.urlopen", fake_urlopen)
+    verified = validate_live_endpoint_attestations(plan, endpoint_env)
+    assert [item["weight"] for item in verified] == ["base", "r2", "r3"]
+
+    expected_by_host["r2.example.invalid"] = {
+        **expected_by_host["r2.example.invalid"],
+        "tokenizer_sha256": "f" * 64,
+    }
+    with pytest.raises(ManifestError, match="identity attestation mismatch"):
+        validate_live_endpoint_attestations(plan, endpoint_env)
+
+
+def test_prelaunch_ledger_is_self_hashed_create_only_and_preserves_heldout_metadata(
+    tmp_path: Path, monkeypatch,
+):
+    plan = build_plan(_manifest_copy(tmp_path))
+    commit = "a" * 40
+    plan = replace(plan, source_git_commit=commit)
+    monkeypatch.setattr("scripts.opd.factorial_eval.capture_git_state", lambda repo: {
+        "repository": "git@example.test:owner/repo.git",
+        "commit": commit,
+        "branch": "main",
+        "dirty": False,
+        "dirty_paths": [],
+    })
+    path = seal_prelaunch_record(plan, [])
+    record = json.loads(path.read_text())
+    assert record["held_out"] == {
+        "quest": "",
+        "registration": "",
+        "registration_sha256": "",
+    }
+    assert record["prelaunch_sha256"]
+    with pytest.raises(ManifestError, match="refusing to overwrite"):
+        seal_prelaunch_record(plan, [])
 
 
 def test_manifest_rejects_prompt_or_power_artifact_digest_drift(tmp_path: Path):

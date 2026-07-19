@@ -98,9 +98,9 @@ MONGO_COLLECTIONS = [
 def reset_player_db(username: str) -> bool:
     """Delete all MongoDB records for a specific player username."""
     # Kaetram stores usernames lowercase
-    username_lower = username.lower()
+    username_json = json.dumps(username.lower())
     js_parts = [
-        f"db.{c}.deleteMany({{username: '{username_lower}'}})"
+        f"db.{c}.deleteMany({{username: {username_json}}})"
         for c in MONGO_COLLECTIONS
     ]
     js = "; ".join(js_parts) + "; print('reset_ok');"
@@ -110,18 +110,31 @@ def reset_player_db(username: str) -> bool:
              "--quiet", "--eval", js],
             capture_output=True, text=True, timeout=15,
         )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            print(f"  Warning: MongoDB reset command failed ({result.returncode}): {detail}")
+            return False
         return "reset_ok" in result.stdout
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         print(f"  Warning: MongoDB reset failed: {e}")
         return False
 
 
-def require_player_db_reset(username: str) -> None:
-    """Reset the player or abort rather than contaminate an evaluation run."""
-    if not reset_player_db(username):
-        raise RuntimeError(
-            f"MongoDB reset was not confirmed for {username!r} in {MONGO_DB!r}"
-        )
+def require_player_db_reset(
+    username: str, *, attempts: int = 3, retry_delay_seconds: float = 1.0,
+) -> None:
+    """Confirm a reset with bounded retries or abort before the episode starts."""
+    if attempts < 1:
+        raise ValueError("reset attempts must be positive")
+    for attempt in range(1, attempts + 1):
+        if reset_player_db(username):
+            return
+        if attempt < attempts:
+            time.sleep(retry_delay_seconds)
+    raise RuntimeError(
+        f"MongoDB reset was not confirmed for {username!r} in {MONGO_DB!r} "
+        f"after {attempts} attempts"
+    )
 
 
 # ---------------------------------------------------------------------------

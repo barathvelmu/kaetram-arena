@@ -180,7 +180,13 @@ def test_seed_plan_requires_three_frozen_states_and_preserves_hashes(tmp_path: P
     plan = build_seed_plan(selection, arm="targeted", batch=0)
     assert len(plan["assignments"]) == 3
     calls = []
-    execute_seed_plan(plan, lambda username, **snapshot: calls.append((username, snapshot)))
+    cleanup_calls = []
+    execute_seed_plan(
+        plan,
+        lambda username, **snapshot: calls.append((username, snapshot)),
+        cleanup_calls.append,
+    )
+    assert cleanup_calls == ["qwengrinder", "qwencompletionist", "qwenexplorer"]
     assert [call[0] for call in calls] == ["qwengrinder", "qwencompletionist", "qwenexplorer"]
 
 

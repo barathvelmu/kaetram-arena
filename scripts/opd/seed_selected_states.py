@@ -86,7 +86,13 @@ def build_seed_plan(selection: dict[str, Any], *, arm: str, batch: int) -> dict[
     }
 
 
-def execute_seed_plan(plan: dict[str, Any], seed_fn: Callable[..., Any]) -> list[Any]:
+def execute_seed_plan(
+    plan: dict[str, Any], seed_fn: Callable[..., Any], cleanup_fn: Callable[[str], Any],
+) -> list[Any]:
+    # Delete all player_* rows first. Upsert-only seeding would otherwise retain
+    # stale abilities or any collection omitted by a prior schema version.
+    for assignment in plan["assignments"]:
+        cleanup_fn(assignment["username"])
     return [
         seed_fn(assignment["username"], **assignment["snapshot"])
         for assignment in plan["assignments"]
@@ -117,8 +123,8 @@ def main() -> int:
         expected = f"{plan['experiment_id']}:{plan['arm']}"
         if args.confirm != expected:
             raise SeedPlanError(f"--confirm must exactly equal {expected!r}")
-        from tests.e2e.helpers.seed import seed_player
-        execute_seed_plan(plan, seed_player)
+        from tests.e2e.helpers.seed import cleanup_player, seed_player
+        execute_seed_plan(plan, seed_player, cleanup_player)
     except SeedPlanError as exc:
         parser.error(str(exc))
     return 0

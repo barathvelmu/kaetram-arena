@@ -59,7 +59,10 @@ python3 scripts/opd/seed_selected_states.py \
 
 Live seeding additionally requires `--execute` and an exact
 `--confirm EXPERIMENT_ID:ARM` interlock. Seeded states are training-only. Every
-headline evaluation begins end-to-end from the original unseeded world.
+live assignment first deletes that username from every player collection before
+writing the complete snapshot, preventing stale ability or schema-version rows
+from surviving an upsert. Seeded states are training-only. Every headline
+evaluation begins end-to-end from the original unseeded world.
 
 ## Falsification boundary
 

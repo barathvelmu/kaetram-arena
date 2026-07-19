@@ -104,9 +104,9 @@ The historical r10 checkpoint cannot be repaired by merely passing native tools 
 
 Evaluate base 2B, r2, and r3 weights with recovery off and on under identical fresh-world, prompt, schema, duration, sampling, and hardware conditions. Use independent complete runs as the statistical unit. Preserve raw model emissions before any recovery rewrite.
 
-### WP2 — Natural visitation versus targeted external-state OPD
+### WP2 — Natural visitation versus targeted persistent-player-state OPD
 
-Train fresh students from the same checkpoint. Hold teacher, optimizer, scored-token budget, environment interactions, recovery setting, and training seeds fixed. Compare natural visitation, targeted external states, random-valid states, progress-matched states, TCOD-B2F, and Guided-OPD. This is the central causal test.
+Train fresh students from the same checkpoint. Hold teacher, optimizer, scored-token budget, environment interactions, recovery setting, and training seeds fixed. Compare natural visitation, targeted persistent player states, random-valid player states, progress-matched player states, TCOD-B2F, and Guided-OPD. This is the central causal test; it is not a complete shared-world-state intervention.
 
 ### WP3 — Corrected same-family SFT baseline
 

@@ -26,7 +26,7 @@
 
 ## Required experiments
 
-- Matched natural OPD versus reachability-targeted external-state OPD from the same checkpoint.
+- Matched natural OPD versus reachability-targeted persistent-player-state OPD from the same checkpoint.
 - Random-valid, progress-matched, visitation-only, and teacher-advantage-only reset controls.
 - Matched TCOD-B2F and Guided-OPD curricula; preferably SCoRe-style first-error prefixes.
 - Corrected-interface SFT baseline.
@@ -64,7 +64,7 @@ contribution list implied a causal result that the paper does not have. The
 draft was therefore reframed as an audited state-visitation failure analysis
 plus a confirmatory protocol. This pass also required and triggered:
 
-- explicit joint policy state $z=(x,h)$ for external state and visible history;
+- explicit joint occupancy state $z=(x,h)$ for latent player state and visible history, with policy $\pi(a\mid h)$;
 - direct-snapshot/history, teacher-prefix, matched-history, and Backplay controls;
 - corrected-interface SFT, OEC, OPCD, and SCoRe coverage;
 - witness-trajectory or invariant-certified reachability, beyond loadability;
@@ -77,3 +77,28 @@ plus a confirmatory protocol. This pass also required and triggered:
 
 The verdict remains reject until the matched causal matrix and immutable result
 bundles exist. Editorial repair cannot substitute for those experiments.
+
+## Independent pass 3 — July 19, 2026
+
+Verdict: **reject, 2/5 (confidence 4/5)**, with soundness 3/5, novelty 2/5,
+clarity 4/5, and reproducibility 2/5. This was a material improvement over pass
+2, but no matched state-source training experiment or immutable live result
+bundle exists yet.
+
+The pass exposed four concrete contract gaps. The manuscript incorrectly wrote
+the model policy as conditioned on latent database state; it now uses
+$\pi(a\mid h)$ while joint occupancy tracks $(x,h)$. Paper and protocol language
+now limits the intervention to persistent player state rather than the complete
+shared world. PR #42 now preserves and seals exact pre-rewrite emissions and a
+completed-cell inventory. PR #45 now executes an isolated MCP/Mongo reachability
+checker and uses provenance-bound, uncertainty-aware selection trials; it remains
+blocked on a preserved live certificate. The game RNG has a reviewable draft patch, but it is
+not merged, deployed, or live-attested.
+
+The fatal scientific issue is unchanged: the six primary training arms have not
+been run from one base checkpoint under matched budgets. PR #48 freezes 50 core
+cells plus 20 separately reported state--history cells, and stacked PR #49 now
+hash-verifies and normalizes all registered record types without claiming
+training. Verified training inputs, several trainer extensions, and accelerator
+execution remain unresolved. The paper remains an audited hypothesis report and
+confirmatory protocol.

@@ -4,7 +4,7 @@
 
 The paper is not novel because it uses games, MCP, structured actions, a persistent world, intermediate-state OPD, or on-policy distillation separately. TCOD already uses teacher-success prefixes to initialize intermediate states for multi-turn OPD; Guided-OPD changes live state occupancy through decaying teacher turns; ReOPD explicitly frames multi-turn OPD as reliability-aware prefix-distribution design; and SCoRe trains from verified prefixes immediately before student errors. The candidate contribution is contingent on the planned matched experiments:
 
-1. **Reachability-targeted external-state initialization for on-policy distillation:** directly restore complete, verified persistent world states that need not lie on a successful teacher path; select them using a frozen student-visitation, teacher-advantage, recoverability, and task-relevance rule; train on student rollouts from those states; and compare unseeded evaluation against natural OPD, random-valid and progress-matched resets, TCOD-B2F, and Guided-OPD.
+1. **Reachability-targeted persistent-player-state initialization for on-policy distillation:** directly restore verified persistent player states that need not lie on a successful teacher path; select them using a frozen student-visitation, teacher-advantage, recoverability, and task-relevance rule; train on student rollouts from those states; and compare unseeded evaluation against natural OPD, random-valid and progress-matched resets, TCOD-B2F, and Guided-OPD. The implementation does not restore a complete shared world.
 2. **A teacher-forcing copy-prior diagnostic:** one targeted historical probe shows context-dependent endorsement reversal. A multi-defect, multi-state, multi-teacher paired intervention is required before treating this as a mechanism contribution.
 3. **An interface-versus-weights decomposition protocol:** the historical 18/30 system combines weights and recovery. Only a fully replicated weights-by-recovery factorial can identify main or interaction effects.
 
@@ -39,7 +39,7 @@ Do not use “to our knowledge” novelty language until the matched comparisons
 
 ## Positioning sentence
 
-> Prior work changes rollout horizons, replays successful prefixes, mixes teacher and student turns, or corrects errors on encountered student trajectories. We test a narrower control point: direct restoration of witness-certified persistent world states selected by frozen visitation and teacher-advantage criteria. The confirmatory design matches model-visible history and evaluates every arm from a fresh canonical unseeded world; no superiority result is currently reported.
+> Prior work changes rollout horizons, replays successful prefixes, mixes teacher and student turns, or corrects errors on encountered student trajectories. We test a narrower control point: direct restoration of witness-certified persistent player states selected by frozen visitation and teacher-advantage criteria. The confirmatory design matches model-visible history and evaluates every arm from a fresh canonical unseeded world; no superiority result is currently reported.
 
 ## Claims to avoid
 

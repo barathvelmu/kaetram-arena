@@ -42,14 +42,14 @@ Protocol:
 
 Success criterion: the round-two arm consistently improves the preregistered run-level endpoint and the Herbalist wall without a material regression on Foresting.
 
-## P2 — isolate environment-state seeding
+## P2 — isolate persistent-player-state seeding
 
 Train fresh students from the same base checkpoint with every setting identical except rollout-state source. Primary arms:
 
 - Natural student visitation only
-- Reachability-targeted external states selected by the frozen rule
-- Random valid external states
-- Progress-matched valid external states
+- Reachability-targeted persistent player states selected by the frozen rule
+- Random valid player states
+- Progress-matched valid player states
 - TCOD-B2F successful-teacher-prefix states
 - Guided-OPD with its published decaying teacher-turn schedule
 
@@ -61,9 +61,9 @@ Selection ablations:
 
 Hold teacher, loss, optimizer, data budget, action-token budget, training seed schedule, and number of environment interactions fixed. Evaluate both from fresh unseeded worlds.
 
-Record environment and inference seeds before launch and randomize/blind the arm schedule. Select states by a frozen rule that combines low natural student visitation, demonstrated teacher competence, recoverability, and relevance to the primary endpoint. Every candidate must include repeated-trial counts, a complete direct-seed snapshot, source-run provenance, and hash-verified legality, consistency, and end-to-end seed evidence. Legal reachability requires either a witness trajectory from the canonical start or an invariant-certified path; loadability alone is insufficient. Hand-picked states without a recorded selection rule are exploratory curriculum engineering.
+Record environment and inference seeds before launch and randomize/blind the arm schedule. Select states by a frozen rule that combines low natural student visitation, demonstrated teacher competence, recoverability, and relevance to the primary endpoint. Every candidate must include repeated-trial counts, a complete direct-seed snapshot, source-run provenance, and hash-verified legality, consistency, and end-to-end seed evidence. Legal reachability requires either a witness trajectory replayed by a pinned checker or an invariant-certified path established by an executed pinned checker; digest continuity and loadability alone are insufficient. The seeder restores player state, not NPC, mob, resource, concurrent-player, clock, or full environment state. Hand-picked states without a recorded selection rule are exploratory curriculum engineering.
 
-Cross external state and model-visible history at the same target condition:
+Cross player-state initialization and model-visible history at the same target condition:
 
 - Direct snapshot plus minimal canonical observation history
 - Teacher replay to the state with its authentic prefix

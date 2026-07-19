@@ -26,7 +26,7 @@ Official sources:
 
 **Core question:** When a small agent never visits the states where its teacher is more capable, can changing the training-state distribution—without changing the reverse-KL objective—transfer long-horizon competence?
 
-**Primary claim to validate:** A frozen, witness-certified external-state selector improves unseeded run-level performance beyond matched generic resets, successful-prefix curricula, and natural OPD. The current paper does not yet make this claim.
+**Primary claim to validate:** A frozen, witness-certified persistent-player-state selector improves unseeded run-level performance beyond matched generic resets, successful-prefix curricula, and natural OPD. The current paper does not yet make this claim, and the implementation does not restore a complete shared world.
 
 **Secondary diagnostic:** A targeted probe shows context-dependent endorsement reversal on one malformed tool-syntax family. The broader teacher-forcing copy-prior mechanism remains unvalidated.
 

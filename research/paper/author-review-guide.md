@@ -14,7 +14,7 @@
 
 The current historical observations are base 12/30, natural-OPD round one 12/30, state-augmented round two 15/30 without recovery, round-two weights plus recovery 17/30, and round-three weights plus recovery 18/30. There is one complete run per principal arm. The paper therefore calls these exploratory observations, not replicated effects.
 
-The candidate method is reachability-targeted external-state initialization for OPD. It is not yet validated causally. TCOD already covers success-prefix temporal curricula, Guided-OPD changes occupancy with decaying teacher turns, ReOPD designs prefix distributions, and SCoRe targets verified pre-error prefixes. Random/progress resets, TCOD-B2F, and Guided-OPD must be direct baselines.
+The candidate method is reachability-targeted persistent-player-state initialization for OPD. It is not yet validated causally and does not restore a complete shared world. TCOD already covers success-prefix temporal curricula, Guided-OPD changes occupancy with decaying teacher turns, ReOPD designs prefix distributions, and SCoRe targets verified pre-error prefixes. Random/progress resets, TCOD-B2F, and Guided-OPD must be direct baselines.
 
 ## What your collaborator should review first
 

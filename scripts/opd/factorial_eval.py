@@ -127,7 +127,7 @@ def _require(mapping: dict[str, Any], key: str, kind: type, context: str) -> Any
 def load_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
     manifest_path = Path(path).resolve()
     try:
-        raw = json.loads(manifest_path.read_text())
+        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ManifestError(f"cannot load manifest {manifest_path}: {exc}") from exc
     if not isinstance(raw, dict) or raw.get("schema_version") != 2:
@@ -973,6 +973,25 @@ def seal_prelaunch_record(
     return path
 
 
+def _cleanup_processes(processes: list[tuple[Cell, subprocess.Popen, Any]]) -> None:
+    """Best-effort cleanup for every child and launcher log in a batch."""
+    for _cell, proc, log_handle in processes:
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+        except BaseException:
+            pass
+        try:
+            log_handle.close()
+        except BaseException:
+            pass
+
+
 def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] | None = None) -> int:
     if not plan.allow_launch:
         raise ManifestError("launch blocked: set execution.allow_launch=true in the reviewed manifest")
@@ -999,39 +1018,39 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
                 run_dir = Path(cell.run_dir)
                 run_dir.mkdir(parents=True, exist_ok=False)
                 log_handle = (run_dir / "launcher.log").open("w")
-                child_env = dict(env_source)
-                child_env["KAETRAM_TOOL_SCHEMA_SOURCE"] = plan.tool_schema_source
-                if cell.recovery:
-                    child_env["KAETRAM_TOOL_RECOVERY"] = "1"
-                else:
-                    child_env.pop("KAETRAM_TOOL_RECOVERY", None)
-                proc = subprocess.Popen(
-                    cell_command(plan, cell),
-                    cwd=REPO,
-                    env=child_env,
-                    stdout=log_handle,
-                    stderr=subprocess.STDOUT,
-                )
-                processes.append((cell, proc, log_handle))
-        except Exception:
-            for _cell, proc, log_handle in processes:
-                if proc.poll() is None:
-                    proc.terminate()
-                log_handle.close()
-            raise
-
-        validation_errors = []
-        for cell, proc, log_handle in processes:
-            rc = proc.wait()
-            log_handle.close()
-            if rc != 0 and return_code == 0:
-                return_code = rc
-            elif rc == 0:
                 try:
-                    validate_cell_result(plan, cell)
-                    seal_cell_bundle(plan, cell)
-                except ManifestError as exc:
-                    validation_errors.append(str(exc))
+                    child_env = dict(env_source)
+                    child_env["KAETRAM_TOOL_SCHEMA_SOURCE"] = plan.tool_schema_source
+                    if cell.recovery:
+                        child_env["KAETRAM_TOOL_RECOVERY"] = "1"
+                    else:
+                        child_env.pop("KAETRAM_TOOL_RECOVERY", None)
+                    proc = subprocess.Popen(
+                        cell_command(plan, cell),
+                        cwd=REPO,
+                        env=child_env,
+                        stdout=log_handle,
+                        stderr=subprocess.STDOUT,
+                    )
+                except BaseException:
+                    log_handle.close()
+                    raise
+                processes.append((cell, proc, log_handle))
+            validation_errors = []
+            for cell, proc, log_handle in processes:
+                rc = proc.wait()
+                log_handle.close()
+                if rc != 0 and return_code == 0:
+                    return_code = rc
+                elif rc == 0:
+                    try:
+                        validate_cell_result(plan, cell)
+                        seal_cell_bundle(plan, cell)
+                    except ManifestError as exc:
+                        validation_errors.append(str(exc))
+        except BaseException:
+            _cleanup_processes(processes)
+            raise
         if validation_errors:
             raise ManifestError(
                 "launch blocked after incomplete cell results: " + "; ".join(validation_errors)

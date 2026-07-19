@@ -75,8 +75,6 @@ BASE_MODEL_ID = "Qwen/Qwen3.5-9B"  # canonical Qwen repo, NOT unsloth/
 # Override via env: SFT_EXPERIMENT=kaetram-qwen3.5-9b-r11 modal deploy finetune/serve_modal.py
 SFT_EXPERIMENT = os.environ.get("SFT_EXPERIMENT", "kaetram-qwen3.5-9b-r10")
 GRPO_EXPERIMENT = "kaetram-qwen3.5-9b-grpo"
-_RUN_TAG = SFT_EXPERIMENT.rsplit("-", 1)[-1]  # "r10" from "kaetram-qwen3.5-9b-r10"
-MERGED_MODEL_DIR = f"/model_cache/kaetram-merged-{_RUN_TAG}"
 
 # vLLM settings
 MAX_MODEL_LEN = 32768  # A100 40GB fits 9B bf16 (18GB) + 32k KV cache (~12GB)
@@ -102,10 +100,15 @@ from render import (
     NATIVE_TOOLS_V1,
     RENDER_CONTRACT_FILENAME,
     adapt_messages_for_qwen_template,
+    model_cache_key,
     patch_qwen_chat_template,
     render_messages,
     resolve_checkpoint_render_contract,
     validate_request_tools,
+)
+
+MERGED_MODEL_DIR = (
+    f"/model_cache/kaetram-merged-{model_cache_key(SFT_EXPERIMENT, BASE_MODEL_ID)}"
 )
 
 

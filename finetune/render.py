@@ -30,6 +30,7 @@ Issue refs for the next maintainer:
 """
 from __future__ import annotations
 
+import hashlib
 import random
 import json
 import re
@@ -40,6 +41,18 @@ LEGACY_MARKDOWN_R10 = "legacy_markdown_r10"
 VALID_TOOL_RENDER_MODES = frozenset({NATIVE_TOOLS_V1, LEGACY_MARKDOWN_R10})
 RENDER_CONTRACT_FILENAME = "kaetram_render_contract.json"
 HISTORICAL_R10_EXPERIMENT = "kaetram-qwen3.5-9b-r10"
+
+
+def model_cache_key(experiment: str, base_model_id: str) -> str:
+    """Return a collision-resistant cache identity for a merged experiment."""
+    if not experiment or not base_model_id:
+        raise ValueError("cache identity requires experiment and base model IDs")
+    identity = json.dumps(
+        {"base_model_id": base_model_id, "experiment": experiment},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(identity).hexdigest()[:20]
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ for path in (REPO_ROOT, FINETUNE_DIR):
 from render import (  # noqa: E402
     LEGACY_MARKDOWN_R10,
     NATIVE_TOOLS_V1,
+    model_cache_key,
     render_messages,
     render_record,
     resolve_checkpoint_render_contract,
@@ -82,6 +83,14 @@ def test_native_tools_v1_passes_full_schema_and_adapts_openai_arguments():
     }
     assert call["messages"][1]["content"] == "reasoning"
     assert messages[1]["tool_calls"][0]["function"]["arguments"] == '{"location":"aynor"}'
+
+
+def test_merged_model_cache_key_uses_full_experiment_and_base_identity():
+    first = model_cache_key("team-a-r10", "Qwen/Qwen3.5-9B")
+    assert first == model_cache_key("team-a-r10", "Qwen/Qwen3.5-9B")
+    assert first != model_cache_key("team-b-r10", "Qwen/Qwen3.5-9B")
+    assert first != model_cache_key("team-a-r10", "Qwen/Qwen3.5-2B")
+    assert len(first) == 20
 
 
 @pytest.mark.parametrize(

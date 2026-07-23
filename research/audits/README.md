@@ -76,7 +76,7 @@ python3 scripts/manifest_historical_runs.py \
   --groups opd_july_mechanism \
   --out research/audits/july-mechanism-run-digests.json
 
-python3 scripts/capture_analysis_provenance.py \
+python3.12 scripts/capture_analysis_provenance.py \
   --implementation-file run_manifest.py \
   --implementation-file scripts/arm_stats.py \
   --implementation-file scripts/audit_historical_artifacts.py \
@@ -86,15 +86,16 @@ python3 scripts/capture_analysis_provenance.py \
   --implementation-file scripts/render_july_mechanism_results.py \
   --out research/audits/july-mechanism-analysis-provenance.json
 
-python3 scripts/render_july_mechanism_results.py \
+python3.12 scripts/render_july_mechanism_results.py \
   --raw-root /path/to/july-recovery/dataset/raw \
   --evidence-manifest research/audits/july-mechanism-run-digests.json \
   --analysis-provenance research/audits/july-mechanism-analysis-provenance.json \
   --out research/audits/july-mechanism-results.json
 ```
 
-Capture the analysis receipt from a clean checkout. All three commands are
-create-or-identical-only and reject output paths that overlap their inputs.
+Capture the analysis receipt from a clean checkout with the exact Python patch
+version named by the checked-in receipt (currently 3.12.12). All three commands
+are create-or-identical-only and reject output paths that overlap their inputs.
 
 This reproduces historical descriptive scores. It does not reconstruct the
 checkpoint, training corpus, reset, game revision, render contract, or random

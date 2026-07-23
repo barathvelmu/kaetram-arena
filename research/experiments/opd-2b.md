@@ -890,8 +890,9 @@ Readouts:
 ### Maintainer defect-sensitivity retrospective (2026-07-17)
 
 The relevant July raw bundles have since been recovered and content-bound, and their
-six-hour Core-3 scores independently replay in
-`research/audits/july-mechanism-results.json`. The exact scripts and receipts for the
+six-hour Core-3 scores deterministically replay after exact input, clock, and
+analysis-code verification in `research/audits/july-mechanism-results.json`.
+The exact scripts and receipts for the
 additional defect counts below are not preserved, so those diagnostics remain historical
 audit notes rather than independently verified verdicts.
 

@@ -44,7 +44,7 @@ not independent validation of the maintainer's July result narrative.
 
 The imported July sessions have now been recovered read-only, copy-verified,
 content-bound, and replayed at their record-level six-hour boundaries; the nine
-scores are independently reproduced in
+scores are reproduced by a clean-code, exact-input, clock-validated receipt in
 `research/audits/july-mechanism-results.json`. Exact checkpoint/configuration
 receipts, database/reset snapshots, render contracts, and seeds remain absent.
 Nothing in this recovery upgrades E3′, E4, Arm-C, Rick's-Roll, or clean-r1 into

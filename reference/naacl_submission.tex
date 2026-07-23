@@ -366,8 +366,12 @@ The July campaign was adaptive development designed after earlier outcomes;
 none of its arm comparisons is confirmatory. We recovered all 27 agent/run
 directories from nine later mechanism arms. A
 source-side checksum list covers 19,005 files; a second manifest hashes each
-directory; and a deterministic replay includes an observation only when its
-record timestamp falls within that lane's recorded six-hour budget. The replay
+directory; and the scorer rehashes those exact bytes under a clean,
+content-bound analysis receipt. Historical event timestamps omit an offset, so
+the replay admits UTC only after checking that all 27 monotonic event clocks
+begin 260--422 seconds after their independently offset-aware run starts. It
+includes an observation only when its record timestamp falls within that
+lane's recorded six-hour budget. The replay
 reproduces the documented totals for base+recovery (12), round-3 without
 recovery (18), round-2 natural-only (12), round-2 uniform (15), round-1 uniform
 (13), round-2 natural+uniform (14), teacher-free (12), round-3 uniform (17),

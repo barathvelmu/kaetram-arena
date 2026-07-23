@@ -53,7 +53,9 @@ The recovery-off 12/30-to-15/30 contrast likewise lacks exact historical parity
 and is not a clean causal weights comparison.
 
 **Recovered mechanism controls:** All 27 agent/run directories from nine July
-arms are copy-verified and content-bound, and record-level replay reproduces
+arms are copy-verified and content-bound. A clean analysis receipt, immediate
+input rehash, and run-start clock-alignment check precede record-level replay,
+which reproduces
 their six-hour totals `[12,18,12,15,13,14,12,17,14]`. Four intended
 corpus/init-matched teacher-graded versus uniform pairs show no consistent
 graded advantage, while a repaired-render graded sensitivity reverses the

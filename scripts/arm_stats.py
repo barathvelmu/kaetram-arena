@@ -26,11 +26,13 @@ import argparse
 import itertools
 import random
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "log_analysis"))
 from parse import (  # noqa: E402
     list_agent_dirs, list_runs, parse_run_sessions, progression_for_quests,
+    run_meta,
 )
 from artifact_requirements import (  # noqa: E402
     MissingEvidenceError,
@@ -70,14 +72,42 @@ ARMS: dict[str, dict] = {
     # Hardening arms (July 2026) — appended as they complete. Both ran on the
     # temporary e2-standard-4 instance (June arms: e2-standard-8) and are scored
     # at the 6h boundary (E1 overran to 8.6h — supervisor death; E4 to 6h14m).
-    "base-2B+rec": {"runs": ["run_20260711_065435"], "block": "hardening", "dur": "6h*"},
-    "opd-r3-norec": {"runs": ["run_20260711_153427"], "block": "hardening", "dur": "6h*"},
-    "opd-r2-noseed": {"runs": ["run_20260713_084905"], "block": "hardening", "dur": "6h"},
-    # NOTE: this table does NOT truncate at the 6h protocol boundary — E1
-    # ("base-2B+rec") overran to 8.6h (supervisor death) and shows 13/30, wall
-    # 2/3 here; the protocol-boundary score is 12/30, wall 1/3 (opd-2b.md).
-    # Use the 6h-boundary numbers for any published comparison.
-    "opd-r2-uniform": {"runs": ["run_20260713_191230"], "block": "hardening", "dur": "6h"},
+    "base-2B+rec": {
+        "runs": ["run_20260711_065435"], "block": "hardening",
+        "dur": "6h*", "boundary_hours": 6.0,
+    },
+    "opd-r3-norec": {
+        "runs": ["run_20260711_153427"], "block": "hardening",
+        "dur": "6h*", "boundary_hours": 6.0,
+    },
+    "opd-r2-noseed": {
+        "runs": ["run_20260713_084905"], "block": "hardening",
+        "dur": "6h", "boundary_hours": 6.0,
+    },
+    "opd-r2-uniform": {
+        "runs": ["run_20260713_191230"], "block": "hardening",
+        "dur": "6h", "boundary_hours": 6.0,
+    },
+    "opd-r1-uniform": {
+        "runs": ["run_20260715_030342"], "block": "hardening",
+        "dur": "6h", "boundary_hours": 6.0,
+    },
+    "opd-r2-natuni": {
+        "runs": ["run_20260715_090731"], "block": "hardening",
+        "dur": "6h", "boundary_hours": 6.0,
+    },
+    "teacherfree-base": {
+        "runs": ["run_20260715_151045"], "block": "hardening",
+        "dur": "6h", "boundary_hours": 6.0,
+    },
+    "opd-r3-uniform": {
+        "runs": ["run_20260715_211431"], "block": "hardening",
+        "dur": "6h", "boundary_hours": 6.0,
+    },
+    "opd-r1-clean": {
+        "runs": ["run_20260716_215512"], "block": "hardening",
+        "dur": "6h", "boundary_hours": 6.0,
+    },
 }
 
 # Pre-registered contrasts (one-sided: first arm > second on the tested stat).
@@ -96,6 +126,64 @@ TREND_ARMS = ["base-2B", "opd-r1", "opd-r2", "opd-r3+rec"]  # ordered dose
 
 def _agent_dirs(raw_root: Path) -> dict[str, Path]:
     return {ad.name: ad for ad in list_agent_dirs(raw_root)}
+
+
+def _protocol_cutoff(run_dir: Path, boundary_hours: float | None) -> datetime | None:
+    """Return the registered wall-clock cutoff, failing on weak run metadata."""
+    if boundary_hours is None:
+        return None
+    if isinstance(boundary_hours, bool) or not isinstance(boundary_hours, (int, float)):
+        raise ValueError("registered boundary_hours must be numeric, not boolean")
+    meta = run_meta(run_dir)
+    started_at = meta.get("started_at")
+    recorded_budget = meta.get("hours_budget")
+    if not isinstance(started_at, str):
+        raise ValueError(f"{run_dir}: missing started_at required for protocol cutoff")
+    try:
+        start = datetime.fromisoformat(started_at)
+    except ValueError as exc:
+        raise ValueError(f"{run_dir}: invalid started_at {started_at!r}") from exc
+    if start.tzinfo is None:
+        raise ValueError(f"{run_dir}: started_at must carry an explicit UTC offset")
+    if isinstance(recorded_budget, bool) or not isinstance(recorded_budget, (int, float)):
+        raise ValueError(f"{run_dir}: missing numeric hours_budget")
+    if abs(float(recorded_budget) - boundary_hours) > 1e-9:
+        raise ValueError(
+            f"{run_dir}: hours_budget={recorded_budget!r}, expected {boundary_hours}"
+        )
+    return start + timedelta(hours=boundary_hours)
+
+
+def _quest_names(value: object) -> set[str]:
+    if not isinstance(value, list):
+        return set()
+    names: set[str] = set()
+    for item in value:
+        if isinstance(item, str):
+            names.add(item)
+        elif isinstance(item, dict) and isinstance(item.get("name"), str):
+            names.add(item["name"])
+    return names
+
+
+def _has_zero_visible_core3_start(rv: object) -> bool:
+    """Require the first visible state to carry no Core-3 quest progress.
+
+    This is deliberately narrower than proving a canonical player/world reset:
+    the historical bundles do not attest the exact reset command or complete
+    initial state.
+    """
+    first_observe = getattr(rv, "first_observe_in_run", None)
+    if not callable(first_observe):
+        return False
+    state = first_observe()
+    if not isinstance(state, dict):
+        return False
+    visible_progress = (
+        _quest_names(state.get("active_quests"))
+        | _quest_names(state.get("finished_quests"))
+    )
+    return not (visible_progress & set(CORE3))
 
 
 def collect_arm(arm: str, raw_root: Path) -> list[dict]:
@@ -117,6 +205,7 @@ def collect_arm(arm: str, raw_root: Path) -> list[dict]:
 
     ads = _agent_dirs(raw_root)
     rows = []
+    boundary_hours = ARMS[arm].get("boundary_hours")
     for run_id in ARMS[arm]["runs"]:
         for an in AGENTS:
             agent_dir = ads.get(an)
@@ -130,7 +219,22 @@ def collect_arm(arm: str, raw_root: Path) -> list[dict]:
                     "artifact preflight passed but run directory disappeared: "
                     f"{run_id}/{an}"
                 )
-            rv = parse_run_sessions(agent_dir, rd[0])
+            try:
+                cutoff = _protocol_cutoff(rd[0], boundary_hours)
+                rv = parse_run_sessions(agent_dir, rd[0], through=cutoff)
+            except (OSError, RuntimeError, ValueError) as exc:
+                print(
+                    f"  [warn] {arm}: invalid protocol evidence — arm quarantined: {exc}",
+                    file=sys.stderr,
+                )
+                return []
+            if boundary_hours is not None and not _has_zero_visible_core3_start(rv):
+                print(
+                    f"  [warn] {arm}: missing initial observation or nonzero "
+                    f"visible Core-3 progress — arm quarantined: {run_id}/{an}",
+                    file=sys.stderr,
+                )
+                return []
             prog = progression_for_quests(rv, quest_names=CORE3)
             stages = {q: (prog[q].max_stage_reached if prog.get(q) else 0) for q in CORE3}
             rows.append({"run": run_id, "agent": an,
@@ -153,11 +257,11 @@ def wall_passes(rows: list[dict]) -> list[bool]:
 
 def raw_table(arms: list[str], raw_root: Path) -> None:
     print("\n=== RAW TABLE (every run; per-agent max stage per quest) ===")
-    print(f"{'arm':<14}{'run':<24}{'agent':<15}{'For':>4}{'Herb':>5}{'Rick':>5}{'tot':>5}")
+    print(f"{'arm':<18}{'run':<24}{'agent':<15}{'For':>4}{'Herb':>5}{'Rick':>5}{'tot':>5}")
     for arm in arms:
         for r in collect_arm(arm, raw_root):
             s = r["stages"]
-            print(f"{arm:<14}{r['run']:<24}{PERSONA[r['agent']]:<15}"
+            print(f"{arm:<18}{r['run']:<24}{PERSONA[r['agent']]:<15}"
                   f"{s['Foresting']:>4}{s[CORE3[1]]:>5}{s[CORE3[2]]:>5}{r['total']:>5}")
 
 
@@ -170,7 +274,7 @@ def wall_report(arms: list[str], raw_root: Path) -> None:
         w = wall_passes(collect_arm(arm, raw_root))
         passes[arm] = w
         if w:
-            print(f"  {arm:<14} {sum(w)}/{len(w)}")
+            print(f"  {arm:<18} {sum(w)}/{len(w)}")
     if not HAVE_SCIPY:
         return
     for hi, lo in WALL_CONTRASTS:
@@ -349,12 +453,12 @@ def main(argv: list[str] | None = None) -> int:
     print("\n=== HIERARCHICAL BOOTSTRAP (>=2-run arms only; run = top-level unit) ===")
     for arm in [a for a in ARMS if a in present]:
         if len(ARMS[arm]["runs"]) < 2:
-            print(f"  {arm:<14} single run — descriptive only, no interval")
+            print(f"  {arm:<18} single run — descriptive only, no interval")
             continue
         hb = hierarchical_bootstrap(arm, args.raw_root)
         if hb:
             mean, lo, hi = hb
-            print(f"  {arm:<14} mean {mean:5.1f}  CI [{lo:.1f}, {hi:.1f}]"
+            print(f"  {arm:<18} mean {mean:5.1f}  CI [{lo:.1f}, {hi:.1f}]"
                   f"  ({len(ARMS[arm]['runs'])} runs)")
     return 0
 

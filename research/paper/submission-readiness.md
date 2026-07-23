@@ -44,7 +44,23 @@ Official sources:
 
 **Secondary diagnostic:** Historical notes report positive teacher-over-student distillation advantage for one malformed continuation. Because both candidates were not scored in the same matched contexts and the probe artifact is absent, preference reversal and the broader teacher-forcing copy-prior mechanism remain unvalidated.
 
-**System conclusion:** Harness affordances and model weights target different failure classes, but the historical runs do not identify their separate effects. The final 18/30 result is a weights-plus-interface result. The reported recovery-off 12/30-to-15/30 contrast lacks exact historical parity and is not a clean causal weights comparison.
+**System conclusion:** Harness affordances and model weights target different
+failure classes, but the historical runs do not identify their separate
+effects. A recovered July run labelled round-3 with recovery disabled replays
+to 18/30, which is counterevidence to an interface-only explanation; missing
+checkpoint and launch attestations still prevent a pure-weights attribution.
+The recovery-off 12/30-to-15/30 contrast likewise lacks exact historical parity
+and is not a clean causal weights comparison.
+
+**Recovered mechanism controls:** All 27 agent/run directories from nine July
+arms are copy-verified and content-bound, and record-level replay reproduces
+their six-hour totals `[12,18,12,15,13,14,12,17,14]`. Four intended
+corpus/init-matched teacher-graded versus uniform pairs show no consistent
+graded advantage, while a repaired-render graded sensitivity reverses the
+nearest round-1 direction. This materially strengthens the corpus/visitation
+hypothesis but rules out a blanket “grades add no value” claim. One training
+run per cell and missing checkpoint/corpus/reset/render/seed receipts still
+block an effect estimate.
 
 **New registered diagnostic:** The 18-cell, 30-minute local factorial completed
 with 18/18 launcher-valid cells and 1,266 rehashed files. Four cells advanced

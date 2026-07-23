@@ -35,17 +35,20 @@ not independent validation of the maintainer's July result narrative.
   could resume into an output created under different controls. The fork's
   versioned preparation/render contracts are the supported parity path.
 - Two post-hoc paper/program-state memos whose causal interpretations are not
-  backed by reviewer-accessible run bundles in this checkout. The detailed
+  backed by complete launch attestations or reviewer-accessible raw bundles in
+  this checkout. The detailed
   historical experiment ledger remains explicitly caveated and is subordinate
   to `claims-evidence-matrix.md` and `submission-readiness.md`.
 
 ## Claim boundary
 
-The imported July arms remain historical, one-run observations until their raw
-sessions, exact checkpoint/configuration receipts, database snapshots, scorer
-outputs, and protocol-boundary timestamps pass the current evidence validator.
-Nothing in this import upgrades E3′, E4, Arm-C, Rick's-Roll, or clean-r1 into a
-causal paper result. In particular, the earlier database-lane question is still
+The imported July sessions have now been recovered read-only, copy-verified,
+content-bound, and replayed at their record-level six-hour boundaries; the nine
+scores are independently reproduced in
+`research/audits/july-mechanism-results.json`. Exact checkpoint/configuration
+receipts, database/reset snapshots, render contracts, and seeds remain absent.
+Nothing in this recovery upgrades E3′, E4, Arm-C, Rick's-Roll, or clean-r1 into
+a causal paper result. In particular, the earlier database-lane question is still
 resolved by evidence, not recollection: a maintainer states the headline runs
 used the separate 9001/9011/9021 orchestrator, but publication requires the
 corresponding immutable runtime receipts.

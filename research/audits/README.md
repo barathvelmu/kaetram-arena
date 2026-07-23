@@ -44,3 +44,58 @@ python3 scripts/manifest_historical_runs.py \
   --source-manifest /path/to/recovery/SHA256SUMS \
   --out research/audits/historical-run-digests.json
 ```
+
+## July mechanism campaign
+
+`july-mechanism-run-digests.json` separately binds all 27 agent/run
+directories from nine July mechanism arms. Its source inventory covers 19,005
+files and is distinct from the earlier R10/June recovery. Generation rehashes
+every selected file and requires an exact match to its source-inventory entry;
+merely recording the inventory's own digest is insufficient.
+
+`july-mechanism-analysis-provenance.json` binds the clean Git revision, Python
+runtime, and exact bytes of every scoring dependency. The result renderer
+verifies that receipt, rehashes the 27 raw directories against the evidence
+manifest immediately before parsing, and validates the historical naive record
+clock against each offset-aware run start.
+
+`july-mechanism-results.json` then parses those verified JSONL logs through each
+lane's inclusive six-hour boundary. It fails closed on malformed, missing, or
+invalid semantic records; weak run metadata; an unaligned or non-monotonic
+record clock; incomplete or substituted bundles; changed analysis bytes; or
+disagreement with the dated protocol totals. The output contains only stage
+totals and provenance identities, never raw prompts or endpoint addresses.
+
+Regenerate both reports:
+
+```bash
+python3 scripts/manifest_historical_runs.py \
+  --raw-root /path/to/july-recovery/dataset/raw \
+  --raw-root-label dataset/raw \
+  --source-manifest /path/to/july-recovery/SOURCE_SHA256SUMS \
+  --groups opd_july_mechanism \
+  --out research/audits/july-mechanism-run-digests.json
+
+python3 scripts/capture_analysis_provenance.py \
+  --implementation-file run_manifest.py \
+  --implementation-file scripts/artifact_requirements.py \
+  --implementation-file scripts/arm_stats.py \
+  --implementation-file scripts/audit_historical_artifacts.py \
+  --implementation-file scripts/capture_analysis_provenance.py \
+  --implementation-file scripts/log_analysis/parse.py \
+  --implementation-file scripts/render_july_mechanism_results.py \
+  --out research/audits/july-mechanism-analysis-provenance.json
+
+python3 scripts/render_july_mechanism_results.py \
+  --raw-root /path/to/july-recovery/dataset/raw \
+  --evidence-manifest research/audits/july-mechanism-run-digests.json \
+  --analysis-provenance research/audits/july-mechanism-analysis-provenance.json \
+  --out research/audits/july-mechanism-results.json
+```
+
+Capture the analysis receipt from a clean checkout. All three commands are
+create-or-identical-only and reject output paths that overlap their inputs.
+
+This reproduces historical descriptive scores. It does not reconstruct the
+checkpoint, training corpus, reset, game revision, render contract, or random
+seeds used by the original launches.

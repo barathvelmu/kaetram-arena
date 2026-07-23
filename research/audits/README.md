@@ -27,3 +27,20 @@ python3 scripts/audit_historical_initial_state.py \
 This verifies the state visible to the model before any action. It does not
 retroactively attest which database command produced the state, the game
 server revision, or shared-world state outside the player snapshot.
+
+## Per-run content digests
+
+`historical-run-digests.json` binds each recovered agent/run directory to its
+relative path, file count, byte count, and deterministic content digest. It
+covers the 60 bundles used by the R10 source-corpus diagnostic, R10 comparison,
+OPD sequence, and teacher/capacity references. The report is self-identifying
+and also records the digest of the full external `SHA256SUMS` inventory.
+
+Regenerate it:
+
+```bash
+python3 scripts/manifest_historical_runs.py \
+  --raw-root /path/to/recovery/dataset/raw \
+  --source-manifest /path/to/recovery/SHA256SUMS \
+  --out research/audits/historical-run-digests.json
+```

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -23,6 +24,7 @@ from scripts.local_mlx_endpoint import (
     require_loopback,
     rewrite_chat_request,
     rewrite_chat_response,
+    verify_seeded_sampler_runtime,
 )
 
 
@@ -358,3 +360,44 @@ def test_backend_command_is_pinned_to_local_snapshot(tmp_path: Path) -> None:
     assert command[command.index("--port") + 1] == "8082"
     assert command[command.index("--chat-template") + 1] == "patched-template"
     assert '{"enable_thinking":true}' in command
+
+
+def test_seeded_sampler_runtime_probe_requires_distinct_background_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "schema_version": SEEDED_SAMPLING_CONTRACT_SCHEMA,
+        "mlx_lm_version": PINNED_MLX_LM_VERSION,
+        "distinct_seed_outputs": 3,
+        "execution_thread": "background",
+    }
+    monkeypatch.setattr(
+        "scripts.local_mlx_endpoint.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        ),
+    )
+
+    assert verify_seeded_sampler_runtime("/venv/bin/python") == payload
+
+    payload["distinct_seed_outputs"] = 1
+    with pytest.raises(LocalEndpointError, match="identity mismatch"):
+        verify_seeded_sampler_runtime("/venv/bin/python")
+
+
+def test_seeded_sampler_runtime_probe_fails_closed_on_subprocess_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.local_mlx_endpoint.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=2,
+            stdout="",
+            stderr="broken",
+        ),
+    )
+
+    with pytest.raises(LocalEndpointError, match="reviewed contract"):
+        verify_seeded_sampler_runtime("/venv/bin/python")

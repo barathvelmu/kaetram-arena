@@ -79,6 +79,7 @@ def install_patch() -> None:
 def self_test() -> dict[str, Any]:
     """Exercise explicit-key categorical sampling on MLX's server thread shape."""
     outputs: list[int] = []
+    native_outputs: list[int] = []
     failures: list[str] = []
 
     def exercise() -> None:
@@ -95,6 +96,12 @@ def self_test() -> dict[str, Any]:
             uniform_logits = mx.array([[0.0, 0.0, 0.0, 0.0]])
             for seed in (730001, 730002, 730003, 730004, 730005):
                 args = SimpleNamespace(seed=seed, sampling=sampling)
+                mx.random.seed(seed)
+                native_sampled = _NATIVE_MAKE_SAMPLER(
+                    args, tokenizer
+                )(uniform_logits)
+                mx.eval(native_sampled)
+                native_outputs.append(int(native_sampled.item()))
                 sampled = make_request_sampler(args, tokenizer)(uniform_logits)
                 mx.eval(sampled)
                 outputs.append(int(sampled.item()))
@@ -116,6 +123,8 @@ def self_test() -> dict[str, Any]:
         "mlx_lm_version": version("mlx-lm"),
         "mlx_version": mx.__version__,
         "request_seeds": [730001, 730002, 730003, 730004, 730005],
+        "native_sampled_token_ids": native_outputs,
+        "native_distinct_seed_outputs": len(set(native_outputs)),
         "sampled_token_ids": outputs,
         "distinct_seed_outputs": distinct,
         "execution_thread": "background",

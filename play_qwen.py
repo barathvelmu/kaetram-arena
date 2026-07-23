@@ -81,7 +81,10 @@ def resolve_mcp_python() -> str:
             f"{source} does not identify an executable Python interpreter: "
             f"{candidate}"
         )
-    return str(candidate.resolve())
+    # Do not resolve interpreter symlinks. Python uses the invoked path to
+    # discover ``pyvenv.cfg``; resolving a venv's ``bin/python`` to the base
+    # interpreter silently drops the venv and its installed MCP dependencies.
+    return os.path.abspath(candidate)
 
 
 # ---------------------------------------------------------------------------

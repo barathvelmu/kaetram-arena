@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,8 @@ from scripts.local_mlx_endpoint import (
     CANONICAL_TOKENIZER_SNAPSHOT,
     LocalEndpointError,
     PINNED_MLX_LM_VERSION,
+    SEEDED_SAMPLING_CONTRACT_SCHEMA,
+    SEEDED_SERVER_SCRIPT,
     build_backend_command,
     build_identity,
     build_render_contract,
@@ -21,6 +24,7 @@ from scripts.local_mlx_endpoint import (
     require_loopback,
     rewrite_chat_request,
     rewrite_chat_response,
+    verify_seeded_sampler_runtime,
 )
 
 
@@ -67,6 +71,12 @@ def _render_contract(tmp_path: Path) -> dict:
         "patched-template",
         canonical_dir,
         {"rendered_text_sha256": "f" * 64},
+        {
+            "schema_version": SEEDED_SAMPLING_CONTRACT_SCHEMA,
+            "mlx_lm_version": PINNED_MLX_LM_VERSION,
+            "distinct_seed_outputs": 4,
+            "execution_thread": "background",
+        },
     )
 
 
@@ -93,6 +103,12 @@ def test_identity_is_derived_only_from_locked_artifacts(tmp_path: Path) -> None:
     ).hexdigest()
     assert identity.tokenizer_source_revision == "a" * 40
     assert identity.fix_mistral_regex is False
+    assert identity.sampling_contract_sha256 == sha256_json(
+        render_contract["seeded_sampling"]
+    )
+    assert render_contract["seeded_sampling"]["server_script_sha256"] == (
+        hashlib.sha256(SEEDED_SERVER_SCRIPT.read_bytes()).hexdigest()
+    )
     assert identity.health_payload()["attestation"]["api_model"] == "2b-base"
     assert identity.health_payload()["attestation"]["snapshot_tree_sha256"] == (
         identity.snapshot_tree_sha256
@@ -337,10 +353,51 @@ def test_backend_command_is_pinned_to_local_snapshot(tmp_path: Path) -> None:
     )
     assert command[0] == "/venv/bin/python"
     assert command[1:4] == ["-I", "-S", "-B"]
-    assert command[command.index("--module") + 1] == "mlx_lm"
-    assert command[command.index("--") + 1] == "server"
+    assert command[command.index("--script") + 1] == str(SEEDED_SERVER_SCRIPT)
+    assert command[command.index("--") + 1] == "--model"
     assert command[command.index("--model") + 1] == str(tmp_path / "base_2b")
     assert command[command.index("--host") + 1] == "127.0.0.1"
     assert command[command.index("--port") + 1] == "8082"
     assert command[command.index("--chat-template") + 1] == "patched-template"
     assert '{"enable_thinking":true}' in command
+
+
+def test_seeded_sampler_runtime_probe_requires_distinct_background_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "schema_version": SEEDED_SAMPLING_CONTRACT_SCHEMA,
+        "mlx_lm_version": PINNED_MLX_LM_VERSION,
+        "distinct_seed_outputs": 3,
+        "execution_thread": "background",
+    }
+    monkeypatch.setattr(
+        "scripts.local_mlx_endpoint.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps(payload),
+            stderr="",
+        ),
+    )
+
+    assert verify_seeded_sampler_runtime("/venv/bin/python") == payload
+
+    payload["distinct_seed_outputs"] = 1
+    with pytest.raises(LocalEndpointError, match="identity mismatch"):
+        verify_seeded_sampler_runtime("/venv/bin/python")
+
+
+def test_seeded_sampler_runtime_probe_fails_closed_on_subprocess_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.local_mlx_endpoint.subprocess.run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=2,
+            stdout="",
+            stderr="broken",
+        ),
+    )
+
+    with pytest.raises(LocalEndpointError, match="reviewed contract"):
+        verify_seeded_sampler_runtime("/venv/bin/python")

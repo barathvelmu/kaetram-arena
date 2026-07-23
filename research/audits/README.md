@@ -148,6 +148,12 @@ state-condition group. The paper therefore collapses duplicates to 20 state
 outputs per cell. The artifact-index SHA-256 is
 `fe117a98c506be441be12c07e4f467b00751807ee8f473e8026998fa257c1560`.
 
+The failure is isolated in
+[`mlx-request-seed-root-cause.md`](mlx-request-seed-root-cause.md). MLX-LM's
+background serving thread accepted the request seed but did not change its
+sampling stream. The prospective explicit-key repair is source-hashed and
+startup-tested; it does not alter or upgrade the v1 evidence.
+
 To verify both checked-in paper evidence bundles in one command:
 
 ```bash

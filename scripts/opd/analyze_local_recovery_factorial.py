@@ -3,19 +3,63 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import ctypes
+import errno
 import hashlib
+import io
 import json
+import os
 import re
 import statistics
+import subprocess
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from eval_harness import compute_episode_metrics, parse_log, validate_eval_session_terminals  # noqa: E402
-from run_manifest import sha256_json  # noqa: E402
+
+def _preimport_code_snapshot() -> list[dict]:
+    """Hash every tracked Python source before importing analysis dependencies."""
+    result = subprocess.run(
+        ["git", "-C", str(REPO), "ls-files", "-z", "--", "*.py"],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("could not enumerate tracked analysis source before import")
+    records = []
+    for raw_relative in result.stdout.split(b"\0"):
+        if not raw_relative:
+            continue
+        relative = raw_relative.decode("utf-8")
+        path = REPO / relative
+        if not path.is_file() or path.is_symlink():
+            raise RuntimeError(f"tracked Python source is missing or unsafe: {relative}")
+        content = path.read_bytes()
+        records.append({
+            "path": relative,
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "size_bytes": len(content),
+        })
+    if not records:
+        raise RuntimeError("tracked Python source inventory is empty")
+    return records
+
+
+PREIMPORT_CODE_SNAPSHOT = _preimport_code_snapshot()
+
+
+from eval_harness import (  # noqa: E402
+    EVAL_RESULTS_SCHEMA_VERSION,
+    compute_episode_metrics,
+    parse_log,
+    validate_eval_session_terminals,
+)
+from run_manifest import canonical_json_bytes, capture_git_state, sha256_json  # noqa: E402
 from scripts.opd.analyze_local_weight_pilot import (  # noqa: E402
     AnalysisError,
     _api_error_count,
@@ -44,6 +88,14 @@ WEIGHT_LABEL = {
     "opd_r2_2b": "r2",
     "opd_r3_2b": "r3",
 }
+
+ANALYSIS_SCHEMA_VERSION = "kaetram.local-weight-recovery-factorial-analysis.v2"
+UNBLIND_INTENT_SCHEMA_VERSION = (
+    "kaetram.local-weight-recovery-factorial-unblind-intent.v1"
+)
+UNBLIND_RECEIPT_SCHEMA_VERSION = (
+    "kaetram.local-weight-recovery-factorial-unblind-receipt.v1"
+)
 
 ARM_VALUE_METRICS = (
     "duration_seconds",
@@ -394,15 +446,728 @@ def _verify_completed_cell_artifacts(
     return inventory_sha, files_checked
 
 
-def analyze(
-    root: Path,
-    manifest_path: Path,
+def _reverify_analysis_inputs(
     *,
-    allow_legacy_v1: bool = False,
+    root: Path,
+    completed_by_id: dict,
+    expected_prelaunch_sha256: str,
+    expected_completed_sha256: str,
+    expected_files_checked: int,
+) -> None:
+    if _file_sha256(root / "prelaunch.json") != expected_prelaunch_sha256:
+        raise AnalysisError("prelaunch ledger changed during analysis")
+    if _file_sha256(root / "completed-inventory.json") != expected_completed_sha256:
+        raise AnalysisError("completed inventory changed during analysis")
+    files_checked = 0
+    for cell_id in sorted(completed_by_id):
+        _, rehashed = _verify_completed_cell_artifacts(
+            root / cell_id,
+            completed_by_id[cell_id],
+        )
+        files_checked += rehashed
+    if files_checked != expected_files_checked:
+        raise AnalysisError("artifact inventory cardinality changed during analysis")
+
+
+def _require_complete_estimands(
+    rows: list[dict],
+    arm_summary: dict,
+    pair_summary: dict,
+) -> None:
+    """Refuse to release a partial version of the registered descriptive report."""
+    if len(rows) != 18:
+        raise AnalysisError(
+            "registered descriptive estimands require all 18 launcher-valid cells"
+        )
+    if set(arm_summary) != {
+        f"{weight}-recovery-{state}"
+        for weight in ("base", "r2", "r3")
+        for state in ("off", "on")
+    }:
+        raise AnalysisError("registered arm family is incomplete")
+    if any(
+        arm["n_valid"] != 3
+        or arm["replicates"] != [1, 2, 3]
+        or arm["missing_replicates"]
+        for arm in arm_summary.values()
+    ):
+        raise AnalysisError("every registered arm must contain replicates 1, 2, and 3")
+    if (
+        len(pair_summary["complete_pairs"]) != 9
+        or pair_summary["incomplete_pairs"]
+    ):
+        raise AnalysisError("all nine registered paired contrasts are required")
+
+
+def _analysis_code_provenance() -> dict:
+    git = capture_git_state(REPO)
+    if git["dirty_paths"]:
+        raise AnalysisError(
+            "analysis must run from a clean Git worktree; dirty paths: "
+            + ", ".join(git["dirty_paths"])
+        )
+    current_files = []
+    for record in PREIMPORT_CODE_SNAPSHOT:
+        relative = record["path"]
+        path = REPO / relative
+        if not path.is_file() or path.is_symlink():
+            raise AnalysisError(f"analysis source is missing or unsafe: {relative}")
+        current_files.append({
+            "path": relative,
+            "sha256": _file_sha256(path),
+            "size_bytes": path.stat().st_size,
+        })
+    if current_files != PREIMPORT_CODE_SNAPSHOT:
+        raise AnalysisError(
+            "tracked Python source changed after the pre-import analysis snapshot"
+        )
+    return {
+        "source_git_commit": git["commit"],
+        "source_git_repository": git["repository"],
+        "dirty_paths": [],
+        "python_runtime": {
+            "implementation": sys.implementation.name,
+            "version": ".".join(str(part) for part in sys.version_info[:3]),
+            "executable_sha256": _file_sha256(Path(sys.executable)),
+        },
+        "files": PREIMPORT_CODE_SNAPSHOT,
+        "inventory_sha256": sha256_json(PREIMPORT_CODE_SNAPSHOT),
+    }
+
+
+def _csv_text(rows: list[dict], fieldnames: tuple[str, ...]) -> str:
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        cooked = {
+            key: (
+                json.dumps(value, sort_keys=True, separators=(",", ":"))
+                if isinstance(value, (dict, list))
+                else value
+            )
+            for key, value in row.items()
+        }
+        writer.writerow(cooked)
+    return output.getvalue()
+
+
+def _paired_rows(report: dict) -> list[dict]:
+    rows = []
+    for pair in report["paired_differences"]["complete_pairs"]:
+        rows.append({
+            "replicate": pair["replicate"],
+            "weight": pair["weight"],
+            "pair_order": pair["pair_order"],
+            "off_schedule_index": pair["off_schedule_index"],
+            "on_schedule_index": pair["on_schedule_index"],
+            **pair["on_minus_off"],
+        })
+    return rows
+
+
+def _paper_table_markdown(report: dict) -> str:
+    if not report["descriptive_results_released"]:
+        return "\n".join([
+            "# Local weights × recovery exploratory factorial",
+            "",
+            "Descriptive results withheld: the registered 18-cell estimand is incomplete.",
+            "",
+            "Launcher-invalid cells:",
+            "",
+            *[
+                f"- `{cell['cell_id']}`: {cell['error'] or 'unspecified launcher failure'}"
+                for cell in report["invalid_cell_receipts"]
+            ],
+            "",
+            f"Bundle index: `{report['bundle_index_sha256']}`.",
+            "",
+        ])
+    lines = [
+        "# Local weights × recovery exploratory factorial",
+        "",
+        (
+            "Descriptive only: three paired replicate/seed blocks per arm; "
+            "no superiority test, confidence interval, or confirmatory estimate."
+        ),
+        "",
+        "| Weights | Recovery | Valid n | Calls/min values | Mean calls/min | "
+        "Structured-call rate | Malformed | Recovered | Core-3 values | Quest values |",
+        "|---|---:|---:|---|---:|---:|---:|---:|---|---|",
+    ]
+    for weight, label in (("base", "Base"), ("r2", "Round 2"), ("r3", "Round 3")):
+        for recovery, state in ((False, "off"), (True, "on")):
+            arm = report["by_arm"][f"{weight}-recovery-{state}"]
+            values = arm["values"]
+            lines.append(
+                f"| {label} | {state} | {arm['n_valid']} | "
+                f"{', '.join(str(value) for value in values['canonical_executed_calls_per_minute'])} | "
+                f"{arm['means']['canonical_executed_calls_per_minute']} | "
+                f"{arm['pooled_structured_call_emission_rate']} | "
+                f"{arm['malformed_emissions']} | {arm['recovered_calls']} | "
+                f"{', '.join(str(value) for value in values['core3_stages_advanced'])} | "
+                f"{', '.join(str(value) for value in values['quest_stages_advanced'])} |"
+            )
+    lines.extend([
+        "",
+        (
+            f"Bundle index: `{report['bundle_index_sha256']}`. "
+            f"Files rehashed: {report['files_rehashed']}."
+        ),
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def _tex_values(values: list) -> str:
+    return ", ".join(str(value) for value in values)
+
+
+def _paper_table_tex(report: dict) -> str:
+    if not report["descriptive_results_released"]:
+        return "\n".join([
+            "% Generated by analyze_local_recovery_factorial.py; do not edit.",
+            "% Descriptive table withheld because the registered estimand is incomplete.",
+            "",
+        ])
+    rows = []
+    for weight, label in (("base", "Base"), ("r2", "Round 2"), ("r3", "Round 3")):
+        for state in ("off", "on"):
+            arm = report["by_arm"][f"{weight}-recovery-{state}"]
+            values = arm["values"]
+            rows.append(
+                f"{label} & {state} & "
+                f"{_tex_values(values['canonical_executed_calls_per_minute'])} & "
+                f"{arm['means']['canonical_executed_calls_per_minute']} & "
+                f"{arm['pooled_structured_call_emission_rate']} & "
+                f"{arm['malformed_emissions']} & {arm['recovered_calls']} & "
+                f"{_tex_values(values['core3_stages_advanced'])} \\\\"
+            )
+    return "\n".join([
+        "% Generated by analyze_local_recovery_factorial.py; do not edit.",
+        "\\begin{table*}[t]",
+        "\\centering",
+        "\\small",
+        "\\caption{Preregistered 30-minute local weights $\\times$ recovery "
+        "exploratory factorial. Values follow replicate order. Descriptive only.}",
+        "\\label{tab:local-recovery-factorial}",
+        "\\begin{tabular}{lllr rrrl}",
+        "\\toprule",
+        "Weights & Recovery & Calls/min (all replicates) & Mean & "
+        "Structured rate & Malformed & Recovered & Core-3 \\\\",
+        "\\midrule",
+        *rows,
+        "\\bottomrule",
+        "\\end{tabular}",
+        "\\end{table*}",
+        "",
+    ])
+
+
+def _write_new_bytes(path: Path, content: bytes) -> None:
+    with path.open("xb") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _write_new_text(path: Path, content: str) -> None:
+    _write_new_bytes(path, content.encode("utf-8"))
+
+
+def _write_or_verify(path: Path, content: bytes) -> None:
+    try:
+        _write_new_bytes(path, content)
+    except FileExistsError:
+        if not path.is_file() or path.is_symlink() or path.read_bytes() != content:
+            raise AnalysisError(
+                f"existing transaction artifact differs from expected bytes: {path}"
+            )
+
+
+def _verify_existing_bytes(path: Path, content: bytes) -> None:
+    if (
+        not path.is_file()
+        or path.is_symlink()
+        or path.read_bytes() != content
+    ):
+        raise AnalysisError(
+            f"existing published artifact differs from expected bytes: {path}"
+        )
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _rename_directory_noreplace(source: Path, destination: Path) -> None:
+    """Atomically publish a directory without replacing any existing target."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    source_bytes = os.fsencode(source)
+    destination_bytes = os.fsencode(destination)
+    if sys.platform == "darwin" and hasattr(libc, "renamex_np"):
+        renamex_np = libc.renamex_np
+        renamex_np.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        renamex_np.restype = ctypes.c_int
+        result = renamex_np(source_bytes, destination_bytes, 0x00000004)
+    elif sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+        renameat2 = libc.renameat2
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        renameat2.restype = ctypes.c_int
+        result = renameat2(
+            -100,
+            source_bytes,
+            -100,
+            destination_bytes,
+            0x00000001,
+        )
+    else:
+        raise AnalysisError(
+            "atomic no-replace directory publication is unavailable on this platform"
+        )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        if error_number in (errno.EEXIST, errno.ENOTEMPTY):
+            raise AnalysisError(
+                f"analysis output appeared during publication: {destination}"
+            )
+        raise OSError(
+            error_number,
+            os.strerror(error_number),
+            str(destination),
+        )
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _default_unblind_registry() -> Path:
+    state_home = os.environ.get("XDG_STATE_HOME")
+    base = Path(state_home).expanduser() if state_home else Path.home() / ".local" / "state"
+    return (base / "kaetram-arena" / "unblind").resolve()
+
+
+def _sealed_bundle_index(root: Path) -> dict:
+    prelaunch_path = root / "prelaunch.json"
+    completed_path = root / "completed-inventory.json"
+    if not prelaunch_path.is_file():
+        raise AnalysisError("prelaunch.json is absent")
+    if not completed_path.is_file():
+        raise AnalysisError("completed-inventory.json is absent; run remains blinded")
+    completed = _load_json(completed_path)
+    cells = completed.get("cells")
+    if not isinstance(cells, list) or len(cells) != 18:
+        raise AnalysisError("completed inventory does not contain 18 cell receipts")
+    cell_hashes = {}
+    for cell in cells:
+        if not isinstance(cell, dict):
+            raise AnalysisError("completed inventory contains a malformed cell receipt")
+        cell_id = cell.get("cell_id")
+        inventory_sha = cell.get("artifact_inventory_sha256")
+        if (
+            not isinstance(cell_id, str)
+            or not cell_id
+            or not isinstance(inventory_sha, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", inventory_sha)
+            or cell_id in cell_hashes
+        ):
+            raise AnalysisError("completed inventory has invalid cell artifact identity")
+        cell_hashes[cell_id] = inventory_sha
+    return {
+        "prelaunch_sha256": _file_sha256(prelaunch_path),
+        "completed_inventory_sha256": _file_sha256(completed_path),
+        "cell_artifact_inventory_sha256": {
+            cell_id: cell_hashes[cell_id] for cell_id in sorted(cell_hashes)
+        },
+    }
+
+
+def _intent_bytes(intent: dict) -> bytes:
+    return canonical_json_bytes(intent) + b"\n"
+
+
+def _reserve_unblind(
+    root: Path,
+    output_dir: Path,
+    manifest: dict,
+    manifest_sha256: str,
+    code: dict,
+    registry_dir: Path,
+) -> tuple[Path, Path, dict]:
+    receipt_path = root / "analysis-unblind-receipt.json"
+    intent_path = root / "analysis-unblind-intent.json"
+    if receipt_path.exists():
+        raise AnalysisError(
+            "this bundle already has a completed unblind receipt; refusing rerun"
+        )
+    if intent_path.exists():
+        if not intent_path.is_file() or intent_path.is_symlink():
+            raise AnalysisError("existing root unblind intent is unsafe")
+        raise AnalysisError(
+            "this bundle already has an unblind intent; resume with "
+            f"--resume-unblind-intent {_file_sha256(intent_path)}"
+        )
+    try:
+        output_dir.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise AnalysisError("analysis output directory must be outside the sealed run root")
+    if output_dir.exists():
+        raise AnalysisError(f"analysis output already exists: {output_dir}")
+    bundle_index = _sealed_bundle_index(root)
+    bundle_index_sha256 = sha256_json(bundle_index)
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    registry_intent_path = registry_dir / f"{bundle_index_sha256}.intent.json"
+    registry_receipt_path = registry_dir / f"{bundle_index_sha256}.receipt.json"
+    if registry_receipt_path.exists():
+        raise AnalysisError(
+            "this sealed bundle identity already has a completed local unblind "
+            "registry receipt"
+        )
+    if registry_intent_path.exists():
+        if (
+            not registry_intent_path.is_file()
+            or registry_intent_path.is_symlink()
+        ):
+            raise AnalysisError("existing local unblind registry intent is unsafe")
+        raise AnalysisError(
+            "this sealed bundle identity already has a local unblind registry "
+            "entry; resume the original transaction with "
+            f"--resume-unblind-intent {_file_sha256(registry_intent_path)}"
+        )
+    intent = {
+        "schema_version": UNBLIND_INTENT_SCHEMA_VERSION,
+        "pilot_id": manifest["pilot_id"],
+        "created_at_utc": _utc_now(),
+        "manifest_sha256": manifest_sha256,
+        "bundle_index": bundle_index,
+        "bundle_index_sha256": bundle_index_sha256,
+        "analysis_code_inventory_sha256": code["inventory_sha256"],
+        "analysis_source_git_commit": code["source_git_commit"],
+        "run_root_realpath_sha256": hashlib.sha256(
+            str(root).encode("utf-8")
+        ).hexdigest(),
+        "output_directory_name": output_dir.name,
+        "output_directory_realpath_sha256": hashlib.sha256(
+            str(output_dir).encode("utf-8")
+        ).hexdigest(),
+        "confirmation": manifest["pilot_id"],
+    }
+    content = _intent_bytes(intent)
+    _write_new_bytes(registry_intent_path, content)
+    _fsync_directory(registry_dir)
+    _write_new_bytes(intent_path, content)
+    _fsync_directory(root)
+    return intent_path, registry_intent_path, intent
+
+
+def _resume_unblind(
+    root: Path,
+    output_dir: Path,
+    manifest: dict,
+    manifest_sha256: str,
+    code: dict,
+    registry_dir: Path,
+    expected_intent_sha256: str,
+) -> tuple[Path, Path, dict]:
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_intent_sha256):
+        raise AnalysisError("--resume-unblind-intent requires a lowercase SHA-256")
+    if (root / "analysis-unblind-receipt.json").exists():
+        raise AnalysisError("the original unblind transaction is already complete")
+    try:
+        output_dir.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise AnalysisError("analysis output directory must be outside the sealed run root")
+    bundle_index = _sealed_bundle_index(root)
+    bundle_index_sha256 = sha256_json(bundle_index)
+    registry_intent_path = registry_dir / f"{bundle_index_sha256}.intent.json"
+    if not registry_intent_path.is_file() or registry_intent_path.is_symlink():
+        raise AnalysisError("no local unblind intent exists for this bundle identity")
+    if _file_sha256(registry_intent_path) != expected_intent_sha256:
+        raise AnalysisError("local unblind intent digest differs from the resume token")
+    intent = _load_json(registry_intent_path)
+    expected = {
+        "schema_version": UNBLIND_INTENT_SCHEMA_VERSION,
+        "pilot_id": manifest["pilot_id"],
+        "manifest_sha256": manifest_sha256,
+        "bundle_index": bundle_index,
+        "bundle_index_sha256": bundle_index_sha256,
+        "analysis_code_inventory_sha256": code["inventory_sha256"],
+        "analysis_source_git_commit": code["source_git_commit"],
+        "run_root_realpath_sha256": hashlib.sha256(
+            str(root).encode("utf-8")
+        ).hexdigest(),
+        "output_directory_name": output_dir.name,
+        "output_directory_realpath_sha256": hashlib.sha256(
+            str(output_dir).encode("utf-8")
+        ).hexdigest(),
+        "confirmation": manifest["pilot_id"],
+    }
+    mismatches = {
+        key: {"expected": value, "actual": intent.get(key)}
+        for key, value in expected.items()
+        if intent.get(key) != value
+    }
+    if not isinstance(intent.get("created_at_utc"), str) or not intent["created_at_utc"]:
+        mismatches["created_at_utc"] = {
+            "expected": "nonempty timestamp",
+            "actual": intent.get("created_at_utc"),
+        }
+    if mismatches:
+        raise AnalysisError(f"unblind resume identity mismatch: {mismatches}")
+    intent_path = root / "analysis-unblind-intent.json"
+    _write_or_verify(intent_path, registry_intent_path.read_bytes())
+    _fsync_directory(root)
+    return intent_path, registry_intent_path, intent
+
+
+def _validate_publication_inputs(root: Path, report: dict) -> None:
+    if _sealed_bundle_index(root) != report["bundle_index"]:
+        raise AnalysisError("sealed bundle identity changed during publication")
+    completed = _load_json(root / "completed-inventory.json")
+    completed_by_id = {
+        cell["cell_id"]: cell for cell in completed["cells"]
+    }
+    _reverify_analysis_inputs(
+        root=root,
+        completed_by_id=completed_by_id,
+        expected_prelaunch_sha256=report["bundle_index"]["prelaunch_sha256"],
+        expected_completed_sha256=report["bundle_index"][
+            "completed_inventory_sha256"
+        ],
+        expected_files_checked=report["files_rehashed"],
+    )
+    if _analysis_code_provenance() != report["analysis_code_provenance"]:
+        raise AnalysisError("analysis source or runtime changed during publication")
+
+
+def _validate_intent_report_identity(
+    intent: dict,
+    report: dict,
+    output_dir: Path,
+) -> None:
+    expected = {
+        "pilot_id": report["pilot_id"],
+        "manifest_sha256": report["manifest_sha256"],
+        "bundle_index": report["bundle_index"],
+        "bundle_index_sha256": report["bundle_index_sha256"],
+        "analysis_code_inventory_sha256": report[
+            "analysis_code_provenance"
+        ]["inventory_sha256"],
+        "analysis_source_git_commit": report[
+            "analysis_code_provenance"
+        ]["source_git_commit"],
+        "output_directory_name": output_dir.name,
+        "output_directory_realpath_sha256": hashlib.sha256(
+            str(output_dir).encode("utf-8")
+        ).hexdigest(),
+    }
+    mismatches = {
+        key: {"expected": value, "actual": intent.get(key)}
+        for key, value in expected.items()
+        if intent.get(key) != value
+    }
+    if mismatches:
+        raise AnalysisError(f"unblind intent differs from analysis report: {mismatches}")
+
+
+def _publish_analysis(
+    root: Path,
+    output_dir: Path,
+    report: dict,
+    intent_path: Path,
+    registry_intent_path: Path,
+    intent: dict,
 ) -> dict:
-    manifest, manifest_sha256 = load_manifest(manifest_path)
-    if manifest.get("schema_version") != RECOVERY_FACTORIAL_SCHEMA_VERSION:
-        raise AnalysisError("manifest is not the reviewed recovery factorial")
+    try:
+        output_dir.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise AnalysisError("analysis output directory must be outside the sealed run root")
+    _validate_intent_report_identity(intent, report, output_dir)
+    scalar_cell_fields = (
+        "cell_id", "replicate", "weight", "recovery", "schedule_index",
+        "duration_seconds", "budget_overrun_seconds", "turns",
+        "canonical_executed_calls", "canonical_executed_calls_per_minute",
+        "canonical_tool_bearing_turns", "tool_parse_rate", "api_errors",
+        "sub_sessions", "raw_generations", "generations_with_structured_call",
+        "generations_without_structured_call", "structured_call_emission_rate",
+        "raw_structured_calls", "raw_structured_calls_per_minute",
+        "malformed_emissions", "recoverable_raw_calls", "recovered_calls",
+        "recovered_execution_errors", "recovered_execution_successes",
+        "repeat_recoveries_within_window", "core3_stages_advanced",
+        "quest_stages_advanced", "xp_db_delta", "unique_positions",
+        "canonical_action_counts", "raw_action_counts", "recovered_by_tool",
+    )
+    pair_fields = (
+        "replicate", "weight", "pair_order", "off_schedule_index",
+        "on_schedule_index", "canonical_executed_calls",
+        "canonical_executed_calls_per_minute", "raw_structured_calls",
+        "malformed_emissions", "recovered_calls", "core3_stages_advanced",
+        "quest_stages_advanced", "xp_db_delta", "unique_positions",
+    )
+    artifacts = {
+        "analysis-report.json": (
+            json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n"
+        ),
+        "cells.csv": _csv_text(report["rows"], scalar_cell_fields),
+        "paired-differences.csv": _csv_text(_paired_rows(report), pair_fields),
+        "paper-table.md": _paper_table_markdown(report),
+        "paper-table.tex": _paper_table_tex(report),
+    }
+    index_records = [
+        {
+            "path": name,
+            "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            "size_bytes": len(content.encode("utf-8")),
+        }
+        for name, content in sorted(artifacts.items())
+    ]
+    artifact_index = {
+        "schema_version": "kaetram.local-weight-recovery-analysis-artifacts.v1",
+        "pilot_id": report["pilot_id"],
+        "files": index_records,
+        "files_sha256": sha256_json(index_records),
+    }
+    expected_files = {
+        **{name: content.encode("utf-8") for name, content in artifacts.items()},
+        "artifact-index.json": canonical_json_bytes(artifact_index) + b"\n",
+    }
+    expected_intent_content = _intent_bytes(intent)
+    _write_or_verify(registry_intent_path, expected_intent_content)
+    _write_or_verify(intent_path, expected_intent_content)
+    intent_sha256 = hashlib.sha256(expected_intent_content).hexdigest()
+    staging_dir = (
+        output_dir.parent
+        / f".{output_dir.name}.staging-{intent_sha256[:16]}"
+    )
+    if output_dir.exists():
+        if staging_dir.exists():
+            raise AnalysisError("both final and staging analysis directories exist")
+        if not output_dir.is_dir() or output_dir.is_symlink():
+            raise AnalysisError("analysis output target is not a safe directory")
+        publication_dir = output_dir
+        already_published = True
+    else:
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        if staging_dir.is_symlink():
+            raise AnalysisError("analysis staging directory is a symlink")
+        publication_dir = staging_dir
+        already_published = False
+
+    for name, content in expected_files.items():
+        if already_published:
+            _verify_existing_bytes(publication_dir / name, content)
+        else:
+            _write_or_verify(publication_dir / name, content)
+    _validate_publication_inputs(root, report)
+    _write_or_verify(registry_intent_path, expected_intent_content)
+    _write_or_verify(intent_path, expected_intent_content)
+
+    receipt_core = {
+        "schema_version": UNBLIND_RECEIPT_SCHEMA_VERSION,
+        "pilot_id": report["pilot_id"],
+        "intent_sha256": intent_sha256,
+        "intent": intent,
+        "analysis_report_sha256": hashlib.sha256(
+            expected_files["analysis-report.json"]
+        ).hexdigest(),
+        "artifact_index_sha256": hashlib.sha256(
+            expected_files["artifact-index.json"]
+        ).hexdigest(),
+        "artifact_files_sha256": artifact_index["files_sha256"],
+        "bundle_index_sha256": report["bundle_index_sha256"],
+        "analysis_status": report["analysis_status"],
+        "descriptive_results_released": report["descriptive_results_released"],
+        "analysis_code_inventory_sha256": report[
+            "analysis_code_provenance"
+        ]["inventory_sha256"],
+        "analysis_source_git_commit": report[
+            "analysis_code_provenance"
+        ]["source_git_commit"],
+        "output_directory_name": output_dir.name,
+    }
+    registry_receipt_path = registry_intent_path.with_name(
+        registry_intent_path.name.replace(".intent.json", ".receipt.json")
+    )
+    internal_receipt_path = publication_dir / "analysis-unblind-receipt.json"
+    if already_published and not internal_receipt_path.is_file():
+        raise AnalysisError(
+            "existing analysis output lacks its embedded atomic publication receipt"
+        )
+    receipt_candidates = []
+    for candidate_path in (registry_receipt_path, internal_receipt_path):
+        if not candidate_path.exists():
+            continue
+        if not candidate_path.is_file() or candidate_path.is_symlink():
+            raise AnalysisError(f"existing analysis receipt is unsafe: {candidate_path}")
+        candidate = _load_json(candidate_path)
+        if {
+            key: value for key, value in candidate.items()
+            if key != "completed_at_utc"
+        } != receipt_core:
+            raise AnalysisError("existing analysis receipt differs from analysis")
+        if not isinstance(candidate.get("completed_at_utc"), str):
+            raise AnalysisError("existing analysis receipt lacks its completion time")
+        receipt_candidates.append(candidate)
+    if receipt_candidates:
+        if any(candidate != receipt_candidates[0] for candidate in receipt_candidates[1:]):
+            raise AnalysisError("existing analysis receipts disagree")
+        receipt = receipt_candidates[0]
+    else:
+        receipt = {**receipt_core, "completed_at_utc": _utc_now()}
+    receipt_content = canonical_json_bytes(receipt) + b"\n"
+    expected_files["analysis-unblind-receipt.json"] = receipt_content
+    if already_published:
+        _verify_existing_bytes(internal_receipt_path, receipt_content)
+    else:
+        _write_or_verify(internal_receipt_path, receipt_content)
+
+    _validate_publication_inputs(root, report)
+    _write_or_verify(registry_intent_path, expected_intent_content)
+    _write_or_verify(intent_path, expected_intent_content)
+    actual_names = sorted(path.name for path in publication_dir.iterdir())
+    if actual_names != sorted(expected_files):
+        raise AnalysisError("analysis publication directory has unexpected contents")
+    for name, content in expected_files.items():
+        if already_published:
+            _verify_existing_bytes(publication_dir / name, content)
+        else:
+            _write_or_verify(publication_dir / name, content)
+    _fsync_directory(publication_dir)
+    if not already_published:
+        _rename_directory_noreplace(staging_dir, output_dir)
+        _fsync_directory(output_dir.parent)
+
+    _write_or_verify(registry_receipt_path, receipt_content)
+    _fsync_directory(registry_receipt_path.parent)
+    _write_or_verify(root / "analysis-unblind-receipt.json", receipt_content)
+    _fsync_directory(root)
+    return receipt
+
+
+def _load_validated_envelope(
+    root: Path,
+    manifest: dict,
+    manifest_sha256: str,
+    *,
+    allow_legacy_v1: bool,
+) -> tuple[Path, Path, dict, dict, dict, list, dict, int, int]:
     prelaunch_path = root / "prelaunch.json"
     completed_path = root / "completed-inventory.json"
     prelaunch = _load_json(prelaunch_path)
@@ -460,11 +1225,51 @@ def analyze(
         or completed.get("invalid_cells") != invalid_receipts
     ):
         raise AnalysisError("completed valid/invalid counts differ from cell receipts")
+    return (
+        prelaunch_path,
+        completed_path,
+        prelaunch,
+        completed,
+        preflight,
+        completed_cells,
+        completed_by_id,
+        valid_receipts,
+        invalid_receipts,
+    )
 
-    rows = []
+
+def analyze(
+    root: Path,
+    manifest_path: Path,
+    *,
+    allow_legacy_v1: bool = False,
+    analysis_code_provenance: dict | None = None,
+) -> dict:
+    manifest, manifest_sha256 = load_manifest(manifest_path)
+    if manifest.get("schema_version") != RECOVERY_FACTORIAL_SCHEMA_VERSION:
+        raise AnalysisError("manifest is not the reviewed recovery factorial")
+    prelaunch_sha256_before = _file_sha256(root / "prelaunch.json")
+    completed_sha256_before = _file_sha256(root / "completed-inventory.json")
+    (
+        prelaunch_path,
+        completed_path,
+        prelaunch,
+        completed,
+        preflight,
+        completed_cells,
+        completed_by_id,
+        valid_receipts,
+        invalid_receipts,
+    ) = _load_validated_envelope(
+        root,
+        manifest,
+        manifest_sha256,
+        allow_legacy_v1=allow_legacy_v1,
+    )
+    contract = manifest["artifact_contract"]
+
     invalid_cells = []
     files_checked = 0
-    protocol = manifest["protocol"]
     for cell in manifest["cells"]:
         cell_id = cell["cell_id"]
         cell_root = root / cell_id
@@ -476,7 +1281,7 @@ def analyze(
             or retained.get("recovery_assignment") is not recovery
         ):
             raise AnalysisError(f"{cell_id}: cell receipt identity mismatch")
-        inventory_sha, rehashed = _verify_completed_cell_artifacts(
+        _inventory_sha, rehashed = _verify_completed_cell_artifacts(
             cell_root, retained
         )
         files_checked += rehashed
@@ -491,7 +1296,57 @@ def analyze(
                 "error": retained.get("error"),
                 "artifacts_sealed": True,
             })
-            continue
+    if invalid_cells:
+        _reverify_analysis_inputs(
+            root=root,
+            completed_by_id=completed_by_id,
+            expected_prelaunch_sha256=prelaunch_sha256_before,
+            expected_completed_sha256=completed_sha256_before,
+            expected_files_checked=files_checked,
+        )
+        code = analysis_code_provenance or _analysis_code_provenance()
+        index_record = {
+            "prelaunch_sha256": prelaunch_sha256_before,
+            "completed_inventory_sha256": completed_sha256_before,
+            "cell_artifact_inventory_sha256": {
+                cell_id: completed_by_id[cell_id]["artifact_inventory_sha256"]
+                for cell_id in sorted(completed_by_id)
+            },
+        }
+        return {
+            "schema_version": ANALYSIS_SCHEMA_VERSION,
+            "analysis_status": "incomplete_launcher_invalid_cells",
+            "descriptive_results_released": False,
+            "pilot_id": manifest["pilot_id"],
+            "claim_boundary": manifest["claim_boundary"],
+            "manifest_sha256": manifest_sha256,
+            "provenance_tier": preflight["provenance_tier"],
+            "result_artifact_schema_versions": [],
+            "analysis_code_provenance": code,
+            "bundle_index": index_record,
+            "bundle_index_sha256": sha256_json(index_record),
+            "valid_cells": valid_receipts,
+            "invalid_cells": invalid_receipts,
+            "invalid_cell_receipts": invalid_cells,
+            "files_rehashed": files_checked,
+            "rows": [],
+            "by_arm": {},
+            "paired_differences": {
+                "complete_pairs": [],
+                "incomplete_pairs": [],
+            },
+            "overall": {},
+        }
+
+    rows = []
+    result_schema_versions = set()
+    protocol = manifest["protocol"]
+    legacy_bundle = preflight["provenance_tier"] == "legacy_v1_unattested"
+    for cell in manifest["cells"]:
+        cell_id = cell["cell_id"]
+        cell_root = root / cell_id
+        retained = completed_by_id[cell_id]
+        recovery = cell["recovery"]
         if (
             retained.get("returncode") != 0
             or retained.get("tool_recovery_enabled") is not recovery
@@ -505,6 +1360,14 @@ def analyze(
         )
         results_root = cell_root / "eval" / cell_id
         results = _load_json(results_root / "results.json")
+        results_schema = results.get("schema_version")
+        if results_schema is None and legacy_bundle and allow_legacy_v1:
+            results_schema = "legacy_unversioned"
+        elif results_schema != EVAL_RESULTS_SCHEMA_VERSION:
+            raise AnalysisError(
+                f"{cell_id}: unsupported result artifact schema {results_schema!r}"
+            )
+        result_schema_versions.add(results_schema)
         meta = results.get("meta")
         episodes = results.get("episodes")
         if not isinstance(meta, dict) or not isinstance(episodes, list) or len(episodes) != 1:
@@ -673,20 +1536,35 @@ def analyze(
             sub_sessions=len(session_logs),
         ))
 
+    _reverify_analysis_inputs(
+        root=root,
+        completed_by_id=completed_by_id,
+        expected_prelaunch_sha256=prelaunch_sha256_before,
+        expected_completed_sha256=completed_sha256_before,
+        expected_files_checked=files_checked,
+    )
+    arm_summary = _summarize(rows)
+    pair_summary = _pair_differences(rows)
+    _require_complete_estimands(rows, arm_summary, pair_summary)
+    code = analysis_code_provenance or _analysis_code_provenance()
     index_record = {
-        "prelaunch_sha256": _file_sha256(prelaunch_path),
-        "completed_inventory_sha256": _file_sha256(completed_path),
+        "prelaunch_sha256": prelaunch_sha256_before,
+        "completed_inventory_sha256": completed_sha256_before,
         "cell_artifact_inventory_sha256": {
             cell_id: completed_by_id[cell_id]["artifact_inventory_sha256"]
             for cell_id in sorted(completed_by_id)
         },
     }
     return {
-        "schema_version": "kaetram.local-weight-recovery-factorial-analysis.v1",
+        "schema_version": ANALYSIS_SCHEMA_VERSION,
+        "analysis_status": "complete_descriptive",
+        "descriptive_results_released": True,
         "pilot_id": manifest["pilot_id"],
         "claim_boundary": manifest["claim_boundary"],
         "manifest_sha256": manifest_sha256,
         "provenance_tier": preflight["provenance_tier"],
+        "result_artifact_schema_versions": sorted(result_schema_versions),
+        "analysis_code_provenance": code,
         "bundle_index": index_record,
         "bundle_index_sha256": sha256_json(index_record),
         "valid_cells": len(rows),
@@ -694,8 +1572,8 @@ def analyze(
         "invalid_cell_receipts": invalid_cells,
         "files_rehashed": files_checked,
         "rows": rows,
-        "by_arm": _summarize(rows),
-        "paired_differences": _pair_differences(rows),
+        "by_arm": arm_summary,
+        "paired_differences": pair_summary,
         "overall": {
             "raw_generations": sum(row["raw_generations"] for row in rows),
             "raw_structured_calls": sum(row["raw_structured_calls"] for row in rows),
@@ -748,6 +1626,30 @@ def main(argv: list[str] | None = None) -> int:
         help="Fail if the sealed-ledger root differs from this digest.",
     )
     parser.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help=(
+            "Create-only directory for the sealed JSON, CSV, Markdown, and "
+            "LaTeX analysis artifacts; it must be outside the run root."
+        ),
+    )
+    parser.add_argument(
+        "--confirm-unblind",
+        required=True,
+        help=(
+            "Must exactly equal the registered pilot_id. The analyzer records "
+            "a create-only intent before opening result-bearing artifacts."
+        ),
+    )
+    parser.add_argument(
+        "--resume-unblind-intent",
+        help=(
+            "Resume the original staged transaction after interruption. Supply "
+            "the SHA-256 of its local registry intent; identity changes fail."
+        ),
+    )
+    parser.add_argument(
         "--allow-legacy-v1",
         action="store_true",
         help=(
@@ -757,18 +1659,84 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        report = analyze(
-            args.root.resolve(),
-            args.manifest.resolve(),
+        root = args.root.resolve()
+        manifest_path = args.manifest.resolve()
+        output_dir = args.output_dir.resolve()
+        manifest, manifest_sha256 = load_manifest(manifest_path)
+        if manifest.get("schema_version") != RECOVERY_FACTORIAL_SCHEMA_VERSION:
+            raise AnalysisError("manifest is not the reviewed recovery factorial")
+        if args.confirm_unblind != manifest["pilot_id"]:
+            raise AnalysisError(
+                "--confirm-unblind must exactly equal the registered pilot_id"
+            )
+        _load_validated_envelope(
+            root,
+            manifest,
+            manifest_sha256,
             allow_legacy_v1=args.allow_legacy_v1,
         )
+        sealed_bundle_index = _sealed_bundle_index(root)
+        sealed_bundle_index_sha256 = sha256_json(sealed_bundle_index)
         expected = args.expected_bundle_index_sha256
-        if expected is not None and report["bundle_index_sha256"] != expected:
+        if (
+            expected is not None
+            and sealed_bundle_index_sha256 != expected
+        ):
             raise AnalysisError("bundle-index digest differs from expected root")
+        code = _analysis_code_provenance()
+        registry_dir = _default_unblind_registry()
+        if args.resume_unblind_intent:
+            intent_path, registry_intent_path, intent = _resume_unblind(
+                root,
+                output_dir,
+                manifest,
+                manifest_sha256,
+                code,
+                registry_dir,
+                args.resume_unblind_intent,
+            )
+        else:
+            intent_path, registry_intent_path, intent = _reserve_unblind(
+                root,
+                output_dir,
+                manifest,
+                manifest_sha256,
+                code,
+                registry_dir,
+            )
+        print(
+            f"UNBLIND_INTENT_SHA256={_file_sha256(intent_path)}",
+            file=sys.stderr,
+            flush=True,
+        )
+        report = analyze(
+            root,
+            manifest_path,
+            allow_legacy_v1=args.allow_legacy_v1,
+            analysis_code_provenance=code,
+        )
+        if report["bundle_index_sha256"] != sealed_bundle_index_sha256:
+            raise AnalysisError("analyzed bundle index differs from pre-unblind identity")
+        if _analysis_code_provenance() != code:
+            raise AnalysisError("analysis source or runtime changed during analysis")
+        receipt = _publish_analysis(
+            root,
+            output_dir,
+            report,
+            intent_path,
+            registry_intent_path,
+            intent,
+        )
     except (AnalysisError, OSError, KeyError, TypeError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    print(json.dumps(report, indent=2, sort_keys=True))
+    print(json.dumps({
+        "status": "published",
+        "output_dir": str(output_dir),
+        "bundle_index_sha256": report["bundle_index_sha256"],
+        "artifact_index_sha256": receipt["artifact_index_sha256"],
+        "unblind_receipt": str(root / "analysis-unblind-receipt.json"),
+    }, indent=2, sort_keys=True))
     return 0
 
 

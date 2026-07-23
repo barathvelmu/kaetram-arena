@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from pathlib import Path
 
 
 OPD_TRAIN_RECORD_SCHEMA_VERSION = "kaetram-opd-train-record-v1"
@@ -23,10 +24,21 @@ OPD_TRAIN_RECORD_SCHEMA = {
         "behavior_logprobs",
     ],
     "ignored_label": -100,
+    "semantics": [
+        "supervised labels equal corresponding input_ids",
+        "ignored labels form a contiguous context prefix",
+        "ignored positions have zero advantage and behavior_logprob",
+    ],
 }
+OPD_TRAIN_RECORD_VALIDATOR_SHA256 = hashlib.sha256(
+    Path(__file__).read_bytes()
+).hexdigest()
 OPD_TRAIN_RECORD_SCHEMA_SHA256 = hashlib.sha256(
     json.dumps(
-        OPD_TRAIN_RECORD_SCHEMA,
+        {
+            "schema": OPD_TRAIN_RECORD_SCHEMA,
+            "validator_file_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,
+        },
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -102,9 +114,43 @@ def validate_opd_train_record(record: object, *, line_number: int) -> dict:
                 "aligned with input_ids"
             )
 
+    saw_supervised = False
+    for index, (input_id, label, advantage, behavior_logprob) in enumerate(
+        zip(
+            input_ids,
+            labels,
+            record["advantages"],
+            record["behavior_logprobs"],
+        )
+    ):
+        if label == -100:
+            if saw_supervised:
+                raise RecordSchemaError(
+                    f"record {line_number} ignored labels must be a contiguous prefix"
+                )
+            if float(advantage) != 0.0 or float(behavior_logprob) != 0.0:
+                raise RecordSchemaError(
+                    f"record {line_number} ignored position {index} must have zero "
+                    "advantage and behavior_logprob"
+                )
+        else:
+            saw_supervised = True
+            if label != input_id:
+                raise RecordSchemaError(
+                    f"record {line_number} supervised label {index} must equal input_id"
+                )
+
     step_weight = record["step_weight"]
     if not _finite_number(step_weight) or float(step_weight) <= 0:
         raise RecordSchemaError(
             f"record {line_number} step_weight must be finite and positive"
+        )
+    n_action = record.get("n_action")
+    if n_action is not None and (
+        not _integer(n_action)
+        or n_action != sum(label != -100 for label in labels)
+    ):
+        raise RecordSchemaError(
+            f"record {line_number} n_action must equal the supervised-token count"
         )
     return record

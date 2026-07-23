@@ -32,7 +32,7 @@ def _record(record_id: int, advantages: list[float]) -> dict:
     return {
         "record_id": record_id,
         "input_ids": list(range(1, size + 1)),
-        "labels": [-100] * (size - 1) + [size],
+        "labels": list(range(1, size + 1)),
         "behavior_logprobs": [0.0] * size,
         "advantages": advantages,
         "step_weight": 1.0,
@@ -63,6 +63,7 @@ def test_uniform_advantages_preserves_mask_and_attests_bytes(tmp_path: Path) -> 
     assert manifest["output_sha256"] == _sha256(output)
     assert manifest["record_schema_version"] == "kaetram-opd-train-record-v1"
     assert len(manifest["record_schema_sha256"]) == 64
+    assert len(manifest["record_schema_validator_sha256"]) == 64
     assert json.loads(output.with_suffix(".manifest.json").read_text()) == manifest
 
 
@@ -120,6 +121,7 @@ def test_resample_is_deterministic_exact_count_and_attested(tmp_path: Path) -> N
     assert manifest_a["output_sha256"] == _sha256(output_a)
     assert manifest_a["record_schema_version"] == "kaetram-opd-train-record-v1"
     assert len(manifest_a["record_schema_sha256"]) == 64
+    assert len(manifest_a["record_schema_validator_sha256"]) == 64
     assert manifest_a["sampled_indices_sha256"] == manifest_b["sampled_indices_sha256"]
     assert json.loads(output_a.with_suffix(".manifest.json").read_text()) == manifest_a
 
@@ -145,4 +147,43 @@ def test_transformers_reject_noncanonical_json_objects(tmp_path: Path) -> None:
     with pytest.raises(UniformBuildError, match="missing required OPD field"):
         build_uniform_advantages(source, tmp_path / "uniform.jsonl")
     with pytest.raises(ResampleBuildError, match="missing required OPD field"):
+        resample_records(source, tmp_path / "resampled.jsonl", target=2, seed=1)
+
+
+@pytest.mark.parametrize(
+    "record,match",
+    [
+        (
+            {
+                **_record(0, [100.0, 1.0]),
+                "labels": [-100, 2],
+            },
+            "ignored position 0 must have zero",
+        ),
+        (
+            {
+                **_record(0, [0.0, 1.0]),
+                "labels": [-100, 1],
+            },
+            "must equal input_id",
+        ),
+        (
+            {
+                **_record(0, [0.0, 1.0, 0.0]),
+                "labels": [-100, 2, -100],
+            },
+            "contiguous prefix",
+        ),
+    ],
+)
+def test_transformers_reject_training_corrupting_mask_geometry(
+    tmp_path: Path,
+    record: dict,
+    match: str,
+) -> None:
+    source = tmp_path / "source.jsonl"
+    _write_jsonl(source, [record])
+    with pytest.raises(UniformBuildError, match=match):
+        build_uniform_advantages(source, tmp_path / "uniform.jsonl")
+    with pytest.raises(ResampleBuildError, match=match):
         resample_records(source, tmp_path / "resampled.jsonl", target=2, seed=1)

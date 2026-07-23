@@ -24,6 +24,7 @@ try:
     from .record_schema import (
         OPD_TRAIN_RECORD_SCHEMA_SHA256,
         OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        OPD_TRAIN_RECORD_VALIDATOR_SHA256,
         RecordSchemaError,
         validate_opd_train_record,
     )
@@ -31,6 +32,7 @@ except ImportError:  # direct `python scripts/opd/...` execution
     from record_schema import (  # type: ignore[no-redef]
         OPD_TRAIN_RECORD_SCHEMA_SHA256,
         OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        OPD_TRAIN_RECORD_VALIDATOR_SHA256,
         RecordSchemaError,
         validate_opd_train_record,
     )
@@ -122,6 +124,7 @@ def resample_records(
         "script_sha256": _sha256(Path(__file__).resolve()),
         "record_schema_version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
         "record_schema_sha256": OPD_TRAIN_RECORD_SCHEMA_SHA256,
+        "record_schema_validator_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,
         "seed": seed,
         "target_records": target,
         "original_records": n_original,

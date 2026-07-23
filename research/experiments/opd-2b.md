@@ -645,7 +645,7 @@ constraint on the last stages was the format defect — a model–environment in
 three attempted weights-side interventions had not reached in the reported runs — which is why
 18/30 is honestly weights-plus-interface.
 
-### Hardening runs E1 + E4 (2026-07-11/12): the factorial completes — weights carry the stages, recovery buys efficiency (and the June "paralysis" read was wrong)
+### Hardening runs E1 + E4 (2026-07-11/12): additional observed factorial cells
 
 Two missing factorial cells were run (6h protocol, e2-standard-**4** instance — June arms ran
 e2-standard-8; E1 truncated to 6h after a silent supervisor death let it run 8.6h; E4 stopped
@@ -660,22 +660,23 @@ manually at 6h14m; both scored at the 6h boundary):
 | **r3 no-recovery (E4, run_20260711_153427)** | **18** | **3/3** | 3.62h | **~70% of turns are unexecuted spam** (5.7–6.1k turns vs ~1.8k calls/agent) |
 | r3+recovery (June) | 18 | 3/3 | 1.95h | ~5% format-error turns |
 
-Three revisions this forces:
+Three descriptive updates:
 
-1. **"Harness → stages at the r2→r3 step" is dead.** r3 weights WITHOUT recovery score 18/30 —
-   the full r2→r3 stage gain (+3) is weights-driven. Recovery adds stages only at the cusp
-   (r2: +2) and nothing at base (defect absent, affordance inert) or r3 (weights already
-   carry). Report the six cells; do not decompose additively.
-2. **Recovery's real contribution is efficiency, not stages:** at the r3 cell it converts ~70%
-   wasted turns into ~5% and roughly halves time-to-wall (3.62h → 1.95h). The defect costs
-   tokens and wall-clock, not stages, once the policy is competent.
-3. **The June 13 "counterfactual grading paralyzed the agents" read was premature.** The
+1. The reported r3-without-recovery and r3-with-recovery runs both score 18/30. This rules out
+   attributing that pair's numerical difference to recovery, but it does not identify a
+   weights main effect across the cross-era r2/r3 runs.
+2. At the two reported r3 cells, recovery is associated with fewer wasted turns (~70% to ~5%)
+   and a shorter time-to-wall (3.62h to 1.95h). One run per cell does not establish an
+   efficiency effect or a null stage effect.
+3. The June 13 “counterfactual grading paralyzed the agents” interpretation was based on an
+   early stopped run. The
    stopped run's 57–76% spam at 35 min matches E4's steady-state ~70% — spam ≠ stage failure
    over a full 6h. The grading-side negative result stands (the emission regressed and the
    spam is real), but its *stage* cost was assumed from a 35-minute observation, not measured.
 
-E1 bonus/caveats: recovery being inert makes E1 a de-facto second base replicate — and its
-explorer passed the Herbalist wall within 6h, so base-family wall passage is now **1/6 pooled**
+E1 caveats: recovery reportedly fired once, but its different instance and port collision mean
+it is not an independent matched base replicate. Its explorer passed the Herbalist wall within
+6h, so the descriptive pooled base-family count is **1/6 persona-runs**
 (vs r2's 3/3; descriptive only — agent-level Fisher on persona-runs is pseudoreplication, per
 the 2026-07-13 stats audit; say "1 of 6 observed persona-runs," not "rarely"/significant).
 E1's grinder lane ran under a 3-listener port collision on :9001 (E1's own orphaned server +
@@ -749,7 +750,10 @@ KL change as a surrogate endpoint in these runs and motivates testing self-imita
 It does not retroactively explain r1, confine teacher effects to style, or license a prediction
 for the missing natural+uniform cell.
 
-**Deep-audit addenda (2026-07-15, confirmatory log analysis — four independent analyses):**
+**Retrospective addenda (2026-07-15, four analyses of the same logged runs):**
+
+These analyses are neither independent replications nor confirmatory evidence. They are
+maintainer-reported diagnostics over the same n=1 arm records.
 
 *(v) Behavioral similarity:* in these logged runs, r2 and Arm-C have similar strategy summaries:
 tool-mix total-variation distance 0.083, below the observed within-arm agent-to-agent range
@@ -779,10 +783,10 @@ not separated in this pair*: Arm-C and r2 report time-to-Herb-stage-2 means of 4
 speed, or throughput, but one run per arm cannot establish equivalence. (ii) *Style panel*
 (full 6-arm comparison): the available summaries do not isolate a style dimension attributable
 to teacher pull — uniform matched the teacher's reported tempo
-(6.0) and landed CLOSER to the teacher than r2 on the signature overshoots (query_quest 11.0%
-vs 12.9% → teacher 8.7%; chars/turn 905 vs 1,116 → 864); the r2 "overshoot retreat" was a
-retrain-on-r1-rollouts effect, not teacher-pull. (iii) **The one clean grading-specific
-signature is the defect**: all three teacher-graded arms carry the ~11% malformed-call dialect
+(6.0) and is numerically closer to the teacher than r2 on the signature overshoots
+(query_quest 11.0% vs 12.9% → teacher 8.7%; chars/turn 905 vs 1,116 → 864). These summaries
+do not attribute the difference to retraining or teacher pull. (iii) **Malformed-call frequency
+is associated with the reported graded arms**: all three carry the ~11% dialect
 (r1 11.5% / r2 10.7% / E3′ 11.6% of calls) while Arm-C on the SAME corpus sits at **0.2% on
 missing-required-field calls (12 vs 591) / 1.1% on n_malformed_emit (76 vs 685; metric labels
 corrected per the 2026-07-17 verification sweep)** — a ~9× gap either way; the malformation
@@ -1073,13 +1077,15 @@ Each attribution still requires independent training seeds and a fully crossed d
 current record cannot establish what the teacher “taught,” whether execution discipline
 mediates competence, or whether any channel is necessary.
 
-### The five-arm decision-probe study (baseline_20260701; validated + adopted 2026-07-15)
+### Unverified maintainer report: five-arm decision probes (baseline_20260701)
 
-`dataset/probes/baseline_20260701/` (branch `feat/social-dashboard-0_8b`; framework
+The referenced immutable probe bundle is not tracked in this checkout. The counts and
+interpretations in this subsection are retained only as a maintainer report and are not paper
+evidence. `dataset/probes/baseline_20260701/` (branch `feat/social-dashboard-0_8b`; framework
 `scripts/probes/{specs,runner,checks,report}.py`): 701 trials — five arms × seven seeded
 single-decision probes × 20 trials, identical seed-digest-verified stimuli, standard 17-tool
 surface, compact observes + programmatic note, ≤4-turn budget, intent-level (`pass_if` tool
-rule) and world-effect (`pass_db`) scoring. **Validation (2026-07-15): PASS** — 699/701 scored
+rule) and world-effect (`pass_db`) scoring. The maintainer reports 699/701 scored
 (2 seed_invalid excluded, 1 clean retry), one seed digest per probe across all arms, correct
 endpoint per arm, uniform config; spot-checked scoring correct including both anomaly classes
 (below). Caveats: 29 context-overflow terminals spread across arms (4B highest at 9); P-A
@@ -1098,38 +1104,12 @@ Pass rates (intent), arms × probes:
 | P-EQUIP pole before gather | 0/20 | 0/20 | 1/19 | 0/20 | 3/20 (**11/20** incl. reactive) |
 | P-REC dungeon escape | 5/20 | 8/20 | 9/20 | 13/20 | 19/20 |
 
-Findings the table adds to the program:
-1. **Per-decision capability map, 4B vs 0.8B**: 4B ≫ 0.8B on 6/7 probes (recovery 19 vs 5,
-   turn-in 19 vs 5) — the matched-state decision evidence reviewers asked for.
-2. **P-EQUIP reactive-recovery split** (from the 8 intent=F/db=T 4B trials): the 4B equips the
-   pole *reactively after a failed gather* 8/20 times on top of 3/20 proactive; students 0–1.
-   Refines the Rick's link-1 story: the teacher recovers reactively, students not at all.
-3. **P-D cook**: the 4B chooses cook 7/20 at the seeded cook state as a GENERATOR — the
-   full-run "never cooks" is substantially reachability, not pure incompetence; students 0–1/20.
-4. **P-C, the means-ends cliff — CORRECTED by forensics (2026-07-15, all 60 trials read):**
-   the 7/20→1/20 "collapse" is **mostly a scoring artifact + partly a real, subtler seeding
-   cost**. Artifact: the pass rule credits only an in-place `gather(blueberry|stump)` emission,
-   but the seed location has no levelable node in `nearby` — so it rewards base's blind
-   walkthrough-recitation/misnaming emissions (~5 of base's 7 "passes" are lexical accidents,
-   e.g. calling the adjacent lily a blueberry bush) and punishes grounded TRAVEL pivots; r3
-   verbalizes the correct bridge plan in ≥9/20 trials and navigates toward Mudwich blueberries
-   (unscoreable in 6 turns); the un-OPD'd 4B fails the same way (2/20 despite executing the
-   full bridge chain in ~7 trials, twice hallucinating Mudwich's coordinates); `pass_db` =
-   0/20 for ALL arms. In the wild, r3 pivots BETTER than base at organic gate blocks (46% vs
-   33% blueberry pivots within 3 actions; 0/13 vs 1/33 re-hammers). **Real cost (paper-worthy,
-   the honest price of milestone seeding):** gate-PASSED-state training taught r3 a "gate
-   already satisfied" prior at the lily decision point — 0/20 blueberry-first openings (base
-   5/20), repeated unverified "Foraging L4 should be sufficient" claims — because the training
-   distribution never contained pre-gate states there. Also visible: r3's malformed
-   positional-arg syntax cost it 5/20 trials (17 malformed calls; base and 4B: 0). P-C needs a
-   respec (travel-aware credit or a levelable node in `nearby`); under travel-aware credit
-   r3 ≈ 5–6/20, 4B ≈ 8–9/20, base's genuine bridging ≈ 2/20 — a modest decline, not a cliff,
-   plus the P-C2 rise (12→16) is the same axis: walkthrough-recitation prior traded for
-   state-grounded target-gathering.
-5. **0.8B OPD damage at decision level**: P-A 11→6, P-B 5→4 (worse); P-C2 6→11, P-REC 5→8
-   (better) — and the failing trials are the malformed dialect in action (verified specimen:
-   `<function=gather><parameter=resource_name>\nOak\n</` — corrupted close tag, argument lost,
-   verb salvaged with empty input; the model KNOWS the action, the trained-in syntax drops it).
+The maintainer interpreted the table as showing model-size differences, reactive pole
+recovery, occasional cook selection, a scoring artifact in P-C, and a possible gate-satisfied
+prior. Those interpretations cannot be audited here: the stimulus receipts, raw responses,
+scorer outputs, exclusions, and analysis code revision are absent. They must not be cited as
+capability, reachability, learned-prior, seeding-cost, or defect-transfer results until the
+bundle is restored and the current validators pass.
 
 ### The 0.8B lane (runs July 1–5, audited July 14): lower scores after natural-rollout OPD
 

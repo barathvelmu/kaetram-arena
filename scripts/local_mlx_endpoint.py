@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -38,7 +38,11 @@ sys.path.insert(0, str(REPO))
 
 from finetune.render import patch_qwen_chat_template  # noqa: E402
 from run_manifest import sha256_json, tool_schema_record  # noqa: E402
-from scripts.fetch_hf_snapshot import fetch_snapshot, load_lock  # noqa: E402
+from scripts.fetch_hf_snapshot import (  # noqa: E402
+    fetch_snapshot,
+    load_lock,
+    locked_snapshot_tree_sha256,
+)
 from tool_surface import MODEL_VISIBLE_TOOL_DEFINITIONS  # noqa: E402
 
 
@@ -89,6 +93,8 @@ class EndpointIdentity:
     api_model: str
     deployment_id: str
     checkpoint_sha256: str
+    snapshot_tree_sha256: str
+    snapshot_lock_sha256: str
     tokenizer_sha256: str
     render_contract_sha256: str
     chat_template_sha256: str
@@ -102,6 +108,8 @@ class EndpointIdentity:
                 "deployment_id": self.deployment_id,
                 "api_model": self.api_model,
                 "checkpoint_sha256": self.checkpoint_sha256,
+                "snapshot_tree_sha256": self.snapshot_tree_sha256,
+                "snapshot_lock_sha256": self.snapshot_lock_sha256,
                 "tokenizer_sha256": self.tokenizer_sha256,
                 "render_contract_sha256": self.render_contract_sha256,
                 "chat_template_sha256": self.chat_template_sha256,
@@ -261,6 +269,8 @@ def build_identity(
             f"{sha256_json(render_contract)[:12]}"
         ),
         checkpoint_sha256=checkpoint_sha256,
+        snapshot_tree_sha256=locked_snapshot_tree_sha256(snapshot),
+        snapshot_lock_sha256=lock["lock_sha256"],
         tokenizer_sha256=tokenizer_sha256,
         render_contract_sha256=sha256_json(render_contract),
         chat_template_sha256=render_contract["chat_template_sha256"],
@@ -274,18 +284,27 @@ def build_runtime_view(
     canonical_tokenizer_dir: Path,
     destination: Path,
     patched_chat_template: str,
+    *,
+    model_snapshot: dict,
+    canonical_tokenizer_snapshot: dict,
 ) -> Path:
     """Assemble a non-mutating view: arm weights plus one canonical tokenizer."""
     destination.mkdir(parents=True, exist_ok=False)
-    for source in model_dir.iterdir():
-        (destination / source.name).symlink_to(source, target_is_directory=source.is_dir())
+    for record in model_snapshot["files"]:
+        source = model_dir.joinpath(*PurePosixPath(record["path"]).parts)
+        target = destination.joinpath(*PurePosixPath(record["path"]).parts)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(source)
 
+    canonical_paths = {
+        record["path"] for record in canonical_tokenizer_snapshot["files"]
+    }
     for filename in TOKENIZER_RUNTIME_FILES:
         target = destination / filename
         if target.is_symlink() or target.exists():
             target.unlink()
         source = canonical_tokenizer_dir / filename
-        if source.exists():
+        if filename in canonical_paths:
             target.symlink_to(source)
 
     config_path = destination / "tokenizer_config.json"
@@ -663,10 +682,12 @@ def main(argv: list[str] | None = None) -> int:
         canonical_tokenizer_dir = (
             args.snapshots_root / CANONICAL_TOKENIZER_SNAPSHOT
         ).resolve()
-        fetch_snapshot(lock["snapshots"][args.snapshot], model_dir, verify_only=True)
+        model_snapshot = lock["snapshots"][args.snapshot]
+        canonical_snapshot = lock["snapshots"][CANONICAL_TOKENIZER_SNAPSHOT]
+        fetch_snapshot(model_snapshot, model_dir, verify_only=True)
         if args.snapshot != CANONICAL_TOKENIZER_SNAPSHOT:
             fetch_snapshot(
-                lock["snapshots"][CANONICAL_TOKENIZER_SNAPSHOT],
+                canonical_snapshot,
                 canonical_tokenizer_dir,
                 verify_only=True,
             )
@@ -679,6 +700,8 @@ def main(argv: list[str] | None = None) -> int:
             canonical_tokenizer_dir,
             Path(runtime_view_context.name) / "model",
             patched_chat_template,
+            model_snapshot=model_snapshot,
+            canonical_tokenizer_snapshot=canonical_snapshot,
         )
         effective_renderer = verify_effective_renderer(
             runtime_model_dir, patched_chat_template
@@ -693,6 +716,13 @@ def main(argv: list[str] | None = None) -> int:
             lock, args.snapshot, args.api_model, render_contract
         )
         if args.verify_only:
+            fetch_snapshot(model_snapshot, model_dir, verify_only=True)
+            if args.snapshot != CANONICAL_TOKENIZER_SNAPSHOT:
+                fetch_snapshot(
+                    canonical_snapshot,
+                    canonical_tokenizer_dir,
+                    verify_only=True,
+                )
             print(json.dumps({
                 **identity.health_payload(),
                 "render_contract": render_contract,
@@ -712,6 +742,13 @@ def main(argv: list[str] | None = None) -> int:
         if backend.poll() is not None:
             raise LocalEndpointError(
                 f"MLX-LM backend exited during startup with code {backend.returncode}"
+            )
+        fetch_snapshot(model_snapshot, model_dir, verify_only=True)
+        if args.snapshot != CANONICAL_TOKENIZER_SNAPSHOT:
+            fetch_snapshot(
+                canonical_snapshot,
+                canonical_tokenizer_dir,
+                verify_only=True,
             )
 
         server = ThreadingHTTPServer(

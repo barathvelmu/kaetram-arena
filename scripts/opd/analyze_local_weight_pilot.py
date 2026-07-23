@@ -21,7 +21,11 @@ from eval_harness import (  # noqa: E402
 )
 from run_manifest import sha256_json  # noqa: E402
 from scripts.opd.canonicalize import is_malformed, recover_tool_calls  # noqa: E402
-from scripts.opd.local_weight_pilot import load_manifest  # noqa: E402
+from scripts.opd.local_weight_pilot import (  # noqa: E402
+    LEGACY_PILOT_PRELAUNCH_SCHEMA_VERSION,
+    PILOT_PRELAUNCH_SCHEMA_VERSION,
+    load_manifest,
+)
 from tool_surface import (  # noqa: E402
     MODEL_VISIBLE_TOOL_DEFINITIONS,
     MODEL_VISIBLE_TOOL_NAMES,
@@ -118,11 +122,16 @@ def _validate_prelaunch(
     manifest: dict,
     prelaunch: dict,
     *,
-    expected_schema: str = "kaetram.local-weight-pilot-prelaunch.v1",
+    expected_schema: str = PILOT_PRELAUNCH_SCHEMA_VERSION,
+    legacy_schema: str = LEGACY_PILOT_PRELAUNCH_SCHEMA_VERSION,
+    allow_legacy_v1: bool = False,
 ) -> dict:
     expected_cells = manifest["cells"]
+    accepted_schemas = {expected_schema}
+    if allow_legacy_v1:
+        accepted_schemas.add(legacy_schema)
     if (
-        prelaunch.get("schema_version") != expected_schema
+        prelaunch.get("schema_version") not in accepted_schemas
         or prelaunch.get("pilot_id") != manifest["pilot_id"]
         or prelaunch.get("claim_boundary") != manifest["claim_boundary"]
         or prelaunch.get("cells") != expected_cells
@@ -135,6 +144,15 @@ def _validate_prelaunch(
     renders = set()
     chat_templates = set()
     checkpoints = {}
+    snapshot_trees = {}
+    snapshot_locks = set()
+    require_extended_identity = prelaunch["schema_version"] == expected_schema
+    extended_snapshot_identity = require_extended_identity or any(
+        isinstance(receipt, dict)
+        and isinstance(receipt.get("attestation"), dict)
+        and "snapshot_tree_sha256" in receipt["attestation"]
+        for receipt in receipts.values()
+    )
     for snapshot, model in manifest["models"].items():
         receipt = receipts[snapshot]
         attestation = receipt.get("attestation") if isinstance(receipt, dict) else None
@@ -159,8 +177,17 @@ def _validate_prelaunch(
         renders.add(attestation["render_contract_sha256"])
         chat_templates.add(attestation["chat_template_sha256"])
         checkpoints[snapshot] = attestation["checkpoint_sha256"]
+        if extended_snapshot_identity:
+            for field in ("snapshot_tree_sha256", "snapshot_lock_sha256"):
+                value = attestation.get(field)
+                if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+                    raise AnalysisError(f"{snapshot}: invalid {field}")
+            snapshot_trees[snapshot] = attestation["snapshot_tree_sha256"]
+            snapshot_locks.add(attestation["snapshot_lock_sha256"])
     if len(tokenizers) != 1 or len(renders) != 1 or len(chat_templates) != 1:
         raise AnalysisError("prelaunch endpoints do not share one renderer")
+    if extended_snapshot_identity and len(snapshot_locks) != 1:
+        raise AnalysisError("prelaunch endpoints do not share one snapshot lock")
     game = prelaunch.get("game_build_attestation")
     if (
         not isinstance(game, dict)
@@ -174,7 +201,82 @@ def _validate_prelaunch(
         r"[0-9a-f]{40}", prelaunch["source_git_commit"]
     ):
         raise AnalysisError("invalid prelaunch source commit")
+    database = prelaunch.get("game_database_attestation")
+    if require_extended_identity and database is None:
+        raise AnalysisError("v2 prelaunch lacks a game-database attestation")
+    if database is not None:
+        unsigned_database = dict(database) if isinstance(database, dict) else {}
+        database_sha = unsigned_database.pop("attestation_sha256", None)
+        config_files = (
+            database.get("config_files") if isinstance(database, dict) else None
+        )
+        node_env = database.get("node_env") if isinstance(database, dict) else None
+        config_paths = (
+            [
+                item.get("path") if isinstance(item, dict) else None
+                for item in config_files
+            ]
+            if isinstance(config_files, list)
+            else []
+        )
+        valid_config_paths = (
+            len(config_paths) in {2, 3}
+            and config_paths[:2] == [".env.defaults", ".env"]
+            and (
+                len(config_paths) == 2
+                or (bool(node_env) and config_paths[2] == f".env.{node_env}")
+            )
+        )
+        if (
+            not isinstance(database, dict)
+            or set(database)
+            != {
+                "schema",
+                "expected_database",
+                "effective_database",
+                "effective_backend",
+                "skip_database",
+                "effective_host",
+                "effective_port",
+                "tls",
+                "srv",
+                "authentication_enabled",
+                "node_env",
+                "config_files",
+                "attestation_sha256",
+            }
+            or database.get("schema") != "kaetram-game-database-attestation/v2"
+            or database.get("expected_database")
+            != manifest["protocol"]["mongo_database"]
+            or database.get("effective_database")
+            != manifest["protocol"]["mongo_database"]
+            or database.get("effective_backend") != "mongodb"
+            or database.get("skip_database") is not False
+            or database.get("effective_host") != "127.0.0.1"
+            or database.get("effective_port") != 27017
+            or database.get("tls") is not False
+            or database.get("srv") is not False
+            or database.get("authentication_enabled") is not False
+            or not isinstance(node_env, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]*", node_env)
+            or not isinstance(config_files, list)
+            or not valid_config_paths
+            or any(
+                not isinstance(item, dict)
+                or set(item) != {"path", "sha256"}
+                or not isinstance(item.get("sha256"), str)
+                or not SHA256_RE.fullmatch(item["sha256"])
+                for item in config_files
+            )
+            or database_sha != sha256_json(unsigned_database)
+        ):
+            raise AnalysisError("invalid prelaunch game-database attestation")
     return {
+        "provenance_tier": (
+            "prospective_v2_attested"
+            if require_extended_identity
+            else "legacy_v1_unattested"
+        ),
         "tokenizer_sha256": next(iter(tokenizers)),
         "render_contract_sha256": next(iter(renders)),
         "chat_template_sha256": next(iter(chat_templates)),
@@ -182,6 +284,16 @@ def _validate_prelaunch(
         "source_git_commit": prelaunch["source_git_commit"],
         "game_revision": game["gameRevision"],
         "game_bundle_sha256": game["entrypointSha256"],
+        "snapshot_tree_sha256": snapshot_trees or None,
+        "snapshot_lock_sha256": (
+            next(iter(snapshot_locks)) if snapshot_locks else None
+        ),
+        "game_database_attestation": database,
+        "game_database_attestation_sha256": (
+            database.get("attestation_sha256")
+            if isinstance(database, dict)
+            else None
+        ),
     }
 
 
@@ -204,6 +316,11 @@ def _validate_cell_attestation(
         "chat_template_sha256": preflight["chat_template_sha256"],
         "fix_mistral_regex": False,
     }
+    if preflight.get("snapshot_tree_sha256") is not None:
+        expected.update({
+            "snapshot_tree_sha256": preflight["snapshot_tree_sha256"][snapshot],
+            "snapshot_lock_sha256": preflight["snapshot_lock_sha256"],
+        })
     mismatches = {
         key: {"expected": value, "actual": attestation.get(key)}
         for key, value in expected.items()
@@ -428,7 +545,12 @@ def summarize_rows(rows: list[dict]) -> dict:
     return summaries
 
 
-def analyze(root: Path, manifest_path: Path) -> dict:
+def analyze(
+    root: Path,
+    manifest_path: Path,
+    *,
+    allow_legacy_v1: bool = False,
+) -> dict:
     manifest, manifest_sha256 = load_manifest(manifest_path)
     prelaunch_path = root / "prelaunch.json"
     completed_path = root / "completed-inventory.json"
@@ -439,7 +561,11 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         or completed.get("manifest_sha256") != manifest_sha256
     ):
         raise AnalysisError("manifest digest differs across sealed ledgers")
-    preflight = _validate_prelaunch(manifest, prelaunch)
+    preflight = _validate_prelaunch(
+        manifest,
+        prelaunch,
+        allow_legacy_v1=allow_legacy_v1,
+    )
     if (
         completed.get("schema_version")
         != "kaetram.local-weight-pilot-inventory.v1"
@@ -522,6 +648,15 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             "environment_game_revision": preflight["game_revision"],
             "environment_game_bundle_sha256": preflight["game_bundle_sha256"],
         }
+        if preflight.get("game_database_attestation") is not None:
+            expected_meta.update({
+                "game_database_attestation": preflight[
+                    "game_database_attestation"
+                ],
+                "game_database_attestation_sha256": preflight[
+                    "game_database_attestation_sha256"
+                ],
+            })
         mismatches = {
             key: {"expected": value, "actual": meta.get(key)}
             for key, value in expected_meta.items()
@@ -626,6 +761,7 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         "pilot_id": manifest["pilot_id"],
         "claim_boundary": manifest["claim_boundary"],
         "manifest_sha256": manifest_sha256,
+        "provenance_tier": preflight["provenance_tier"],
         "bundle_index": index_record,
         "bundle_index_sha256": sha256_json(index_record),
         "valid_cells": 9,
@@ -669,9 +805,21 @@ def main(argv: list[str] | None = None) -> int:
         "--expected-bundle-index-sha256",
         help="Fail if the recomputed sealed-ledger root differs from this digest.",
     )
+    parser.add_argument(
+        "--allow-legacy-v1",
+        action="store_true",
+        help=(
+            "Explicitly analyze a pre-v2 bundle as legacy_v1_unattested; "
+            "never use this for a new launch."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
-        report = analyze(args.root.resolve(), args.manifest.resolve())
+        report = analyze(
+            args.root.resolve(),
+            args.manifest.resolve(),
+            allow_legacy_v1=args.allow_legacy_v1,
+        )
         if (
             args.expected_bundle_index_sha256 is not None
             and report["bundle_index_sha256"]

@@ -30,6 +30,7 @@ from scripts.opd.analyze_local_weight_pilot import (  # noqa: E402
     _verify_artifacts,
 )
 from scripts.opd.local_weight_pilot import (  # noqa: E402
+    LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
     RECOVERY_FACTORIAL_SCHEMA_VERSION,
     RECOVERY_INVENTORY_SCHEMA_VERSION,
     RECOVERY_PRELAUNCH_SCHEMA_VERSION,
@@ -393,7 +394,12 @@ def _verify_completed_cell_artifacts(
     return inventory_sha, files_checked
 
 
-def analyze(root: Path, manifest_path: Path) -> dict:
+def analyze(
+    root: Path,
+    manifest_path: Path,
+    *,
+    allow_legacy_v1: bool = False,
+) -> dict:
     manifest, manifest_sha256 = load_manifest(manifest_path)
     if manifest.get("schema_version") != RECOVERY_FACTORIAL_SCHEMA_VERSION:
         raise AnalysisError("manifest is not the reviewed recovery factorial")
@@ -410,6 +416,8 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         manifest,
         prelaunch,
         expected_schema=RECOVERY_PRELAUNCH_SCHEMA_VERSION,
+        legacy_schema=LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
+        allow_legacy_v1=allow_legacy_v1,
     )
     contract = manifest["artifact_contract"]
     if (
@@ -533,6 +541,14 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             "environment_seed_reason": protocol["environment_seed_reason"],
             "tool_recovery_enabled": recovery,
         }
+        database_attestation = preflight.get("game_database_attestation")
+        if database_attestation is not None:
+            expected_meta.update({
+                "game_database_attestation": database_attestation,
+                "game_database_attestation_sha256": preflight[
+                    "game_database_attestation_sha256"
+                ],
+            })
         mismatches = {
             key: {"expected": value, "actual": meta.get(key)}
             for key, value in expected_meta.items() if meta.get(key) != value
@@ -584,6 +600,13 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             "environment_rng_attestation": expected_rng,
             "tool_recovery_enabled": recovery,
         }
+        if database_attestation is not None:
+            expected_session_identity.update({
+                "game_database_attestation": database_attestation,
+                "game_database_attestation_sha256": preflight[
+                    "game_database_attestation_sha256"
+                ],
+            })
         _validate_recovery_receipts(
             results_root,
             results,
@@ -663,6 +686,7 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         "pilot_id": manifest["pilot_id"],
         "claim_boundary": manifest["claim_boundary"],
         "manifest_sha256": manifest_sha256,
+        "provenance_tier": preflight["provenance_tier"],
         "bundle_index": index_record,
         "bundle_index_sha256": sha256_json(index_record),
         "valid_cells": len(rows),
@@ -723,9 +747,21 @@ def main(argv: list[str] | None = None) -> int:
         "--expected-bundle-index-sha256",
         help="Fail if the sealed-ledger root differs from this digest.",
     )
+    parser.add_argument(
+        "--allow-legacy-v1",
+        action="store_true",
+        help=(
+            "Explicitly analyze a pre-v2 bundle as legacy_v1_unattested; "
+            "never use this for a new launch."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
-        report = analyze(args.root.resolve(), args.manifest.resolve())
+        report = analyze(
+            args.root.resolve(),
+            args.manifest.resolve(),
+            allow_legacy_v1=args.allow_legacy_v1,
+        )
         expected = args.expected_bundle_index_sha256
         if expected is not None and report["bundle_index_sha256"] != expected:
             raise AnalysisError("bundle-index digest differs from expected root")

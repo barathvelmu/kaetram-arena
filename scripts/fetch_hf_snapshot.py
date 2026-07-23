@@ -118,6 +118,58 @@ def _reject_symlink_parents(root: Path, target: Path) -> None:
         current = current.parent
 
 
+def locked_snapshot_tree_sha256(snapshot: dict) -> str:
+    """Identify the complete locked snapshot tree, not only its weights file."""
+    files = []
+    for record in sorted(snapshot["files"], key=lambda item: item["path"]):
+        files.append({
+            "path": record["path"],
+            "size_bytes": record["size_bytes"],
+            "identity": record.get("sha256") or record["git_blob_sha1"],
+        })
+    return sha256_json({
+        "repo_id": snapshot["repo_id"],
+        "revision": snapshot["revision"],
+        "files": files,
+    })
+
+
+def _verify_snapshot_closure(snapshot: dict, destination: Path) -> None:
+    """Reject runtime paths absent from the content-addressed checked-in lock."""
+    expected_files = {record["path"] for record in snapshot["files"]}
+    expected_dirs: set[str] = set()
+    for relative in expected_files:
+        parent = PurePosixPath(relative).parent
+        while parent != PurePosixPath("."):
+            expected_dirs.add(parent.as_posix())
+            parent = parent.parent
+
+    actual_files: set[str] = set()
+    actual_dirs: set[str] = set()
+    for path in destination.rglob("*"):
+        relative = path.relative_to(destination).as_posix()
+        if path.is_symlink():
+            raise SnapshotError(f"refusing symlinked snapshot path: {relative}")
+        if path.is_file():
+            actual_files.add(relative)
+        elif path.is_dir():
+            actual_dirs.add(relative)
+        else:
+            raise SnapshotError(f"refusing non-regular snapshot path: {relative}")
+
+    unexpected_files = sorted(actual_files - expected_files)
+    unexpected_dirs = sorted(actual_dirs - expected_dirs)
+    if unexpected_files or unexpected_dirs:
+        detail = []
+        if unexpected_files:
+            detail.append(f"files={unexpected_files}")
+        if unexpected_dirs:
+            detail.append(f"directories={unexpected_dirs}")
+        raise SnapshotError(
+            "snapshot contains unlocked runtime paths: " + ", ".join(detail)
+        )
+
+
 def fetch_snapshot(snapshot: dict, destination: Path, *, verify_only: bool) -> dict:
     destination.mkdir(parents=True, exist_ok=True)
     if destination.is_symlink():
@@ -168,12 +220,14 @@ def fetch_snapshot(snapshot: dict, destination: Path, *, verify_only: bool) -> d
             "size_bytes": record["size_bytes"],
             "identity": record.get("sha256") or record["git_blob_sha1"],
         })
+    _verify_snapshot_closure(snapshot, destination)
     return {
         "repo_id": snapshot["repo_id"],
         "revision": snapshot["revision"],
         "destination": str(destination),
         "file_count": len(verified),
         "size_bytes": sum(record["size_bytes"] for record in snapshot["files"]),
+        "snapshot_tree_sha256": locked_snapshot_tree_sha256(snapshot),
         "files": verified,
     }
 

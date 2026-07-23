@@ -8,6 +8,7 @@ import pytest
 
 from run_manifest import sha256_json
 from scripts.build_hf_snapshot_lock import SCHEMA_VERSION
+from scripts.fetch_hf_snapshot import locked_snapshot_tree_sha256
 from scripts.local_mlx_endpoint import (
     CANONICAL_TOKENIZER_SNAPSHOT,
     LocalEndpointError,
@@ -79,6 +80,10 @@ def test_identity_is_derived_only_from_locked_artifacts(tmp_path: Path) -> None:
         + sha256_json(render_contract)[:12]
     )
     assert identity.checkpoint_sha256 == hashlib.sha256(b"abc").hexdigest()
+    assert identity.snapshot_tree_sha256 == locked_snapshot_tree_sha256(
+        _lock()["snapshots"]["base_2b"]
+    )
+    assert identity.snapshot_lock_sha256 == _lock()["lock_sha256"]
     assert identity.tokenizer_sha256 == hashlib.sha256(b"tokn").hexdigest()
     assert identity.render_contract_sha256 == sha256_json(render_contract)
     assert identity.chat_template_sha256 == hashlib.sha256(
@@ -87,6 +92,9 @@ def test_identity_is_derived_only_from_locked_artifacts(tmp_path: Path) -> None:
     assert identity.tokenizer_source_revision == "a" * 40
     assert identity.fix_mistral_regex is False
     assert identity.health_payload()["attestation"]["api_model"] == "2b-base"
+    assert identity.health_payload()["attestation"]["snapshot_tree_sha256"] == (
+        identity.snapshot_tree_sha256
+    )
 
 
 def test_identity_rejects_scientific_alias_drift(tmp_path: Path) -> None:
@@ -120,12 +128,24 @@ def test_runtime_view_uses_canonical_tokenizer_without_mutating_sources(
     )
     (canonical_dir / "chat_template.jinja").write_text("unpatched")
     (canonical_dir / "merges.txt").write_text("merges")
+    (model_dir / "unlocked.bin").write_bytes(b"must-not-enter-runtime")
 
     build_runtime_view(
         model_dir,
         canonical_dir,
         runtime_dir,
         "patched-template",
+        model_snapshot={"files": [
+            {"path": "config.json"},
+            {"path": "model.safetensors"},
+            {"path": "tokenizer.json"},
+        ]},
+        canonical_tokenizer_snapshot={"files": [
+            {"path": "tokenizer.json"},
+            {"path": "tokenizer_config.json"},
+            {"path": "chat_template.jinja"},
+            {"path": "merges.txt"},
+        ]},
     )
 
     assert (runtime_dir / "config.json").read_text() == '{"arm":"r2"}'
@@ -136,6 +156,7 @@ def test_runtime_view_uses_canonical_tokenizer_without_mutating_sources(
     assert runtime_config["chat_template"] == "patched-template"
     assert runtime_config["fix_mistral_regex"] is False
     assert (runtime_dir / "chat_template.jinja").read_text() == "patched-template"
+    assert not (runtime_dir / "unlocked.bin").exists()
     assert json.loads((canonical_dir / "tokenizer_config.json").read_text()) == (
         original_config
     )

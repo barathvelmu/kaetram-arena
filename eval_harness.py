@@ -105,6 +105,9 @@ MONGO_CONTAINER = "kaetram-mongo"
 MONGO_DB = os.environ.get("KAETRAM_MONGO_DB", "kaetram_devlopment")
 ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v2"
 ENVIRONMENT_RNG_ALGORITHM = "mulberry32-sha256-v1"
+GAME_DATABASE_ATTESTATION_SCHEMA = "kaetram-game-database-attestation/v2"
+GAME_MONGO_HOST = "127.0.0.1"
+GAME_MONGO_PORT = 27017
 MONGO_COLLECTIONS = [
     "player_info", "player_skills", "player_equipment",
     "player_inventory", "player_bank", "player_quests",
@@ -178,6 +181,171 @@ def verify_environment_rng_attestation(
     if mismatches:
         raise RuntimeError(f"environment RNG attestation mismatch: {mismatches}")
     return expected
+
+
+def _sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _mongo_connection_from_env_file(path: Path) -> dict[str, str]:
+    """Read conservative Mongo connection assignments from a dotenv file."""
+    matches: dict[str, list[str]] = {
+        "DATABASE": [],
+        "SKIP_DATABASE": [],
+        "MONGODB_HOST": [],
+        "MONGODB_PORT": [],
+        "MONGODB_DATABASE": [],
+        "MONGODB_TLS": [],
+        "MONGODB_SRV": [],
+        "MONGODB_USER": [],
+        "MONGODB_PASSWORD": [],
+        "MONGODB_AUTH_SOURCE": [],
+    }
+    for line_number, raw_line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        match = re.fullmatch(
+            r"(DATABASE|SKIP_DATABASE|MONGODB_HOST|MONGODB_PORT|"
+            r"MONGODB_DATABASE|MONGODB_TLS|MONGODB_SRV|MONGODB_USER|"
+            r"MONGODB_PASSWORD|MONGODB_AUTH_SOURCE)\s*=\s*(.*)",
+            stripped,
+        )
+        if not match:
+            continue
+        key, raw_value = match.group(1), match.group(2).strip()
+        value_match = re.fullmatch(
+            r"(?:'(?P<single>[A-Za-z0-9_.:-]*)'|"
+            r'"(?P<double>[A-Za-z0-9_.:-]*)"|'
+            r"(?P<plain>[A-Za-z0-9_.:-]*))",
+            raw_value,
+        )
+        if not value_match:
+            raise RuntimeError(
+                f"{path}:{line_number}: ambiguous or unsafe "
+                f"{key} value"
+            )
+        value = next(
+            value for value in value_match.groupdict().values()
+            if value is not None
+        )
+        matches[key].append(value)
+    duplicates = sorted(key for key, values in matches.items() if len(values) > 1)
+    if duplicates:
+        raise RuntimeError(f"{path}: duplicate MongoDB assignments: {duplicates}")
+    return {key: values[0] for key, values in matches.items() if values}
+
+
+def attest_game_database_configuration(
+    game_dir: Path,
+    expected_database: str,
+    *,
+    environ: dict[str, str] | None = None,
+) -> dict:
+    """Bind the database read by Kaetram's dotenv config to the harness lane."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", expected_database):
+        raise RuntimeError(f"unsafe expected MongoDB database {expected_database!r}")
+    game_dir = game_dir.expanduser().resolve()
+    defaults_path = game_dir / ".env.defaults"
+    local_path = game_dir / ".env"
+    if not defaults_path.is_file() or not local_path.is_file():
+        raise RuntimeError(
+            "Kaetram database attestation requires regular .env.defaults and .env files"
+        )
+
+    active_environ = os.environ if environ is None else environ
+    dotenv_controls = sorted(
+        key for key in active_environ if key.startswith("DOTENV_CONFIG_")
+    )
+    if dotenv_controls:
+        raise RuntimeError(
+            "refusing ambient dotenv-extended controls that can change game "
+            f"configuration semantics: {dotenv_controls}"
+        )
+    ambient_database_controls = sorted(
+        key
+        for key in active_environ
+        if key in {"DATABASE", "SKIP_DATABASE"} or key.startswith("MONGODB_")
+    )
+    if ambient_database_controls:
+        raise RuntimeError(
+            "refusing ambient database controls; game database configuration "
+            "must come only from the hash-attested dotenv files: "
+            f"{ambient_database_controls}"
+        )
+    node_env = active_environ.get("NODE_ENV", "")
+    if node_env and not re.fullmatch(r"[A-Za-z0-9_-]+", node_env):
+        raise RuntimeError(f"unsafe NODE_ENV value {node_env!r}")
+    config_paths = [defaults_path, local_path]
+    node_env_path = game_dir / f".env.{node_env}" if node_env else None
+    if node_env_path is not None and node_env_path.exists():
+        if not node_env_path.is_file() or node_env_path.is_symlink():
+            raise RuntimeError(f"refusing non-regular environment file {node_env_path}")
+        config_paths.append(node_env_path)
+
+    effective: dict[str, str] = {}
+    files = []
+    for path in config_paths:
+        if path.is_symlink():
+            raise RuntimeError(f"refusing symlinked environment file {path}")
+        effective.update(_mongo_connection_from_env_file(path))
+        files.append({
+            "path": path.relative_to(game_dir).as_posix(),
+            "sha256": _sha256_path(path),
+        })
+    effective_database = effective.get("MONGODB_DATABASE")
+    effective_backend = effective.get("DATABASE")
+    skip_database = effective.get("SKIP_DATABASE")
+    effective_host = effective.get("MONGODB_HOST")
+    effective_port = effective.get("MONGODB_PORT")
+    tls = effective.get("MONGODB_TLS")
+    srv = effective.get("MONGODB_SRV")
+    user = effective.get("MONGODB_USER")
+    password = effective.get("MONGODB_PASSWORD")
+    auth_source = effective.get("MONGODB_AUTH_SOURCE")
+    if (
+        effective_database != expected_database
+        or effective_backend != "mongodb"
+        or skip_database != "false"
+        or effective_host != GAME_MONGO_HOST
+        or effective_port != str(GAME_MONGO_PORT)
+        or tls != "false"
+        or srv != "false"
+        or user != ""
+        or password != ""
+        or auth_source != ""
+    ):
+        raise RuntimeError(
+            "game server MongoDB target differs from harness attested local "
+            f"lane: backend={effective_backend!r}, "
+            f"skip_database={skip_database!r}, game=({effective_host!r}, {effective_port!r}, "
+            f"{effective_database!r}), tls={tls!r}, srv={srv!r}, "
+            f"authentication_enabled={bool(user or password or auth_source)!r}, "
+            f"harness=({GAME_MONGO_HOST!r}, "
+            f"{GAME_MONGO_PORT!r}, {expected_database!r})"
+        )
+
+    record = {
+        "schema": GAME_DATABASE_ATTESTATION_SCHEMA,
+        "expected_database": expected_database,
+        "effective_database": effective_database,
+        "effective_backend": effective_backend,
+        "skip_database": False,
+        "effective_host": effective_host,
+        "effective_port": int(effective_port),
+        "tls": False,
+        "srv": False,
+        "authentication_enabled": False,
+        "node_env": node_env,
+        "config_files": files,
+    }
+    return {**record, "attestation_sha256": sha256_json(record)}
 
 
 # ---------------------------------------------------------------------------
@@ -1095,6 +1263,29 @@ def run_model_eval(
             ).expanduser().resolve()
             server_dir = game_dir / "packages" / "server"
             if os.path.isdir(server_dir):
+                database_attestation = attest_game_database_configuration(
+                    game_dir, MONGO_DB
+                )
+                expected_database_sha = (
+                    provenance_meta.get("game_database_attestation_sha256")
+                    if provenance_meta
+                    else ""
+                )
+                if (
+                    expected_database_sha
+                    and database_attestation["attestation_sha256"]
+                    != expected_database_sha
+                ):
+                    raise RuntimeError(
+                        "game database configuration differs from prelaunch attestation"
+                    )
+                provenance_meta = {
+                    **(provenance_meta or {}),
+                    "game_database_attestation": database_attestation,
+                    "game_database_attestation_sha256": database_attestation[
+                        "attestation_sha256"
+                    ],
+                }
                 print(f"  Starting game server on port {server_port}...")
                 node_binary = require_node20_binary()
                 gs_cmd = [
@@ -1104,7 +1295,7 @@ def run_model_eval(
                     "--port",
                     str(server_port),
                 ]
-                game_env = {**os.environ, "ACCEPT_LICENSE": "true", "SKIP_DATABASE": "false"}
+                game_env = {**os.environ, "ACCEPT_LICENSE": "true"}
                 attestation_path = model_output_dir / "environment-rng.json"
                 if rng_required:
                     if attestation_path.exists():
@@ -1145,6 +1336,15 @@ def run_model_eval(
                         _game_server_proc.terminate()
                     raise RuntimeError(
                         f"game server on port {server_port} not detected after 60s"
+                    )
+                if (
+                    attest_game_database_configuration(game_dir, MONGO_DB)
+                    != database_attestation
+                ):
+                    if _game_server_proc.poll() is None:
+                        _game_server_proc.terminate()
+                    raise RuntimeError(
+                        "game database configuration changed during server startup"
                     )
                 if rng_required:
                     try:
@@ -1539,6 +1739,7 @@ Examples:
     parser.add_argument("--experiment-manifest-sha256", default="")
     parser.add_argument("--endpoint-attestation-sha256", default="")
     parser.add_argument("--checkpoint-sha256", default="")
+    parser.add_argument("--game-database-attestation-sha256", default="")
     parser.add_argument("--tokenizer-sha256", default="")
     parser.add_argument("--render-contract-sha256", default="")
     parser.add_argument(
@@ -1748,11 +1949,22 @@ Examples:
     for label, value in provenance_values.items():
         if value and not re.fullmatch(r"[0-9a-f]{64}", value):
             parser.error(f"--{label.replace('_', '-')} must be a lowercase SHA-256")
+    if args.game_database_attestation_sha256 and not re.fullmatch(
+        r"[0-9a-f]{64}", args.game_database_attestation_sha256
+    ):
+        parser.error("--game-database-attestation-sha256 must be a lowercase SHA-256")
     provenance_meta = (
         {"protocol_id": args.protocol_id, **provenance_values}
         if args.protocol_id or any(supplied)
         else None
     )
+    if args.game_database_attestation_sha256:
+        provenance_meta = {
+            **(provenance_meta or {}),
+            "game_database_attestation_sha256": (
+                args.game_database_attestation_sha256
+            ),
+        }
     combined_provenance = {**(provenance_meta or {}), **run_provenance}
     provenance_meta = combined_provenance or None
 

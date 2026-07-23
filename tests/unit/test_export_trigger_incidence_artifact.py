@@ -1,22 +1,30 @@
 import json
+import shutil
+import sys
 from pathlib import Path
 
 import pytest
 
+from scripts.opd import trigger_incidence_probe as probe
 from scripts.opd.export_trigger_incidence_artifact import (
     ANALYSIS_FILES,
-    ANALYSIS_SCHEMA,
-    DESIGN_SCHEMA,
-    RUN_FILES,
     EXPORT_SCHEMA,
-    REGISTRATION_SCHEMA,
-    RUN_SCHEMA,
+    PUBLIC_ATTESTATION_EXTRAS,
+    RUN_FILES,
     ExportError,
     export_bundle,
     sha256_file,
     sha256_json,
-    source_tree_sha256,
 )
+
+
+RUN_DATA_FILES = (
+    "prelaunch.json",
+    "results.jsonl",
+    "postflight.json",
+    "completed.json",
+)
+COMMIT = "a" * 40
 
 
 def _write_json(path: Path, value: dict) -> None:
@@ -24,7 +32,29 @@ def _write_json(path: Path, value: dict) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
-def _seal(root: Path, names: tuple[str, ...], **identity: object) -> dict:
+def _seal_run(root: Path, study_id: str, snapshot: str) -> None:
+    records = [
+        {
+            "path": name,
+            "size_bytes": (root / name).stat().st_size,
+            "sha256": sha256_file(root / name),
+        }
+        for name in RUN_DATA_FILES
+    ]
+    _write_json(
+        root / "artifact-index.json",
+        {
+            "schema_version": f"{probe.RUN_SCHEMA}.artifacts",
+            "study_id": study_id,
+            "snapshot": snapshot,
+            "files": records,
+            "tree_sha256": sha256_json(records),
+        },
+    )
+
+
+def _seal_analysis(root: Path) -> None:
+    names = ("analysis-summary.json", "cells.csv", "contrasts.csv")
     records = [
         {
             "path": name,
@@ -33,278 +63,377 @@ def _seal(root: Path, names: tuple[str, ...], **identity: object) -> dict:
         }
         for name in names
     ]
-    index = {**identity, "files": records, "tree_sha256": sha256_json(records)}
-    _write_json(root / "artifact-index.json", index)
-    return index
+    _write_json(
+        root / "artifact-index.json",
+        {
+            "schema_version": f"{probe.ANALYSIS_SCHEMA}.artifacts",
+            "files": records,
+            "tree_sha256": sha256_json(records),
+        },
+    )
+
+
+def _health(registration: dict, snapshot: str) -> dict:
+    expected = registration["snapshots"][snapshot]
+    attestation = {
+        "api_model": expected["api_model"],
+        "checkpoint_sha256": expected["checkpoint_sha256"],
+        **registration["endpoint_contract"],
+        "deployment_id": f"local-{snapshot}",
+        "runtime_environment_receipt_sha256": "1" * 64,
+        "snapshot_lock_sha256": "2" * 64,
+        "snapshot_tree_sha256": "3" * 64,
+        "tokenizer_source_revision": "4" * 40,
+    }
+    assert set(attestation) == {
+        "api_model",
+        "checkpoint_sha256",
+        *registration["endpoint_contract"].keys(),
+        *PUBLIC_ATTESTATION_EXTRAS,
+    }
+    return {"status": "ok", "attestation": attestation}
+
+
+def _completed(rows: list[dict], snapshot: str) -> dict:
+    return {
+        "schema_version": f"{probe.RUN_SCHEMA}.completed",
+        "study_id": "study",
+        "snapshot": snapshot,
+        "scheduled_requests": len(rows),
+        "successful_requests": sum(row["status"] == "ok" for row in rows),
+        "failed_requests": sum(row["status"] != "ok" for row in rows),
+        "recovery_opportunities": sum(
+            bool(row.get("recovery_opportunity")) for row in rows
+        ),
+        "malformed_emissions": sum(
+            bool(row.get("malformed_emission")) for row in rows
+        ),
+        "structured_tool_responses": sum(
+            bool(row.get("has_structured_tool_call")) for row in rows
+        ),
+        "no_structured_tool_call_responses": sum(
+            bool(row.get("no_structured_tool_call")) for row in rows
+        ),
+        "endpoint_identity_stable": True,
+    }
+
+
+def _write_rows(path: Path, rows: list[dict]) -> None:
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
+    )
+
+
+def _load_rows(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def _generate_analysis(fixture: dict) -> None:
+    analysis_dir = fixture["analysis_dir"]
+    if analysis_dir.exists():
+        shutil.rmtree(analysis_dir)
+    original = probe._git_identity
+    probe._git_identity = lambda: {
+        "source_git_commit": COMMIT,
+        "dirty_paths": [],
+    }
+    try:
+        probe.analyze(
+            fixture["registration_path"],
+            fixture["design_dir"] / "design.json",
+            fixture["run_dirs"],
+            analysis_dir,
+        )
+    finally:
+        probe._git_identity = original
 
 
 def _fixture(tmp_path: Path) -> dict:
     registration_path = tmp_path / "registration.json"
+    conditions = [
+        {
+            "condition_id": "python-no-tools",
+            "documentation": "python_docs",
+            "native_tool_schema": "absent",
+        },
+        {
+            "condition_id": "python-tools",
+            "documentation": "python_docs",
+            "native_tool_schema": "present",
+        },
+        {
+            "condition_id": "canonical-no-tools",
+            "documentation": "canonical_docs",
+            "native_tool_schema": "absent",
+        },
+        {
+            "condition_id": "canonical-tools",
+            "documentation": "canonical_docs",
+            "native_tool_schema": "present",
+        },
+    ]
     registration = {
-        "schema_version": REGISTRATION_SCHEMA,
+        "schema_version": probe.REGISTRATION_SCHEMA,
         "study_id": "study",
         "snapshots": {
-            snapshot: {"api_model": snapshot, "checkpoint_sha256": snapshot * 8}
-            for snapshot in ("base", "r2", "r3")
-        },
-        "conditions": [
-            {
-                "condition_id": f"condition-{index}",
-                "documentation": "python_docs",
-                "native_tool_schema": "absent",
+            snapshot: {
+                "api_model": f"model-{snapshot}",
+                "checkpoint_sha256": str(index) * 64,
             }
-            for index in range(4)
-        ],
-        "state_pool": {"state_count": 1},
-        "sampling": {"samples_per_state_condition": 1},
+            for index, snapshot in enumerate(("base", "r2", "r3"), start=5)
+        },
+        "endpoint_contract": {
+            "chat_template_sha256": "8" * 64,
+            "fix_mistral_regex": False,
+            "render_contract_sha256": "9" * 64,
+            "tokenizer_sha256": "b" * 64,
+        },
+        "conditions": conditions,
+        "state_pool": {
+            "state_count": 1,
+            "personality": "completionist",
+        },
+        "sampling": {
+            "samples_per_state_condition": 1,
+            "base_seed": 100,
+        },
+        "claim_boundary": "Finite-grid interface incidence only.",
     }
     _write_json(registration_path, registration)
     registration_sha = sha256_file(registration_path)
 
-    commit = "a" * 40
     design_dir = tmp_path / "design"
-    design_path = design_dir / "design.json"
+    messages = [
+        {"role": "system", "content": "Use tools when useful."},
+        {"role": "user", "content": "Continue the game."},
+    ]
     states = [
         {
             "state_id": "state-01",
             "personality": "completionist",
-            "source_log": "dataset/raw/source.log",
-            "source_log_sha256": "b" * 64,
-            "messages_sha256": "c" * 64,
+            "source_log": "logs/source.jsonl",
+            "source_log_sha256": "c" * 64,
+            "messages_sha256": probe.sha256_json(messages),
+            "messages": messages,
         }
     ]
-    _write_json(
-        design_path,
-        {
-            "schema_version": DESIGN_SCHEMA,
-            "study_id": "study",
-            "registration_sha256": registration_sha,
-            "source_git_commit": commit,
-            "dirty_paths": [],
-            "states": states,
-        },
-    )
-    design_sha = sha256_file(design_path)
+    design = {
+        "schema_version": probe.DESIGN_SCHEMA,
+        "study_id": "study",
+        "registration_sha256": registration_sha,
+        "source_log_count": 1,
+        "eligible_source_log_count": 1,
+        "personality": "completionist",
+        "selection_stride": 1,
+        "states": states,
+        "source_git_commit": COMMIT,
+        "dirty_paths": [],
+    }
+    design_path = design_dir / "design.json"
+    _write_json(design_path, design)
     _write_json(
         design_dir / "design.receipt.json",
         {
-            "schema_version": f"{DESIGN_SCHEMA}.receipt",
+            "schema_version": f"{probe.DESIGN_SCHEMA}.receipt",
             "study_id": "study",
             "registration_sha256": registration_sha,
-            "design_sha256": design_sha,
+            "design_sha256": sha256_file(design_path),
             "state_count": 1,
-            "selected_source_tree_sha256": source_tree_sha256(states),
-            "source_git_commit": commit,
+            "selected_source_tree_sha256": probe._source_tree_sha256(states),
+            "source_git_commit": COMMIT,
             "dirty_paths": [],
         },
     )
 
     run_dirs = []
-    input_runs = []
     for snapshot in registration["snapshots"]:
         root = tmp_path / "runs" / snapshot
-        health = {"status": "ok", "attestation": {"api_model": snapshot}}
+        root.mkdir(parents=True)
+        health = _health(registration, snapshot)
         _write_json(
             root / "prelaunch.json",
             {
-                "schema_version": f"{RUN_SCHEMA}.prelaunch",
+                "schema_version": f"{probe.RUN_SCHEMA}.prelaunch",
                 "study_id": "study",
                 "snapshot": snapshot,
                 "registration_sha256": registration_sha,
-                "design_sha256": design_sha,
-                "source_git_commit": commit,
-                "dirty_paths": [],
+                "design_sha256": sha256_file(design_path),
                 "endpoint_health": health,
+                "sampling": registration["sampling"],
+                "source_git_commit": COMMIT,
+                "dirty_paths": [],
             },
         )
-        rows = [
-            {
-                "snapshot": snapshot,
-                "condition_id": f"condition-{index}",
-                "status": "ok",
+        rows = []
+        for schedule_index, condition in enumerate(conditions):
+            message = {
+                "role": "assistant",
+                "content": f"plain response {schedule_index}",
             }
-            for index in range(4)
-        ]
-        (root / "results.jsonl").write_text(
-            "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
-        )
+            rows.append(
+                {
+                    "schema_version": probe.RUN_SCHEMA,
+                    "snapshot": snapshot,
+                    "schedule_index": schedule_index,
+                    "state_id": "state-01",
+                    "state_index": 0,
+                    "sample_index": 0,
+                    "seed": 100,
+                    "condition_id": condition["condition_id"],
+                    "documentation": condition["documentation"],
+                    "native_tool_schema": condition["native_tool_schema"],
+                    "latency_seconds": 0.1,
+                    "attempt_errors": [],
+                    "status": "ok",
+                    "response_message": message,
+                    **probe.classify_response_message(message),
+                }
+            )
+        _write_rows(root / "results.jsonl", rows)
         _write_json(
             root / "postflight.json",
             {
-                "schema_version": f"{RUN_SCHEMA}.postflight",
+                "schema_version": f"{probe.RUN_SCHEMA}.postflight",
                 "study_id": "study",
                 "snapshot": snapshot,
                 "endpoint_identity_stable": True,
                 "endpoint_health": health,
+                "error": None,
             },
         )
-        _write_json(
-            root / "completed.json",
-            {
-                "schema_version": f"{RUN_SCHEMA}.completed",
-                "study_id": "study",
-                "snapshot": snapshot,
-                "endpoint_identity_stable": True,
-                "scheduled_requests": 4,
-                "successful_requests": 4,
-                "failed_requests": 0,
-            },
-        )
-        index = _seal(
-            root,
-            RUN_FILES,
-            schema_version=f"{RUN_SCHEMA}.artifacts",
-            study_id="study",
-            snapshot=snapshot,
-        )
+        _write_json(root / "completed.json", _completed(rows, snapshot))
+        _seal_run(root, "study", snapshot)
         run_dirs.append(root)
-        input_runs.append(
-            {
-                "snapshot": snapshot,
-                "artifact_index_sha256": sha256_file(root / "artifact-index.json"),
-                "tree_sha256": index["tree_sha256"],
-            }
-        )
 
-    analysis_dir = tmp_path / "analysis"
-    _write_json(
-        analysis_dir / "analysis-summary.json",
-        {
-            "schema_version": ANALYSIS_SCHEMA,
-            "study_id": "study",
-            "registration_sha256": registration_sha,
-            "design_sha256": design_sha,
-            "analysis_status": "complete",
-            "scheduled_requests": 12,
-            "successful_requests": 12,
-            "failed_requests": 0,
-            "input_runs": sorted(input_runs, key=lambda row: row["snapshot"]),
-            "analysis_code_provenance": {
-                "source_git_commit": commit,
-                "dirty_paths": [],
-            },
-        },
-    )
-    (analysis_dir / "cells.csv").write_text("snapshot,requests\nbase,4\n")
-    (analysis_dir / "contrasts.csv").write_text("snapshot,effect\nbase,0\n")
-    _seal(
-        analysis_dir,
-        ANALYSIS_FILES,
-        schema_version=f"{ANALYSIS_SCHEMA}.artifacts",
-    )
-    return {
+    fixture = {
         "registration_path": registration_path,
         "design_dir": design_dir,
         "run_dirs": run_dirs,
-        "analysis_dir": analysis_dir,
+        "analysis_dir": tmp_path / "analysis",
     }
+    _generate_analysis(fixture)
+    return fixture
 
 
-def test_exports_complete_hash_bound_bundle(tmp_path: Path) -> None:
-    fixture = _fixture(tmp_path)
-    output = tmp_path / "public"
-    manifest = export_bundle(
+def _export(fixture: dict, output: Path) -> dict:
+    return export_bundle(
         **fixture,
         output_dir=output,
         forbidden_fragments=(),
     )
+
+
+def test_exports_semantically_verified_hash_bound_bundle(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    output = tmp_path / "public"
+    manifest = _export(fixture, output)
+
     assert manifest["schema_version"] == EXPORT_SCHEMA
-    assert len(manifest["files"]) == 3 + 3 * 5 + 4
+    assert len(manifest["files"]) == 3 + 3 * len(RUN_FILES) + len(ANALYSIS_FILES)
     assert (output / "runs" / "r3" / "results.jsonl").is_file()
+    assert any(
+        record["path"] == "runs/base/artifact-index.json"
+        for record in manifest["files"]
+    )
     assert json.loads((output / "artifact-index.json").read_text()) == manifest
 
 
-def test_rejects_incomplete_run(tmp_path: Path) -> None:
+def test_rejects_resealed_row_with_forged_outcome(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
-    completed_path = fixture["run_dirs"][0] / "completed.json"
-    completed = json.loads(completed_path.read_text())
-    completed["successful_requests"] = 3
-    _write_json(completed_path, completed)
-    _seal(
-        fixture["run_dirs"][0],
-        RUN_FILES,
-        schema_version=f"{RUN_SCHEMA}.artifacts",
-        study_id="study",
-        snapshot="base",
+    run_dir = fixture["run_dirs"][0]
+    rows = _load_rows(run_dir / "results.jsonl")
+    rows[0]["response_message"]["content"] = (
+        "<tool_call><function=move><parameter=x>1</parameter></function></tool_call>"
     )
-    with pytest.raises(ExportError, match="incomplete or inconsistent"):
-        export_bundle(
-            **fixture,
-            output_dir=tmp_path / "public",
-            forbidden_fragments=(),
-        )
+    _write_rows(run_dir / "results.jsonl", rows)
+    _seal_run(run_dir, "study", "base")
+
+    with pytest.raises(ExportError, match="reanalysis"):
+        _export(fixture, tmp_path / "public")
+    assert not (tmp_path / "public").exists()
 
 
-def test_rejects_wrong_design_source_tree_receipt(tmp_path: Path) -> None:
+def test_rejects_resealed_stale_analysis(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    cells = fixture["analysis_dir"] / "cells.csv"
+    cells.write_text(cells.read_text().replace(",4,", ",999,", 1))
+    _seal_analysis(fixture["analysis_dir"])
+
+    with pytest.raises(ExportError, match="differs from raw-data reanalysis"):
+        _export(fixture, tmp_path / "public")
+
+
+def test_rejects_wrong_design_receipt(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     receipt_path = fixture["design_dir"] / "design.receipt.json"
     receipt = json.loads(receipt_path.read_text())
     receipt["selected_source_tree_sha256"] = "d" * 64
     _write_json(receipt_path, receipt)
-    with pytest.raises(ExportError, match="design, receipt, and registration"):
-        export_bundle(
-            **fixture,
-            output_dir=tmp_path / "public",
-            forbidden_fragments=(),
-        )
+
+    with pytest.raises(ExportError, match="registration/design"):
+        _export(fixture, tmp_path / "public")
 
 
-def test_rejects_wrong_analysis_schema(tmp_path: Path) -> None:
+def test_rejects_identity_path_after_semantic_verification(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    run_dir = fixture["run_dirs"][0]
+    rows = _load_rows(run_dir / "results.jsonl")
+    message = {
+        "role": "assistant",
+        "content": "saved at /Users/private/results.txt",
+    }
+    rows[0]["response_message"] = message
+    rows[0].update(probe.classify_response_message(message))
+    _write_rows(run_dir / "results.jsonl", rows)
+    _write_json(run_dir / "completed.json", _completed(rows, "base"))
+    _seal_run(run_dir, "study", "base")
+    _generate_analysis(fixture)
+
+    with pytest.raises(ExportError, match="identity-bearing pattern"):
+        _export(fixture, tmp_path / "public")
+
+
+def test_rejects_symlinked_input_directory(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    design_dir = fixture["design_dir"]
+    real_design = tmp_path / "design-real"
+    design_dir.rename(real_design)
+    design_dir.symlink_to(real_design, target_is_directory=True)
+
+    with pytest.raises(ExportError, match="regular directory"):
+        _export(fixture, tmp_path / "public")
+
+
+def test_existing_output_is_preserved(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    output = tmp_path / "public"
+    output.mkdir()
+    sentinel = output / "keep.txt"
+    sentinel.write_text("keep")
+
+    with pytest.raises(ExportError, match="refusing to overwrite"):
+        _export(fixture, output)
+    assert sentinel.read_text() == "keep"
+
+
+def test_rejects_output_inside_input(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    output = fixture["analysis_dir"] / "public"
+
+    with pytest.raises(ExportError, match="output overlaps"):
+        _export(fixture, output)
+    assert not output.exists()
+
+
+def test_analysis_provenance_binds_exact_python_and_script(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     summary_path = fixture["analysis_dir"] / "analysis-summary.json"
     summary = json.loads(summary_path.read_text())
-    summary["schema_version"] = "unregistered.analysis"
+    summary["analysis_code_provenance"]["python_version"] = (
+        f"{sys.version_info.major}.{sys.version_info.minor}.0"
+    )
     _write_json(summary_path, summary)
-    _seal(
-        fixture["analysis_dir"],
-        ANALYSIS_FILES,
-        schema_version=f"{ANALYSIS_SCHEMA}.artifacts",
-    )
-    with pytest.raises(ExportError, match="analysis does not bind"):
-        export_bundle(
-            **fixture,
-            output_dir=tmp_path / "public",
-            forbidden_fragments=(),
-        )
+    _seal_analysis(fixture["analysis_dir"])
 
-
-def test_rejects_local_path_leakage(tmp_path: Path) -> None:
-    fixture = _fixture(tmp_path)
-    result_path = fixture["run_dirs"][0] / "results.jsonl"
-    result_path.write_text(
-        result_path.read_text().replace(
-            '"status": "ok"', '"status": "/Users/private"'
-        )
-    )
-    _seal(
-        fixture["run_dirs"][0],
-        RUN_FILES,
-        schema_version=f"{RUN_SCHEMA}.artifacts",
-        study_id="study",
-        snapshot="base",
-    )
-    input_runs = []
-    for run_dir in fixture["run_dirs"]:
-        index = json.loads((run_dir / "artifact-index.json").read_text())
-        input_runs.append(
-            {
-                "snapshot": index["snapshot"],
-                "artifact_index_sha256": sha256_file(run_dir / "artifact-index.json"),
-                "tree_sha256": index["tree_sha256"],
-            }
-        )
-    summary_path = fixture["analysis_dir"] / "analysis-summary.json"
-    summary = json.loads(summary_path.read_text())
-    summary["input_runs"] = sorted(input_runs, key=lambda row: row["snapshot"])
-    _write_json(summary_path, summary)
-    _seal(
-        fixture["analysis_dir"],
-        ANALYSIS_FILES,
-        schema_version=f"{ANALYSIS_SCHEMA}.artifacts",
-    )
-    with pytest.raises(ExportError, match="forbidden identity/path"):
-        export_bundle(
-            **fixture,
-            output_dir=tmp_path / "public",
-            forbidden_fragments=("/Users/",),
-        )
+    with pytest.raises(ExportError, match="implementation provenance"):
+        _export(fixture, tmp_path / "public")

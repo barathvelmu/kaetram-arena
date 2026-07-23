@@ -19,6 +19,7 @@ from scripts.log_analysis.artifact_requirements import (
     require_agent_run_logs,
     require_files,
 )
+from scripts.log_analysis.parse import list_agent_dirs
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -67,6 +68,15 @@ def test_agent_run_check_requires_nonempty_session_bundle(tmp_path: Path) -> Non
     assert missing_agent_run_logs(
         raw, agents=["agent_0"], run_ids=["run_empty"]
     ) == [str(empty_run / "session_*.log")]
+
+
+def test_log_discovery_accepts_external_raw_root(tmp_path: Path) -> None:
+    raw = tmp_path / "immutable-evidence" / "raw"
+    (raw / "agent_2").mkdir(parents=True)
+    (raw / "agent_0").mkdir()
+    (raw / "not_an_agent").mkdir()
+
+    assert list_agent_dirs(raw) == [raw / "agent_0", raw / "agent_2"]
 
 
 @pytest.mark.parametrize(

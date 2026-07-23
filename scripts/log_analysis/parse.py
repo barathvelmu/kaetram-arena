@@ -40,8 +40,10 @@ _EST = timezone(timedelta(hours=-4))
 
 # ── Discovery ────────────────────────────────────────────────────────────────
 
-def list_agent_dirs() -> list[Path]:
-    return sorted(p for p in RAW_DIR.glob("agent_*") if p.is_dir())
+def list_agent_dirs(raw_dir: str | Path = RAW_DIR) -> list[Path]:
+    """Return agent directories under the selected raw-artifact root."""
+    root = Path(raw_dir)
+    return sorted(p for p in root.glob("agent_*") if p.is_dir())
 
 
 def list_runs(agent_dir: Path) -> list[Path]:
@@ -1291,5 +1293,4 @@ def categorize_error(text: str) -> str:
         if rx.search(text):
             return label
     return "OTHER"
-
 

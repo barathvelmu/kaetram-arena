@@ -211,10 +211,26 @@ with tempfile.TemporaryDirectory() as directory:
     names = (
         "bootstrap", "canonicalize", "eval_harness", "heldout_guard",
         "opd_probe", "opd_round1", "opd_wall_probe", "parse",
-        "receipt_chain", "record_schema", "render",
+        "receipt_chain", "record_schema", "render", "tool_surface",
     )
     paths = [Path(sys.modules[name].__file__).resolve() for name in names]
     assert all(path.is_relative_to(root) for path in paths), paths
+    live_repo = builder.REPO.resolve()
+    live_builder = Path(builder.__file__).resolve()
+    leaked = []
+    for module in tuple(sys.modules.values()):
+        module_file = getattr(module, "__file__", None)
+        if not module_file:
+            continue
+        path = Path(module_file).resolve()
+        if path.is_relative_to(live_repo):
+            relative = path.relative_to(live_repo)
+            if (
+                path != live_builder
+                and not any(part.startswith(".venv") for part in relative.parts)
+            ):
+                leaked.append(path)
+    assert not leaked, leaked
 """
     environment = {
         **os.environ,
@@ -225,6 +241,41 @@ with tempfile.TemporaryDirectory() as directory:
         [sys.executable, "-c", program],
         cwd=repo,
         env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_frozen_dependency_loader_rejects_preloaded_live_module() -> None:
+    repo = Path(__file__).parents[2]
+    program = """
+import tempfile
+from pathlib import Path
+from scripts.opd import opd_2b_data as builder
+import eval_harness
+
+snapshot = builder._snapshot_build_sources()
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory).resolve()
+    builder._materialize_build_inputs(snapshot, root)
+    try:
+        builder._load_frozen_local_dependencies(root)
+    except RuntimeError as exc:
+        assert "cached before the frozen import" in str(exc)
+    else:
+        raise AssertionError("preloaded live dependency was accepted")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", program],
+        cwd=repo,
+        env={
+            **os.environ,
+            "TWOB_EP": "http://127.0.0.1:8101/v1",
+            "FOURB_EP": "http://127.0.0.1:8102/v1",
+        },
         capture_output=True,
         text=True,
         timeout=30,

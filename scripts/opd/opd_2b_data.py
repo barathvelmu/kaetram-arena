@@ -53,6 +53,7 @@ import json
 import os
 import platform
 import re
+import subprocess
 import sys
 import tempfile
 from collections import defaultdict
@@ -61,7 +62,11 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-REPO = Path(__file__).resolve().parents[2]
+SOURCE_REPO_ENV = "KAETRAM_OPD_SOURCE_REPO"
+FROZEN_BUILD_ROOT_ENV = "KAETRAM_OPD_FROZEN_BUILD_ROOT"
+REPO = Path(
+    os.environ.get(SOURCE_REPO_ENV, Path(__file__).resolve().parents[2])
+).resolve()
 # This list is deliberately available without importing any local module. Main
 # snapshots it first, then imports every local dependency from that immutable
 # copy. receipt_chain.py carries the same closed inventory and checks equality
@@ -76,6 +81,7 @@ BUILD_SOURCE_PATHS = (
     "heldout_guard.py",
     "port_probe.py",
     "run_manifest.py",
+    "tool_surface.py",
     "scripts/opd/opd_2b_data.py",
     "scripts/opd/opd_data_manifest.py",
     "scripts/opd/opd_probe.py",
@@ -141,6 +147,32 @@ def _load_frozen_local_dependencies(snapshot_root: Path) -> None:
     global _finished_from_payload, _frontier, assert_text_not_reserved
     global docify_system_prompt, is_malformed, patch_qwen_chat_template
     global reconstruct_session, turn_to_chat
+
+    local_module_names = {
+        "bootstrap",
+        "canonical_start",
+        "canonicalize",
+        "eval_harness",
+        "heldout_guard",
+        "inference_seed",
+        "opd_data_manifest",
+        "opd_probe",
+        "opd_round1",
+        "opd_wall_probe",
+        "parse",
+        "port_probe",
+        "receipt_chain",
+        "record_schema",
+        "render",
+        "run_manifest",
+        "tool_surface",
+    }
+    preloaded = sorted(local_module_names & set(sys.modules))
+    if preloaded:
+        raise RuntimeError(
+            "local builder dependencies were cached before the frozen import: "
+            + ", ".join(preloaded)
+        )
 
     for path in (
         snapshot_root,
@@ -351,6 +383,16 @@ def _materialize_build_inputs(
             raise RuntimeError(
                 f"material build input changed while snapshotting: {relative}"
             )
+
+
+def _snapshot_hashes(snapshot_root: Path) -> dict[str, str]:
+    snapshot: dict[str, str] = {}
+    for relative in BUILD_SOURCE_PATHS:
+        path = snapshot_root / relative
+        if not path.is_file():
+            raise RuntimeError(f"frozen material build input is missing: {relative}")
+        snapshot[relative] = sha256_path(path)
+    return snapshot
 
 
 def _verify_build_source_snapshot(snapshot: dict[str, str]) -> None:
@@ -748,14 +790,18 @@ async def main():
         help="immutable local tokenizer snapshot containing tokenizer.json",
     )
     args = ap.parse_args()
-    # Freeze every local input before session reconstruction, rendering, or
-    # tokenization. The same bytes are re-checked immediately before sealing.
-    build_sources = _snapshot_build_sources()
-    build_snapshot_dir = tempfile.TemporaryDirectory(
-        prefix="kaetram-opd-build-inputs-"
-    )
-    snapshot_root = Path(build_snapshot_dir.name)
-    _materialize_build_inputs(build_sources, snapshot_root)
+    frozen_root = os.environ.get(FROZEN_BUILD_ROOT_ENV, "")
+    if not frozen_root:
+        raise RuntimeError(
+            "OPD builder must run through its frozen entrypoint; execute this "
+            "file as a script instead of importing main()"
+        )
+    snapshot_root = Path(frozen_root).resolve()
+    # The launcher copied every local input before this interpreter loaded the
+    # builder. This process executes that copied builder and imports all other
+    # local code only from the same tree.
+    build_sources = _snapshot_hashes(snapshot_root)
+    _verify_build_source_snapshot(build_sources)
     _load_frozen_local_dependencies(snapshot_root)
     for name in ("student_artifact_sha256", "teacher_artifact_sha256"):
         value = getattr(args, name)
@@ -1000,8 +1046,35 @@ async def main():
     vol_dst = f"/opd_2b/{out_dir.name}/records.jsonl"
     print(f"\nNext: modal volume put kaetram-model-vol {rec_path.relative_to(REPO)} "
           f"{vol_dst} --force")
-    build_snapshot_dir.cleanup()
+
+
+def _launch_frozen_entrypoint() -> int:
+    """Run the actual builder in a clean interpreter from a frozen source tree."""
+    if os.environ.get(FROZEN_BUILD_ROOT_ENV):
+        asyncio.run(main())
+        return 0
+    with tempfile.TemporaryDirectory(
+        prefix="kaetram-opd-build-inputs-"
+    ) as directory:
+        snapshot_root = Path(directory).resolve()
+        build_sources = _snapshot_build_sources()
+        _materialize_build_inputs(build_sources, snapshot_root)
+        environment = {
+            **os.environ,
+            SOURCE_REPO_ENV: str(REPO),
+            FROZEN_BUILD_ROOT_ENV: str(snapshot_root),
+        }
+        completed = subprocess.run(
+            [
+                sys.executable,
+                str(snapshot_root / "scripts/opd/opd_2b_data.py"),
+                *sys.argv[1:],
+            ],
+            env=environment,
+            check=False,
+        )
+        return completed.returncode
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(_launch_frozen_entrypoint())

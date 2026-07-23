@@ -90,6 +90,7 @@ train_image = (
     .add_local_python_source("inference_seed")
     .add_local_python_source("port_probe")
     .add_local_python_source("run_manifest")
+    .add_local_python_source("tool_surface")
     .add_local_python_source("scripts.log_analysis.parse")
     .add_local_python_source("scripts.opd.guided_opd_contract")
     .add_local_python_source("scripts.opd.guided_opd_schedule")

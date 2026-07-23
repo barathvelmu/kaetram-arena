@@ -32,10 +32,11 @@ Before session reconstruction, the base corpus builder requires every declared
 run to resolve to at least one log and snapshots each log together with its
 adjacent session `.meta.json`. Parse failures, empty sessions, missing metadata,
 an unbound personality prompt, a tool turn without a reconstructible emission,
-or a run with no usable action state aborts the build. Before importing local
-builder dependencies, it copies the bootstrap, parser, evaluator, renderer,
-prompt assets, held-out registrations/guard, and OPD sources into an immutable
-temporary tree. Reconstruction imports and reads from that frozen tree. The
+or a run with no usable action state aborts the build. Its entrypoint first
+copies the builder, bootstrap, parser, evaluator, renderer, prompt assets,
+held-out registrations/guard, and OPD sources into an immutable temporary tree,
+then starts a clean interpreter from the copied builder. Cached live modules are
+rejected; reconstruction imports and reads only from that frozen tree. The
 original bytes are re-hashed before sealing, so a change-and-restore race cannot
 make the receipt describe inputs different from those consumed.
 
@@ -54,10 +55,12 @@ allowed exclusion; the receipt binds the complete candidate count and digest,
 status counts, and the identity/status of every exclusion.
 
 The base builder refuses to resume into any pre-existing output: a partial
-build must be retained separately and a fresh sealed build started. Final
-publication uses atomic create-only links, so a destination created after the
-initial check is never replaced. Root receipt emission exists only inside that
-exclusive fresh-build path; there is no callable post-hoc builder attestor.
+build must be retained separately and a fresh sealed build started. Record and
+held-out streams acquire their final paths with exclusive-create mode; temporary
+transform outputs and receipts are published with atomic create-only links. A
+destination created after the initial check is therefore never replaced. Root
+receipt emission exists only inside that exclusive fresh-build path; there is
+no callable post-hoc builder attestor.
 
 Each transformer requires the source's adjacent receipt, validates its complete
 chain before reading records, and embeds that parent plus its canonical digest

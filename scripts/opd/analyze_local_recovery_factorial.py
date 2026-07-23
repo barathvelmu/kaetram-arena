@@ -533,6 +533,14 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             "environment_seed_reason": protocol["environment_seed_reason"],
             "tool_recovery_enabled": recovery,
         }
+        database_attestation = preflight.get("game_database_attestation")
+        if database_attestation is not None:
+            expected_meta.update({
+                "game_database_attestation": database_attestation,
+                "game_database_attestation_sha256": preflight[
+                    "game_database_attestation_sha256"
+                ],
+            })
         mismatches = {
             key: {"expected": value, "actual": meta.get(key)}
             for key, value in expected_meta.items() if meta.get(key) != value
@@ -584,6 +592,13 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             "environment_rng_attestation": expected_rng,
             "tool_recovery_enabled": recovery,
         }
+        if database_attestation is not None:
+            expected_session_identity.update({
+                "game_database_attestation": database_attestation,
+                "game_database_attestation_sha256": preflight[
+                    "game_database_attestation_sha256"
+                ],
+            })
         _validate_recovery_receipts(
             results_root,
             results,

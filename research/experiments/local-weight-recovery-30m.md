@@ -137,3 +137,25 @@ agreement between the completed receipt and hashed `cell-status.json`. These
 patches only made exclusions and identities auditable and repaired a
 production-row field-name mismatch; they did not change a diagnostic or
 analysis rule.
+
+## Post-launch database-lane audit
+
+A later hostile audit found that the launcher set `KAETRAM_MONGO_DB` for the
+Python reset/snapshot path, while the pinned game server resolved its database
+from ignored dotenv files. The running bundle did not exhibit the upstream
+#37 mismatch: the registration and live harness both named
+`kaetram_devlopment`; the game `.env` also named `kaetram_devlopment`, had
+SHA-256 `58a086da1d6de1462f9903d2dab40878aa1e4831114410e07b4a9f7b9f93f614`,
+and its 00:25:17 EDT modification time preceded the 04:01:01 EDT launcher
+start. No quest outcome or cross-cell contrast was inspected for this check.
+
+This is post-launch filesystem evidence, not a preregistered server-side
+attestation. The current bundle therefore remains exploratory and cannot be
+promoted to confirmatory evidence on that basis. A subsequent launcher revision
+must fail before any cell unless the dotenv-resolved game database equals the
+harness database, hash every contributing dotenv file in the prelaunch ledger,
+recheck those hashes after game startup, and carry the attestation into result
+metadata. The same revision must reject unlocked files, directories, and
+symlinks in model snapshot roots and attest the complete locked snapshot tree.
+The revision containing this audit implements those gates for future launches;
+it does not retroactively upgrade this already-running bundle.

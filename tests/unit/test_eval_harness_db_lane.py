@@ -74,3 +74,70 @@ def test_reset_rejects_success_marker_from_failed_command(monkeypatch) -> None:
     )
 
     assert eval_harness.reset_player_db("EvalBot") is False
+
+
+def test_game_database_attestation_binds_effective_dotenv_lane(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env.defaults").write_text(
+        "MONGODB_DATABASE='kaetram_devlopment'\n"
+    )
+    (tmp_path / ".env").write_text("MONGODB_DATABASE='kaetram_eval'\n")
+
+    record = eval_harness.attest_game_database_configuration(
+        tmp_path, "kaetram_eval", environ={}
+    )
+
+    assert record["schema"] == eval_harness.GAME_DATABASE_ATTESTATION_SCHEMA
+    assert record["effective_database"] == "kaetram_eval"
+    assert [item["path"] for item in record["config_files"]] == [
+        ".env.defaults",
+        ".env",
+    ]
+    assert len(record["attestation_sha256"]) == 64
+
+
+def test_game_database_attestation_rejects_lane_mismatch_and_node_override(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env.defaults").write_text(
+        "MONGODB_DATABASE='kaetram_devlopment'\n"
+    )
+    (tmp_path / ".env").write_text("MONGODB_DATABASE='kaetram_eval'\n")
+    with pytest.raises(RuntimeError, match="differs from harness"):
+        eval_harness.attest_game_database_configuration(
+            tmp_path, "other_lane", environ={}
+        )
+
+    (tmp_path / ".env.e2e").write_text("MONGODB_DATABASE='kaetram_e2e'\n")
+    with pytest.raises(RuntimeError, match="differs from harness"):
+        eval_harness.attest_game_database_configuration(
+            tmp_path, "kaetram_eval", environ={"NODE_ENV": "e2e"}
+        )
+
+
+def test_game_database_attestation_rejects_ambiguous_or_untracked_inputs(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".env.defaults").write_text(
+        "MONGODB_DATABASE='kaetram_devlopment'\n"
+    )
+    (tmp_path / ".env").write_text(
+        "MONGODB_DATABASE='one'\nMONGODB_DATABASE='two'\n"
+    )
+    with pytest.raises(RuntimeError, match="duplicate"):
+        eval_harness.attest_game_database_configuration(
+            tmp_path, "two", environ={}
+        )
+
+    (tmp_path / ".env").write_text("MONGODB_DATABASE=one#dotenv-v8-keeps-this\n")
+    with pytest.raises(RuntimeError, match="ambiguous or unsafe"):
+        eval_harness.attest_game_database_configuration(
+            tmp_path, "one", environ={}
+        )
+
+    (tmp_path / ".env").unlink()
+    with pytest.raises(RuntimeError, match="requires regular"):
+        eval_harness.attest_game_database_configuration(
+            tmp_path, "kaetram_devlopment", environ={}
+        )

@@ -194,6 +194,7 @@ def test_eval_command_uses_endpoint_environment_and_complete_provenance(
         endpoint_attestation_sha256="f" * 64,
         endpoint_attestation=endpoint,
         game_attestation=game,
+        game_database_attestation={"attestation_sha256": "9" * 64},
     )
     rendered = " ".join(command)
     assert f"{cell['cell_id']}={ENDPOINT_ENV}" in rendered
@@ -202,6 +203,7 @@ def test_eval_command_uses_endpoint_environment_and_complete_provenance(
     assert "--duration-seconds 300" in rendered
     assert "--environment-seed 41001" in rendered
     assert "--checkpoint-sha256 " + "a" * 64 in rendered
+    assert "--game-database-attestation-sha256 " + "9" * 64 in rendered
     assert "--tokenizer-sha256 " + "b" * 64 in rendered
     assert "--render-contract-sha256 " + "c" * 64 in rendered
     assert "--tool-recovery-enabled off" in rendered
@@ -259,6 +261,7 @@ def test_recovery_factorial_environment_and_command_bind_effective_lane(
             "gameRevision": "d" * 40,
             "entrypointSha256": "e" * 64,
         },
+        game_database_attestation={"attestation_sha256": "9" * 64},
     )
     assert "--tool-recovery-enabled on" in " ".join(command)
     pair_index = command.index("--factorial-pair-id") + 1

@@ -14,6 +14,8 @@ from scripts.opd.analyze_local_weight_pilot import (
     _canonical_start_ok,
     _file_sha256,
     _ordered_session_logs,
+    _validate_cell_attestation,
+    _validate_prelaunch,
     _validate_raw_emissions,
     _validate_state_boundaries,
     _verify_artifacts,
@@ -180,3 +182,102 @@ def test_session_order_uses_preserved_execution_time_beyond_nine(
 def test_state_boundary_audit_rejects_missing_db_snapshot() -> None:
     with pytest.raises(AnalysisError, match="missing DB boundary"):
         _validate_state_boundaries({}, "cell")
+
+
+def _extended_prelaunch_fixture() -> tuple[dict, dict]:
+    manifest = {
+        "pilot_id": "pilot-v1",
+        "claim_boundary": "exploratory",
+        "protocol": {"mongo_database": "kaetram_eval"},
+        "models": {
+            "base": {"api_model": "2b-base"},
+            "r2": {"api_model": "2b-r2"},
+        },
+        "cells": [{"cell_id": "base"}, {"cell_id": "r2"}],
+    }
+    database = {
+        "schema": "kaetram-game-database-attestation/v1",
+        "expected_database": "kaetram_eval",
+        "effective_database": "kaetram_eval",
+        "node_env": "",
+        "config_files": [
+            {"path": ".env.defaults", "sha256": "1" * 64},
+            {"path": ".env", "sha256": "2" * 64},
+        ],
+    }
+    database["attestation_sha256"] = sha256_json(database)
+    common = {
+        "tokenizer_sha256": "3" * 64,
+        "render_contract_sha256": "4" * 64,
+        "chat_template_sha256": "5" * 64,
+        "snapshot_lock_sha256": "6" * 64,
+        "fix_mistral_regex": False,
+    }
+    prelaunch = {
+        "schema_version": "kaetram.local-weight-pilot-prelaunch.v1",
+        "pilot_id": manifest["pilot_id"],
+        "claim_boundary": manifest["claim_boundary"],
+        "source_git_commit": "a" * 40,
+        "game_git_commit": "b" * 40,
+        "game_build_attestation": {
+            "schema": "kaetram-server-build-attestation/v1",
+            "gameRevision": "b" * 40,
+            "entrypointSha256": "7" * 64,
+        },
+        "game_database_attestation": database,
+        "endpoint_receipts": {
+            name: {
+                "status": "ok",
+                "attestation": {
+                    **common,
+                    "api_model": model["api_model"],
+                    "checkpoint_sha256": ("8" if name == "base" else "9") * 64,
+                    "snapshot_tree_sha256": ("c" if name == "base" else "d") * 64,
+                },
+            }
+            for name, model in manifest["models"].items()
+        },
+        "cells": manifest["cells"],
+    }
+    return manifest, prelaunch
+
+
+def test_prelaunch_validator_binds_full_snapshot_and_database_identity() -> None:
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    validated = _validate_prelaunch(manifest, prelaunch)
+    assert validated["snapshot_lock_sha256"] == "6" * 64
+    assert validated["snapshot_tree_sha256"] == {
+        "base": "c" * 64,
+        "r2": "d" * 64,
+    }
+    assert validated["game_database_attestation_sha256"] == (
+        prelaunch["game_database_attestation"]["attestation_sha256"]
+    )
+
+    prelaunch["game_database_attestation"]["config_files"][1]["sha256"] = "e" * 64
+    with pytest.raises(AnalysisError, match="game-database attestation"):
+        _validate_prelaunch(manifest, prelaunch)
+
+
+def test_prelaunch_validator_rejects_partial_snapshot_identity() -> None:
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    del prelaunch["endpoint_receipts"]["r2"]["attestation"][
+        "snapshot_tree_sha256"
+    ]
+    with pytest.raises(AnalysisError, match="invalid snapshot_tree_sha256"):
+        _validate_prelaunch(manifest, prelaunch)
+
+
+def test_cell_validator_rejects_snapshot_tree_drift(tmp_path: Path) -> None:
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    validated = _validate_prelaunch(manifest, prelaunch)
+    receipt = deepcopy(prelaunch["endpoint_receipts"]["base"])
+    receipt["attestation"]["snapshot_tree_sha256"] = "e" * 64
+    (tmp_path / "endpoint-attestation.json").write_text(json.dumps(receipt))
+    with pytest.raises(AnalysisError, match="endpoint attestation mismatch"):
+        _validate_cell_attestation(
+            tmp_path,
+            "base",
+            manifest["models"]["base"],
+            validated,
+        )

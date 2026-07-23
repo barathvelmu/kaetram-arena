@@ -38,7 +38,11 @@ sys.path.insert(0, str(REPO))
 
 from finetune.render import patch_qwen_chat_template  # noqa: E402
 from run_manifest import sha256_json, tool_schema_record  # noqa: E402
-from scripts.fetch_hf_snapshot import fetch_snapshot, load_lock  # noqa: E402
+from scripts.fetch_hf_snapshot import (  # noqa: E402
+    fetch_snapshot,
+    load_lock,
+    locked_snapshot_tree_sha256,
+)
 from tool_surface import MODEL_VISIBLE_TOOL_DEFINITIONS  # noqa: E402
 
 
@@ -89,6 +93,8 @@ class EndpointIdentity:
     api_model: str
     deployment_id: str
     checkpoint_sha256: str
+    snapshot_tree_sha256: str
+    snapshot_lock_sha256: str
     tokenizer_sha256: str
     render_contract_sha256: str
     chat_template_sha256: str
@@ -102,6 +108,8 @@ class EndpointIdentity:
                 "deployment_id": self.deployment_id,
                 "api_model": self.api_model,
                 "checkpoint_sha256": self.checkpoint_sha256,
+                "snapshot_tree_sha256": self.snapshot_tree_sha256,
+                "snapshot_lock_sha256": self.snapshot_lock_sha256,
                 "tokenizer_sha256": self.tokenizer_sha256,
                 "render_contract_sha256": self.render_contract_sha256,
                 "chat_template_sha256": self.chat_template_sha256,
@@ -261,6 +269,8 @@ def build_identity(
             f"{sha256_json(render_contract)[:12]}"
         ),
         checkpoint_sha256=checkpoint_sha256,
+        snapshot_tree_sha256=locked_snapshot_tree_sha256(snapshot),
+        snapshot_lock_sha256=lock["lock_sha256"],
         tokenizer_sha256=tokenizer_sha256,
         render_contract_sha256=sha256_json(render_contract),
         chat_template_sha256=render_contract["chat_template_sha256"],

@@ -25,7 +25,10 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from run_manifest import canonical_json_bytes, sha256_json  # noqa: E402
-from eval_harness import resolve_system_prompt  # noqa: E402
+from eval_harness import (  # noqa: E402
+    attest_game_database_configuration,
+    resolve_system_prompt,
+)
 from play_qwen import (  # noqa: E402
     CONTEXT_BUDGET,
     MAX_SEQ_LEN,
@@ -623,6 +626,7 @@ def build_eval_command(
     endpoint_attestation_sha256: str,
     endpoint_attestation: dict,
     game_attestation: dict,
+    game_database_attestation: dict,
 ) -> list[str]:
     protocol = manifest["protocol"]
     attestation = endpoint_attestation["attestation"]
@@ -645,6 +649,8 @@ def build_eval_command(
         endpoint_attestation_sha256,
         "--checkpoint-sha256",
         attestation["checkpoint_sha256"],
+        "--game-database-attestation-sha256",
+        game_database_attestation["attestation_sha256"],
         "--tokenizer-sha256",
         attestation["tokenizer_sha256"],
         "--render-contract-sha256",
@@ -780,6 +786,12 @@ def run_pilot(
     source_revision = _require_clean_git(REPO, "arena")
     game_revision = _require_clean_git(game_dir, "game")
     game_attestation = _load_game_attestation(game_dir, game_revision)
+    try:
+        game_database_attestation = attest_game_database_configuration(
+            game_dir, manifest["protocol"]["mongo_database"]
+        )
+    except RuntimeError as exc:
+        raise PilotError(str(exc)) from exc
     if manifest["schema_version"] == RECOVERY_FACTORIAL_SCHEMA_VERSION:
         contract = manifest["artifact_contract"]
         expected_game = {
@@ -845,6 +857,7 @@ def run_pilot(
         "source_git_commit": source_revision,
         "game_git_commit": game_revision,
         "game_build_attestation": game_attestation,
+        "game_database_attestation": game_database_attestation,
         "resolved_system_prompt_sha256": resolved_prompt_sha256,
         "endpoint_receipts": endpoint_receipts,
         "cells": manifest["cells"],
@@ -887,6 +900,7 @@ def run_pilot(
                 endpoint_attestation_sha256=endpoint_sha,
                 endpoint_attestation=health,
                 game_attestation=game_attestation,
+                game_database_attestation=game_database_attestation,
             )
             env = build_eval_environment(
                 dict(os.environ),

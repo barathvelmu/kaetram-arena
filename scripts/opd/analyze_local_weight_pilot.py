@@ -135,6 +135,14 @@ def _validate_prelaunch(
     renders = set()
     chat_templates = set()
     checkpoints = {}
+    snapshot_trees = {}
+    snapshot_locks = set()
+    extended_snapshot_identity = any(
+        isinstance(receipt, dict)
+        and isinstance(receipt.get("attestation"), dict)
+        and "snapshot_tree_sha256" in receipt["attestation"]
+        for receipt in receipts.values()
+    )
     for snapshot, model in manifest["models"].items():
         receipt = receipts[snapshot]
         attestation = receipt.get("attestation") if isinstance(receipt, dict) else None
@@ -159,8 +167,17 @@ def _validate_prelaunch(
         renders.add(attestation["render_contract_sha256"])
         chat_templates.add(attestation["chat_template_sha256"])
         checkpoints[snapshot] = attestation["checkpoint_sha256"]
+        if extended_snapshot_identity:
+            for field in ("snapshot_tree_sha256", "snapshot_lock_sha256"):
+                value = attestation.get(field)
+                if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+                    raise AnalysisError(f"{snapshot}: invalid {field}")
+            snapshot_trees[snapshot] = attestation["snapshot_tree_sha256"]
+            snapshot_locks.add(attestation["snapshot_lock_sha256"])
     if len(tokenizers) != 1 or len(renders) != 1 or len(chat_templates) != 1:
         raise AnalysisError("prelaunch endpoints do not share one renderer")
+    if extended_snapshot_identity and len(snapshot_locks) != 1:
+        raise AnalysisError("prelaunch endpoints do not share one snapshot lock")
     game = prelaunch.get("game_build_attestation")
     if (
         not isinstance(game, dict)
@@ -174,6 +191,20 @@ def _validate_prelaunch(
         r"[0-9a-f]{40}", prelaunch["source_git_commit"]
     ):
         raise AnalysisError("invalid prelaunch source commit")
+    database = prelaunch.get("game_database_attestation")
+    if database is not None:
+        unsigned_database = dict(database) if isinstance(database, dict) else {}
+        database_sha = unsigned_database.pop("attestation_sha256", None)
+        if (
+            not isinstance(database, dict)
+            or database.get("schema") != "kaetram-game-database-attestation/v1"
+            or database.get("expected_database")
+            != manifest["protocol"]["mongo_database"]
+            or database.get("effective_database")
+            != manifest["protocol"]["mongo_database"]
+            or database_sha != sha256_json(unsigned_database)
+        ):
+            raise AnalysisError("invalid prelaunch game-database attestation")
     return {
         "tokenizer_sha256": next(iter(tokenizers)),
         "render_contract_sha256": next(iter(renders)),
@@ -182,6 +213,16 @@ def _validate_prelaunch(
         "source_git_commit": prelaunch["source_git_commit"],
         "game_revision": game["gameRevision"],
         "game_bundle_sha256": game["entrypointSha256"],
+        "snapshot_tree_sha256": snapshot_trees or None,
+        "snapshot_lock_sha256": (
+            next(iter(snapshot_locks)) if snapshot_locks else None
+        ),
+        "game_database_attestation": database,
+        "game_database_attestation_sha256": (
+            database.get("attestation_sha256")
+            if isinstance(database, dict)
+            else None
+        ),
     }
 
 
@@ -204,6 +245,11 @@ def _validate_cell_attestation(
         "chat_template_sha256": preflight["chat_template_sha256"],
         "fix_mistral_regex": False,
     }
+    if preflight.get("snapshot_tree_sha256") is not None:
+        expected.update({
+            "snapshot_tree_sha256": preflight["snapshot_tree_sha256"][snapshot],
+            "snapshot_lock_sha256": preflight["snapshot_lock_sha256"],
+        })
     mismatches = {
         key: {"expected": value, "actual": attestation.get(key)}
         for key, value in expected.items()
@@ -522,6 +568,15 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             "environment_game_revision": preflight["game_revision"],
             "environment_game_bundle_sha256": preflight["game_bundle_sha256"],
         }
+        if preflight.get("game_database_attestation") is not None:
+            expected_meta.update({
+                "game_database_attestation": preflight[
+                    "game_database_attestation"
+                ],
+                "game_database_attestation_sha256": preflight[
+                    "game_database_attestation_sha256"
+                ],
+            })
         mismatches = {
             key: {"expected": value, "actual": meta.get(key)}
             for key, value in expected_meta.items()

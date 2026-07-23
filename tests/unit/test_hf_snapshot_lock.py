@@ -14,8 +14,10 @@ from scripts.build_hf_snapshot_lock import (
 )
 from scripts.fetch_hf_snapshot import (
     SnapshotError,
+    fetch_snapshot,
     file_identity,
     load_lock,
+    locked_snapshot_tree_sha256,
     snapshot_url,
 )
 
@@ -135,3 +137,42 @@ def test_snapshot_url_pins_revision_and_encodes_path() -> None:
         + "a" * 40
         + "/dir/file%20name.json?download=true"
     )
+
+
+def test_verify_only_requires_exact_locked_snapshot_closure(tmp_path: Path) -> None:
+    snapshot = _signed_lock({
+        "path": "nested/config.json",
+        "size_bytes": 2,
+        "git_blob_sha1": hashlib.sha1(b"blob 2\0{}").hexdigest(),
+    })["snapshots"]["model"]
+    destination = tmp_path / "model"
+    (destination / "nested").mkdir(parents=True)
+    (destination / "nested" / "config.json").write_text("{}")
+
+    receipt = fetch_snapshot(snapshot, destination, verify_only=True)
+    assert receipt["snapshot_tree_sha256"] == locked_snapshot_tree_sha256(snapshot)
+
+    (destination / "unexpected.json").write_text("{}")
+    with pytest.raises(SnapshotError, match="unlocked runtime paths"):
+        fetch_snapshot(snapshot, destination, verify_only=True)
+
+
+def test_snapshot_closure_rejects_unlocked_symlinks_and_directories(
+    tmp_path: Path,
+) -> None:
+    snapshot = _signed_lock({
+        "path": "config.json",
+        "size_bytes": 2,
+        "git_blob_sha1": hashlib.sha1(b"blob 2\0{}").hexdigest(),
+    })["snapshots"]["model"]
+    destination = tmp_path / "model"
+    destination.mkdir()
+    (destination / "config.json").write_text("{}")
+    (destination / "empty").mkdir()
+    with pytest.raises(SnapshotError, match="unlocked runtime paths"):
+        fetch_snapshot(snapshot, destination, verify_only=True)
+
+    (destination / "empty").rmdir()
+    (destination / "alias").symlink_to(destination / "config.json")
+    with pytest.raises(SnapshotError, match="symlinked snapshot path"):
+        fetch_snapshot(snapshot, destination, verify_only=True)

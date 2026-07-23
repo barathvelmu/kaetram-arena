@@ -54,6 +54,8 @@ from tool_surface import MODEL_VISIBLE_TOOL_DEFINITIONS  # noqa: E402
 
 
 PINNED_MLX_LM_VERSION = "0.31.3"
+SEEDED_SAMPLING_CONTRACT_SCHEMA = "kaetram.mlx-explicit-key-sampling.v1"
+SEEDED_SERVER_SCRIPT = REPO / "scripts" / "mlx_seeded_server.py"
 SUPPORTED_MODELS = {
     "base_2b": "2b-base",
     "opd_r2_2b": "2b-opd-r2",
@@ -108,6 +110,7 @@ class EndpointIdentity:
     tokenizer_source_revision: str
     fix_mistral_regex: bool
     runtime_environment_receipt_sha256: str
+    sampling_contract_sha256: str
 
     def health_payload(self) -> dict:
         return {
@@ -126,6 +129,7 @@ class EndpointIdentity:
                 "runtime_environment_receipt_sha256": (
                     self.runtime_environment_receipt_sha256
                 ),
+                "sampling_contract_sha256": self.sampling_contract_sha256,
             },
         }
 
@@ -214,6 +218,7 @@ def build_render_contract(
     patched_chat_template: str,
     canonical_tokenizer_dir: Path,
     effective_renderer: dict,
+    seeded_sampler_probe: dict,
 ) -> dict:
     """Describe every model-visible local rendering choice."""
     snapshot = lock["snapshots"][CANONICAL_TOKENIZER_SNAPSHOT]
@@ -237,6 +242,11 @@ def build_render_contract(
         "fix_mistral_regex": False,
         "tool_schema_sha256": tool_schema_record()["sha256"],
         "effective_renderer": effective_renderer,
+        "seeded_sampling": {
+            "schema_version": SEEDED_SAMPLING_CONTRACT_SCHEMA,
+            "server_script_sha256": _sha256_file(SEEDED_SERVER_SCRIPT),
+            "runtime_probe": seeded_sampler_probe,
+        },
     }
 
 
@@ -291,6 +301,7 @@ def build_identity(
         tokenizer_source_revision=render_contract["tokenizer_revision"],
         fix_mistral_regex=render_contract["fix_mistral_regex"],
         runtime_environment_receipt_sha256=runtime_environment_receipt_sha256,
+        sampling_contract_sha256=sha256_json(render_contract["seeded_sampling"]),
     )
 
 
@@ -431,9 +442,8 @@ def build_backend_command(
         python,
         repo_root=REPO,
         environment_root=environment,
-        module="mlx_lm",
+        script=SEEDED_SERVER_SCRIPT,
         target_args=(
-        "server",
         "--model",
         str(model_dir),
         "--host",
@@ -450,6 +460,45 @@ def build_backend_command(
         "INFO",
         ),
     )
+
+
+def verify_seeded_sampler_runtime(python: str) -> dict:
+    """Run the explicit-key sampler in MLX-LM's background-thread shape."""
+    environment = Path(python).absolute().parent.parent
+    command = isolated_python_command(
+        python,
+        repo_root=REPO,
+        environment_root=environment,
+        script=SEEDED_SERVER_SCRIPT,
+        target_args=("--self-test",),
+    )
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise LocalEndpointError("seeded sampler runtime probe failed") from exc
+    if completed.returncode != 0:
+        raise LocalEndpointError(
+            "seeded sampler runtime probe did not satisfy the reviewed contract"
+        )
+    try:
+        probe = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise LocalEndpointError("seeded sampler runtime probe is not JSON") from exc
+    if (
+        not isinstance(probe, dict)
+        or probe.get("schema_version") != SEEDED_SAMPLING_CONTRACT_SCHEMA
+        or probe.get("mlx_lm_version") != PINNED_MLX_LM_VERSION
+        or probe.get("distinct_seed_outputs", 0) < 2
+        or probe.get("execution_thread") != "background"
+    ):
+        raise LocalEndpointError("seeded sampler runtime probe identity mismatch")
+    return probe
 
 
 def normalize_mlx_tool_arguments(messages: object) -> None:
@@ -741,11 +790,13 @@ def main(argv: list[str] | None = None) -> int:
         effective_renderer = verify_effective_renderer(
             runtime_model_dir, patched_chat_template
         )
+        seeded_sampler_probe = verify_seeded_sampler_runtime(sys.executable)
         render_contract = build_render_contract(
             lock,
             patched_chat_template,
             canonical_tokenizer_dir,
             effective_renderer,
+            seeded_sampler_probe,
         )
         identity = build_identity(
             lock,

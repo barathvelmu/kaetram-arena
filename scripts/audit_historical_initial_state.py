@@ -20,68 +20,14 @@ sys.path.insert(0, str(REPO))
 
 from scripts.audit_historical_artifacts import AGENTS, CLAIM_RUNS
 from scripts.log_analysis.parse import parse_run_sessions
+from canonical_start import (  # noqa: E402
+    CANONICAL_INITIAL_STATE,
+    initial_state_projection,
+    state_mismatches,
+)
 
 
 HEADLINE_GROUPS = ("r10_base", "r10_sft", "opd_2b")
-STARTER_INVENTORY = [
-    {"slot": 0, "key": "bronzeaxe", "count": 1},
-    {"slot": 1, "key": "knife", "count": 1},
-    {"slot": 2, "key": "fishingpole", "count": 1},
-    {"slot": 3, "key": "coppersword", "count": 1},
-    {"slot": 4, "key": "woodenbow", "count": 1},
-]
-CANONICAL_INITIAL_STATE = {
-    "pos": {"x": 328, "y": 892},
-    "stats": {"hp": 69, "max_hp": 69, "level": 1, "xp": 0},
-    "equipment": {},
-    "skills": {},
-    "inventory": STARTER_INVENTORY,
-    "active_quests": [],
-    "finished_quests": ["Miner's Quest"],
-    "is_dead": False,
-    "indoors": False,
-}
-
-
-def initial_state_projection(payload: dict) -> dict:
-    """Select persistent fields that distinguish a clean benchmark player."""
-    inventory = [
-        {
-            "slot": item.get("slot"),
-            "key": item.get("key"),
-            "count": item.get("count"),
-        }
-        for item in payload.get("inventory", [])
-        if isinstance(item, dict)
-    ]
-    inventory.sort(key=lambda item: (item["slot"] is None, item["slot"]))
-    finished = [
-        quest.get("name")
-        for quest in payload.get("finished_quests", [])
-        if isinstance(quest, dict)
-    ]
-    return {
-        "pos": payload.get("pos"),
-        "stats": payload.get("stats"),
-        "equipment": payload.get("equipment"),
-        "skills": payload.get("skills"),
-        "inventory": inventory,
-        "active_quests": payload.get("active_quests"),
-        "finished_quests": finished,
-        "is_dead": payload.get("is_dead"),
-        "indoors": payload.get("indoors"),
-    }
-
-
-def state_mismatches(actual: dict, expected: dict = CANONICAL_INITIAL_STATE) -> list[dict]:
-    """Return stable, field-level differences for audit output."""
-    return [
-        {"field": field, "expected": expected[field], "actual": actual.get(field)}
-        for field in expected
-        if actual.get(field) != expected[field]
-    ]
-
-
 def build_initial_state_audit(
     raw_root: Path,
     *,

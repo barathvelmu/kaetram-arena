@@ -296,7 +296,7 @@ from scripts.opd import opd_2b_data as builder
 try:
     asyncio.run(builder.main())
 except RuntimeError as exc:
-    assert "not executing from the attested frozen builder" in str(exc)
+    assert "must run through its frozen entrypoint" in str(exc)
 else:
     raise AssertionError("live imported builder accepted a separate frozen root")
 """

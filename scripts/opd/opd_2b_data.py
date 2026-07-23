@@ -62,15 +62,28 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-SOURCE_REPO_ENV = "KAETRAM_OPD_SOURCE_REPO"
-FROZEN_BUILD_ROOT_ENV = "KAETRAM_OPD_FROZEN_BUILD_ROOT"
-_FROZEN_BUILD_ROOT = os.environ.get(FROZEN_BUILD_ROOT_ENV, "")
-if _FROZEN_BUILD_ROOT:
-    if not os.environ.get(SOURCE_REPO_ENV):
-        raise RuntimeError("frozen OPD builder is missing its source-repository root")
-    REPO = Path(os.environ[SOURCE_REPO_ENV]).resolve()
+FROZEN_MARKER_NAME = ".kaetram-opd-frozen-build.json"
+FROZEN_MARKER_SCHEMA = "kaetram-opd-frozen-entrypoint-v1"
+EXECUTION_ROOT = Path(__file__).resolve().parents[2]
+FROZEN_MARKER_PATH = EXECUTION_ROOT / FROZEN_MARKER_NAME
+if FROZEN_MARKER_PATH.is_file():
+    try:
+        _FROZEN_MARKER = json.loads(FROZEN_MARKER_PATH.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("frozen OPD entrypoint marker is invalid") from exc
+    if (
+        not isinstance(_FROZEN_MARKER, dict)
+        or set(_FROZEN_MARKER)
+        != {"schema_version", "source_repo", "build_sources_sha256"}
+        or _FROZEN_MARKER.get("schema_version") != FROZEN_MARKER_SCHEMA
+        or not isinstance(_FROZEN_MARKER.get("source_repo"), str)
+        or not _FROZEN_MARKER["source_repo"]
+    ):
+        raise RuntimeError("frozen OPD entrypoint marker fields are invalid")
+    REPO = Path(_FROZEN_MARKER["source_repo"]).resolve()
 else:
-    REPO = Path(__file__).resolve().parents[2]
+    _FROZEN_MARKER = None
+    REPO = EXECUTION_ROOT
 # This list is deliberately available without importing any local module. Main
 # snapshots it first, then imports every local dependency from that immutable
 # copy. receipt_chain.py carries the same closed inventory and checks equality
@@ -780,19 +793,20 @@ def _publish_create_only(temporary: Path, destination: Path) -> None:
 
 
 async def main():
-    frozen_root = os.environ.get(FROZEN_BUILD_ROOT_ENV, "")
-    if not frozen_root:
+    if _FROZEN_MARKER is None:
         raise RuntimeError(
             "OPD builder must run through its frozen entrypoint; execute this "
             "file as a script instead of importing main()"
         )
-    snapshot_root = Path(frozen_root).resolve()
-    expected_builder = (
-        snapshot_root / "scripts" / "opd" / "opd_2b_data.py"
-    ).resolve()
-    if Path(__file__).resolve() != expected_builder:
+    snapshot_root = EXECUTION_ROOT
+    system_temp_root = Path(tempfile.gettempdir()).resolve()
+    if (
+        snapshot_root == REPO
+        or snapshot_root.is_relative_to(REPO)
+        or not snapshot_root.is_relative_to(system_temp_root)
+    ):
         raise RuntimeError(
-            "OPD main() is not executing from the attested frozen builder"
+            "OPD frozen build root must be isolated from the mutable source repository"
         )
 
     ap = argparse.ArgumentParser()
@@ -813,6 +827,11 @@ async def main():
     # builder. This process executes that copied builder and imports all other
     # local code only from the same tree.
     build_sources = _snapshot_hashes(snapshot_root)
+    if (
+        _FROZEN_MARKER.get("build_sources_sha256")
+        != canonical_sha256(build_sources)
+    ):
+        raise RuntimeError("frozen OPD source inventory does not match its launcher")
     _verify_build_source_snapshot(build_sources)
     _load_frozen_local_dependencies(snapshot_root)
     for name in ("student_artifact_sha256", "teacher_artifact_sha256"):
@@ -1062,7 +1081,7 @@ async def main():
 
 def _launch_frozen_entrypoint() -> int:
     """Run the actual builder in a clean interpreter from a frozen source tree."""
-    if os.environ.get(FROZEN_BUILD_ROOT_ENV):
+    if _FROZEN_MARKER is not None:
         asyncio.run(main())
         return 0
     with tempfile.TemporaryDirectory(
@@ -1071,18 +1090,24 @@ def _launch_frozen_entrypoint() -> int:
         snapshot_root = Path(directory).resolve()
         build_sources = _snapshot_build_sources()
         _materialize_build_inputs(build_sources, snapshot_root)
-        environment = {
-            **os.environ,
-            SOURCE_REPO_ENV: str(REPO),
-            FROZEN_BUILD_ROOT_ENV: str(snapshot_root),
+        marker = {
+            "schema_version": FROZEN_MARKER_SCHEMA,
+            "source_repo": str(REPO),
+            "build_sources_sha256": canonical_sha256(build_sources),
         }
+        marker_path = snapshot_root / FROZEN_MARKER_NAME
+        with marker_path.open("x", encoding="utf-8") as handle:
+            json.dump(marker, handle, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
         completed = subprocess.run(
             [
                 sys.executable,
                 str(snapshot_root / "scripts/opd/opd_2b_data.py"),
                 *sys.argv[1:],
             ],
-            env=environment,
+            env=os.environ.copy(),
             check=False,
         )
         return completed.returncode

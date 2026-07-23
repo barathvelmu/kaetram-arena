@@ -1,4 +1,4 @@
-# Paper 1 submission readiness — July 19, 2026
+# Paper 1 submission readiness — July 23, 2026
 
 ## Decision
 
@@ -6,7 +6,16 @@
 
 AAAI-27 is not the remembered September deadline. Its abstract is due **July 21, 2026** and the full paper is due **July 28, 2026**, both AoE. The main track allows seven content pages. The historical technical report is fourteen pages, the central OPD result has one run per arm, and the public artifact cannot reproduce the reported statistics. A ten-day conversion would be a rushed lottery ticket, not a serious top-paper attempt.
 
-NAACL 2027 confirms an October 12, 2026 ARR deadline and a June 1–5, 2027 conference in San Francisco. Current ARR rules allow eight content pages for long papers, require the ACL template and a dedicated Limitations section, use two-way anonymized review, and require disclosure of material LLM assistance. The venue-specific NAACL call is not yet published, so recheck it before submission.
+NAACL 2027 confirms an October 12, 2026 ARR deadline and a June 1–5, 2027
+conference in San Francisco. Current ARR rules allow eight content pages for
+long papers, with unlimited references; require the ACL template and a dedicated
+Limitations section after the conclusion and before references; use two-way
+anonymized review; and require the Responsible NLP Research Checklist. An
+incorrect or misleading checklist can trigger desk rejection. Ethics and
+Limitations are excluded from the content-page limit when placed correctly.
+Appendices are optional, must not carry the main argument, and remain
+double-column. The venue-specific NAACL call is not yet published, so recheck it
+and re-vendor the official template immediately before submission.
 
 ICLR 2027's call has not been published as of July 18. ICLR 2026 used September 19 for abstracts and September 24 for papers, so a similar late-September 2026 deadline is a planning estimate only. Do not represent it as confirmed.
 
@@ -18,6 +27,11 @@ Official sources:
 - [ICLR 2026 author guide](https://iclr.cc/Conferences/2026/AuthorGuide)
 - [NAACL 2027 official site](https://2027.naacl.org/)
 - [ACL Rolling Review call and rules](https://aclrollingreview.org/cfp)
+- [ARR reviewer guidelines](https://aclrollingreview.org/reviewerguidelines)
+- [Responsible NLP Research Checklist](https://aclrollingreview.org/responsibleNLPresearch/)
+- [ACL review-version requirements](https://acl-org.github.io/ACLPUB/review-version.html)
+- [ACL formatting requirements](https://acl-org.github.io/ACLPUB/formatting.html)
+- [ARR submission form and artifact fields](https://aclrollingreview.org/submissionform)
 - [Official ACL style files](https://github.com/acl-org/acl-style-files)
 
 ## Working paper
@@ -30,7 +44,7 @@ Official sources:
 
 **Secondary diagnostic:** Historical notes report positive teacher-over-student distillation advantage for one malformed continuation. Because both candidates were not scored in the same matched contexts and the probe artifact is absent, preference reversal and the broader teacher-forcing copy-prior mechanism remain unvalidated.
 
-**System conclusion:** Harness affordances and model weights solve different failure classes. The final 18/30 result is a weights-plus-interface result. The reported recovery-off 12/30-to-15/30 contrast lacks exact historical parity and is not a clean causal weights comparison.
+**System conclusion:** Harness affordances and model weights target different failure classes, but the historical runs do not identify their separate effects. The final 18/30 result is a weights-plus-interface result. The reported recovery-off 12/30-to-15/30 contrast lacks exact historical parity and is not a clean causal weights comparison.
 
 Do not frame the paper as the first MCP game agent, embodied learning, continual learning, autonomous skill learning, or world-model learning. Orak already uses MCP across twelve games, and the present system operates on symbolic state and typed actions with procedural walkthroughs.
 
@@ -47,6 +61,10 @@ The paper moves from **no-go** to **submission candidate** only when all of thes
 7. The main result transfers to a held-out quest or second environment.
 8. At least one serious OPD baseline is run under the same harness and budget.
 9. The manuscript is anonymous, within the venue page limit, and includes reproducibility, ethics, and required LLM-use disclosure.
+10. The Responsible NLP Research Checklist is answered from evidence, every
+    author consents to review obligations, software/data artifacts fit the
+    submission form's size and licensing constraints, and the PDF contains no
+    prompt-injection text.
 
 If gates 3–8 are not complete before the October 12 ARR deadline, use TMLR as
 the rolling fallback or wait for a later conference rather than submit an
@@ -56,7 +74,7 @@ underpowered case study.
 
 The earlier plan to submit simultaneously to ICLR and NeurIPS is invalid. ICLR prohibits parallel submission of substantially similar work to another archival venue. An arXiv posting alongside one archival submission is allowed. Submit to one conference at a time.
 
-The authors must also retain full responsibility for the paper and follow the chosen venue's AI-assistance policy. The ICLR 2026 guide required disclosure when an LLM made a significant contribution to research ideation or writing. A natural writing style is desirable; hiding material assistance is not.
+The authors must also retain full responsibility for the paper and follow the chosen venue's AI-assistance policy. The ICLR 2026 guide required disclosure when an LLM made a significant contribution to research ideation or writing. A natural writing style is desirable; hiding material assistance is not. For ARR, preserve the evidence behind every checklist response, keep review PDFs anonymous and line-numbered, and exclude acknowledgments from the review version.
 
 ## Eight-week critical path
 
@@ -64,7 +82,8 @@ The authors must also retain full responsibility for the paper and follow the ch
 
 - Freeze the exact environment and inference contract.
 - Fix the evaluation save crash and full-schema parity tests.
-- Package the missing r10 and OPD inputs; make analysis scripts fail loudly on missing data.
+- Package the recovered r10 and OPD inputs into a licensed, reviewer-accessible,
+  content-addressed artifact; make analysis scripts fail loudly when it is absent.
 - Choose one primary endpoint and write the analysis plan before new runs.
 
 ### Weeks 2–3: replicate the key causal result

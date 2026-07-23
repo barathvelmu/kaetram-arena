@@ -87,8 +87,9 @@ The checked headline OPD and r10 numbers were not produced through that lane:
 - checked-in dataset/evaluation artifacts used by the report predate the April 25 lane change.
 
 Therefore PR #37 does not invalidate E3-prime, E4, Arm-C, or the historical r10 headline values.
-It does invalidate trust in any un-audited result produced through `run-eval.sh` between April 25
-and July 18. The May/June raw bundles were subsequently recovered read-only from the original VM
+It does invalidate trust in any un-audited result produced through `run-eval.sh` on main between
+April 25 and PR #37's July 22 merge, unless the run attests the July 18 fixed branch. The May/June
+raw bundles were subsequently recovered read-only from the original VM
 and bound to a SHA-256 inventory. `research/audits/historical-initial-state.json` verifies that the
 first recorded action in all 15 OPD and all 21 R10 agent-runs is `observe`, with the exact canonical
 level-1 starter state and no state anomaly. The R10 statistics and credit diagnostic also rerun
@@ -115,7 +116,7 @@ KAE-79 through KAE-85 are blocked on their relevant P0 tickets so the board does
 ## What is currently supported
 
 - Round two is the least-confounded historical recovery-off observation: the score was 15/30 versus the base run's 12/30, and wall passage was 3/3 versus 0/3 among clustered prompt variants. Exact checkpoint/configuration parity, the gameplay-RNG seed, and independent reproduction remain unavailable, so it is not a clean weights-only comparison.
-- Round-three reaches 18/30 only with a model-interface recovery affordance. It must be labeled weights plus recovery, not a pure weight result.
+- The reported 18/30 round-three configuration includes a model-interface recovery affordance. It must be labeled weights plus recovery, not a pure weight result.
 - Round-two weights plus recovery was reported at 17/30 in one unmatched
   historical run. It is not a controlled ablation or factorial estimate.
 - The malformed-history copy-prior observation is a mechanism hypothesis: one

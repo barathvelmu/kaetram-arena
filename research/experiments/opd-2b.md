@@ -7,13 +7,15 @@ round 3 combined new weights with recovery. The June raw session trees, immutabl
 checkpoint/configuration digests, and gameplay seeds are not preserved in this repository, so the
 sequence cannot establish a causal weights effect, exact harness parity, or a +3/+2/+1 effect
 decomposition. Within the reported runs, every round-3 agent completed Foresting and Herbalist's
-Desperation where the reported base agents completed only Foresting. Round 3 broke the stage-2 wall and fixed the format defect via the harness recovery
-affordance — but Rick's Roll stayed 0/4 (over-determined: a displaced fishing tool gates link 1
+Desperation where the reported base agents completed only Foresting. Round 3 was reported to
+break the stage-2 wall while the harness recovery affordance was enabled; the retained evidence
+does not establish that recovery causally fixed the format defect. Rick's Roll stayed 0/4
+(over-determined: a displaced fishing tool gates link 1
 before cooking is reached, with the cook-incompetent teacher a wall behind it). The reported
 round-2-weights-plus-recovery result (17/30) was also a single unmatched historical run; it is
 suggestive, not a controlled effect estimate.
 We label 18/30 a weights-plus-interface result and don't lean
-on nominally edging the 4B teacher (18 vs 17, with a recovery fix the teacher lacked). Supersedes
+on nominally edging the 4B teacher (18 vs 17, with a recovery affordance the teacher lacked). Supersedes
 the 9B
 instantiation of the OPD plan in [r11-direction.md](r11-direction.md) ("Where r11 sits");
 companion to [r11-probing.md](r11-probing.md) (the 9B feasibility probes) and
@@ -459,7 +461,8 @@ keeping state-grounding — the compression comes in round 3.
    but a NEW dominant form appeared: Python-call syntax inside the function tag —
    `<function=gather("Oak")>` — 0 (base) → 79 (r1) → **599 (r2)**; plus corrupted closing
    tags (`</number>`, `</script>`). Masking removes reinforcement but supplies no
-   correction (the predicted limit); **the cure is the harness-side lever** that round 3 adds.
+   correction (the predicted limit); round 3 adds a harness-side recovery lever, whose separate
+   effect remains unidentified in the historical record.
 2. **Total failure rate** base 8.6% / r1 16.9% / r2 16.7%: the OPD models carry a
    *schema/validation* failure class (~0.1% base → ~11%) that the malformed calls produce and
    that roughly doubles their total failure rate, while the *game-state* error class improved
@@ -477,9 +480,10 @@ error class conflates HP_FULL/slot-shift with validation empties).
 
 ## Round 3 (June 12–13): counterfactual grading, full-ladder seeding, harness recovery — 18/30
 
-Round 3 attacked the two open wounds from round 2 — the mutated malformed-call attractor and
-the stalled Herbalist stage 2 — and aimed at 10/10. It produced the program's best result
-(**18/30, 6/10 every agent**) and a clean separation of what training vs harness can each do.
+Round 3 targeted the two open wounds from round 2—the mutated malformed-call attractor and
+the stalled Herbalist stage 2—and aimed at 10/10. It produced the program's best reported result
+(**18/30, 6/10 every agent**), but because weights and recovery changed together it cannot
+separate what training and the harness each contributed.
 
 ### Design
 
@@ -504,7 +508,7 @@ the stalled Herbalist stage 2 — and aimed at 10/10. It produced the program's 
    replaced round-2 abstention). Train from merged r2, 277 steps. **Gate PASS** (rKL to
    teacher 0.3558→0.3330 = +6.4%, every verb improved; 0 degeneration).
 
-### The two-attempt story: counterfactual grading alone REGRESSED; harness recovery fixed it
+### The two-attempt story: counterfactual grading regressed; recovery-enabled rerun
 
 The first 6h eval (`run_20260613_105318`) was **stopped at 35 min**: counterfactual grading did
 NOT suppress the malformed *emission* — it regressed it. 2/3 agents were paralyzed (57% / 76%
@@ -514,12 +518,15 @@ loop. **Key lesson: grader-endorsement-suppression (flip-probe-verified) did not
 student-emission-suppression after training.** The defect lives in the policy's generation, and
 a grading-context fix doesn't reach it.
 
-The fix was a **harness affordance** (`KAETRAM_TOOL_RECOVERY`, env-gated): when the server
+The intended runtime intervention was a **harness affordance** (`KAETRAM_TOOL_RECOVERY`,
+env-gated): when the server
 drops a malformed call, `play_qwen` recovers the executable call (`canonicalize.recover_tool_calls`,
 99.5% coverage on real specimens), **rewrites history to a clean canonical assistant turn**
 (severing the in-context copy prior at its source), executes it, and returns a loud `[format]`
-correction note. The rerun (`run_20260613_112422`) with recovery on solved the paralysis
-at runtime (reported 3.3% recovery rate; source logs are not packaged).
+correction note. In the reported rerun (`run_20260613_112422`), recovery was enabled and
+paralysis was not reported (reported 3.3% recovery rate; source logs are not packaged).
+This temporal/runtime association does not establish a causal cure because raw pre-rewrite
+emissions and an independently regenerated recovery count are unavailable.
 
 ### Results: 18/30, and the Herbalist stage-2 wall broke
 
@@ -552,8 +559,10 @@ All three completed Herbalist 3/3 (2.7–4.0h, sessions ~181–205) — r2 had *
 
 The historical reports give base 12/30, round 2 at 15/30 without recovery, round-2 weights with
 recovery at 17/30, and round-3 weights with recovery at 18/30. These are one unmatched run per
-cell. Their raw bundles, exact checkpoint/render parity, gameplay seeds, and immutable
-configuration manifests are absent, so subtracting the scores does **not** identify weights,
+cell. Their raw run directories were recovered read-only and bound to the external inventory
+recorded in `research/audits/historical-run-digests.json`, but exact checkpoint/render parity,
+gameplay seeds, reset receipts, and immutable configuration manifests are absent. The recovery
+is not a public artifact. Therefore subtracting the scores does **not** identify weights,
 recovery, or interaction effects. In the reported recovery-off round-2 run, the Herbalist wall
 fell 3/3 across clustered prompt variants; that is the strongest descriptive observation, not
 three independent replications or a pure-weights estimate.
@@ -561,9 +570,9 @@ three independent replications or a pure-weights estimate.
 The project also reports **round-2 weights with the recovery affordance on**
 (`run_20260613_214956`) at **17/30** (grinder 6, completionist 6, explorer 5). The notes also
 report that r3 reached Herbalist stage 2 in **~2.0h vs r2's ~4.5h** and produced
-**~40% more turns per hour (511 vs 366)**. Without the underlying bundles and matched replicated
-runs, neither the score differences nor the throughput difference can be attributed to a single
-lever.
+**~40% more turns per hour (511 vs 366)**. Even with the recovered bundles, without matched
+replicated runs and exact execution parity neither the score differences nor the throughput
+difference can be attributed to a single lever.
 
 We therefore label 18/30 a **weights-plus-interface** result. The recovery-off round-2 passage is
 the least-confounded historical comparison, but it is not a pure-weights effect estimate.
@@ -598,25 +607,27 @@ Arc: base (tool-spam, no grounding) → r1 (maximal verbose churn) → r2 (still
 → **r3 (concise, halved churn, grounding preserved)**. Brevity is overhead removal, and it
 bought both more progress and ~2× the speed to the wall.
 
-### Historical recovery behavior (source logs not packaged)
+### Historical recovery behavior (rewritten bundles recovered)
 
 Historical notes report 405 rewritten sessions with one `[format]` marker and no later marker;
-90% reportedly fire at turn 2. The source logs and raw pre-rewrite emissions are absent, so this
-cannot establish model self-correction, zero relapse, or the true malformation denominator. The
-reported 335 malformed emissions and 405 markers use different units.
+90% reportedly fire at turn 2. Recovered rewritten session bundles exist, but raw pre-rewrite
+emissions are absent and the counts have not been independently regenerated. This cannot establish
+model self-correction, zero relapse, or the true malformation denominator. The reported 335
+malformed emissions and 405 markers use different units.
 
-### What round 3 established (the clean separation)
+### Descriptive takeaways; causal separation still pending
 
-- **Visitation-corrected weights instill competence over base** — the Herbalist wall base
-  passed 0/3 falls 3/3 unseeded (round 2, pure weights, no affordance: 12→15). This is the core
-  *better-than-base* result; round 3's stage-2 break extended it. Over base, weights led the +6
-  (~+4 of 6).
-- **A harness affordance dissolved what weights-side fixes could not** (the format
-  defect: r1 created it, r2's masking contained-not-cured, r3's counterfactual grading
-  *regressed* the emission; recovery + context-canonicalization fixed it instantly). This is
-  the harness+weights co-evolution thesis made concrete — the program's clearest single lesson.
-- **A teacher cannot grade in what it cannot do** (Rick's: the 4B never cooks → flat,
-  weak seeded-state grades → 0 cook transfer, exactly as the pre-training diagnostic predicted).
+- **A seeded-training round was followed by canonical-start wall passage.** Base and round 1
+  report 0/3 clustered prompt variants across the Herbalist wall; round 2 reports 3/3 and 15/30
+  with recovery off. This is one unmatched historical sequence, not evidence that seeding or
+  weights alone caused the change.
+- **Weights and runtime recovery are distinct intervention candidates.** Recovery can execute a
+  dropped malformed call and canonicalize retained history, while the training rounds attempted
+  weights-side changes. The unmatched 12/15/17/18 cells do not identify either main effect or an
+  interaction.
+- **No cooking behavior was observed from the same-family teacher in these runs.** That conditional
+  null explains why this teacher is a weak source of cooking supervision here; it does not show
+  that a teacher generally cannot transfer the behavior.
 
 **Framing:** the r3 18/30 is a **weights + harness recovery** arm — env-changed, not
 pure-weights like base/r1/r2 — so we label it as such. The recovery-off round-2 report is the
@@ -659,8 +670,8 @@ SFT lane $53) — so total Modal spend across the June 6–14 OPD work window wa
    can't grade what it can't do.
 2. **Two cheap harness fixes the logs demand**: auto-re-equip/surface the fishing pole (link-1
    gate), and a session note that carries route-progress for un-accepted target quests.
-3. **Promote tool-recovery to a permanent affordance** (it is that load-bearing), tracking the
-   pure-weights defect rate separately.
+3. **Retain tool recovery as a separately measured runtime arm** pending the matched factorial,
+   tracking the pure-weights defect rate separately.
 
 *Counter provenance: the historical notes report 405 recovery markers (`[format]` results);
 `n_malformed_emit` (335) is a lower bound — the harness rewrites assistant content to canonical

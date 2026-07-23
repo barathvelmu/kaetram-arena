@@ -247,7 +247,7 @@ Originally planned to replace r8-KTO using r9 merged weights. **Deferred indefin
 
 ## r11 — scaffold reframe + OPD (rounds 1–3, Jun 7–14 2026)
 
-After the reported r10 negative result the program pivoted twice. First, harness/state-contract changes coincided with a 4 → 19/30 base-9B envelope and a small duration-mismatched size sweep; this motivates a scaffold hypothesis, not a capacity conclusion. Then an on-policy-distillation lane used a scaffolded 4B teacher and base 2B student. The historical raw bundles are absent, so all scores below are reported observations.
+After the reported r10 negative result the program pivoted twice. First, harness/state-contract changes coincided with a 4 → 19/30 base-9B envelope and a small duration-mismatched size sweep; this motivates a scaffold hypothesis, not a capacity conclusion. Then an on-policy-distillation lane used a scaffolded 4B teacher and base 2B student. The historical run directories were recovered externally and content-bound in `research/audits/historical-run-digests.json`, but they remain unreleased and do not reconstruct exact execution parity; all scores below remain reported observations.
 
 | Round | Core-3 /30 | Lever | Outcome |
 |---|---|---|---|

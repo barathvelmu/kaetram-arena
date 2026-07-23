@@ -14,6 +14,14 @@ The example expands five shared training seeds into 50 core cells plus 20
 history-ablation cells (70 total). The latter are not silently counted as
 mechanism arms.
 
+Those five seeds are an execution-grid example, not a power justification.
+For a training-method estimand, the independent unit is a freshly initialized
+training seed/checkpoint; evaluation seeds are nested repeated measurements
+within it. Before any outcome-producing launch, a reviewed prospective power
+record must freeze both the number of independent training seeds and the nested
+evaluation-seed schedule. It may replace the example count, but it must do so
+before outcomes and with a new immutable manifest identity.
+
 ## Registered arms
 
 | Role | Arm | State source | Model-visible history |
@@ -35,6 +43,15 @@ behavior without OPD. The SCoRe-style baseline requires hash-backed evidence
 that every prefix ends at the first model-visible student error. Random-valid
 and progress-matched arms test whether any legal initialization, or progress
 alone, explains the targeted-arm effect.
+
+Trust-Region Behavior Blending (TRB) is a still-missing serious occupancy
+baseline: it changes early occupancy with a teacher-near behavior policy inside
+an annealed student-centered trust region while retaining the OPD loss. The
+current six-primary-arm launcher does not implement TRB. A conference-level
+targeted-state method claim is therefore blocked until a matched-budget TRB arm
+is implemented, registered, and executed, or a venue-facing rationale
+establishes that the registered TCOD and Guided-OPD comparisons answer a
+strictly different estimand. The manuscript currently treats TRB as required.
 
 ## Separate state-by-history ablation
 
@@ -174,5 +191,9 @@ execution remain explicit boundaries; the direct-token SFT route is
   pretokenized fresh-LoRA path; live Guided/SCoRe objective work and reviewed
   execution remain.
 - No cost/power review has approved 50 core plus 20 history-ablation cells.
+- The five-seed example is not a two-level power analysis, and nested
+  evaluation replication is not frozen for a method-level estimand.
+- A matched TRB occupancy baseline is not represented in the launcher or
+  objective backend.
 
 No expensive compute was run while adding this protocol.

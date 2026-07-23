@@ -10,7 +10,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from scripts.log_analysis.artifact_requirements import missing_agent_run_logs
+from scripts.log_analysis.artifact_requirements import audit_agent_run_logs
 
 
 AGENTS = ("agent_0", "agent_1", "agent_2")
@@ -38,7 +38,8 @@ CLAIM_RUNS = {
 def build_inventory(raw_root: Path) -> dict:
     groups = {}
     for name, run_ids in CLAIM_RUNS.items():
-        missing = missing_agent_run_logs(raw_root, agents=AGENTS, run_ids=run_ids)
+        audit = audit_agent_run_logs(raw_root, agents=AGENTS, run_ids=run_ids)
+        missing = audit["missing"]
         expected = len(AGENTS) * len(run_ids)
         groups[name] = {
             "run_ids": list(run_ids),
@@ -46,16 +47,22 @@ def build_inventory(raw_root: Path) -> dict:
             "present_agent_run_bundles": expected - len(missing),
             "complete": not missing,
             "missing": missing,
+            "excluded_terminal_only_sessions": audit["excluded_terminal_only"],
+            "excluded_terminal_only_session_count": len(audit["excluded_terminal_only"]),
+            "invalid_sessions": audit["invalid_sessions"],
+            "invalid_session_count": len(audit["invalid_sessions"]),
         }
     complete = all(group["complete"] for group in groups.values())
     return {
-        "schema_version": "kaetram-historical-artifact-inventory-v1",
+        "schema_version": "kaetram-historical-artifact-inventory-v2",
         "raw_root": str(raw_root),
         "complete": complete,
         "groups": groups,
         "warning": (
-            "A complete path inventory establishes availability, not authenticity. "
-            "Cryptographic manifests are still required for evidentiary use."
+            "Terminal-only interrupted sessions are excluded under a strict two-record "
+            "signature and listed above. Any other non-semantic session keeps its bundle "
+            "incomplete. A complete path inventory establishes availability, not "
+            "authenticity; cryptographic manifests are still required for evidentiary use."
         ),
     }
 

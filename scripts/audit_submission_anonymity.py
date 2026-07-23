@@ -15,6 +15,8 @@ ALLOWED_GITHUB_URLS = {
 ALLOWED_PDF_URLS = {
     *ALLOWED_GITHUB_URLS,
     "https://huggingface.co/collections/Qwen/qwen35",
+    "https://arxiv.org/abs/2506.03610",
+    "https://doi.org/10.18653/v1/2026.acl-long.1880",
 }
 
 _BIBTEX_ENTRY_TYPES = {
@@ -75,11 +77,6 @@ _REPOSITORY_REFERENCE = re.compile(
 )
 _SOCIAL_HANDLE = re.compile(r"(?<![A-Za-z0-9_\\])@([A-Za-z0-9_][A-Za-z0-9_.-]{1,})")
 _PDF_URL = re.compile(r"(?:https?|ftp)://\S+|mailto:\S+", re.IGNORECASE)
-_ARXIV_URL = re.compile(
-    r"https://arxiv\.org/abs/[0-9]{4}\.[0-9]{4,5}(?:v[0-9]+)?",
-    re.IGNORECASE,
-)
-_DOI_URL = re.compile(r"https://doi\.org/10\.\S+", re.IGNORECASE)
 
 
 def _line_number(text: str, position: int) -> int:
@@ -158,11 +155,7 @@ def audit_pdf_urls(label: str, pdf_url_text: str) -> list[str]:
                 findings.append(f"{label}:{line_number}: malformed PDF annotation URL")
             continue
         url = match.group(0).rstrip(".,;:")
-        if (
-            url.lower() not in allowed_exact
-            and _ARXIV_URL.fullmatch(url) is None
-            and _DOI_URL.fullmatch(url) is None
-        ):
+        if url.lower() not in allowed_exact:
             findings.append(f"{label}:{line_number}: non-allowlisted PDF annotation URL")
     return findings
 

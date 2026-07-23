@@ -16,6 +16,12 @@ Limitations are excluded from the content-page limit when placed correctly.
 Appendices are optional, must not carry the main argument, and remain
 double-column. The venue-specific NAACL call is not yet published, so recheck it
 and re-vendor the official template immediately before submission.
+As of July 23, the local ACL style and bibliography files are byte-identical to
+official `acl-org/acl-style-files` master commit
+`d5adc823ff0f80f98c80405ca0ab66c68e684409`; all 27 manuscript citation keys
+resolve. The Responsible NLP Checklist may be published with accepted papers,
+so the final answers must cite exact sections and disclose material AI
+assistance truthfully.
 
 ICLR 2027's call has not been published as of July 18. ICLR 2026 used September 19 for abstracts and September 24 for papers, so a similar late-September 2026 deadline is a planning estimate only. Do not represent it as confirmed.
 

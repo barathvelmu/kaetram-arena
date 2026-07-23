@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -12,6 +14,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -133,24 +136,81 @@ def _copy_exclusive(source: Path, destination: Path) -> None:
         os.close(source_fd)
 
 
+def _nested_strings(value: Any) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for key, nested in value.items():
+            yield from _nested_strings(key)
+            yield from _nested_strings(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            yield from _nested_strings(nested)
+
+
+def _decoded_text_fields(path: Path, raw_text: str) -> Iterator[str]:
+    try:
+        if path.suffix == ".json":
+            yield from _nested_strings(json.loads(raw_text))
+        elif path.suffix == ".jsonl":
+            for line_number, line in enumerate(raw_text.splitlines(), start=1):
+                if line.strip():
+                    try:
+                        value = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise ExportError(
+                            f"invalid staged JSONL at {path}:{line_number}"
+                        ) from exc
+                    yield from _nested_strings(value)
+        elif path.suffix == ".csv":
+            for row in csv.reader(io.StringIO(raw_text)):
+                yield from row
+    except json.JSONDecodeError as exc:
+        raise ExportError(f"invalid staged JSON: {path}") from exc
+
+
+def _scan_identity_text(
+    text: str,
+    *,
+    path: Path,
+    forbidden: tuple[str, ...],
+) -> None:
+    normalized = unicodedata.normalize("NFKC", text)
+    folded = normalized.casefold()
+    for fragment in forbidden:
+        if fragment in folded:
+            raise ExportError(
+                f"forbidden identity/path fragment in {path}: {fragment}"
+            )
+    for pattern in GENERIC_IDENTITY_PATTERNS:
+        if match := pattern.search(normalized):
+            raise ExportError(
+                f"identity-bearing pattern in {path}: {match.group(0)!r}"
+            )
+
+
 def _scan_public_text(paths: list[Path], forbidden: tuple[str, ...]) -> None:
-    casefolded = tuple(item.casefold() for item in forbidden if item)
+    normalized_forbidden = tuple(
+        unicodedata.normalize("NFKC", item).casefold()
+        for item in forbidden
+        if item
+    )
     for path in paths:
         try:
-            text = path.read_text(errors="strict")
+            raw_text = path.read_text(errors="strict")
         except UnicodeDecodeError as exc:
             raise ExportError(f"expected UTF-8 text artifact: {path}") from exc
-        folded = text.casefold()
-        for fragment in casefolded:
-            if fragment in folded:
-                raise ExportError(
-                    f"forbidden identity/path fragment in {path}: {fragment}"
-                )
-        for pattern in GENERIC_IDENTITY_PATTERNS:
-            if match := pattern.search(text):
-                raise ExportError(
-                    f"identity-bearing pattern in {path}: {match.group(0)!r}"
-                )
+        _scan_identity_text(
+            raw_text,
+            path=path,
+            forbidden=normalized_forbidden,
+        )
+        for decoded in _decoded_text_fields(path, raw_text):
+            _scan_identity_text(
+                decoded,
+                path=path,
+                forbidden=normalized_forbidden,
+            )
 
 
 def _validate_health_allowlist(

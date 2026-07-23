@@ -396,6 +396,34 @@ def test_rejects_identity_path_after_semantic_verification(tmp_path: Path) -> No
         _export(fixture, tmp_path / "public")
 
 
+def test_rejects_json_escaped_identity_path(tmp_path: Path) -> None:
+    fixture = _fixture(tmp_path)
+    run_dir = fixture["run_dirs"][0]
+    rows = _load_rows(run_dir / "results.jsonl")
+    message = {
+        "role": "assistant",
+        "content": "saved at /Users/private/secret.txt",
+    }
+    rows[0]["response_message"] = message
+    rows[0].update(probe.classify_response_message(message))
+    result_path = run_dir / "results.jsonl"
+    _write_rows(result_path, rows)
+    result_path.write_text(
+        result_path.read_text().replace(
+            "/Users/private/secret.txt",
+            r"\u002fUsers\u002fprivate\u002fsecret.txt",
+        )
+    )
+    assert "/Users/private" not in result_path.read_text()
+    assert _load_rows(result_path)[0]["response_message"]["content"] == message["content"]
+    _write_json(run_dir / "completed.json", _completed(rows, "base"))
+    _seal_run(run_dir, "study", "base")
+    _generate_analysis(fixture)
+
+    with pytest.raises(ExportError, match="identity-bearing pattern"):
+        _export(fixture, tmp_path / "public")
+
+
 def test_rejects_symlinked_input_directory(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     design_dir = fixture["design_dir"]

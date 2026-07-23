@@ -8,6 +8,7 @@ from pathlib import Path
 from scripts.audit_submission_anonymity import (
     ALLOWED_GITHUB_URLS,
     audit_pdf_metadata,
+    audit_pdf_urls,
     audit_submission,
     audit_text,
 )
@@ -50,6 +51,10 @@ def test_generic_audit_rejects_searchable_project_history() -> None:
         "Contact researcher@example.org.",
         "Status updates: @research_account",
         "See https://github.com/example/private-fork.",
+        "See github.com/example/private-fork.",
+        "See https://www.github.com/example/private-fork.",
+        "See https://gitlab.com/example/private-fork.",
+        "Clone git@github.com:example/private-fork.git.",
         f"See {next(iter(ALLOWED_GITHUB_URLS))}/issues/42.",
         "Built from commit abcdef1234567.",
         "The branch example/private-review was used.",
@@ -85,6 +90,26 @@ def test_generic_audit_rejects_identifying_pdf_metadata() -> None:
     assert audit_pdf_metadata("fixture", identifying)
     assert audit_pdf_metadata("fixture", unexpected_creator)
     assert audit_pdf_metadata("fixture", incomplete)
+
+
+def test_pdf_annotation_audit_allows_citations_and_rejects_hidden_links() -> None:
+    header = "Page  Type          URL\n"
+    clean = (
+        header
+        + "  1  Annotation    https://github.com/Kaetram/Kaetram-Open\n"
+        + "  2  Annotation    https://arxiv.org/abs/2506.03610\n"
+        + "  3  Annotation    https://doi.org/10.18653/v1/example\n"
+    )
+    hidden_repository = (
+        header
+        + "  1  Annotation    https://github.com/example/private-fork\n"
+    )
+    hidden_email = header + "  1  Annotation    mailto:researcher@example.org\n"
+
+    assert audit_pdf_urls("fixture", clean) == []
+    assert audit_pdf_urls("fixture", hidden_repository)
+    assert audit_pdf_urls("fixture", hidden_email)
+    assert audit_pdf_urls("fixture", "not pdfinfo output")
 
 
 def test_causal_figure_separates_parallel_training_from_runtime_factorial() -> None:

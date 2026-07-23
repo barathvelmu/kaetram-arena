@@ -10,6 +10,7 @@ aux_file="$build_dir/naacl_submission.aux"
 pdf_file="$build_dir/naacl_submission.pdf"
 pdf_text_file="$build_dir/naacl_submission.txt"
 pdf_info_file="$build_dir/naacl_submission.pdfinfo"
+pdf_urls_file="$build_dir/naacl_submission.urls"
 
 for command_name in latexmk pdfinfo pdftotext python3; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -41,12 +42,14 @@ if grep -Eq \
 fi
 
 pdfinfo "$pdf_file" >"$pdf_info_file"
+pdfinfo -url "$pdf_file" >"$pdf_urls_file"
 pdftotext "$pdf_file" "$pdf_text_file"
 python3 "$repo_root/scripts/audit_submission_anonymity.py" \
   --source "$source_dir/naacl_submission.tex" \
   --bibliography "$source_dir/submission.bib" \
   --pdf-text "$pdf_text_file" \
-  --pdf-info "$pdf_info_file"
+  --pdf-info "$pdf_info_file" \
+  --pdf-urls "$pdf_urls_file"
 
 page_size="$(awk -F: '/^Page size/{sub(/^[[:space:]]+/, "", $2); print $2}' "$pdf_info_file")"
 case "$page_size" in

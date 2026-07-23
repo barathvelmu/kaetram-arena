@@ -30,6 +30,9 @@ positions — the only positions the loss touches.
 Records staged on the checkpoint volume:
     modal volume put kaetram-model-vol \
         dataset/opd_2b/round2/records.jsonl /opd_2b/round2/records.jsonl
+    modal volume put kaetram-model-vol \
+        dataset/opd_2b/round2/records.manifest.json \
+        /opd_2b/round2/records.manifest.json
 
 Run:  modal run finetune/train_opd_2b.py            # LR 5e-5 (gentle: no IS correction,
                                                     # so don't run tinker's with-IS 1e-4 point)
@@ -81,8 +84,50 @@ train_image = (
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
     })
     .add_local_python_source("render")
+    .add_local_python_source("bootstrap")
+    .add_local_python_source("canonical_start")
+    .add_local_python_source("eval_harness")
+    .add_local_python_source("inference_seed")
+    .add_local_python_source("port_probe")
+    .add_local_python_source("run_manifest")
+    .add_local_python_source("tool_surface")
+    .add_local_python_source("scripts.log_analysis.parse")
     .add_local_python_source("scripts.opd.guided_opd_contract")
     .add_local_python_source("scripts.opd.guided_opd_schedule")
+    .add_local_python_source("scripts.opd.canonicalize")
+    .add_local_python_source("heldout_guard")
+    .add_local_python_source("scripts.opd.record_schema")
+    .add_local_python_source("scripts.opd.opd_2b_data")
+    .add_local_python_source("scripts.opd.opd_data_manifest")
+    .add_local_python_source("scripts.opd.opd_probe")
+    .add_local_python_source("scripts.opd.opd_round1")
+    .add_local_python_source("scripts.opd.opd_wall_probe")
+    .add_local_python_source("scripts.opd.receipt_chain")
+    .add_local_python_source("scripts.opd.make_uniform_advantages")
+    .add_local_python_source("scripts.opd.resample_records")
+    .add_local_python_source("scripts.opd.training_record_bundle")
+    .add_local_file("prompts/system.md", "/root/prompts/system.md")
+    .add_local_file("prompts/game_knowledge.md", "/root/prompts/game_knowledge.md")
+    .add_local_file(
+        "prompts/personalities/completionist.md",
+        "/root/prompts/personalities/completionist.md",
+    )
+    .add_local_file(
+        "prompts/personalities/explorer_tinkerer.md",
+        "/root/prompts/personalities/explorer_tinkerer.md",
+    )
+    .add_local_file(
+        "prompts/personalities/grinder.md",
+        "/root/prompts/personalities/grinder.md",
+    )
+    .add_local_file(
+        "research/experiments/heldout-quest-v2.json",
+        "/root/research/experiments/heldout-quest-v2.json",
+    )
+    .add_local_file(
+        "research/experiments/heldout-quest.json",
+        "/root/research/experiments/heldout-quest.json",
+    )
 )
 
 # Round-parametrized via the CLI (see main); these are the round-2 defaults.
@@ -90,6 +135,7 @@ train_image = (
 # policy that generated the round-2 rollouts (run_20260610_140358 + seeded).
 OPD_EXPERIMENT = "kaetram-qwen3.5-2b-opd-r2"
 RECORDS_PATH = "/checkpoints/opd_2b/round2/records.jsonl"
+RECORDS_MANIFEST_PATH = "/checkpoints/opd_2b/round2/records.manifest.json"
 INIT_MODEL = "/checkpoints/kaetram-qwen3.5-2b-opd-r1/merged"
 
 EPOCHS = 1
@@ -108,8 +154,7 @@ with train_image.imports():
     from unsloth import FastLanguageModel
 
 
-def _load_records(path, backend_plan_path=""):
-    import json
+def _load_records(path, backend_plan_path="", records_manifest_path=""):
     if backend_plan_path:
         from scripts.opd.guided_opd_contract import load_guided_training_bundle
         load_guided_training_bundle(path, backend_plan_path)
@@ -118,14 +163,8 @@ def _load_records(path, backend_plan_path=""):
             "trainer does not implement live mixed actor turns with reverse KL on student "
             "turns and forward KL on teacher turns"
         )
-    recs = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                recs.append(json.loads(line))
-    if not all(isinstance(record, dict) for record in recs):
-        raise RuntimeError("OPD records must be JSON objects")
+    from scripts.opd.training_record_bundle import load_verified_training_records
+    recs = load_verified_training_records(path, records_manifest_path)
 
     def has_guided_marker(record):
         semantics = record.get("semantics")
@@ -251,6 +290,7 @@ def _make_trainer_cls():
 def train_opd(max_steps: int = -1, lr: float = 5e-5,
               init_model: str = INIT_MODEL,
               records_path: str = RECORDS_PATH,
+              records_manifest_path: str = RECORDS_MANIFEST_PATH,
               backend_plan_path: str = "",
               experiment: str = OPD_EXPERIMENT):
     import gc
@@ -261,7 +301,7 @@ def train_opd(max_steps: int = -1, lr: float = 5e-5,
 
     # Reject any schema, provenance, or rollout-trace drift before loading the
     # model or starting accelerator work.
-    recs = _load_records(records_path, backend_plan_path)
+    recs = _load_records(records_path, backend_plan_path, records_manifest_path)
 
     print(f"Loading {init_model} with a FRESH LoRA (init == rollout policy)...")
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -354,8 +394,11 @@ def train_opd(max_steps: int = -1, lr: float = 5e-5,
 def main(max_steps: int = -1, lr: float = 5e-5,
          init_model: str = INIT_MODEL,
          records_path: str = RECORDS_PATH,
+         records_manifest_path: str = RECORDS_MANIFEST_PATH,
          backend_plan_path: str = "",
          experiment: str = OPD_EXPERIMENT):
     train_opd.remote(max_steps=max_steps, lr=lr, init_model=init_model,
-                     records_path=records_path, backend_plan_path=backend_plan_path,
+                     records_path=records_path,
+                     records_manifest_path=records_manifest_path,
+                     backend_plan_path=backend_plan_path,
                      experiment=experiment)

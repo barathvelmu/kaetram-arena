@@ -4,6 +4,8 @@ Original records are retained in order and exact raw records are sampled with
 replacement using a fixed seed. The transformer validates every source line,
 refuses in-place or accidental overwrite, writes atomically, and emits an
 attested manifest with source, output, script, and sampled-index hashes.
+The source must have an adjacent ``.manifest.json`` receipt; the complete
+validated parent chain is embedded in the derived receipt.
 
 Usage:
   python3 scripts/opd/resample_records.py \
@@ -21,6 +23,12 @@ import tempfile
 from pathlib import Path
 
 try:
+    from .receipt_chain import (
+        RESAMPLE_MANIFEST_SCHEMA_VERSION,
+        ReceiptChainError,
+        canonical_sha256,
+        validate_receipt_chain,
+    )
     from .record_schema import (
         OPD_TRAIN_RECORD_SCHEMA_SHA256,
         OPD_TRAIN_RECORD_SCHEMA_VERSION,
@@ -29,6 +37,12 @@ try:
         validate_opd_train_record,
     )
 except ImportError:  # direct `python scripts/opd/...` execution
+    from receipt_chain import (  # type: ignore[no-redef]
+        RESAMPLE_MANIFEST_SCHEMA_VERSION,
+        ReceiptChainError,
+        canonical_sha256,
+        validate_receipt_chain,
+    )
     from record_schema import (  # type: ignore[no-redef]
         OPD_TRAIN_RECORD_SCHEMA_SHA256,
         OPD_TRAIN_RECORD_SCHEMA_VERSION,
@@ -38,7 +52,7 @@ except ImportError:  # direct `python scripts/opd/...` execution
     )
 
 
-MANIFEST_SCHEMA_VERSION = "resampled-records-manifest-v2"
+MANIFEST_SCHEMA_VERSION = RESAMPLE_MANIFEST_SCHEMA_VERSION
 
 
 class ArtifactBuildError(ValueError):
@@ -73,6 +87,16 @@ def _validate_lines(payload: bytes) -> list[bytes]:
     return lines
 
 
+def _publish_create_only(temporary: Path, destination: Path) -> None:
+    try:
+        os.link(temporary, destination)
+    except FileExistsError as exc:
+        raise ArtifactBuildError(
+            f"refusing to replace a concurrently created artifact: {destination}"
+        ) from exc
+    temporary.unlink()
+
+
 def resample_records(
     src: Path,
     dst: Path,
@@ -96,8 +120,24 @@ def resample_records(
         raise ArtifactBuildError(f"output directory does not exist: {dst.parent}")
     if target <= 0:
         raise ArtifactBuildError("target must be positive")
+    script_path = Path(__file__).resolve()
+    script_sha256 = _sha256(script_path)
 
     source_payload = src.read_bytes()
+    source_manifest_path = src.with_suffix(".manifest.json")
+    if not source_manifest_path.is_file():
+        raise ArtifactBuildError(
+            f"source provenance manifest is required: {source_manifest_path}"
+        )
+    try:
+        source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+        validate_receipt_chain(
+            source_manifest,
+            expected_output_sha256=_sha256_bytes(source_payload),
+            repo_root=Path(__file__).resolve().parents[2],
+        )
+    except (OSError, json.JSONDecodeError, ReceiptChainError) as exc:
+        raise ArtifactBuildError(f"invalid source provenance chain: {exc}") from exc
     lines = _validate_lines(source_payload)
     n_original = len(lines)
     if n_original >= target:
@@ -115,13 +155,17 @@ def resample_records(
     sampled_index_payload = json.dumps(
         sampled_indices, separators=(",", ":")
     ).encode("ascii")
+    if _sha256(script_path) != script_sha256:
+        raise ArtifactBuildError("transformer source changed during the build")
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "source": str(src),
         "source_sha256": _sha256_bytes(source_payload),
+        "parent_manifest": source_manifest,
+        "parent_manifest_sha256": canonical_sha256(source_manifest),
         "output": str(dst),
         "output_sha256": _sha256_bytes(output_payload),
-        "script_sha256": _sha256(Path(__file__).resolve()),
+        "script_sha256": script_sha256,
         "record_schema_version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
         "record_schema_sha256": OPD_TRAIN_RECORD_SCHEMA_SHA256,
         "record_schema_validator_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,
@@ -153,8 +197,8 @@ def resample_records(
                 handle.flush()
                 os.fsync(handle.fileno())
                 tmp_paths.append(Path(handle.name))
-        os.replace(tmp_paths[0], dst)
-        os.replace(tmp_paths[1], manifest_path)
+        _publish_create_only(tmp_paths[0], dst)
+        _publish_create_only(tmp_paths[1], manifest_path)
         return manifest
     finally:
         for path in tmp_paths:

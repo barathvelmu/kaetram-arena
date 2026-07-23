@@ -7,12 +7,12 @@ import math
 from pathlib import Path
 
 
-OPD_TRAIN_RECORD_SCHEMA_VERSION = "kaetram-opd-train-record-v1"
+OPD_TRAIN_RECORD_SCHEMA_VERSION = "kaetram-opd-train-record-v2"
 OPD_TRAIN_RECORD_SCHEMA = {
     "version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
     "required": {
-        "input_ids": "nonempty list[int>=0]",
-        "labels": "aligned list[int] with at least one supervised token",
+        "input_ids": "list[int>=0] of length >= 2",
+        "labels": "aligned list[int], position 0 ignored, with a supervised token after it",
         "advantages": "aligned list[finite number]",
         "behavior_logprobs": "aligned list[finite number]",
         "step_weight": "finite number > 0",
@@ -28,6 +28,8 @@ OPD_TRAIN_RECORD_SCHEMA = {
         "supervised labels equal corresponding input_ids",
         "ignored labels form a contiguous context prefix",
         "ignored positions have zero advantage and behavior_logprob",
+        "behavior log-probabilities are non-positive",
+        "n_action counts supervised targets after the causal shift",
     ],
 }
 OPD_TRAIN_RECORD_VALIDATOR_SHA256 = hashlib.sha256(
@@ -80,11 +82,11 @@ def validate_opd_train_record(record: object, *, line_number: int) -> dict:
     input_ids = record["input_ids"]
     if (
         not isinstance(input_ids, list)
-        or not input_ids
+        or len(input_ids) < 2
         or any(not _integer(value) or value < 0 for value in input_ids)
     ):
         raise RecordSchemaError(
-            f"record {line_number} input_ids must be a nonempty list of nonnegative integers"
+            f"record {line_number} input_ids must contain at least two nonnegative integers"
         )
 
     expected = len(input_ids)
@@ -97,9 +99,14 @@ def validate_opd_train_record(record: object, *, line_number: int) -> dict:
         raise RecordSchemaError(
             f"record {line_number} labels must be an integer list aligned with input_ids"
         )
-    if all(value == -100 for value in labels):
+    if labels[0] != -100:
         raise RecordSchemaError(
-            f"record {line_number} has no supervised label token"
+            f"record {line_number} label position 0 must be ignored because the "
+            "causal trainer drops it"
+        )
+    if all(value == -100 for value in labels[1:]):
+        raise RecordSchemaError(
+            f"record {line_number} has no supervised label token after the causal shift"
         )
 
     for field in ("advantages", "behavior_logprobs"):
@@ -113,6 +120,10 @@ def validate_opd_train_record(record: object, *, line_number: int) -> dict:
                 f"record {line_number} {field} must be a finite numeric list "
                 "aligned with input_ids"
             )
+    if any(float(value) > 0.0 for value in record["behavior_logprobs"]):
+        raise RecordSchemaError(
+            f"record {line_number} behavior_logprobs must be non-positive log-probabilities"
+        )
 
     saw_supervised = False
     for index, (input_id, label, advantage, behavior_logprob) in enumerate(
@@ -148,9 +159,9 @@ def validate_opd_train_record(record: object, *, line_number: int) -> dict:
     n_action = record.get("n_action")
     if n_action is not None and (
         not _integer(n_action)
-        or n_action != sum(label != -100 for label in labels)
+        or n_action != sum(label != -100 for label in labels[1:])
     ):
         raise RecordSchemaError(
-            f"record {line_number} n_action must equal the supervised-token count"
+            f"record {line_number} n_action must equal the post-shift supervised-token count"
         )
     return record

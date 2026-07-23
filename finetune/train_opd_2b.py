@@ -30,6 +30,9 @@ positions — the only positions the loss touches.
 Records staged on the checkpoint volume:
     modal volume put kaetram-model-vol \
         dataset/opd_2b/round2/records.jsonl /opd_2b/round2/records.jsonl
+    modal volume put kaetram-model-vol \
+        dataset/opd_2b/round2/records.manifest.json \
+        /opd_2b/round2/records.manifest.json
 
 Run:  modal run finetune/train_opd_2b.py            # LR 5e-5 (gentle: no IS correction,
                                                     # so don't run tinker's with-IS 1e-4 point)
@@ -83,6 +86,11 @@ train_image = (
     .add_local_python_source("render")
     .add_local_python_source("scripts.opd.guided_opd_contract")
     .add_local_python_source("scripts.opd.guided_opd_schedule")
+    .add_local_python_source("scripts.opd.record_schema")
+    .add_local_python_source("scripts.opd.attest_training_records")
+    .add_local_python_source("scripts.opd.make_uniform_advantages")
+    .add_local_python_source("scripts.opd.resample_records")
+    .add_local_python_source("scripts.opd.training_record_bundle")
 )
 
 # Round-parametrized via the CLI (see main); these are the round-2 defaults.
@@ -90,6 +98,7 @@ train_image = (
 # policy that generated the round-2 rollouts (run_20260610_140358 + seeded).
 OPD_EXPERIMENT = "kaetram-qwen3.5-2b-opd-r2"
 RECORDS_PATH = "/checkpoints/opd_2b/round2/records.jsonl"
+RECORDS_MANIFEST_PATH = "/checkpoints/opd_2b/round2/records.manifest.json"
 INIT_MODEL = "/checkpoints/kaetram-qwen3.5-2b-opd-r1/merged"
 
 EPOCHS = 1
@@ -108,7 +117,7 @@ with train_image.imports():
     from unsloth import FastLanguageModel
 
 
-def _load_records(path, backend_plan_path=""):
+def _load_records(path, backend_plan_path="", records_manifest_path=""):
     import json
     if backend_plan_path:
         from scripts.opd.guided_opd_contract import load_guided_training_bundle
@@ -142,7 +151,8 @@ def _load_records(path, backend_plan_path=""):
             "Guided-OPD records require --backend-plan-path for fail-closed "
             "schema, provenance, role-schedule, and mixed-trajectory validation"
         )
-    return recs
+    from scripts.opd.training_record_bundle import load_verified_training_records
+    return load_verified_training_records(path, records_manifest_path)
 
 
 def _opd_collator(features):
@@ -251,6 +261,7 @@ def _make_trainer_cls():
 def train_opd(max_steps: int = -1, lr: float = 5e-5,
               init_model: str = INIT_MODEL,
               records_path: str = RECORDS_PATH,
+              records_manifest_path: str = RECORDS_MANIFEST_PATH,
               backend_plan_path: str = "",
               experiment: str = OPD_EXPERIMENT):
     import gc
@@ -261,7 +272,7 @@ def train_opd(max_steps: int = -1, lr: float = 5e-5,
 
     # Reject any schema, provenance, or rollout-trace drift before loading the
     # model or starting accelerator work.
-    recs = _load_records(records_path, backend_plan_path)
+    recs = _load_records(records_path, backend_plan_path, records_manifest_path)
 
     print(f"Loading {init_model} with a FRESH LoRA (init == rollout policy)...")
     model, tokenizer = FastLanguageModel.from_pretrained(
@@ -354,8 +365,11 @@ def train_opd(max_steps: int = -1, lr: float = 5e-5,
 def main(max_steps: int = -1, lr: float = 5e-5,
          init_model: str = INIT_MODEL,
          records_path: str = RECORDS_PATH,
+         records_manifest_path: str = RECORDS_MANIFEST_PATH,
          backend_plan_path: str = "",
          experiment: str = OPD_EXPERIMENT):
     train_opd.remote(max_steps=max_steps, lr=lr, init_model=init_model,
-                     records_path=records_path, backend_plan_path=backend_plan_path,
+                     records_path=records_path,
+                     records_manifest_path=records_manifest_path,
+                     backend_plan_path=backend_plan_path,
                      experiment=experiment)

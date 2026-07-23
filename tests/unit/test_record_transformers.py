@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.opd.attest_training_records import attest_training_records
 from scripts.opd.make_uniform_advantages import (
     ArtifactBuildError as UniformBuildError,
 )
@@ -14,6 +15,10 @@ from scripts.opd.resample_records import (
     ArtifactBuildError as ResampleBuildError,
 )
 from scripts.opd.resample_records import resample_records
+from scripts.opd.training_record_bundle import (
+    TrainingRecordBundleError,
+    load_verified_training_records,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -28,14 +33,15 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
 
 
 def _record(record_id: int, advantages: list[float]) -> dict:
-    size = len(advantages)
+    target_ids = list(range(2, len(advantages) + 2))
     return {
         "record_id": record_id,
-        "input_ids": list(range(1, size + 1)),
-        "labels": list(range(1, size + 1)),
-        "behavior_logprobs": [0.0] * size,
-        "advantages": advantages,
+        "input_ids": [1] + target_ids,
+        "labels": [-100] + target_ids,
+        "behavior_logprobs": [0.0] + [-1.0] * len(advantages),
+        "advantages": [0.0] + advantages,
         "step_weight": 1.0,
+        "n_action": len(advantages),
     }
 
 
@@ -46,7 +52,7 @@ def test_uniform_advantages_preserves_mask_and_attests_bytes(tmp_path: Path) -> 
         source,
         [
             {
-                **_record(0, [0.0, -1.0, 3.0]),
+                **_record(0, [-1.0, 3.0]),
                 "labels": [-100, 2, 3],
                 "behavior_logprobs": [0.0, -1.0, -2.0],
             },
@@ -57,11 +63,11 @@ def test_uniform_advantages_preserves_mask_and_attests_bytes(tmp_path: Path) -> 
     manifest = build_uniform_advantages(source, output)
     records = [json.loads(line) for line in output.read_text().splitlines()]
     assert records[0]["advantages"] == [0.0, 2.0, 2.0]
-    assert records[1]["advantages"] == [2.0, 0.0]
+    assert records[1]["advantages"] == [0.0, 2.0, 0.0]
     assert manifest["c"] == 2.0
     assert manifest["source_sha256"] == _sha256(source)
     assert manifest["output_sha256"] == _sha256(output)
-    assert manifest["record_schema_version"] == "kaetram-opd-train-record-v1"
+    assert manifest["record_schema_version"] == "kaetram-opd-train-record-v2"
     assert len(manifest["record_schema_sha256"]) == 64
     assert len(manifest["record_schema_validator_sha256"]) == 64
     assert json.loads(output.with_suffix(".manifest.json").read_text()) == manifest
@@ -76,7 +82,7 @@ def test_uniform_advantages_preserves_mask_and_attests_bytes(tmp_path: Path) -> 
             "finite numeric list",
         ),
         (
-            {**_record(0, [1.0, 2.0]), "input_ids": [1]},
+            {**_record(0, [1.0, 2.0]), "input_ids": [1, 2]},
             "aligned",
         ),
     ],
@@ -119,7 +125,7 @@ def test_resample_is_deterministic_exact_count_and_attested(tmp_path: Path) -> N
     assert lines_a == lines_b
     assert lines_a[:3] == source.read_bytes().splitlines()
     assert manifest_a["output_sha256"] == _sha256(output_a)
-    assert manifest_a["record_schema_version"] == "kaetram-opd-train-record-v1"
+    assert manifest_a["record_schema_version"] == "kaetram-opd-train-record-v2"
     assert len(manifest_a["record_schema_sha256"]) == 64
     assert len(manifest_a["record_schema_validator_sha256"]) == 64
     assert manifest_a["sampled_indices_sha256"] == manifest_b["sampled_indices_sha256"]
@@ -156,21 +162,22 @@ def test_transformers_reject_noncanonical_json_objects(tmp_path: Path) -> None:
         (
             {
                 **_record(0, [100.0, 1.0]),
-                "labels": [-100, 2],
+                "labels": [-100, 2, 3],
+                "advantages": [100.0, 1.0, 1.0],
             },
             "ignored position 0 must have zero",
         ),
         (
             {
                 **_record(0, [0.0, 1.0]),
-                "labels": [-100, 1],
+                "labels": [-100, 1, 3],
             },
             "must equal input_id",
         ),
         (
             {
                 **_record(0, [0.0, 1.0, 0.0]),
-                "labels": [-100, 2, -100],
+                "labels": [-100, 2, -100, 4],
             },
             "contiguous prefix",
         ),
@@ -187,3 +194,85 @@ def test_transformers_reject_training_corrupting_mask_geometry(
         build_uniform_advantages(source, tmp_path / "uniform.jsonl")
     with pytest.raises(ResampleBuildError, match=match):
         resample_records(source, tmp_path / "resampled.jsonl", target=2, seed=1)
+
+
+@pytest.mark.parametrize(
+    "mutation,match",
+    [
+        ({"labels": [1, 2]}, "label position 0"),
+        (
+            {
+                "input_ids": [1, 2],
+                "labels": [-100, 2],
+                "advantages": [0.0, 1.0],
+                "behavior_logprobs": [0.0, 0.1],
+                "step_weight": 1.0,
+            },
+            "non-positive",
+        ),
+        (
+            {
+                "input_ids": [1],
+                "labels": [-100],
+                "advantages": [0.0],
+                "behavior_logprobs": [0.0],
+                "step_weight": 1.0,
+            },
+            "at least two",
+        ),
+        ({"n_action": 99}, "post-shift"),
+    ],
+)
+def test_causal_training_schema_rejects_unusable_records(
+    tmp_path: Path,
+    mutation: dict,
+    match: str,
+) -> None:
+    record = _record(0, [1.0])
+    record.update(mutation)
+    source = tmp_path / "source.jsonl"
+    _write_jsonl(source, [record])
+    with pytest.raises(UniformBuildError, match=match):
+        build_uniform_advantages(source, tmp_path / "uniform.jsonl")
+
+
+def test_trainer_bundle_verifies_receipt_transform_and_parameters(tmp_path: Path) -> None:
+    source = tmp_path / "source.jsonl"
+    output = tmp_path / "uniform.jsonl"
+    _write_jsonl(source, [_record(0, [-1.0, 3.0]), _record(1, [2.0])])
+    build_uniform_advantages(source, output)
+    loaded = load_verified_training_records(
+        output, output.with_suffix(".manifest.json")
+    )
+    assert len(loaded) == 2
+
+    manifest_path = output.with_suffix(".manifest.json")
+    manifest = json.loads(manifest_path.read_text())
+    manifest["n_records"] = 999
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(TrainingRecordBundleError, match="n_records mismatch"):
+        load_verified_training_records(output, manifest_path)
+
+
+def test_trainer_bundle_rejects_missing_receipt_and_byte_tamper(tmp_path: Path) -> None:
+    source = tmp_path / "source.jsonl"
+    output = tmp_path / "resampled.jsonl"
+    _write_jsonl(source, [_record(0, [1.0]), _record(1, [2.0])])
+    resample_records(source, output, target=3, seed=42)
+    manifest_path = output.with_suffix(".manifest.json")
+
+    with pytest.raises(TrainingRecordBundleError, match="required"):
+        load_verified_training_records(output, "")
+    output.write_bytes(output.read_bytes() + b"\n")
+    with pytest.raises(TrainingRecordBundleError, match="SHA-256"):
+        load_verified_training_records(output, manifest_path)
+
+
+def test_identity_receipt_supports_canonical_untransformed_records(
+    tmp_path: Path,
+) -> None:
+    records = tmp_path / "records.jsonl"
+    receipt = tmp_path / "records.manifest.json"
+    _write_jsonl(records, [_record(0, [1.0]), _record(1, [-2.0])])
+    attest_training_records(records, receipt)
+    assert len(load_verified_training_records(records, receipt)) == 2

@@ -17,6 +17,7 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
+from heldout_guard import HeldOutGuardError, load_registration  # noqa: E402
 from scripts.opd.matched_training import (  # noqa: E402
     EXPECTED_CONSTRUCTORS,
     FIRST_ERROR_ARMS,
@@ -794,9 +795,10 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
         {
             "source_git_commit", "experiment_manifest_sha256",
             "base_checkpoint_artifact_id", "teacher_artifact_id", "teacher_endpoint_env",
-            "held_out_registration_artifact_id", "interface_contract_id", "frozen_interfaces",
-            "parameterization", "parameterization_sha256", "optimizer", "budgets",
-            "artifact_registry", "artifact_root",
+            "held_out_registration_artifact_id", "held_out_registration",
+            "interface_contract_id", "frozen_interfaces", "parameterization",
+            "parameterization_sha256", "optimizer", "budgets", "artifact_registry",
+            "artifact_root",
         },
         label="shared_contract",
     )
@@ -836,30 +838,55 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
         artifacts, teacher_id, artifact_root=material_root, expected_kind="teacher_attestation"
     )
     heldout = _mapping(artifacts.get(heldout_id), label=f"artifact {heldout_id}")
+    _exact_keys(
+        heldout,
+        {"kind", "status", "payload"},
+        label=f"artifact {heldout_id}",
+    )
     if heldout.get("status") != "verified" or heldout.get("kind") != "heldout_registration":
         raise ProtocolError("held-out registration artifact must be verified")
-    aliases = heldout.get("aliases")
-    if not isinstance(aliases, list) or not aliases or not all(isinstance(alias, str) and alias for alias in aliases):
-        raise ProtocolError("held-out registration aliases are invalid")
-    tokenizer_vocab_size = heldout.get("tokenizer_vocab_size")
-    if not isinstance(tokenizer_vocab_size, int) or isinstance(tokenizer_vocab_size, bool) \
-            or tokenizer_vocab_size < 1:
-        raise ProtocolError("held-out registration tokenizer_vocab_size is invalid")
-    forbidden_token_sequences = heldout.get("forbidden_token_sequences")
-    if not isinstance(forbidden_token_sequences, list) or not forbidden_token_sequences:
-        raise ProtocolError("held-out registration must include forbidden token sequences")
-    if not all(
-        isinstance(sequence, list)
-        and sequence
-        and all(
-            isinstance(token, int)
-            and not isinstance(token, bool)
-            and 0 <= token < tokenizer_vocab_size
-            for token in sequence
-        )
-        for sequence in forbidden_token_sequences
+    heldout_ref = _mapping(
+        shared.get("held_out_registration"),
+        label="shared_contract.held_out_registration",
+    )
+    _exact_keys(heldout_ref, {"path", "sha256"}, label="shared_contract.held_out_registration")
+    heldout_raw_path = heldout_ref.get("path")
+    if not isinstance(heldout_raw_path, str) or not heldout_raw_path:
+        raise ProtocolError("held-out registration path must be non-empty")
+    declared_heldout_path = Path(heldout_raw_path)
+    heldout_path = _inside_repo(
+        declared_heldout_path if declared_heldout_path.is_absolute()
+        else REPO / declared_heldout_path,
+        label="held-out registration",
+    )
+    heldout_sha = _digest(
+        heldout_ref.get("sha256"),
+        label="held-out registration SHA-256",
+    )
+    payload = _mapping(heldout.get("payload"), label=f"artifact {heldout_id}.payload")
+    _exact_keys(payload, {"uri", "sha256"}, label=f"artifact {heldout_id}.payload")
+    expected_uri = f"repo:{heldout_path.relative_to(REPO).as_posix()}"
+    if payload.get("uri") != expected_uri or payload.get("sha256") != heldout_sha:
+        raise ProtocolError("registry and cell disagree on the held-out registration")
+    if not heldout_path.is_file() or _sha256(heldout_path) != heldout_sha:
+        raise ProtocolError("held-out registration material SHA-256 mismatch")
+    try:
+        registration = load_registration(heldout_path)
+    except HeldOutGuardError as exc:
+        raise ProtocolError(f"invalid held-out registration: {exc}") from exc
+    aliases = list(registration.training_exclusion_terms)
+    tokenizer_vocab_size = registration.tokenizer_vocab_size
+    forbidden_token_sequences = [
+        list(sequence) for sequence in registration.forbidden_token_sequences
+    ]
+    if (
+        not aliases
+        or tokenizer_vocab_size < 1
+        or not forbidden_token_sequences
     ):
-        raise ProtocolError("held-out registration forbidden token sequences are invalid")
+        raise ProtocolError(
+            "matched training requires a tokenizer-bound v2 held-out registration"
+        )
 
     training_artifact_id = arm.get("training_artifact_id")
     artifact, source_path, source_payload_sha = _verified_material(

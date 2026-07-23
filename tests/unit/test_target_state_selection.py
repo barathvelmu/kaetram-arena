@@ -91,7 +91,9 @@ def _config(tmp_path: Path, max_states: int = 2) -> Path:
     path.write_text(json.dumps({
         "schema_version": 2,
         "experiment_id": "target-player-test-v2",
-        "held_out_registration": str(REPO / "research" / "experiments" / "heldout-quest.json"),
+        "held_out_registration": str(
+            REPO / "research" / "experiments" / "heldout-quest-v2.json"
+        ),
         "random_seed": 7,
         "max_states": max_states,
         "confidence_level": 0.95,

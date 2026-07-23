@@ -36,9 +36,12 @@ non-empty, contiguous correction target; prefix labels must be masked; and
 SHA-256 digests of both token regions must match the record semantics. An
 opaque first-error evidence digest alone is not treated as a token boundary.
 
-The adapter rechecks the held-out exclusion registration, scans model-visible
-state/history for held-out aliases, rejects duplicate records, and requires the
-aggregate source bundle to exactly fill all three registered budgets.
+The adapter rechecks the exact path and SHA-256 of the locked v2 held-out
+registration. It derives the complete alias set, tokenizer vocabulary bound,
+and forbidden token sequences from that file—not from editable registry
+metadata—then scans model-visible state/history and token IDs. It rejects
+duplicate records and requires the aggregate source bundle to exactly fill all
+three registered budgets.
 
 ## Curriculum handling
 

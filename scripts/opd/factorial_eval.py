@@ -27,6 +27,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from heldout_guard import HeldOutGuardError, validate_eval_selection  # noqa: E402
+from eval_harness import resolve_system_prompt  # noqa: E402
 from inference_seed import validate_inference_seed  # noqa: E402
 from run_manifest import (  # noqa: E402
     ManifestError,
@@ -497,6 +498,19 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
                 "evaluation held-out registration digest mismatch: "
                 f"recorded={expected_registration_sha}, actual={actual_registration_sha}"
             )
+        try:
+            for personality in REQUIRED_PERSONALITIES:
+                resolve_system_prompt(
+                    str(REPO),
+                    "HeldoutPromptAudit",
+                    personality,
+                    include_game_knowledge=False,
+                    held_out_quest=registration.quest_name,
+                    held_out_registration=registration,
+                    prompt_agent_name="HeldoutPromptAudit",
+                )
+        except HeldOutGuardError as exc:
+            raise ManifestError(str(exc)) from exc
     elif registration_raw:
         raise ManifestError("held_out_registration must be empty when held_out_quest is empty")
     elif registration_sha_raw:

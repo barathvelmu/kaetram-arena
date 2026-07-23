@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,47 @@ def test_no_game_knowledge_prompt_targets_preregistered_quest_without_walkthroug
     assert "your sole objective is to complete Desert Quest" in prompt
     assert "Dying Soldier" not in prompt
     assert prompt.count("Desert Quest") == 1
+
+
+@pytest.mark.parametrize(
+    "personality",
+    ["grinder", "completionist", "explorer_tinkerer"],
+)
+def test_every_required_personality_passes_complete_heldout_prompt_guard(
+    personality: str,
+) -> None:
+    registration = load_registration()
+    prompt = resolve_system_prompt(
+        str(REPO),
+        "evalbot",
+        personality,
+        include_game_knowledge=False,
+        held_out_quest=registration.quest_name,
+        held_out_registration=registration,
+    )
+    objective = "your sole objective is to complete Desert Quest"
+    assert objective in prompt
+    outside_objective = prompt.replace(objective, "")
+    assert all(
+        marker.casefold() not in outside_objective.casefold()
+        for marker in registration.prompt_forbidden_markers
+    )
+
+
+def test_resolved_prompt_guard_rejects_personality_hint(tmp_path: Path) -> None:
+    (tmp_path / "prompts" / "personalities").mkdir(parents=True)
+    shutil.copy(REPO / "prompts" / "system.md", tmp_path / "prompts" / "system.md")
+    (tmp_path / "prompts" / "personalities" / "leaky.md").write_text(
+        "Go find Wife in crullfield."
+    )
+    with pytest.raises(HeldOutGuardError, match="prompt leakage"):
+        resolve_system_prompt(
+            str(tmp_path),
+            "evalbot",
+            "leaky",
+            include_game_knowledge=False,
+            held_out_quest="Desert Quest",
+        )
 
 
 def test_eval_episode_sets_tool_boundary_policy_env(tmp_path: Path, monkeypatch):
@@ -93,6 +135,9 @@ def test_default_registration_is_locked_and_eval_only():
     assert registration.allowed_uses == {"evaluation"}
     assert {"training_seed", "teacher_grading"}.issubset(registration.forbidden_uses)
     assert validate_eval_selection("desertquest") == registration
+    assert registration.prompt_forbidden_markers
+    assert registration.forbidden_token_sequences
+    assert registration.tokenizer_vocab_size == 248077
 
 
 def test_registration_mismatch_and_unlocked_copy_fail_closed(tmp_path: Path):

@@ -34,6 +34,8 @@ from pathlib import Path
 from heldout_guard import (
     DEFAULT_REGISTRATION,
     HeldOutRegistration,
+    HeldOutGuardError,
+    assert_prompt_not_reserved,
     normalize_quest,
     validate_eval_selection,
 )
@@ -405,6 +407,7 @@ def resolve_system_prompt(
     *,
     include_game_knowledge: bool = True,
     held_out_quest: str = "",
+    held_out_registration: HeldOutRegistration | None = None,
     prompt_agent_name: str = "",
 ) -> str:
     """Resolve system.md with optional knowledge and held-out task targeting."""
@@ -435,6 +438,13 @@ def resolve_system_prompt(
     prompt = prompt.replace("__PROJECT_DIR__", project_dir)
     prompt = prompt.replace("__SERVER_PORT__", "")
     if held_out_quest:
+        registration = held_out_registration or validate_eval_selection(
+            held_out_quest, DEFAULT_REGISTRATION
+        )
+        if normalize_quest(held_out_quest) not in registration.normalized_aliases:
+            raise HeldOutGuardError(
+                "held-out prompt target does not match its locked registration"
+            )
         # Remove the two static Desert Quest utility hints from system.md when
         # that quest is held out. The only remaining name occurrence is the
         # target declaration below; mechanics must be discovered live.
@@ -450,9 +460,15 @@ def resolve_system_prompt(
                 "Some destination warps are quest-gated and fail silently; only use warps "
                 "you have observed as unlocked.",
             )
+        assert_prompt_not_reserved(
+            prompt,
+            registration=registration,
+            source=f"resolved personality {personality or 'none'}",
+        )
         target = (
             "\n\n<held_out_evaluation>\n"
-            f"For this evaluation only, your sole objective is to complete {held_out_quest}. "
+            f"For this evaluation only, your sole objective is to complete "
+            f"{registration.quest_name}. "
             "Ignore the Core-3 ordering elsewhere in this prompt. No walkthrough has been "
             "provided; discover and execute the quest through the normal game tools.\n"
             "</held_out_evaluation>\n"
@@ -1217,6 +1233,7 @@ def run_model_eval(
         personality,
         include_game_knowledge=include_game_knowledge,
         held_out_quest=held_out_quest,
+        held_out_registration=held_out_registration,
         prompt_agent_name=resolved_prompt_agent_name,
     )
     prompt_file = model_output_dir / "system_prompt.md"

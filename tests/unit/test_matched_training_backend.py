@@ -9,6 +9,8 @@ import pytest
 from scripts.opd import matched_training as mt
 from scripts.opd import matched_training_backend as backend
 
+SOURCE_REPO = Path(__file__).resolve().parents[2]
+
 
 def _sha_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
@@ -97,6 +99,15 @@ def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
     source_sha = _write(source_path, (json.dumps(record) + "\n").encode())
     base_path = repo / "artifacts" / "base.bin"
     teacher_path = repo / "artifacts" / "teacher.json"
+    heldout_path = repo / "research" / "experiments" / "heldout-quest-v2.json"
+    _write(
+        repo / "research" / "experiments" / "heldout-quest.json",
+        (SOURCE_REPO / "research" / "experiments" / "heldout-quest.json").read_bytes(),
+    )
+    heldout_sha = _write(
+        heldout_path,
+        (SOURCE_REPO / "research" / "experiments" / "heldout-quest-v2.json").read_bytes(),
+    )
     registry = {
         "schema_version": mt.REGISTRY_SCHEMA,
         "artifacts": {
@@ -110,9 +121,10 @@ def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
             },
             "heldout": {
                 "kind": "heldout_registration", "status": "verified",
-                "quest": "held-out-quest", "aliases": ["secret-quest-alias"],
-                "tokenizer_vocab_size": 1000,
-                "forbidden_token_sequences": [[777, 778]],
+                "payload": {
+                    "uri": "repo:research/experiments/heldout-quest-v2.json",
+                    "sha256": heldout_sha,
+                },
             },
             "natural": {
                 "kind": "on_policy_rollouts", "status": "verified",
@@ -146,6 +158,10 @@ def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
             "teacher_artifact_id": "teacher",
             "teacher_endpoint_env": "TEACHER_ENDPOINT",
             "held_out_registration_artifact_id": "heldout",
+            "held_out_registration": {
+                "path": "research/experiments/heldout-quest-v2.json",
+                "sha256": heldout_sha,
+            },
             "interface_contract_id": mt.INTERFACE_CONTRACT,
             "frozen_interfaces": interface_files,
             "parameterization": parameterization,

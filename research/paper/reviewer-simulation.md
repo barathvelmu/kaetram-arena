@@ -1,4 +1,38 @@
-# Adversarial reviewer simulation — updated July 19, 2026
+# Adversarial reviewer simulation — updated July 23, 2026
+
+## Pass 5 — recovered-evidence review, July 23
+
+**Interim verdict before the trigger-incidence result: 2–3/5 (reject to
+borderline), confidence 4/5.**
+
+The paper has moved beyond a protocol-only draft. All nine July scores now
+replay at their exact six-hour boundaries from 27 content-bound run directories.
+A clean analysis receipt, immediate input rehash, and record-clock alignment
+check close the earlier evidence-chain failures. A checked-in anonymous
+projection then reproduces the scores from 21,524 score-relevant observations
+in a fresh clone. The manuscript also discloses the repaired-render round-1
+sensitivity, the historical uniform constants and record/update counts, and
+the absence of run-level replication.
+
+These changes repair major reproducibility and selective-reporting concerns,
+but they do not create a causal method result:
+
+1. Every historical training cell remains one run with unattested checkpoint,
+   corpus, reset, render, and seed identity.
+2. The four graded/uniform rows are intended historical pairs, not verified
+   matches. The repaired-render sensitivity reverses the first direction while
+   changing another variable.
+3. The full historical transcripts remain private. Reviewers can replay the
+   projected score evidence but cannot independently repeat its extraction.
+4. No matched natural-versus-targeted training outcome, held-out transfer, or
+   strong executed curriculum baseline exists.
+5. The registered trigger study can strengthen the interface audit, but fixed
+   checkpoints and historical states cannot identify a training-method effect.
+
+The current draft is therefore a credible audited case study with useful
+negative controls, not yet an outstanding method paper. The decisive score
+change still requires either the central matched-training result or a stronger
+audit contribution whose executed findings stand on their own.
 
 ## Current verdict
 

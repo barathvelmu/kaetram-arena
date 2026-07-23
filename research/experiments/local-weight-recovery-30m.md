@@ -113,7 +113,9 @@ existed, the offline analyzer was tightened to implement the reporting contract
 above more literally. The change makes every arm retain its three
 replicate-ordered values and descriptive means, independently reconciles the
 raw malformed-emission count with the recovery-log audit, and rejects
-impossible recovery-error or repeat-recovery totals.
+impossible recovery-error or repeat-recovery totals. Pooled-denominator call
+emission rates are labeled separately from arithmetic means of the three cell
+rates.
 
 At that point only the first cell had sealed. Its artifact inventory and raw
 malformed/recovery counts had been checked, but no quest outcome, recovery-on

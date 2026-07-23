@@ -267,3 +267,4 @@ def test_arm_summary_retains_replicate_values_and_descriptive_means() -> None:
     assert arm["means"]["malformed_emissions"] == 2
     assert arm["values"]["raw_structured_calls_per_minute"] == [1, 2, 3]
     assert arm["means"]["raw_structured_calls_per_minute"] == 2
+    assert arm["pooled_structured_call_emission_rate"] == 1

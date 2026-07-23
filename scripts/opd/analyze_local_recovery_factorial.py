@@ -267,7 +267,7 @@ def _summarize(rows: list[dict]) -> dict:
                 "generations_without_structured_call": sum(
                     row["generations_without_structured_call"] for row in group
                 ),
-                "structured_call_emission_rate": round(
+                "pooled_structured_call_emission_rate": round(
                     sum(
                         row["generations_with_structured_call"] for row in group
                     ) / sum(row["raw_generations"] for row in group),
@@ -538,7 +538,7 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             "generations_without_structured_call": raw_metrics[
                 "generations_without_structured_call"
             ],
-            "structured_call_emission_rate": round(
+            "pooled_structured_call_emission_rate": round(
                 raw_metrics["generations_with_structured_call"]
                 / raw_metrics["raw_generations"],
                 6,

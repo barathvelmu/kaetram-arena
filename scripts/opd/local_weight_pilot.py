@@ -100,6 +100,8 @@ def _validate_schedule(raw: dict) -> None:
         "prompt_agent_name": "EvalCompletionist",
         "include_game_knowledge": True,
         "recovery": False,
+        "tool_schema_source": "canonical",
+        "mongo_database": "kaetram_devlopment",
         "schedule_algorithm": "sha256-rank-v1",
         "schedule_seed": 20260723,
         "environment_seed_mechanism": "kaetram-environment-rng-attestation/v2",
@@ -411,6 +413,24 @@ def build_eval_command(
     ]
 
 
+def build_eval_environment(
+    base: dict[str, str],
+    *,
+    manifest: dict,
+    game_dir: Path,
+    node_binary: Path,
+) -> dict[str, str]:
+    """Pin DB/schema/recovery lanes instead of inheriting ambient test state."""
+    env = dict(base)
+    env[ENDPOINT_ENV] = f"http://{ENDPOINT_HOST}:{ENDPOINT_PORT}/v1"
+    env["KAETRAM_GAME_DIR"] = str(game_dir)
+    env["KAETRAM_NODE_BINARY"] = str(node_binary)
+    env["KAETRAM_MONGO_DB"] = manifest["protocol"]["mongo_database"]
+    env["KAETRAM_TOOL_SCHEMA_SOURCE"] = manifest["protocol"]["tool_schema_source"]
+    env.pop("KAETRAM_TOOL_RECOVERY", None)
+    return env
+
+
 def run_pilot(
     manifest_path: Path,
     *,
@@ -509,12 +529,12 @@ def run_pilot(
                 endpoint_attestation=health,
                 game_attestation=game_attestation,
             )
-            env = {
-                **os.environ,
-                ENDPOINT_ENV: f"http://{ENDPOINT_HOST}:{ENDPOINT_PORT}/v1",
-                "KAETRAM_GAME_DIR": str(game_dir),
-                "KAETRAM_NODE_BINARY": str(node_binary),
-            }
+            env = build_eval_environment(
+                dict(os.environ),
+                manifest=manifest,
+                game_dir=game_dir,
+                node_binary=node_binary,
+            )
             with (cell_root / "eval.log").open("w") as log:
                 completed = subprocess.run(
                     command,

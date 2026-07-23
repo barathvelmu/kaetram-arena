@@ -12,6 +12,7 @@ from scripts.opd.local_weight_pilot import (
     PilotError,
     _validate_schedule,
     build_eval_command,
+    build_eval_environment,
     load_manifest,
 )
 
@@ -106,3 +107,21 @@ def test_eval_command_uses_endpoint_environment_and_complete_provenance(
     assert "--checkpoint-sha256 " + "a" * 64 in rendered
     assert "--tokenizer-sha256 " + "b" * 64 in rendered
     assert "--render-contract-sha256 " + "c" * 64 in rendered
+
+
+def test_eval_environment_pins_db_schema_and_recovery_off(tmp_path: Path) -> None:
+    manifest, _ = load_manifest(MANIFEST)
+    env = build_eval_environment(
+        {
+            "KAETRAM_TOOL_RECOVERY": "1",
+            "KAETRAM_MONGO_DB": "ambient_test_lane",
+            "KAETRAM_TOOL_SCHEMA_SOURCE": "live",
+        },
+        manifest=manifest,
+        game_dir=tmp_path / "game",
+        node_binary=tmp_path / "node",
+    )
+    assert "KAETRAM_TOOL_RECOVERY" not in env
+    assert env["KAETRAM_MONGO_DB"] == "kaetram_devlopment"
+    assert env["KAETRAM_TOOL_SCHEMA_SOURCE"] == "canonical"
+    assert env[ENDPOINT_ENV] == "http://127.0.0.1:9801/v1"

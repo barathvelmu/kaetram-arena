@@ -20,6 +20,8 @@
     "prompt_agent_name": "EvalCompletionist",
     "include_game_knowledge": true,
     "recovery": false,
+    "tool_schema_source": "canonical",
+    "mongo_database": "kaetram_devlopment",
     "schedule_algorithm": "sha256-rank-v1",
     "schedule_seed": 20260723,
     "environment_seed_mechanism": "kaetram-environment-rng-attestation/v2",

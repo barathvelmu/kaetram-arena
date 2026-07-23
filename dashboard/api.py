@@ -19,6 +19,7 @@ from dashboard.constants import (
 )
 from dashboard.parsers import parse_session_log, quick_session_summary, live_session_stats
 from dashboard.game_state import extract_game_state_from_db
+from dashboard.eval_latest import LatestEvalPointerError, resolve_latest_eval_dir
 
 logger = logging.getLogger(__name__)
 
@@ -611,11 +612,19 @@ class APIMixin:
     _eval_cache = {"data": None, "mtime": 0}
 
     def send_eval_latest(self):
-        """Return latest eval comparison results from dataset/eval/latest/ (or dataset/eval/)."""
-        # Prefer latest symlink (new run-dir layout), fall back to flat layout
-        eval_dir = os.path.join(DATASET_DIR, "eval", "latest")
-        if not os.path.isdir(eval_dir):
-            eval_dir = os.path.join(DATASET_DIR, "eval")
+        """Return results from the validated latest-run pointer or legacy flat layout."""
+        eval_root = os.path.join(DATASET_DIR, "eval")
+        try:
+            latest_dir = resolve_latest_eval_dir(eval_root)
+        except LatestEvalPointerError as exc:
+            logger.error("Invalid latest evaluation pointer: %s", exc)
+            return self._send_json({
+                "status": "invalid_latest_pointer",
+                "models": [],
+            })
+        # A missing pointer is allowed for clean clones and the legacy flat
+        # dataset layout. An invalid pointer never silently selects stale data.
+        eval_dir = os.fspath(latest_dir) if latest_dir is not None else eval_root
         if not os.path.isdir(eval_dir):
             return self._send_json({"status": "no_eval_data", "models": []})
 
@@ -803,6 +812,19 @@ class APIMixin:
             APIMixin._eval_live_cache["computed_at"] = now
             return self._send_json(APIMixin._eval_live_cache["data"])
 
+        eval_root = os.path.join(DATASET_DIR, "eval")
+        try:
+            latest_eval_dir = resolve_latest_eval_dir(eval_root)
+        except LatestEvalPointerError as exc:
+            logger.error("Invalid latest evaluation pointer: %s", exc)
+            latest_eval_dir = None
+            completed_results_allowed = False
+        else:
+            completed_results_allowed = True
+        completed_eval_dir = (
+            os.fspath(latest_eval_dir) if latest_eval_dir is not None else eval_root
+        )
+
         models = {}
         for sandbox_dir in sorted(_glob.glob("/tmp/kaetram_eval_*")):
             model_name = os.path.basename(sandbox_dir).replace("kaetram_eval_", "")
@@ -859,11 +881,12 @@ class APIMixin:
                     except Exception as e:
                         logger.debug("eval log parse failed for %s: %s", model_name, e)
 
-            # Completed episode count from results.json (check latest symlink first)
-            results_path = os.path.join(DATASET_DIR, "eval", "latest", model_name, "results.json")
-            if not os.path.isfile(results_path):
-                results_path = os.path.join(DATASET_DIR, "eval", model_name, "results.json")
-            if os.path.isfile(results_path):
+            # Completed episode count from the validated pointer (or the
+            # legacy flat layout when no pointer exists).
+            results_path = os.path.join(
+                completed_eval_dir, model_name, "results.json"
+            )
+            if completed_results_allowed and os.path.isfile(results_path):
                 try:
                     with open(results_path) as f:
                         rd = json.load(f)

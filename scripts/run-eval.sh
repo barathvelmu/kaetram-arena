@@ -271,19 +271,25 @@ if [ "$SFT_RC" -ne 0 ] || [ "$BASE_RC" -ne 0 ] || [ "$VALIDATION_RC" -ne 0 ]; th
   echo "  r10-sft exit: $SFT_RC"
   echo "  base exit:    $BASE_RC"
   echo "  Run preserved for diagnosis: $RUN_DIR"
-  echo "  dataset/eval/latest was not changed"
+  echo "  dataset/eval/latest-run.txt was not changed"
   exit 1
 fi
 
-# Promote only a complete, validated paired run to the dashboard/history alias.
-ln -sfn "$RUN_DIR" "$PROJECT_DIR/dataset/eval/latest"
+# Promote only a complete, validated paired run. The helper validates that the
+# target is a real direct child of dataset/eval/runs and atomically replaces a
+# regular text pointer; directory symlinks are prohibited by runtime isolation.
+LATEST_RUN_RELATIVE=$(
+  python3 "$PROJECT_DIR/dashboard/eval_latest.py" promote \
+    --eval-dir "$PROJECT_DIR/dataset/eval" \
+    --run-dir "$RUN_DIR"
+)
 
 echo ""
 echo "EVAL COMPLETE"
 echo "  Run dir: $RUN_DIR"
 echo "  Results: $RUN_DIR/r10-sft/results.json"
 echo "           $RUN_DIR/base/results.json"
-echo "  Symlink: dataset/eval/latest → $RUN_DIR"
+echo "  Pointer: dataset/eval/latest-run.txt → $LATEST_RUN_RELATIVE"
 echo ""
 echo "Compare: python3 eval_compare.py $RUN_DIR/base/results.json $RUN_DIR/r10-sft/results.json"
 echo "History: ls dataset/eval/runs/"

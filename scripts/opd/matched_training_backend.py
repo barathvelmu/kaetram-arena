@@ -259,13 +259,69 @@ def _history_alias_scan(record: dict[str, Any], aliases: list[str], *, record_id
         raise ProtocolError(f"source record {record_id} leaks held-out alias(es): {leaked}")
 
 
+def _load_verified_tokenizer(
+    base_checkpoint_path: Path,
+    registration: Any,
+) -> Any:
+    if not base_checkpoint_path.is_dir():
+        raise ProtocolError(
+            "base checkpoint material must be a directory containing tokenizer.json"
+        )
+    tokenizer_path = base_checkpoint_path / "tokenizer.json"
+    if (
+        not tokenizer_path.is_file()
+        or _sha256(tokenizer_path) != registration.tokenizer_sha256
+    ):
+        raise ProtocolError(
+            "base checkpoint tokenizer.json differs from the held-out registration"
+        )
+    try:
+        from tokenizers import Tokenizer
+        tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    except (ImportError, OSError, ValueError) as exc:
+        raise ProtocolError(
+            "verified held-out exclusion requires tokenizers and a loadable tokenizer.json"
+        ) from exc
+    if tokenizer.get_vocab_size(with_added_tokens=True) > registration.tokenizer_vocab_size:
+        raise ProtocolError(
+            "loaded tokenizer vocabulary exceeds the registered vocabulary bound"
+        )
+    return tokenizer
+
+
+def _decoded_alias_scan(
+    tokenizer: Any,
+    token_ids: list[int],
+    aliases: list[str],
+    *,
+    record_id: str,
+    source: str,
+) -> None:
+    try:
+        decoded = tokenizer.decode(token_ids, skip_special_tokens=False)
+    except Exception as exc:
+        raise ProtocolError(
+            f"record {record_id} {source} could not be decoded by the registered tokenizer"
+        ) from exc
+    normalized = normalize_quest(decoded)
+    leaked = sorted(
+        alias for alias in aliases if normalize_quest(alias) in normalized
+    )
+    if leaked:
+        raise ProtocolError(
+            f"record {record_id} {source} decodes to held-out alias(es): {leaked}"
+        )
+
+
 def _validate_arrays(
     supervision: dict[str, Any],
     *,
     objective: str,
     record_id: str,
+    aliases: list[str],
     tokenizer_vocab_size: int,
     forbidden_token_sequences: list[list[int]],
+    tokenizer: Any,
     guided_actor_role: str | None = None,
 ) -> int:
     _exact_keys(
@@ -299,6 +355,32 @@ def _validate_arrays(
             raise ProtocolError(f"record {record_id} input_ids leak a held-out token sequence")
         if any(labels[index:index + width] == sequence for index in range(len(labels) - width + 1)):
             raise ProtocolError(f"record {record_id} labels leak a held-out token sequence")
+    _decoded_alias_scan(
+        tokenizer,
+        input_ids,
+        aliases,
+        record_id=record_id,
+        source="input_ids",
+    )
+    target_run: list[int] = []
+    target_runs: list[list[int]] = []
+    for label in labels:
+        if label == -100:
+            if target_run:
+                target_runs.append(target_run)
+                target_run = []
+        else:
+            target_run.append(label)
+    if target_run:
+        target_runs.append(target_run)
+    for index, run in enumerate(target_runs):
+        _decoded_alias_scan(
+            tokenizer,
+            run,
+            aliases,
+            record_id=record_id,
+            source=f"labels[{index}]",
+        )
     if any(
         label != -100 and label != input_id
         for input_id, label in zip(input_ids, labels, strict=True)
@@ -524,6 +606,7 @@ def _validate_source_record(
     aliases: list[str],
     tokenizer_vocab_size: int,
     forbidden_token_sequences: list[list[int]],
+    tokenizer: Any,
     render_sha: str,
     source_artifact_id: str,
     source_payload_sha: str,
@@ -577,8 +660,10 @@ def _validate_source_record(
         supervision,
         objective=arm["objective"],
         record_id=record_id,
+        aliases=aliases,
         tokenizer_vocab_size=tokenizer_vocab_size,
         forbidden_token_sequences=forbidden_token_sequences,
+        tokenizer=tokenizer,
         guided_actor_role=guided_actor_role,
     )
     usage = _mapping(record["budget_usage"], label=f"record {record_id}.budget_usage")
@@ -856,7 +941,7 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
     base_id = shared["base_checkpoint_artifact_id"]
     teacher_id = shared["teacher_artifact_id"]
     heldout_id = shared["held_out_registration_artifact_id"]
-    _verified_material(
+    _, base_checkpoint_path, _ = _verified_material(
         artifacts, base_id, artifact_root=material_root, expected_kind="checkpoint"
     )
     _verified_material(
@@ -911,6 +996,7 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
         raise ProtocolError(
             "matched training requires a tokenizer-bound v2 held-out registration"
         )
+    tokenizer = _load_verified_tokenizer(base_checkpoint_path, registration)
 
     training_artifact_id = arm.get("training_artifact_id")
     artifact, source_path, source_payload_sha = _verified_material(
@@ -966,6 +1052,7 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
             aliases=aliases,
             tokenizer_vocab_size=tokenizer_vocab_size,
             forbidden_token_sequences=forbidden_token_sequences,
+            tokenizer=tokenizer,
             render_sha=render_sha,
             source_artifact_id=training_artifact_id,
             source_payload_sha=source_payload_sha,

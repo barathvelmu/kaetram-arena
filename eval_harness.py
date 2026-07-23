@@ -441,6 +441,10 @@ def resolve_system_prompt(
         registration = held_out_registration or validate_eval_selection(
             held_out_quest, DEFAULT_REGISTRATION
         )
+        if registration.schema_version != 2:
+            raise HeldOutGuardError(
+                "held-out prompt resolution requires a schema_version 2 registration"
+            )
         if normalize_quest(held_out_quest) not in registration.normalized_aliases:
             raise HeldOutGuardError(
                 "held-out prompt target does not match its locked registration"

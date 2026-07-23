@@ -197,7 +197,11 @@ the URL. Set `KAETRAM_GAME_DIR` when the pinned game checkout is not at
 The preflight plan and `results.json` record `tool_schema_source`, the registered
 inference seed, schedule algorithm/seed/index, batch, cluster and pair IDs, the
 environment seed, game revision, algorithm, and verified attestation core. The
-launcher validates all of those fields before accepting a cell artifact.
+launcher validates all of those fields before accepting a cell artifact. For a
+held-out protocol, every child also receives the preregistered registration
+SHA-256, verifies the exact bytes before prompt resolution, and propagates the
+digest into its per-session sidecars and result metadata. Schema-v1
+registrations are not admitted for future held-out evaluation.
 Verify the canonical schema and provenance before analysis.
 
 ## Isolation and pairing

@@ -190,6 +190,11 @@ def test_registration_mismatch_and_unlocked_copy_fail_closed(tmp_path: Path):
     path.write_text(json.dumps(raw))
     with pytest.raises(HeldOutGuardError, match="locked=true"):
         load_registration(path)
+    with pytest.raises(HeldOutGuardError, match="schema_version 2"):
+        validate_eval_selection(
+            "Desert Quest",
+            REPO / "research" / "experiments" / "heldout-quest.json",
+        )
 
 
 @pytest.mark.parametrize(

@@ -32,6 +32,7 @@ def normalize_quest(value: str) -> str:
 
 @dataclass(frozen=True)
 class HeldOutRegistration:
+    schema_version: int
     experiment_id: str
     quest_name: str
     quest_key: str
@@ -217,6 +218,7 @@ def load_registration(path: str | Path = DEFAULT_REGISTRATION) -> HeldOutRegistr
         forbidden_sequences = tuple(flattened)
 
     return HeldOutRegistration(
+        schema_version=schema_version,
         experiment_id=str(raw.get("experiment_id") or "").strip(),
         quest_name=name,
         quest_key=key,
@@ -239,6 +241,10 @@ def validate_eval_selection(
     path: str | Path = DEFAULT_REGISTRATION,
 ) -> HeldOutRegistration:
     registration = load_registration(path)
+    if registration.schema_version != 2:
+        raise HeldOutGuardError(
+            "future held-out evaluation requires a schema_version 2 registration"
+        )
     if normalize_quest(requested_quest) not in registration.normalized_aliases:
         raise HeldOutGuardError(
             f"requested quest {requested_quest!r} does not match preregistered "

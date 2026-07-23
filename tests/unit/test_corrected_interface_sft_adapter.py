@@ -37,6 +37,19 @@ def _update_normalized_reference(plan_path: Path, records_path: Path) -> None:
 def _fixture(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
     repo = tmp_path / "repo"
     monkeypatch.setattr(backend, "REPO", repo)
+    monkeypatch.setattr(
+        backend,
+        "_load_verified_tokenizer",
+        lambda *_args, **_kwargs: type(
+            "FakeTokenizer",
+            (),
+            {
+                "decode": lambda self, token_ids, skip_special_tokens=False: (
+                    "ordinary training text"
+                )
+            },
+        )(),
+    )
     monkeypatch.setattr(adapter, "REPO", repo)
     interface_files = []
     for name, content in (

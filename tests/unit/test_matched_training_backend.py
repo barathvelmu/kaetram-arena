@@ -12,6 +12,14 @@ from scripts.opd import matched_training_backend as backend
 SOURCE_REPO = Path(__file__).resolve().parents[2]
 
 
+class _FakeTokenizer:
+    def __init__(self, decoded: dict[tuple[int, ...], str] | None = None):
+        self.decoded = decoded or {}
+
+    def decode(self, token_ids, *, skip_special_tokens=False):
+        return self.decoded.get(tuple(token_ids), "ordinary training text")
+
+
 def _sha_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -29,6 +37,11 @@ def _write(path: Path, value: bytes) -> str:
 def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
     repo = tmp_path / "repo"
     monkeypatch.setattr(backend, "REPO", repo)
+    monkeypatch.setattr(
+        backend,
+        "_load_verified_tokenizer",
+        lambda *_args, **_kwargs: _FakeTokenizer(),
+    )
     interface_files = []
     for name, content in (("system.md", b"system"), ("knowledge.md", b"knowledge"), ("render.py", b"render")):
         path = repo / "interface" / name
@@ -378,6 +391,8 @@ def test_array_validation_rejects_invalid_label_token_ids(bad_label) -> None:
             record_id="record-1",
             tokenizer_vocab_size=1000,
             forbidden_token_sequences=[[777, 778]],
+            aliases=["secret-quest-alias"],
+            tokenizer=_FakeTokenizer(),
         )
 
 
@@ -396,6 +411,8 @@ def test_array_validation_rejects_heldout_token_sequence() -> None:
             record_id="record-1",
             tokenizer_vocab_size=1000,
             forbidden_token_sequences=[[777, 778]],
+            aliases=["secret-quest-alias"],
+            tokenizer=_FakeTokenizer(),
         )
 
 
@@ -414,6 +431,8 @@ def test_array_validation_scans_labels_and_rejects_mismatched_targets() -> None:
             record_id="record-1",
             tokenizer_vocab_size=1000,
             forbidden_token_sequences=[[777, 778]],
+            aliases=["secret-quest-alias"],
+            tokenizer=_FakeTokenizer(),
         )
     label_leak["labels"] = [-100, 12, 12, 13]
     with pytest.raises(mt.ProtocolError, match="must equal"):
@@ -423,4 +442,29 @@ def test_array_validation_scans_labels_and_rejects_mismatched_targets() -> None:
             record_id="record-1",
             tokenizer_vocab_size=1000,
             forbidden_token_sequences=[[777, 778]],
+            aliases=["secret-quest-alias"],
+            tokenizer=_FakeTokenizer(),
+        )
+
+
+def test_array_validation_decodes_normalization_equivalent_token_leak() -> None:
+    supervision = {
+        "input_ids": [4737, 517, 12, 19179],
+        "labels": [4737, 517, 12, 19179],
+        "advantages": [0.0, 1.0, 1.0, 1.0],
+        "behavior_logprobs": [0.0, -0.2, -0.2, -0.1],
+        "step_weight": 1.0,
+    }
+    tokenizer = _FakeTokenizer({
+        (4737, 517, 12, 19179): "Desert-Quest",
+    })
+    with pytest.raises(mt.ProtocolError, match="decodes to held-out"):
+        backend._validate_arrays(
+            supervision,
+            objective="opd",
+            record_id="record-1",
+            aliases=["Desert Quest"],
+            tokenizer_vocab_size=248077,
+            forbidden_token_sequences=[[4737, 517, 14615]],
+            tokenizer=tokenizer,
         )

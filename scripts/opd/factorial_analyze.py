@@ -23,6 +23,9 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+import scipy
+from scipy.stats import t as student_t
+
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
@@ -30,14 +33,22 @@ from scripts.opd.factorial_eval import (  # noqa: E402
     Cell,
     ExperimentPlan,
     ManifestError,
+    _portable_artifact_path,
     build_plan,
     validate_completed_inventory,
     validate_cell_result,
 )
+from run_manifest import capture_git_state  # noqa: E402
 
 
 DEFAULT_BOOTSTRAP_SAMPLES = 20_000
 DEFAULT_BOOTSTRAP_SEED = 20_260_718
+ANALYSIS_SOURCE_PATHS = (
+    REPO / "scripts" / "opd" / "factorial_analyze.py",
+    REPO / "scripts" / "opd" / "factorial_eval.py",
+    REPO / "scripts" / "opd" / "factorial_power.py",
+    REPO / "requirements" / "unit-tests.lock",
+)
 
 
 def _sha256(path: Path) -> str:
@@ -95,7 +106,9 @@ def load_cell_metric(plan: ExperimentPlan, cell: Cell, metric: str) -> dict[str,
         "value": value,
         "turns_played": turns,
         "git_sha": git_sha,
-        "results_path": str(path),
+        "results_path": path.relative_to(
+            Path(plan.cells[0].run_dir).parent
+        ).as_posix(),
         "results_sha256": _sha256(path),
         "randomization_provenance": {
             key: meta[key] for key in provenance_keys if key in meta
@@ -163,6 +176,110 @@ def _sign_flip_p(values: list[float]) -> float | None:
     return extreme / (2 ** len(exact_values))
 
 
+def _hedges_correction(degrees_of_freedom: int) -> float:
+    if degrees_of_freedom <= 1:
+        raise ManifestError("Hedges correction requires at least two degrees of freedom")
+    return math.exp(
+        math.lgamma(degrees_of_freedom / 2.0)
+        - 0.5 * math.log(degrees_of_freedom / 2.0)
+        - math.lgamma((degrees_of_freedom - 1.0) / 2.0)
+    )
+
+
+def _practical_relevance_decision(
+    interval: list[float] | None,
+    *,
+    sesoi: float,
+) -> str:
+    if interval is None:
+        return "inconclusive"
+    lower, upper = interval
+    if lower > sesoi:
+        return "relevant_positive"
+    if upper < -sesoi:
+        return "relevant_negative"
+    if lower > -sesoi and upper < sesoi:
+        return "practically_equivalent"
+    return "inconclusive"
+
+
+def _paired_t_inference(
+    deltas: list[float],
+    *,
+    familywise_alpha: float,
+    comparisons: int,
+    sesoi: float,
+) -> dict[str, Any]:
+    n_replicates = len(deltas)
+    if n_replicates < 2:
+        return {
+            "status": "inference_unavailable_insufficient_replicates",
+            "paired_t_statistic": None,
+            "paired_t_degrees_of_freedom": None,
+            "paired_t_raw_two_sided_p": None,
+            "student_t_critical_value": None,
+            "bonferroni_adjusted_p": None,
+            "bonferroni_simultaneous_ci_mean": None,
+            "simultaneous_confidence_level": 1 - familywise_alpha / comparisons,
+            "cohen_d_z": None,
+            "hedges_g_z": None,
+            "zero_null_decision": "not_estimable",
+            "practical_relevance_decision": "inconclusive",
+        }
+    sample_sd = statistics.stdev(deltas)
+    if sample_sd == 0:
+        return {
+            "status": "confirmatory_inference_not_estimable_zero_variance",
+            "paired_t_statistic": None,
+            "paired_t_degrees_of_freedom": n_replicates - 1,
+            "paired_t_raw_two_sided_p": None,
+            "student_t_critical_value": None,
+            "bonferroni_adjusted_p": None,
+            "bonferroni_simultaneous_ci_mean": None,
+            "simultaneous_confidence_level": 1 - familywise_alpha / comparisons,
+            "cohen_d_z": None,
+            "hedges_g_z": None,
+            "zero_null_decision": "not_estimable",
+            "practical_relevance_decision": "inconclusive",
+        }
+
+    mean_delta = statistics.fmean(deltas)
+    degrees_of_freedom = n_replicates - 1
+    standard_error = sample_sd / math.sqrt(n_replicates)
+    statistic = mean_delta / standard_error
+    raw_p = float(2.0 * student_t.sf(abs(statistic), degrees_of_freedom))
+    per_comparison_alpha = familywise_alpha / comparisons
+    critical = float(student_t.ppf(
+        1.0 - per_comparison_alpha / 2.0,
+        degrees_of_freedom,
+    ))
+    interval = [
+        mean_delta - critical * standard_error,
+        mean_delta + critical * standard_error,
+    ]
+    cohen_d_z = mean_delta / sample_sd
+    adjusted_p = min(1.0, raw_p * comparisons)
+    return {
+        "status": "confirmatory_preregistered",
+        "paired_t_statistic": statistic,
+        "paired_t_degrees_of_freedom": degrees_of_freedom,
+        "paired_t_raw_two_sided_p": raw_p,
+        "student_t_critical_value": critical,
+        "bonferroni_adjusted_p": adjusted_p,
+        "bonferroni_simultaneous_ci_mean": interval,
+        "simultaneous_confidence_level": 1.0 - per_comparison_alpha,
+        "cohen_d_z": cohen_d_z,
+        "hedges_g_z": _hedges_correction(degrees_of_freedom) * cohen_d_z,
+        "zero_null_decision": (
+            "reject" if adjusted_p <= familywise_alpha else "do_not_reject"
+        ),
+        "practical_relevance_decision": _practical_relevance_decision(
+            interval,
+            sesoi=sesoi,
+        ),
+    }
+
+
 def summarize_effect(
     *,
     name: str,
@@ -171,8 +288,46 @@ def summarize_effect(
     analysis_role: str,
     sampling_phase: str,
     comparisons: int | None,
+    familywise_alpha: float,
+    sesoi: float,
 ) -> dict[str, Any]:
-    p_value = _sign_flip_p(deltas) if analysis_role == "primary" else None
+    is_confirmatory_primary = (
+        analysis_role == "primary" and sampling_phase == "confirmatory"
+    )
+    paired_inference = (
+        _paired_t_inference(
+            deltas,
+            familywise_alpha=familywise_alpha,
+            comparisons=comparisons,
+            sesoi=sesoi,
+        )
+        if is_confirmatory_primary and comparisons is not None
+        else {
+            "status": (
+                "preliminary_only"
+                if sampling_phase != "confirmatory"
+                else "descriptive_secondary"
+            ),
+            "paired_t_statistic": None,
+            "paired_t_degrees_of_freedom": None,
+            "paired_t_raw_two_sided_p": None,
+            "student_t_critical_value": None,
+            "bonferroni_adjusted_p": None,
+            "bonferroni_simultaneous_ci_mean": None,
+            "simultaneous_confidence_level": None,
+            "cohen_d_z": None,
+            "hedges_g_z": None,
+            "zero_null_decision": "not_applicable",
+            "practical_relevance_decision": "inconclusive",
+        }
+    )
+    zero_variance = len(deltas) >= 2 and statistics.stdev(deltas) == 0
+    suppress_auxiliary_inference = is_confirmatory_primary and zero_variance
+    sensitivity_p = (
+        _sign_flip_p(deltas)
+        if is_confirmatory_primary and not suppress_auxiliary_inference
+        else None
+    )
     return {
         "name": name,
         "estimand_definition": definition,
@@ -183,17 +338,15 @@ def summarize_effect(
         "median_delta": statistics.median(deltas),
         "min_delta": min(deltas),
         "max_delta": max(deltas),
-        "bootstrap_95pct_ci_mean": _bootstrap_ci(deltas),
-        "exact_two_sided_sign_flip_p": p_value,
+        "descriptive_bootstrap_95pct_ci_mean": (
+            None if suppress_auxiliary_inference else _bootstrap_ci(deltas)
+        ),
+        "sensitivity_exact_two_sided_sign_flip_p": sensitivity_p,
         "bonferroni_comparisons": comparisons,
-        "bonferroni_adjusted_p": (
-            min(1.0, p_value * comparisons)
-            if p_value is not None and comparisons is not None else None
-        ),
-        "inference_status": (
-            "confirmatory_preregistered"
-            if sampling_phase == "confirmatory" else "preliminary_only"
-        ),
+        "familywise_alpha": familywise_alpha if analysis_role == "primary" else None,
+        "sesoi_stages": sesoi if analysis_role == "primary" else None,
+        "inference_status": paired_inference["status"],
+        **{key: value for key, value in paired_inference.items() if key != "status"},
     }
 
 
@@ -206,6 +359,23 @@ def _replicate_deltas(
 
 
 def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str, Any]:
+    analysis_git = capture_git_state(REPO)
+    if analysis_git.get("commit") != plan.source_git_commit:
+        raise ManifestError(
+            "analysis source commit does not match the registered execution commit"
+        )
+    if analysis_git.get("dirty"):
+        raise ManifestError(
+            "analysis requires the registered clean source tree: "
+            + ", ".join(analysis_git.get("dirty_paths") or [])
+        )
+    analysis_sources = [
+        {
+            "path": path.relative_to(REPO).as_posix(),
+            "sha256": _sha256(path),
+        }
+        for path in ANALYSIS_SOURCE_PATHS
+    ]
     validate_completed_inventory(plan)
     metric = metric or plan.primary_metric
     if metric != plan.primary_metric:
@@ -213,6 +383,20 @@ def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str,
             f"analysis metric {metric!r} does not match preregistered primary metric "
             f"{plan.primary_metric!r}"
         )
+    analysis_contract_path = Path(plan.analysis_contract_artifact)
+    if _sha256(analysis_contract_path) != plan.analysis_contract_sha256:
+        raise ManifestError("analysis contract changed after manifest validation")
+    analysis_contract = json.loads(analysis_contract_path.read_text(encoding="utf-8"))
+    statistical_engine = analysis_contract["inference"]["statistical_engine"]
+    if statistical_engine != {
+        "package": "scipy",
+        "version": scipy.__version__,
+        "distribution": "scipy.stats.t",
+    }:
+        raise ManifestError(
+            "installed statistical engine does not match the registered analysis contract"
+        )
+    sesoi = float(analysis_contract["practical_relevance"]["sesoi_stages"])
     rows = [load_cell_metric(plan, cell, metric) for cell in plan.cells]
     git_shas = sorted({row["git_sha"] for row in rows})
     if len(git_shas) != 1:
@@ -223,55 +407,44 @@ def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str,
         for row in clusters
     }
     replicates = sorted({row["replicate"] for row in clusters})
+    if plan.sampling_phase == "confirmatory" and (
+        len(replicates) != 20 or plan.confirmatory_replicates != 20
+    ):
+        raise ManifestError(
+            "confirmatory analysis requires all 20 registered replicate clusters"
+        )
     comparisons = len(plan.primary_estimands)
 
     def arm(replicate: int, weight: str, recovery: bool) -> float:
         return by_arm[(replicate, weight, recovery)]
 
-    primary_specs = {
-        "r2_minus_base_recovery_off": (
-            "E[Y(r2, recovery=off) - Y(base, recovery=off)]",
-            lambda r, _b: arm(r, "r2", False) - arm(r, "base", False),
-        ),
-        "r3_minus_base_recovery_off": (
-            "E[Y(r3, recovery=off) - Y(base, recovery=off)]",
-            lambda r, _b: arm(r, "r3", False) - arm(r, "base", False),
-        ),
-        "recovery_on_minus_off_base": (
-            "E[Y(base, recovery=on) - Y(base, recovery=off)]",
-            lambda r, _b: arm(r, "base", True) - arm(r, "base", False),
-        ),
-        "recovery_on_minus_off_r2": (
-            "E[Y(r2, recovery=on) - Y(r2, recovery=off)]",
-            lambda r, _b: arm(r, "r2", True) - arm(r, "r2", False),
-        ),
-        "recovery_on_minus_off_r3": (
-            "E[Y(r3, recovery=on) - Y(r3, recovery=off)]",
-            lambda r, _b: arm(r, "r3", True) - arm(r, "r3", False),
-        ),
-        "r2_minus_base_recovery_interaction": (
-            "E[(Y(r2,on)-Y(base,on)) - (Y(r2,off)-Y(base,off))]",
-            lambda r, _b: (
-                arm(r, "r2", True) - arm(r, "base", True)
-                - arm(r, "r2", False) + arm(r, "base", False)
-            ),
-        ),
-        "r3_minus_base_recovery_interaction": (
-            "E[(Y(r3,on)-Y(base,on)) - (Y(r3,off)-Y(base,off))]",
-            lambda r, _b: (
-                arm(r, "r3", True) - arm(r, "base", True)
-                - arm(r, "r3", False) + arm(r, "base", False)
-            ),
-        ),
+    contract_estimands = {
+        entry["name"]: entry for entry in analysis_contract["primary_estimands"]
     }
+
+    def registered_delta(replicate: int, coefficients: dict[str, int]) -> float:
+        value = 0.0
+        for arm_name, coefficient in coefficients.items():
+            weight, recovery_name = arm_name.rsplit("_", 1)
+            value += coefficient * arm(replicate, weight, recovery_name == "on")
+        return value
+
     primary_effects = [
         summarize_effect(
             name=name,
-            definition=primary_specs[name][0],
-            deltas=_replicate_deltas(by_arm, replicates, primary_specs[name][1]),
+            definition=f"E[{contract_estimands[name]['formula']}]",
+            deltas=[
+                registered_delta(
+                    replicate,
+                    contract_estimands[name]["coefficients"],
+                )
+                for replicate in replicates
+            ],
             analysis_role="primary",
             sampling_phase=plan.sampling_phase,
             comparisons=comparisons,
+            familywise_alpha=plan.familywise_alpha,
+            sesoi=sesoi,
         )
         for name in plan.primary_estimands
     ]
@@ -318,6 +491,8 @@ def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str,
             analysis_role="secondary_factorial",
             sampling_phase=plan.sampling_phase,
             comparisons=None,
+            familywise_alpha=plan.familywise_alpha,
+            sesoi=sesoi,
         )
         for name, definition, fn in factorial_specs
     ]
@@ -360,6 +535,8 @@ def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str,
             analysis_role="secondary_simple_effect",
             sampling_phase=plan.sampling_phase,
             comparisons=None,
+            familywise_alpha=plan.familywise_alpha,
+            sesoi=sesoi,
         )
         for name, definition, fn in secondary_specs
     ]
@@ -374,12 +551,22 @@ def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str,
         if hasattr(plan, field)
     }
     return {
-        "schema_version": "kaetram-opd-factorial-analysis-v2",
+        "schema_version": "kaetram-opd-factorial-analysis-v3",
         "experiment_id": plan.experiment_id,
-        "manifest": plan.manifest,
+        "manifest": _portable_artifact_path(plan.manifest, plan.manifest_sha256),
         "manifest_sha256": _sha256(Path(plan.manifest)),
         "metric": metric,
         "preregistered_primary_metric": plan.primary_metric,
+        "analysis_contract": {
+            "path": _portable_artifact_path(
+                plan.analysis_contract_artifact,
+                plan.analysis_contract_sha256,
+            ),
+            "sha256": plan.analysis_contract_sha256,
+            "schema_version": analysis_contract["schema_version"],
+            "status": analysis_contract["status"],
+        },
+        "statistical_engine": statistical_engine,
         "independent_unit": "DB-reset replicate",
         "personality_handling": "summed within replicate x weight x recovery arm",
         "inference_scope": {
@@ -394,13 +581,18 @@ def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str,
         "n_replicates": len(replicates),
         "n_cells": len(rows),
         "n_cluster_arms": len(clusters),
-        "source_git_sha": git_shas[0],
+        "execution_source_git_sha": git_shas[0],
+        "analysis_source_git_sha": analysis_git["commit"],
+        "analysis_source_files": analysis_sources,
         "sample_size_contract": {
             "phase": plan.sampling_phase,
             "planned_replicates": len(replicates),
             "target_power": plan.target_power,
             "confirmatory_replicates": plan.confirmatory_replicates,
-            "power_analysis_artifact": plan.power_analysis_artifact,
+            "power_analysis_artifact": _portable_artifact_path(
+                plan.power_analysis_artifact,
+                plan.power_analysis_sha256,
+            ),
             "power_analysis_sha256": plan.power_analysis_sha256,
             "status": (
                 "power_preregistered_confirmatory"
@@ -413,6 +605,10 @@ def build_analysis(plan: ExperimentPlan, metric: str | None = None) -> dict[str,
             "adjustment": "Bonferroni",
             "familywise_alpha": plan.familywise_alpha,
             "per_comparison_alpha": plan.familywise_alpha / comparisons,
+            "simultaneous_confidence_level": (
+                1.0 - plan.familywise_alpha / comparisons
+            ),
+            "primary_method": "two_sided_paired_student_t",
         },
         "bootstrap": {
             "method": "percentile bootstrap of paired mean delta",

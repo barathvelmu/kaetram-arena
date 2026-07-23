@@ -9,8 +9,8 @@
 
 % Review manuscript built with the current official ACL review template.
 
-\title{Auditing a Candidate State-Visitation Bottleneck in On-Policy Distillation:\\
-An Agent Case Study and Confirmatory Protocol}
+\title{Auditing State-Visitation Bottlenecks in On-Policy Distillation:\\
+A Persistent Game-Agent Case Study}
 
 \author{Anonymous submission}
 
@@ -219,7 +219,7 @@ Natural OPD \quad $\vert$ \quad Targeted $(x,h)$ \quad $\vert$ \quad Controls\\
 Canonical starts;\\
 nested seeds}}
 \end{tabular}
-\caption{Causal geometry of the proposed matched study. Training arms run in
+\caption{Matched study design. Training arms run in
 parallel from common initialization; they do not form a sequential curriculum.
 Model-visible history is crossed explicitly because a database snapshot alone
 is not the policy state. The fixed-checkpoint weights-by-recovery factorial is a
@@ -343,7 +343,7 @@ The valid statement is deliberately narrow: \emph{a seeded-training round was
 followed by unanimous canonical-start wall passage in one run}. The present data do not
 show that seeding alone caused the improvement. The required causal experiment
 trains fresh students from the same checkpoint under identical budgets, seeds,
-and data construction, varying only whether the legally certified state mixture is
+and data construction, varying only whether the reachability-certified state mixture is
 included (Section~\ref{sec:confirmatory}).
 
 \subsection{Weights and recovery are historically confounded}
@@ -380,7 +380,7 @@ five-minute execution pilot. The failed manipulation check rules out spending
 the full factorial budget unchanged; natural trigger incidence must be shown
 first, and controlled defect injection is a separate conditional question.
 
-\section{A Teacher-Forcing Failure at the Interface}
+\section{A Copy-Prior Hypothesis at the Grading Interface}
 
 Round 1 introduces a malformed parameter-key pattern that is absent in the
 base run. The emitted form places a Boolean value inside the parameter key, so
@@ -416,192 +416,101 @@ multi-defect experiment.
 \section{Confirmatory Study Design}
 \label{sec:confirmatory}
 
-Every matched-training arm below is prospective. The anonymous preparation
-artifact validates immutable record contracts and common optimization settings,
-but it does not contain verified trained-arm bundles or accelerator outcomes.
-Results will not be reported until every arm, analysis rule, and immutable run
-bundle passes the same fail-closed protocol.
+The confirmatory question is simple: do targeted persistent player states
+improve canonical-start performance beyond other ways of exposing a student to
+useful failures? Every arm below is prospective. The preparation artifact
+validates record contracts and common optimization settings, but no verified
+trained-arm outcome exists in this draft.
 
-Only the state-source family and player-state-by-history ablation determine the
-primary selector claim. The weights-by-recovery study, supervision-structure
-comparison, and copy-prior probe are separately reported secondary modules; they
-cannot rescue a failed primary contrast or inflate its arm family.
+\paragraph{What is held fixed.}
+Fresh students begin from the same checkpoint and use the same teacher,
+optimizer, action-token budget, teacher-scoring budget, tool interface, and
+training-seed schedule. Each trained checkpoint is evaluated across a frozen
+set of fresh game worlds that start from the ordinary initial player state.
+The primary endpoint is total \core{} stage gain across the three prompt
+variants; wall passage is secondary. A trained checkpoint, not an agent or
+conversation, is the independent unit. Replication is frozen by a prospective
+two-level power analysis rather than justified by the current launcher example.
 
-\paragraph{Primary endpoint and unit.}
-The method estimand is over independently initialized training
-seeds/checkpoints. Within each training seed, evaluation seeds are nested:
-each evaluation is a six-hour run from a fresh canonical-start world, with no
-intermediate player-state initialization and a registered gameplay-RNG seed.
-The preregistered endpoint aggregates total \core{} stage gain across the three
-clustered agents and then across the frozen evaluation-seed schedule. Quest-wall
-passage is secondary. The current five-training-seed launcher grid is an
-unpowered execution template, not a justified sample size; no method claim is
-permitted until a prospective two-level power analysis freezes both training
-and nested evaluation replication. All runs, confidence intervals, effect
-sizes, exclusions, and stopping rules must be reported.
+\paragraph{What is compared.}
+The primary arms are natural OPD, the targeted-state selector, random valid
+resets, progress-matched resets, TCOD teacher-success prefixes, Guided-OPD, and
+TRB. Visitation-only and teacher-advantage-only selectors diagnose which part of
+the rule matters. Corrected-interface SFT and SCoRe-style first-error prefixes
+provide supervision baselines \citep{lyu2025score}. The targeted method fails
+its main claim if the simpler reset controls or the strongest prefix/guidance
+baseline matches it within the frozen smallest effect of interest.
 
-\paragraph{State-source ablation.}
-The six specified primary training contracts are natural OPD, targeted persistent player states,
-random-valid player states, progress-matched player states, TCOD-B2F
-teacher-success prefixes, and Guided-OPD. Four prespecified mechanism/baseline
-arms---visitation-only selection, teacher-advantage-only selection,
-corrected-interface SFT, and SCoRe-style first-error prefixes---are analyzed
-separately rather than silently counted as extra primary arms. Match teacher,
-optimizer, action-token and teacher-scoring budgets,
-environment interactions, and training-seed schedule; evaluate every arm from
-the original canonical-start state. A matched Trust-Region Behavior Blending
-(TRB) arm is additionally required because it changes occupancy through a
-teacher-near behavior policy while retaining OPD; it is not yet implemented in
-the launcher. The method claim fails if random or progress-matched resets,
-TCOD-B2F, Guided-OPD, or TRB ties the targeted arm within the preregistered
-smallest effect of interest.
+\paragraph{State or visible history?}
+For each admitted player state, the study compares a minimal canonical
+observation, its authentic teacher prefix, and a matched reconstructed history.
+A Backplay condition moves the start backward along a verified trajectory.
+This separates the restored player state $x$ from information carried in the
+visible history $h$. The implementation does not restore the complete shared
+world---for example every NPC, mob, resource, or concurrent player---so it
+makes no full-world-state claim.
 
-Supervision structure is a separate axis. Structured Agent Distillation (SAD)
-uses distinct reasoning- and action-span objectives rather than the historical
-action-only head \citep{liu2026sad}. Before any method-outcome analysis, the
-study must add and freeze a separately reported natural-visitation comparator
-that holds trajectories and state source fixed while varying action-only versus
-SAD-style structured supervision. This arm is not yet registered or
-implemented; it will not be counted as another state-source arm or conflated
-with corrected-interface SFT.
+\paragraph{Secondary questions.}
+Structured supervision is tested separately from state source
+\citep{liu2026sad}. Fixed-checkpoint recovery comparisons preserve raw
+pre-rewrite emissions and distinguish malformed output, eligibility, harness
+rewrite, parser acceptance, environment execution, and state change. They
+cannot show learned self-correction or rescue a failed state-selector result.
+The copy-prior hypothesis is tested with paired canonical and malformed
+histories that hold state and candidate continuations fixed; teacher and student
+log-odds are then reported together. No outcome from these secondary modules is
+counted as extra evidence for the primary method.
 
-\paragraph{Player-state by history ablation.}
-For the same certified player state, compare (i) a direct snapshot with the
-minimal canonical observation history, (ii) replay of a teacher trajectory with
-its authentic prefix, and (iii) a direct snapshot with a matched reconstructed
-history. A fourth Backplay condition anneals starts backward along a witness
-trajectory. This distinguishes initialization of latent player state $x$ from
-information or error patterns carried in $h$, and tests whether a direct snapshot
-adds value beyond successful prefix replay. The present implementation does not
-restore a complete shared world (for example NPC, mob, resource, or
-concurrent-player state), so no full-world-state claim is made.
-
-\paragraph{Weights by recovery factorial.}
-Evaluate base, round-2, and round-3 weights with recovery both off and on.
-Preserve raw pre-rewrite emissions. These are conditional contrasts among three
-fixed checkpoint artifacts, not estimates of a training procedure. The
-registered full study uses 20 paired fresh-world replicate clusters, sums all
-three personality lanes before comparison, and freezes seven contrasts: round 2
-and round 3 versus base with recovery off; recovery on versus off for each
-checkpoint; and both checkpoint-by-recovery interactions. It controls
-familywise alpha at .05 across seven paired comparisons. The same simultaneous
-intervals classify effects against a frozen $\pm3$-stage threshold. Under the
-working normal-model assumption that paired differences have population mean
-and standard deviation three, 20 clusters give .911 model power for each
-contrast separately---not for all seven together. This is not evidence about
-their actual distribution or variability. The separate
-registered 18-cell local run is exploratory and cannot replace this design. Its
-complete bundle passed the internal fail-closed audit, but zero
-recovery-eligible emissions meant the intervention did not engage.
-Reporting separates six objects: raw malformed emissions, emissions eligible
-for correction, harness rewrites or retries, parser-accepted calls,
-environment-executed calls, and state-changing calls. Harness recovery for a
-fixed checkpoint is therefore not labeled model self-correction or a learned
-recovery policy. The exploratory analysis retains its frozen diagnostics; any
-additional trace analysis is explicitly post hoc.
-
-\paragraph{Generalization.}
-One quest is now frozen in an evaluation-only v2 registration that supersedes
-the original task-choice record before any held-out-quest outcome was inspected. The registration
-hash-binds all aliases, resolved-prompt leakage markers, the Base tokenizer
-snapshot, and text/token exclusions that every prospective registered training
-contract must enforce. No verified trained arm bundle yet exists. The
-no-walkthrough prompt omits game knowledge and is checked after all personality
-blocks are resolved. We will report reaching the bottleneck, crossing it
-conditional on arrival, and downstream completion; no held-out outcome is
-present in this draft. A second environment or model family remains necessary
-for any broad claim. Corrected-interface SFT and a SCoRe-style
-first-error-prefix condition are additional baselines under matched interaction
-and teacher-scoring budgets \citep{lyu2025score}.
-
-\paragraph{Copy-prior test.}
-Construct paired canonical/malformed histories across tools, states, defect
-types, and at least two teacher sizes or families. Score identical canonical
-and malformed continuations; report teacher and student log-odds with paired
-confidence intervals. Then intervene on grading context and test generation,
-rather than inferring generation from grader-side movement.
+\paragraph{Held-out evaluation.}
+One quest was frozen for evaluation before any held-out outcome was inspected.
+A no-walkthrough prompt removes supplied game knowledge. Results report
+arrival at the bottleneck, success conditional on arrival, and downstream
+completion. No held-out outcome is available yet, and a second environment or
+model family would still be required for a broad claim.
 
 \section{Related Work}
 
-GKD establishes on-policy distillation from student-generated sequences with
-teacher feedback \citep{agarwal2024gkd}; our work does not claim novelty for
-OPD itself. Rethinking OPD identifies teacher--student compatibility and
-genuinely new teacher capability at student-visited states as success conditions
-\citep{li2026rethinking}; our historical sequence does not validate a broader
-visitation principle. SAD changes the unit and weighting of supervision over reasoning
-and action spans \citep{liu2026sad}; our proposed intervention instead changes
-training-state occupancy while holding the loss fixed. OPCD distills contextual experience on student-generated
-trajectories, including in text games \citep{ye2026opcd}; On-Policy Expert
-Corrections switch from student to expert within a trajectory to address
-covariate shift \citep{lauffer2025oec}. TCOD directly studies temporal curricula and intermediate-state
-initialization for multi-turn OPD \citep{wang2026tcod}; broad novelty for seeded
-starts is therefore preempted. Guided-OPD changes live occupancy by mixing
-teacher and student turns \citep{li2026guidedopd}; ReOPD designs reliable prefix
-distributions offline \citep{liao2026reopd}; TRB anneals a teacher-near rollout
-policy inside a student-centered trust region \citep{plyusov2026trb}; and SCoRe
-localizes the first student error before short-horizon training
-\citep{lyu2025score}. TCOD, Guided-OPD, ReOPD, and TRB are concurrent preprints,
-so we treat them as relevant contemporaneous methods rather than refereed
-precedent. SOD and KAT study supervision on degraded prefixes
-\citep{zhong2026sod,xin2026kat}. SOD in particular treats post-tool-error
-high-divergence steps as increasingly unreliable and reweights them; our
-unvalidated hypothesis is narrower, predicting locally wrong-signed candidate
-preference. TrOPD likewise filters or changes the divergence direction outside
-a teacher-verifiable trust region and adds off-policy teacher-prefix guidance
-\citep{xing2026tropd}. Unmasking OPD motivates per-token, per-context diagnostics
-rather than aggregate-loss interpretation \citep{armandpour2026unmasking}.
-These methods make intermediate-state,
-student-failure, and state-centric novelty claims unavailable. DAgger formalizes
-iterative data collection under the learner's state distribution
-\citep{ross2011dagger}. A recent state-distribution analysis likewise argues
-that the source and locality of training states can matter as much as the loss
-\citep{nie2026states}. Reset-along-demonstration, Backplay,
-and Go-Explore show that restoring intermediate states can expose useful signal
-in hard-exploration reinforcement learning
-\citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. We use
-the same control point for on-policy language-model distillation in a
-persistent, typed environment, but the current study does not establish
-superiority over those curriculum families.
+GKD establishes on-policy distillation from student-generated sequences
+\citep{agarwal2024gkd}. Later analyses show that success depends on both
+teacher--student compatibility and whether the teacher has useful capability on
+states the student actually visits \citep{li2026rethinking}. SAD changes which
+reasoning and action spans receive supervision \citep{liu2026sad}, while OPCD
+and on-policy expert corrections change the feedback or actor within a student
+trajectory \citep{ye2026opcd,lauffer2025oec}. Our proposed intervention instead
+changes where a student rollout begins while keeping the distillation loss
+fixed.
 
-The proposed state selector uses quest stage, inventory, position, and repeated
-teacher--student success gaps during training. This is privileged information and
-must be costed and evaluated for held-out transfer. Privileged Information
-Distillation and its on-policy self-distillation variant already study action-only
-transfer from privileged agent signals \citep{penaloza2026pid}. SERL separately
-shows that the source and insertion point of environmental feedback matter in
-multi-turn agents \citep{li2026serl}; neither privilege nor feedback selection is
-novel here.
+The closest work also changes the training-state distribution. TCOD starts from
+teacher-success prefixes; Guided-OPD mixes teacher and student turns; ReOPD
+selects reliable prefixes; TRB anneals a teacher-near rollout policy; and SCoRe
+trains from the first student error
+\citep{wang2026tcod,li2026guidedopd,liao2026reopd,plyusov2026trb,lyu2025score}.
+These methods rule out a broad novelty claim for intermediate starts. The
+remaining question is narrower: does a frozen selector over low-visitation,
+teacher-competent \emph{persistent player states} add value beyond successful
+prefixes, turn-level guidance, and generic resets? Crossing each player state
+with its model-visible history tests whether any gain comes from restored world
+state or simply from information in the prefix. That comparison is prospective
+in this draft.
 
-Game-agent benchmarks already cover long-horizon language and vision agents.
-BALROG emphasizes knowing--doing gaps across games \citep{paglieri2025balrog},
-while Orak uses MCP across twelve games and releases gameplay fine-tuning data
-\citep{park2025orak}. Orak emphasizes breadth through modular evaluation across
-genres, agent/input ablations, data quality, generalization, latency, and a
-public artifact. Our intended contribution is narrower depth in one persistent
-game: causal isolation of player state, visible history, weights, and runtime
-interface. MCP and game play are therefore infrastructure here, not novelty
-claims. GITM uses LLM-generated plans, text memory, and structured
-actions in open-world Minecraft \citep{zhu2023gitm}. Voyager and AgentTrek use
-curricula, reusable skills, or guided
-replay to obtain long-horizon behavior
-\citep{wang2023voyager,zheng2025agenttrek}. Our narrower question is whether a
-frozen selector over low-occupancy, teacher-competent persistent player states
-adds value beyond natural OPD, successful-prefix replay, turn-level guidance,
-and matched generic resets.
+Intermediate resets have long been used to expose sparse learning signal in
+reinforcement learning, including reset-along-demonstration, Backplay, and
+Go-Explore
+\citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}.
+DAgger supplies the complementary lesson that imitation data must cover states
+induced by the learner \citep{ross2011dagger}. We apply these ideas to a
+language-model agent with typed tools, but our historical runs do not establish
+that the proposed selector outperforms these curriculum families.
 
-Learned tool-error recovery is also distinct from the present runtime
-factorial. Fission-GRPO converts execution errors into on-policy corrective
-training instances and evaluates learned multi-turn recovery
-\citep{zhang2026fission}. Here the recovery-on arm rewrites or retries a fixed
-checkpoint's malformed emission in the harness; it cannot establish that the
-model learned to diagnose or repair its own error.
-
-Supervised imitation can compound errors under distribution shift
-\citep{ross2011dagger}, and knowledge distillation does not guarantee functional
-agreement between teacher and student \citep{stanton2021kd}. The r10
-cross-vocabulary SFT regression in our development record is motivating
-evidence, but its raw artifact bundle is incomplete and it is not a primary
-result of this submission draft.
+BALROG and Orak evaluate game agents broadly across environments and interfaces
+\citep{paglieri2025balrog,park2025orak}; GITM, Voyager, and AgentTrek study
+planning, skills, curricula, or guided replay in open worlds
+\citep{zhu2023gitm,wang2023voyager,zheng2025agenttrek}. Our evidence is deeper
+but much narrower: one persistent game, one model family, and supplied quest
+guidance. The game and MCP-style tool interface are infrastructure, not novelty.
+Likewise, Fission-GRPO learns from execution errors
+\citep{zhang2026fission}; our recovery switch is a runtime rewrite for a fixed
+checkpoint and cannot be described as learned self-correction.
 
 \section{Conclusion}
 
@@ -618,9 +527,9 @@ a population claim, and three prompt variants are not independent seeds. The
 state-seeded round also differs from the preceding round in initialization and
 data. The environment is a single game with procedural walkthroughs, the
 teacher and student are from one model family, and stage counts are coarse. Some
-development analyses depend on logs whose raw inputs are not yet packaged. The
-paper must not be submitted as confirmatory until the study design above is run
-and a clean clone regenerates every main table.
+development analyses depend on logs whose raw inputs are not yet packaged. This
+is therefore an audited case study and protocol, not a completed causal method
+study. A clean clone must also regenerate every main table before submission.
 
 Direct database construction is environment-specific and may not transfer to
 systems without restorable state. The historical failure state was selected

@@ -103,7 +103,7 @@ def audit_text(label: str, text: str, *, check_history_dates: bool = False) -> l
 
 
 def audit_pdf_metadata(label: str, pdfinfo_text: str) -> list[str]:
-    """Reject identifying metadata while allowing tool-generated build metadata."""
+    """Reject identifying metadata and unexpected creator/producer values."""
 
     findings: list[str] = []
     metadata: dict[str, str] = {}
@@ -117,6 +117,10 @@ def audit_pdf_metadata(label: str, pdfinfo_text: str) -> list[str]:
             findings.append(f"{label}: missing PDF metadata field: {field}")
         elif metadata[field]:
             findings.append(f"{label}: identifying PDF metadata field: {field}")
+    if metadata.get("creator") != "LaTeX with hyperref":
+        findings.append(f"{label}: unexpected PDF creator metadata")
+    if not metadata.get("producer", "").startswith("pdfTeX-"):
+        findings.append(f"{label}: unexpected PDF producer metadata")
     return findings
 
 
@@ -146,10 +150,12 @@ def audit_submission(
             )
         )
     for path in pdf_info_paths:
+        pdfinfo_text = path.read_text(encoding="utf-8", errors="replace")
+        findings.extend(audit_text(str(path), pdfinfo_text))
         findings.extend(
             audit_pdf_metadata(
                 str(path),
-                path.read_text(encoding="utf-8", errors="replace"),
+                pdfinfo_text,
             )
         )
     return findings

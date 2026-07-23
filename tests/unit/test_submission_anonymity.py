@@ -67,12 +67,23 @@ def test_generic_audit_allows_public_project_and_model_references() -> None:
 
 
 def test_generic_audit_rejects_identifying_pdf_metadata() -> None:
-    clean = "Title:\nSubject:\nKeywords:\nAuthor:\nCreator: LaTeX\n"
-    identifying = "Title:\nSubject:\nKeywords:\nAuthor: Example Researcher\n"
+    clean = (
+        "Title:\nSubject:\nKeywords:\nAuthor:\n"
+        "Creator: LaTeX with hyperref\nProducer: pdfTeX-1.40.24\n"
+    )
+    identifying = (
+        "Title:\nSubject:\nKeywords:\nAuthor: Example Researcher\n"
+        "Creator: LaTeX with hyperref\nProducer: pdfTeX-1.40.24\n"
+    )
+    unexpected_creator = (
+        "Title:\nSubject:\nKeywords:\nAuthor:\n"
+        "Creator: Example Researcher\nProducer: Custom PDF tool\n"
+    )
     incomplete = "Creator: LaTeX\n"
 
     assert audit_pdf_metadata("fixture", clean) == []
     assert audit_pdf_metadata("fixture", identifying)
+    assert audit_pdf_metadata("fixture", unexpected_creator)
     assert audit_pdf_metadata("fixture", incomplete)
 
 

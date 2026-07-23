@@ -86,7 +86,14 @@ The checked headline OPD and r10 numbers were not produced through that lane:
 - the r10 base `[7,7,7,7]` versus SFT `[3,1,2]` comparison was likewise scored from orchestrator logs; and
 - checked-in dataset/evaluation artifacts used by the report predate the April 25 lane change.
 
-Therefore PR #37 does not currently invalidate E3-prime, E4, Arm-C, or the historical r10 headline values. It does invalidate trust in any un-audited result produced through `run-eval.sh` between April 25 and July 18. Missing raw May/June bundles remain a separate reproducibility weakness: this scope conclusion is based on the preserved run IDs, port topology, scripts, and summaries, not on a complete independent replay of every historical run.
+Therefore PR #37 does not invalidate E3-prime, E4, Arm-C, or the historical r10 headline values.
+It does invalidate trust in any un-audited result produced through `run-eval.sh` between April 25
+and July 18. The May/June raw bundles were subsequently recovered read-only from the original VM
+and bound to a SHA-256 inventory. `research/audits/historical-initial-state.json` verifies that the
+first recorded action in all 15 OPD and all 21 R10 agent-runs is `observe`, with the exact canonical
+level-1 starter state and no state anomaly. The R10 statistics and credit diagnostic also rerun
+from the recovered external paths. The remaining caveat is narrower: the historical reset command,
+full environment revision, and OPD training artifacts are not yet sealed.
 
 ## Linear execution board
 

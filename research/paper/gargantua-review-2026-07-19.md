@@ -44,8 +44,11 @@ attested clean run.
 
 This does **not directly implicate** E3-prime (`run_20260612_044933`), E4
 (`run_20260613_112422`), or Arm-C (`run_20260613_214956`): the historical notes map them to the
-orchestrator lane on ports 9001/9011/9021 using the development database. That conclusion is based
-on code-path and port chronology rather than raw run metadata, which is missing.
+orchestrator lane on ports 9001/9011/9021 using the development database. The subsequently
+recovered raw bundles strengthen that conclusion: all 15 OPD agent-runs begin with `observe` as
+the first recorded action and expose the exact canonical level-1 starter state. The derived audit
+is `research/audits/historical-initial-state.json`, bound to the recovered source inventory by
+SHA-256. This verifies observed initial state, not the historical reset command itself.
 
 ### P0.2 Core-3 scoring uses display names against internal quest keys
 
@@ -56,12 +59,13 @@ mapping, cover all 3+3+4 stages with a regression test, and rerun every prospect
 the corrected metric. Draft PR #53 implements the internal-key mapping and regression fixtures;
 the gate remains closed until the PR is merged and deployed.
 
-### P0.3 Historical headline artifacts are absent
+### P0.3 Historical headline artifacts are incomplete
 
-The exact base 12, round-1 12, E3-prime 15, Arm-C 17, and E4 18 values live in narrative reports.
-Missing:
+The May/June raw session trees and `run.meta.json` files were recovered read-only from the original
+VM and inventoried with SHA-256. The R10 Core-3 and tool-credit statistics now rerun directly from
+that external store, and all 36 R10/OPD agent-runs pass the canonical initial-state audit. Still
+missing or not independently sealed:
 
-- May/June raw session trees and `run.meta.json` files.
 - OPD `records.jsonl` and `heldout.jsonl`.
 - Exact checkpoints/adapters and model/tokenizer digests.
 - Rendered prompt, walkthrough, and tool-schema hashes.
@@ -73,15 +77,16 @@ Missing:
 
 The OPD implementation first entered Git in the post-run monolithic commit `7b4edc2` on June 14,
 after E3-prime, E4, and Arm-C had run. Current code is corroborating documentation, not historical
-provenance.
+provenance. The recovered log inventory materially narrows this gap but does not establish the
+complete chain of custody needed for a causal headline.
 
-### P0.4 Clean clone cannot regenerate a headline result
+### P0.4 Clean clone plus external artifacts cannot yet regenerate every headline result
 
-On the current archive, `scripts/r10_stats.py` raises `KeyError: agent_0` because its expected raw
-inputs are absent. `scripts/r10_credit_diag.py` emits an all-zero analysis and exits successfully,
-which is worse than a hard failure. OPD records and held-out data are absent, and there is no
-top-level dependency lock. Every analysis entry point must fail closed on missing expected inputs
-and identify each missing source.
+The R10 scripts now fail closed on absent evidence and accept explicit external raw/training paths;
+both analyses rerun successfully from the recovered inventory. OPD records and held-out data remain
+absent, there is no top-level dependency lock, and the full main table is not yet reproducible from
+a clean clone plus a documented artifact fetch. Every remaining analysis entry point must fail
+closed on missing expected inputs and identify each missing source.
 
 ### P0.5 Reset provenance is not fail closed
 

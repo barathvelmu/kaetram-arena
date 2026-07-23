@@ -84,7 +84,7 @@
     "samples_per_state_condition": 5,
     "base_seed": 730001,
     "paired_seed_formula": "base_seed + 100 * zero_based_state_index + zero_based_sample_index",
-    "condition_order": "For each state-sample block, rotate the registered condition order by block_index modulo four.",
+    "condition_order": "For each state-sample block, rotate the registered condition order by block_index modulo four. This balances deterministic order; it is not random assignment.",
     "temperature": 1.0,
     "top_p": 0.95,
     "top_k": 20,
@@ -92,7 +92,8 @@
     "max_tokens": 400,
     "concurrency": 4,
     "attempts": 3,
-    "request_timeout_seconds": 360
+    "request_timeout_seconds": 360,
+    "grid_rationale": "Twenty states times five paired seeds reproduces the 100-requests-per-cell scale of the earlier unverified development probe while adding R3 and the native-schema factor. It is a fixed finite grid for mechanism triage, not a power calculation or population sample."
   },
   "outcomes": {
     "primary": "Recovery opportunity: the response has no structured tool call and canonicalize.recover_tool_calls(content) returns at least one candidate.",
@@ -105,17 +106,15 @@
     ]
   },
   "analysis": {
-    "independent_cluster": "historical decision state",
-    "checkpoint_handling": "Analyze each fixed checkpoint separately; do not treat checkpoints as training replicates or pool them into a population effect.",
+    "estimand_unit": "The registered finite set of 100 state-seed pairs per checkpoint-condition. States may be temporally dependent observations from one historical run and are not treated as independent population draws.",
+    "checkpoint_handling": "Analyze each fixed checkpoint separately; do not treat checkpoints as training replicates, pool them into a population effect, or generalize beyond the fixed request grid.",
     "registered_contrasts_per_checkpoint": [
       "native tools present minus absent, averaged over documentation conditions",
       "canonical documentation minus Python documentation, averaged over native-schema conditions",
       "documentation-by-native-schema difference in differences"
     ],
-    "test": "Two-sided exact sign-flip randomization test over the 20 state-level paired effects.",
-    "familywise_error": "Bonferroni-adjust all nine checkpoint-by-contrast p-values at alpha 0.05.",
-    "incomplete_cells": "Retain failures, but emit no registered contrasts unless every scheduled request succeeds.",
-    "zero_event_bound": "When no recovery opportunity occurs, report the exact one-sided 95% binomial upper bound 1 - 0.05^(1/n) as a descriptive bound for the fixed request distribution."
+    "reporting": "Report exact finite-grid cell rates, paired rate differences, and the number of states with positive, negative, or zero paired differences. Do not report p-values, confidence intervals, binomial bounds, or claims of population uncertainty.",
+    "incomplete_cells": "Retain failures, but emit no registered contrasts unless every scheduled request succeeds."
   },
   "provenance": {
     "endpoint_policy": "Loopback-only local endpoints; metered or remote endpoint overrides are not permitted by this registration.",

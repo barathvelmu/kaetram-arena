@@ -4,15 +4,18 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 
 from scripts.opd.trigger_incidence_probe import (
     ANALYSIS_SCHEMA,
     DESIGN_SCHEMA,
     REGISTRATION_SCHEMA,
+    RUN_SCHEMA,
+    ProbeError,
     _request_one,
     analyze,
     condition_messages,
-    exact_sign_flip_p,
+    load_design,
     sha256_file,
     sha256_json,
     surface_families,
@@ -36,12 +39,6 @@ def test_surface_families_and_repaired_documentation() -> None:
     assert original == frozen
     assert "interact_npc [params:" in repaired[0]["content"]
     assert condition_messages(original, "python_docs") == original
-
-
-def test_exact_sign_flip_uses_paired_state_clusters() -> None:
-    assert exact_sign_flip_p([1, 1]) == 0.5
-    assert exact_sign_flip_p([1, -1]) == 1.0
-    assert exact_sign_flip_p([0, 0, 0]) == 1.0
 
 
 def test_request_records_recovery_opportunity_and_native_tools() -> None:
@@ -129,13 +126,14 @@ def _registration(tmp_path: Path) -> Path:
     registration = {
         "schema_version": REGISTRATION_SCHEMA,
         "study_id": "test-study",
-        "state_pool": {"state_count": 2},
+        "state_pool": {"state_count": 2, "personality": "completionist"},
         "snapshots": {
-            name: {"api_model": name, "checkpoint_sha256": index * "a"}
-            for index, name in enumerate(("base", "r2", "r3"), start=1)
+            name: {"api_model": name, "checkpoint_sha256": name * 8}
+            for name in ("base", "r2", "r3")
         },
+        "endpoint_contract": {"tokenizer_sha256": "f" * 64},
         "conditions": conditions,
-        "sampling": {"samples_per_state_condition": 1},
+        "sampling": {"samples_per_state_condition": 1, "base_seed": 100},
         "claim_boundary": {"confirmatory": False},
     }
     path = tmp_path / "registration.json"
@@ -150,6 +148,9 @@ def _design(tmp_path: Path, registration_path: Path) -> Path:
         states.append(
             {
                 "state_id": f"state-{index + 1:02d}",
+                "personality": "completionist",
+                "source_log": f"dataset/raw/source-{index}.log",
+                "source_log_sha256": str(index) * 64,
                 "messages": messages,
                 "messages_sha256": sha256_json(messages),
             }
@@ -158,10 +159,38 @@ def _design(tmp_path: Path, registration_path: Path) -> Path:
         "schema_version": DESIGN_SCHEMA,
         "study_id": "test-study",
         "registration_sha256": sha256_file(registration_path),
+        "source_log_count": 10,
+        "eligible_source_log_count": 4,
+        "personality": "completionist",
+        "selection_stride": 1,
         "states": states,
+        "source_git_commit": "a" * 40,
+        "dirty_paths": [],
     }
     path = tmp_path / "design.json"
     path.write_text(json.dumps(design))
+    receipt = {
+        "schema_version": f"{DESIGN_SCHEMA}.receipt",
+        "study_id": "test-study",
+        "registration_sha256": sha256_file(registration_path),
+        "design_sha256": sha256_file(path),
+        "state_count": 2,
+        "selected_source_tree_sha256": sha256_json(
+            [
+                {
+                    "state_id": state["state_id"],
+                    "personality": state["personality"],
+                    "source_log": state["source_log"],
+                    "source_log_sha256": state["source_log_sha256"],
+                    "messages_sha256": state["messages_sha256"],
+                }
+                for state in states
+            ]
+        ),
+        "source_git_commit": "a" * 40,
+        "dirty_paths": [],
+    }
+    path.with_suffix(".receipt.json").write_text(json.dumps(receipt))
     return path
 
 
@@ -175,41 +204,107 @@ def _run_dir(
 ) -> Path:
     root = tmp_path / snapshot
     root.mkdir()
+    registration = json.loads(registration_path.read_text())
+    health = {
+        "status": "ok",
+        "attestation": {
+            "api_model": snapshot,
+            "checkpoint_sha256": registration["snapshots"][snapshot][
+                "checkpoint_sha256"
+            ],
+            "tokenizer_sha256": "f" * 64,
+        },
+    }
     prelaunch = {
+        "schema_version": f"{RUN_SCHEMA}.prelaunch",
+        "study_id": "test-study",
         "snapshot": snapshot,
         "registration_sha256": sha256_file(registration_path),
         "design_sha256": sha256_file(design_path),
+        "endpoint_health": health,
+        "sampling": registration["sampling"],
+        "source_git_commit": "a" * 40,
+        "dirty_paths": [],
     }
     (root / "prelaunch.json").write_text(json.dumps(prelaunch))
-    conditions = (
-        "python-docs_no-tools",
-        "python-docs_native-tools",
-        "canonical-docs_no-tools",
-        "canonical-docs_native-tools",
-    )
     rows = []
     schedule = 0
     for state_index in range(2):
+        offset = state_index % len(registration["conditions"])
+        conditions = (
+            registration["conditions"][offset:] + registration["conditions"][:offset]
+        )
         for condition in conditions:
             failed = fail_first and schedule == 0
-            rows.append(
-                {
-                    "snapshot": snapshot,
-                    "condition_id": condition,
-                    "state_id": f"state-{state_index + 1:02d}",
-                    "sample_index": 0,
-                    "status": "failed" if failed else "ok",
-                    "recovery_opportunity": False,
-                    "malformed_emission": False,
-                    "has_structured_tool_call": False,
-                }
-            )
+            row = {
+                "schema_version": RUN_SCHEMA,
+                "snapshot": snapshot,
+                "schedule_index": schedule,
+                "condition_id": condition["condition_id"],
+                "documentation": condition["documentation"],
+                "native_tool_schema": condition["native_tool_schema"],
+                "state_id": f"state-{state_index + 1:02d}",
+                "state_index": state_index,
+                "sample_index": 0,
+                "seed": 100 + 100 * state_index,
+                "status": "failed" if failed else "ok",
+                "latency_seconds": 0.1,
+                "attempt_errors": [],
+            }
+            if not failed:
+                row.update(
+                    {
+                        "response_message": {
+                            "role": "assistant",
+                            "content": "ordinary prose",
+                        },
+                        "structured_tool_call_count": 0,
+                        "has_structured_tool_call": False,
+                        "no_structured_tool_call": True,
+                        "has_content": True,
+                        "recovery_opportunity": False,
+                        "recoverable_calls": [],
+                        "malformed_emission": False,
+                        "malformed_families": [],
+                    }
+                )
+            rows.append(row)
             schedule += 1
     (root / "results.jsonl").write_text(
         "".join(json.dumps(row) + "\n" for row in rows)
     )
+    postflight = {
+        "schema_version": f"{RUN_SCHEMA}.postflight",
+        "study_id": "test-study",
+        "snapshot": snapshot,
+        "endpoint_identity_stable": True,
+        "endpoint_health": health,
+        "error": None,
+    }
+    (root / "postflight.json").write_text(json.dumps(postflight))
+    completed = {
+        "schema_version": f"{RUN_SCHEMA}.completed",
+        "study_id": "test-study",
+        "snapshot": snapshot,
+        "scheduled_requests": len(rows),
+        "successful_requests": sum(row["status"] == "ok" for row in rows),
+        "failed_requests": sum(row["status"] != "ok" for row in rows),
+        "recovery_opportunities": 0,
+        "malformed_emissions": 0,
+        "structured_tool_responses": 0,
+        "no_structured_tool_call_responses": sum(
+            row.get("no_structured_tool_call", False) for row in rows
+        ),
+        "endpoint_identity_stable": True,
+    }
+    (root / "completed.json").write_text(json.dumps(completed))
     records = []
-    for name in ("prelaunch.json", "results.jsonl"):
+    for name in (
+        "prelaunch.json",
+        "results.jsonl",
+        "postflight.json",
+        "completed.json",
+    ):
         path = root / name
         records.append(
             {
@@ -219,14 +314,49 @@ def _run_dir(
             }
         )
     (root / "artifact-index.json").write_text(
-        json.dumps({"files": records, "tree_sha256": sha256_json(records)})
+        json.dumps(
+            {
+                "schema_version": f"{RUN_SCHEMA}.artifacts",
+                "study_id": "test-study",
+                "snapshot": snapshot,
+                "files": records,
+                "tree_sha256": sha256_json(records),
+            }
+        )
     )
     return root
 
 
-def test_complete_analysis_reports_zero_bound_and_nine_contrasts(
+def _reseal_run(root: Path) -> None:
+    records = []
+    for name in (
+        "prelaunch.json",
+        "results.jsonl",
+        "postflight.json",
+        "completed.json",
+    ):
+        path = root / name
+        records.append(
+            {
+                "path": name,
+                "size_bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+        )
+    index = json.loads((root / "artifact-index.json").read_text())
+    index["files"] = records
+    index["tree_sha256"] = sha256_json(records)
+    (root / "artifact-index.json").write_text(json.dumps(index))
+
+
+def test_complete_analysis_reports_finite_grid_and_nine_contrasts(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    monkeypatch.setattr(
+        "scripts.opd.trigger_incidence_probe._git_identity",
+        lambda: {"source_git_commit": "b" * 40, "dirty_paths": []},
+    )
     registration = _registration(tmp_path)
     design = _design(tmp_path, registration)
     runs = [
@@ -238,17 +368,21 @@ def test_complete_analysis_reports_zero_bound_and_nine_contrasts(
     assert summary["analysis_status"] == "complete"
     assert summary["scheduled_requests"] == 24
     assert summary["recovery_opportunities"] == 0
-    assert 0 < summary["zero_event_one_sided_95_upper"] < 1
     assert len(summary["cells"]) == 12
     assert len(summary["registered_contrasts"]) == 9
-    assert all(
-        row["bonferroni_p"] == 1 for row in summary["registered_contrasts"]
-    )
+    assert all(row["effect_rate_difference"] == 0 for row in summary["registered_contrasts"])
+    assert all(row["states_zero"] == 2 for row in summary["registered_contrasts"])
+    assert len(summary["input_runs"]) == 3
 
 
 def test_incomplete_analysis_retains_failures_and_suppresses_contrasts(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    monkeypatch.setattr(
+        "scripts.opd.trigger_incidence_probe._git_identity",
+        lambda: {"source_git_commit": "b" * 40, "dirty_paths": []},
+    )
     registration = _registration(tmp_path)
     design = _design(tmp_path, registration)
     runs = [
@@ -265,3 +399,69 @@ def test_incomplete_analysis_retains_failures_and_suppresses_contrasts(
     assert summary["analysis_status"] == "incomplete"
     assert summary["failed_requests"] == 1
     assert summary["registered_contrasts"] == []
+
+
+def test_design_rejects_self_hashed_wrong_personality(tmp_path: Path) -> None:
+    registration_path = _registration(tmp_path)
+    design_path = _design(tmp_path, registration_path)
+    registration = json.loads(registration_path.read_text())
+    design = json.loads(design_path.read_text())
+    design["states"][0]["personality"] = "grinder"
+    design_path.write_text(json.dumps(design))
+    receipt = json.loads(design_path.with_suffix(".receipt.json").read_text())
+    receipt["design_sha256"] = sha256_file(design_path)
+    design_path.with_suffix(".receipt.json").write_text(json.dumps(receipt))
+    with pytest.raises(ProbeError, match="message hash mismatch"):
+        load_design(design_path, registration, sha256_file(registration_path))
+
+
+def test_analysis_rejects_empty_artifact_index(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.opd.trigger_incidence_probe._git_identity",
+        lambda: {"source_git_commit": "b" * 40, "dirty_paths": []},
+    )
+    registration = _registration(tmp_path)
+    design = _design(tmp_path, registration)
+    runs = [
+        _run_dir(tmp_path, snapshot, registration, design)
+        for snapshot in ("base", "r2", "r3")
+    ]
+    index_path = runs[0] / "artifact-index.json"
+    index = json.loads(index_path.read_text())
+    index["files"] = []
+    index_path.write_text(json.dumps(index))
+    with pytest.raises(ProbeError, match="artifact index contract mismatch"):
+        analyze(registration, design, runs, tmp_path / "analysis")
+
+
+def test_analysis_recomputes_outcome_from_raw_response(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.opd.trigger_incidence_probe._git_identity",
+        lambda: {"source_git_commit": "b" * 40, "dirty_paths": []},
+    )
+    registration = _registration(tmp_path)
+    design = _design(tmp_path, registration)
+    runs = [
+        _run_dir(tmp_path, snapshot, registration, design)
+        for snapshot in ("base", "r2", "r3")
+    ]
+    rows = [
+        json.loads(line)
+        for line in (runs[0] / "results.jsonl").read_text().splitlines()
+    ]
+    rows[0]["recovery_opportunity"] = True
+    (runs[0] / "results.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in rows)
+    )
+    completed = json.loads((runs[0] / "completed.json").read_text())
+    completed["recovery_opportunities"] = 1
+    (runs[0] / "completed.json").write_text(json.dumps(completed))
+    _reseal_run(runs[0])
+    with pytest.raises(ProbeError, match="stored outcome differs"):
+        analyze(registration, design, runs, tmp_path / "analysis")

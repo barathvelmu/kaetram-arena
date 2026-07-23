@@ -436,6 +436,10 @@ def export_bundle(
                 "source_git_commit"
             ],
             "analysis_script_sha256": verified["analysis_script_sha256"],
+            "export_script_sha256": sha256_file(Path(__file__).resolve()),
+            "verifier_script_sha256": sha256_file(
+                REPO / "scripts" / "opd" / "verify_trigger_incidence_artifact.py"
+            ),
             "registration_sha256": sha256_file(output_dir / "registration.json"),
             "design_sha256": sha256_file(
                 output_dir / "design" / "design.json"

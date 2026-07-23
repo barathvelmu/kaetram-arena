@@ -26,6 +26,8 @@ INDEX_KEYS = {
     "experiment_source_git_commit",
     "analysis_source_git_commit",
     "analysis_script_sha256",
+    "export_script_sha256",
+    "verifier_script_sha256",
     "registration_sha256",
     "design_sha256",
     "files",
@@ -114,6 +116,8 @@ def verify_bundle(
         raise exporter.ExportError("artifact schema version mismatch")
     for label in (
         "analysis_script_sha256",
+        "export_script_sha256",
+        "verifier_script_sha256",
         "registration_sha256",
         "design_sha256",
         "tree_sha256",
@@ -145,6 +149,10 @@ def verify_bundle(
             "source_git_commit"
         ],
         "analysis_script_sha256": verified["analysis_script_sha256"],
+        "export_script_sha256": exporter.sha256_file(
+            Path(exporter.__file__).resolve()
+        ),
+        "verifier_script_sha256": exporter.sha256_file(Path(__file__).resolve()),
         "registration_sha256": exporter.sha256_file(
             artifact_dir / "registration.json"
         ),

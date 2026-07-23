@@ -146,6 +146,31 @@ def test_recovery_audit_counts_recovered_execution_and_repeat_proxy(tmp_path: Pa
     assert report["recovered_by_tool"] == {"gather": 2}
 
 
+def test_recovery_audit_prefers_raw_endpoint_emission_without_double_counting(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "session_1_test.log"
+    malformed = '<function=gather("Oak")>'
+    records = [
+        {
+            "type": "raw_model_emission",
+            "content": malformed,
+            "tool_calls": [],
+        },
+        {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": malformed}]},
+        },
+    ]
+    log.write_text("".join(json.dumps(record) + "\n" for record in records))
+
+    report = audit_logs([log])
+    assert report["totals"]["malformed_emissions"] == 1
+    assert report["sessions"][0]["malformed_emission_source"] == (
+        "raw_model_emission"
+    )
+
+
 def test_collect_states_fails_closed_if_any_session_log_is_corrupt(
     tmp_path: Path, monkeypatch
 ) -> None:

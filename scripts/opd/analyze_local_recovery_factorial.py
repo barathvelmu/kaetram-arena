@@ -44,6 +44,34 @@ WEIGHT_LABEL = {
     "opd_r3_2b": "r3",
 }
 
+ARM_VALUE_METRICS = (
+    "duration_seconds",
+    "budget_overrun_seconds",
+    "turns",
+    "canonical_executed_calls",
+    "canonical_executed_calls_per_minute",
+    "canonical_tool_bearing_turns",
+    "tool_parse_rate",
+    "api_errors",
+    "sub_sessions",
+    "raw_generations",
+    "generations_with_structured_call",
+    "generations_without_structured_call",
+    "structured_call_emission_rate",
+    "raw_structured_calls",
+    "raw_structured_calls_per_minute",
+    "malformed_emissions",
+    "recoverable_raw_calls",
+    "recovered_calls",
+    "recovered_execution_errors",
+    "recovered_execution_successes",
+    "repeat_recoveries_within_window",
+    "core3_stages_advanced",
+    "quest_stages_advanced",
+    "xp_db_delta",
+    "unique_positions",
+)
+
 
 def _validate_recovery_receipts(
     results_root: Path,
@@ -86,14 +114,33 @@ def _validate_recovery_accounting(
     malformed = totals.get("malformed_emissions")
     recovered_total = totals.get("recovered_calls")
     recovered_errors = totals.get("recovered_execution_errors")
+    repeat_recoveries = totals.get("repeat_recoveries_within_window")
     if not all(type(value) is int and value >= 0 for value in (
         malformed,
         recovered_total,
         recovered_errors,
+        repeat_recoveries,
     )):
         raise AnalysisError("recovery audit totals are malformed")
+    if recovered_errors > recovered_total:
+        raise AnalysisError("recovery execution errors exceed recovered calls")
+    if repeat_recoveries > recovered_total:
+        raise AnalysisError("repeat recoveries exceed recovered calls")
+    if any(not isinstance(name, str) or not name for name in recovered) or any(
+        type(value) is not int or value < 0 for value in recovered.values()
+    ):
+        raise AnalysisError("recovery audit tool counts are malformed")
     if sum(recovered.values()) != recovered_total:
         raise AnalysisError("recovery audit tool counts do not match its total")
+    if malformed != raw_metrics["raw_malformed_emissions"]:
+        raise AnalysisError(
+            "recovery audit malformed count differs from raw endpoint emissions"
+        )
+    if (
+        sum(raw_metrics["raw_recoverable_action_counts"].values())
+        != raw_metrics["raw_recoverable_calls"]
+    ):
+        raise AnalysisError("recoverable raw call accounting is inconsistent")
     if not recovery_enabled and recovered_total:
         raise AnalysisError("recovery-off cell contains recovered calls")
     if recovery_enabled and recovered != raw_metrics["raw_recoverable_action_counts"]:
@@ -113,9 +160,7 @@ def _validate_recovery_accounting(
         "recovered_calls": recovered_total,
         "recovered_execution_errors": recovered_errors,
         "recovered_execution_successes": recovered_total - recovered_errors,
-        "repeat_recoveries_within_window": totals.get(
-            "repeat_recoveries_within_window", 0
-        ),
+        "repeat_recoveries_within_window": repeat_recoveries,
         "recovered_by_tool": recovered,
     }
 
@@ -172,13 +217,32 @@ def _summarize(rows: list[dict]) -> dict:
     result = {}
     for weight in ("base", "r2", "r3"):
         for recovery in (False, True):
-            group = [
-                row for row in rows
-                if row["weight"] == weight and row["recovery"] is recovery
-            ]
+            group = sorted(
+                (
+                    row for row in rows
+                    if row["weight"] == weight and row["recovery"] is recovery
+                ),
+                key=lambda row: row["replicate"],
+            )
             key = f"{weight}-recovery-{'on' if recovery else 'off'}"
+            values = {
+                metric: [row[metric] for row in group]
+                for metric in ARM_VALUE_METRICS
+            }
+            means = {
+                metric: (
+                    round(statistics.mean(metric_values), 6)
+                    if metric_values else None
+                )
+                for metric, metric_values in values.items()
+            }
             result[key] = {
                 "n_valid": len(group),
+                "cell_ids": [row["cell_id"] for row in group],
+                "replicates": [row["replicate"] for row in group],
+                "schedule_indices": [row["schedule_index"] for row in group],
+                "values": values,
+                "means": means,
                 "canonical_executed_calls": [
                     row["canonical_executed_calls"] for row in group
                 ],

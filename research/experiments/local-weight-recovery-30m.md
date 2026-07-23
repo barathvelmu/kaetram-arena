@@ -105,3 +105,18 @@ completion, that OPD caused an effect, or that any result generalizes.
 
 The complete machine-readable registration is
 [`local-weight-recovery-30m.json`](local-weight-recovery-30m.json).
+
+## Post-launch analyzer hardening record
+
+On July 23, 2026, before a `completed-inventory.json` or any cross-arm result
+existed, the offline analyzer was tightened to implement the reporting contract
+above more literally. The change makes every arm retain its three
+replicate-ordered values and descriptive means, independently reconciles the
+raw malformed-emission count with the recovery-log audit, and rejects
+impossible recovery-error or repeat-recovery totals.
+
+At that point only the first cell had sealed. Its artifact inventory and raw
+malformed/recovery counts had been checked, but no quest outcome, recovery-on
+cell, within-weight pair, arm contrast, or complete factorial report had been
+inspected. The schedule, diagnostics, estimands, exclusion rule, and claim
+boundary were not changed.

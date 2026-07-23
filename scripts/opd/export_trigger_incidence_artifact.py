@@ -52,6 +52,7 @@ GENERIC_IDENTITY_PATTERNS = (
     re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
     re.compile(r"(?:git@github\.com:|https?://github\.com/)", re.IGNORECASE),
 )
+SAFE_SNAPSHOT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
 class ExportError(RuntimeError):
@@ -253,6 +254,15 @@ def _semantic_verify(staged: Path) -> dict:
     design_path = staged / "design" / "design.json"
     try:
         registration, registration_sha256 = probe.load_registration(registration_path)
+        unsafe_snapshots = [
+            snapshot
+            for snapshot in registration["snapshots"]
+            if SAFE_SNAPSHOT_ID.fullmatch(snapshot) is None
+        ]
+        if unsafe_snapshots:
+            raise ExportError(
+                "registered snapshot IDs must be safe single path components"
+            )
         design = probe.load_design(
             design_path,
             registration,

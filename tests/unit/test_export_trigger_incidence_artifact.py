@@ -456,6 +456,33 @@ def test_rejects_output_inside_input(tmp_path: Path) -> None:
     assert not output.exists()
 
 
+@pytest.mark.parametrize(
+    "bad_snapshot",
+    ("../../escaped-run", "nested/run", "absolute"),
+)
+def test_rejects_snapshot_id_as_output_path(
+    tmp_path: Path,
+    bad_snapshot: str,
+) -> None:
+    fixture = _fixture(tmp_path)
+    registration_path = fixture["registration_path"]
+    registration = json.loads(registration_path.read_text())
+    original = next(iter(registration["snapshots"]))
+    snapshot_contract = registration["snapshots"].pop(original)
+    escaped = tmp_path / "escaped-absolute"
+    snapshot_id = str(escaped) if bad_snapshot == "absolute" else bad_snapshot
+    registration["snapshots"] = {
+        snapshot_id: snapshot_contract,
+        **registration["snapshots"],
+    }
+    _write_json(registration_path, registration)
+
+    with pytest.raises(ExportError, match="safe single path components"):
+        _export(fixture, tmp_path / "public")
+    assert not escaped.exists()
+    assert not (tmp_path / "escaped-run").exists()
+
+
 def test_analysis_provenance_binds_exact_python_and_script(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     summary_path = fixture["analysis_dir"] / "analysis-summary.json"

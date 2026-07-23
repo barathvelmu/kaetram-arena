@@ -106,6 +106,17 @@ MONGO_COLLECTIONS = [
 ]
 
 
+def normalize_server_port(value: str | int) -> int:
+    """Normalize CLI/config ports before passing them to strict socket probes."""
+    try:
+        port = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"server port must be an integer, got {value!r}") from exc
+    if not 1 <= port <= 65_535:
+        raise ValueError(f"server port must be between 1 and 65535, got {port}")
+    return port
+
+
 def require_node20_binary() -> str:
     """Resolve an explicit Node 20 executable without assuming nvm or a shell."""
     node_binary = os.environ.get("KAETRAM_NODE_BINARY") or shutil.which("node")
@@ -977,7 +988,8 @@ def run_model_eval(
     # Uses direct node command (same as orchestrate.GameServer)
     _game_server_proc = None
     if server_port:
-        server_running = is_tcp_port_open("127.0.0.1", server_port)
+        probe_port = normalize_server_port(server_port)
+        server_running = is_tcp_port_open("127.0.0.1", probe_port)
         rng_required = bool(
             provenance_meta
             and provenance_meta.get("environment_seed_mechanism")
@@ -1028,7 +1040,7 @@ def run_model_eval(
                 gs_log.close()
                 # Wait for port
                 for _i in range(60):
-                    if is_tcp_port_open("127.0.0.1", server_port):
+                    if is_tcp_port_open("127.0.0.1", probe_port):
                         print(f"  Game server ready on port {server_port} ({_i+1}s)")
                         # Listening is not enough; give the world a few seconds to finish booting.
                         time.sleep(5)

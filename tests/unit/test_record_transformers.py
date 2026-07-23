@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from scripts.opd import make_uniform_advantages as uniform_module
+from scripts.opd import resample_records as resample_module
 from scripts.opd.make_uniform_advantages import (
     ArtifactBuildError as UniformBuildError,
 )
@@ -56,6 +58,7 @@ def _write_root_receipt(path: Path) -> Path:
         "meta_path": "dataset/raw/agent_test/runs/run_1/session_1.meta.json",
         "meta_sha256": "9" * 64,
         "meta_size_bytes": 1,
+        "personality_prompt_path": "prompts/personalities/completionist.md",
     }]
     tokenizer_sha = "d" * 64
     attestation = lambda label: {
@@ -85,6 +88,13 @@ def _write_root_receipt(path: Path) -> Path:
         "record_schema_validator_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,
         "n_records": len(path.read_bytes().splitlines()),
         "n_heldout": 0,
+        "candidate_states": len(path.read_bytes().splitlines()),
+        "candidate_states_sha256": "2" * 64,
+        "status_counts": {
+            "ok": len(path.read_bytes().splitlines()),
+        },
+        "excluded_states": [],
+        "excluded_states_sha256": canonical_sha256([]),
         "build_sources": build_sources,
         "parameters": {
             "student_endpoint_attestation": attestation("student"),
@@ -191,6 +201,28 @@ def test_uniform_advantages_refuses_overwrite(tmp_path: Path) -> None:
     with pytest.raises(UniformBuildError, match="refusing to overwrite"):
         build_uniform_advantages(source, output)
     assert output.read_text() == "owned-by-user\n"
+
+
+@pytest.mark.parametrize(
+    ("publisher", "error"),
+    [
+        (uniform_module._publish_create_only, UniformBuildError),
+        (resample_module._publish_create_only, ResampleBuildError),
+    ],
+)
+def test_transform_publish_never_replaces_late_destination(
+    tmp_path: Path,
+    publisher,
+    error: type[Exception],
+) -> None:
+    temporary = tmp_path / "temporary"
+    destination = tmp_path / "destination"
+    temporary.write_text("new\n")
+    destination.write_text("owned\n")
+    with pytest.raises(error, match="concurrently created"):
+        publisher(temporary, destination)
+    assert destination.read_text() == "owned\n"
+    assert temporary.read_text() == "new\n"
 
 
 def test_resample_is_deterministic_exact_count_and_attested(tmp_path: Path) -> None:
@@ -363,6 +395,23 @@ def test_builder_receipt_supports_canonical_untransformed_records(
     receipt = tmp_path / "records.manifest.json"
     _write_jsonl(records, [_record(0, [1.0]), _record(1, [-2.0])])
     assert len(load_verified_training_records(records, receipt)) == 2
+
+
+def test_builder_receipt_rejects_unaccounted_or_transient_statuses(
+    tmp_path: Path,
+) -> None:
+    records = tmp_path / "records.jsonl"
+    receipt_path = tmp_path / "records.manifest.json"
+    _write_jsonl(records, [_record(0, [1.0])])
+    receipt = json.loads(receipt_path.read_text())
+    receipt["candidate_states"] = 2
+    receipt["status_counts"] = {"ok": 1, "score_fail": 1}
+    receipt_path.write_text(json.dumps(receipt))
+    with pytest.raises(
+        TrainingRecordBundleError,
+        match="candidate/status accounting",
+    ):
+        load_verified_training_records(records, receipt_path)
 
 
 def test_generic_posthoc_identity_receipts_are_not_supported(tmp_path: Path) -> None:

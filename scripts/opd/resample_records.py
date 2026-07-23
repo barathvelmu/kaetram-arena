@@ -87,6 +87,16 @@ def _validate_lines(payload: bytes) -> list[bytes]:
     return lines
 
 
+def _publish_create_only(temporary: Path, destination: Path) -> None:
+    try:
+        os.link(temporary, destination)
+    except FileExistsError as exc:
+        raise ArtifactBuildError(
+            f"refusing to replace a concurrently created artifact: {destination}"
+        ) from exc
+    temporary.unlink()
+
+
 def resample_records(
     src: Path,
     dst: Path,
@@ -187,8 +197,8 @@ def resample_records(
                 handle.flush()
                 os.fsync(handle.fileno())
                 tmp_paths.append(Path(handle.name))
-        os.replace(tmp_paths[0], dst)
-        os.replace(tmp_paths[1], manifest_path)
+        _publish_create_only(tmp_paths[0], dst)
+        _publish_create_only(tmp_paths[1], manifest_path)
         return manifest
     finally:
         for path in tmp_paths:

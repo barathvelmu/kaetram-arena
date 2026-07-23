@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -61,29 +62,35 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / "scripts" / "opd"))
-sys.path.insert(0, str(REPO / "finetune"))
-
-from canonicalize import docify_system_prompt, is_malformed  # noqa: E402
-from opd_probe import reconstruct_session  # noqa: E402
-from opd_round1 import turn_to_chat  # noqa: E402
-from opd_wall_probe import _frontier, _finished_from_payload  # noqa: E402
-from render import patch_qwen_chat_template  # noqa: E402
-from heldout_guard import assert_text_not_reserved  # noqa: E402
-from opd_data_manifest import (  # noqa: E402
-    BUILDER_RELATIVE_PATH,
-    MANIFEST_SCHEMA_VERSION,
-)
-from receipt_chain import (  # noqa: E402
-    BUILD_SOURCE_PATHS,
-    canonical_sha256,
-    is_digest,
-    sha256_path,
-)
-from record_schema import (  # noqa: E402
-    OPD_TRAIN_RECORD_SCHEMA_SHA256,
-    OPD_TRAIN_RECORD_SCHEMA_VERSION,
-    OPD_TRAIN_RECORD_VALIDATOR_SHA256,
+# This list is deliberately available without importing any local module. Main
+# snapshots it first, then imports every local dependency from that immutable
+# copy. receipt_chain.py carries the same closed inventory and checks equality
+# when the frozen modules are loaded.
+BUILD_SOURCE_PATHS = (
+    "bootstrap.py",
+    "canonical_start.py",
+    "eval_harness.py",
+    "inference_seed.py",
+    "finetune/render.py",
+    "scripts/opd/canonicalize.py",
+    "heldout_guard.py",
+    "port_probe.py",
+    "run_manifest.py",
+    "scripts/opd/opd_2b_data.py",
+    "scripts/opd/opd_data_manifest.py",
+    "scripts/opd/opd_probe.py",
+    "scripts/opd/opd_round1.py",
+    "scripts/opd/opd_wall_probe.py",
+    "scripts/opd/record_schema.py",
+    "scripts/opd/receipt_chain.py",
+    "scripts/log_analysis/parse.py",
+    "prompts/game_knowledge.md",
+    "prompts/personalities/completionist.md",
+    "prompts/personalities/explorer_tinkerer.md",
+    "prompts/personalities/grinder.md",
+    "prompts/system.md",
+    "research/experiments/heldout-quest-v2.json",
+    "research/experiments/heldout-quest.json",
 )
 
 STUDENT_EP = os.environ["TWOB_EP"].rstrip("/")
@@ -101,6 +108,84 @@ PER_EP_CONCURRENCY = 6    # per-endpoint in-flight cap (server max_running_reque
 CHUNK = 200               # states scored per submission wave
 SCORE_TIMEOUT = 240.0
 SCORE_RETRIES = 3
+
+
+def sha256_path(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def canonical_sha256(value: object) -> str:
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def is_digest(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(char in "0123456789abcdef" for char in value)
+    )
+
+
+def _load_frozen_local_dependencies(snapshot_root: Path) -> None:
+    """Import all local execution code from the pre-import immutable snapshot."""
+    global BUILDER_RELATIVE_PATH, MANIFEST_SCHEMA_VERSION
+    global OPD_TRAIN_RECORD_SCHEMA_SHA256, OPD_TRAIN_RECORD_SCHEMA_VERSION
+    global OPD_TRAIN_RECORD_VALIDATOR_SHA256
+    global _finished_from_payload, _frontier, assert_text_not_reserved
+    global docify_system_prompt, is_malformed, patch_qwen_chat_template
+    global reconstruct_session, turn_to_chat
+
+    for path in (
+        snapshot_root,
+        snapshot_root / "scripts" / "opd",
+        snapshot_root / "scripts" / "log_analysis",
+        snapshot_root / "finetune",
+    ):
+        sys.path.insert(0, str(path))
+
+    from canonicalize import docify_system_prompt as frozen_docify_system_prompt
+    from canonicalize import is_malformed as frozen_is_malformed
+    from heldout_guard import assert_text_not_reserved as frozen_assert_text_not_reserved
+    from opd_data_manifest import BUILDER_RELATIVE_PATH as frozen_builder_path
+    from opd_data_manifest import MANIFEST_SCHEMA_VERSION as frozen_manifest_schema
+    from opd_probe import reconstruct_session as frozen_reconstruct_session
+    from opd_round1 import turn_to_chat as frozen_turn_to_chat
+    from opd_wall_probe import _finished_from_payload as frozen_finished_from_payload
+    from opd_wall_probe import _frontier as frozen_frontier
+    from receipt_chain import BUILD_SOURCE_PATHS as receipt_build_source_paths
+    from record_schema import (
+        OPD_TRAIN_RECORD_SCHEMA_SHA256 as frozen_record_schema_sha256,
+    )
+    from record_schema import (
+        OPD_TRAIN_RECORD_SCHEMA_VERSION as frozen_record_schema_version,
+    )
+    from record_schema import (
+        OPD_TRAIN_RECORD_VALIDATOR_SHA256 as frozen_validator_sha256,
+    )
+    from render import patch_qwen_chat_template as frozen_patch_qwen_chat_template
+
+    if tuple(receipt_build_source_paths) != tuple(BUILD_SOURCE_PATHS):
+        raise RuntimeError("builder and receipt source inventories disagree")
+    BUILDER_RELATIVE_PATH = frozen_builder_path
+    MANIFEST_SCHEMA_VERSION = frozen_manifest_schema
+    OPD_TRAIN_RECORD_SCHEMA_SHA256 = frozen_record_schema_sha256
+    OPD_TRAIN_RECORD_SCHEMA_VERSION = frozen_record_schema_version
+    OPD_TRAIN_RECORD_VALIDATOR_SHA256 = frozen_validator_sha256
+    _finished_from_payload = frozen_finished_from_payload
+    _frontier = frozen_frontier
+    assert_text_not_reserved = frozen_assert_text_not_reserved
+    docify_system_prompt = frozen_docify_system_prompt
+    is_malformed = frozen_is_malformed
+    patch_qwen_chat_template = frozen_patch_qwen_chat_template
+    reconstruct_session = frozen_reconstruct_session
+    turn_to_chat = frozen_turn_to_chat
 
 
 def load_student_tokenizer(tokenizer_path: Path):
@@ -137,7 +222,34 @@ def _emission_text(turn):
     return content + "<|im_end|>\n"
 
 
-def _snapshot_source_logs(run_ids: list[str]) -> list[dict]:
+def _copy_and_hash(source: Path, destination: Path | None = None) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    size = 0
+    output = None
+    try:
+        if destination is not None:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            output = destination.open("xb")
+        with source.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+                size += len(chunk)
+                if output is not None:
+                    output.write(chunk)
+        if output is not None:
+            output.flush()
+            os.fsync(output.fileno())
+    finally:
+        if output is not None:
+            output.close()
+    return digest.hexdigest(), size
+
+
+def _snapshot_source_logs(
+    run_ids: list[str],
+    *,
+    snapshot_root: Path | None = None,
+) -> list[dict]:
     if not run_ids or len(run_ids) != len(set(run_ids)):
         raise RuntimeError("--run-ids must contain unique run identifiers")
     inventory = []
@@ -154,14 +266,42 @@ def _snapshot_source_logs(run_ids: list[str]) -> list[dict]:
                 raise RuntimeError(
                     f"source log has no adjacent session metadata: {meta}"
                 )
+            relative = resolved.relative_to(REPO).as_posix()
+            meta_relative = meta.relative_to(REPO).as_posix()
+            log_sha, log_size = _copy_and_hash(
+                resolved,
+                snapshot_root / relative if snapshot_root is not None else None,
+            )
+            meta_sha, meta_size = _copy_and_hash(
+                meta,
+                snapshot_root / meta_relative if snapshot_root is not None else None,
+            )
+            try:
+                metadata = json.loads(
+                    (snapshot_root / meta_relative if snapshot_root is not None else meta)
+                    .read_text(encoding="utf-8")
+                )
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise RuntimeError(f"source session metadata is invalid: {meta}") from exc
+            if not isinstance(metadata, dict):
+                raise RuntimeError(f"source session metadata is not an object: {meta}")
+            personality = metadata.get("personality") or "completionist"
+            if not isinstance(personality, str) or not personality:
+                raise RuntimeError(f"source session personality is invalid: {meta}")
+            personality_prompt = f"prompts/personalities/{personality}.md"
+            if personality_prompt not in BUILD_SOURCE_PATHS:
+                raise RuntimeError(
+                    f"source session selects an unbound personality prompt: {personality}"
+                )
             inventory.append({
                 "run_id": run_id,
-                "path": resolved.relative_to(REPO).as_posix(),
-                "sha256": sha256_path(resolved),
-                "size_bytes": resolved.stat().st_size,
-                "meta_path": meta.relative_to(REPO).as_posix(),
-                "meta_sha256": sha256_path(meta),
-                "meta_size_bytes": meta.stat().st_size,
+                "path": relative,
+                "sha256": log_sha,
+                "size_bytes": log_size,
+                "meta_path": meta_relative,
+                "meta_sha256": meta_sha,
+                "meta_size_bytes": meta_size,
+                "personality_prompt_path": personality_prompt,
             })
     inventory.sort(key=lambda item: item["path"])
     if len({item["path"] for item in inventory}) != len(inventory):
@@ -199,6 +339,20 @@ def _snapshot_build_sources() -> dict[str, str]:
     return snapshot
 
 
+def _materialize_build_inputs(
+    snapshot: dict[str, str],
+    snapshot_root: Path,
+) -> None:
+    if set(snapshot) != set(BUILD_SOURCE_PATHS):
+        raise RuntimeError("material build-input snapshot is incomplete")
+    for relative, expected in snapshot.items():
+        actual, _ = _copy_and_hash(REPO / relative, snapshot_root / relative)
+        if actual != expected:
+            raise RuntimeError(
+                f"material build input changed while snapshotting: {relative}"
+            )
+
+
 def _verify_build_source_snapshot(snapshot: dict[str, str]) -> None:
     if set(snapshot) != set(BUILD_SOURCE_PATHS):
         raise RuntimeError("material build-input snapshot is incomplete")
@@ -226,17 +380,50 @@ def _directory_digest(root: Path) -> str:
     return canonical_sha256(inventory)
 
 
-def collect_action_states(inventory: list[dict]):
+def _materialize_directory_snapshot(
+    source_root: Path,
+    destination_root: Path,
+    *,
+    expected_sha256: str,
+) -> Path:
+    inventory = []
+    for source in sorted(source_root.rglob("*")):
+        if source.is_symlink():
+            raise RuntimeError(f"snapshot source contains a symlink: {source}")
+        if not source.is_file():
+            continue
+        relative = source.relative_to(source_root)
+        digest, size = _copy_and_hash(source, destination_root / relative)
+        inventory.append({
+            "path": relative.as_posix(),
+            "sha256": digest,
+            "size_bytes": size,
+        })
+    if canonical_sha256(inventory) != expected_sha256:
+        raise RuntimeError("directory changed while materializing its snapshot")
+    return destination_root
+
+
+def collect_action_states(
+    inventory: list[dict],
+    *,
+    source_root: Path | None = None,
+):
     """Per-turn (messages, emission, verb, frontier, session, turn_idx, n_turns,
     holdout) over the rollout logs. messages = [system, bootstrap, ...tail...]
     (context only); emission = the raw action continuation."""
     states = []
     n_no_emission = 0
     states_by_run = defaultdict(int)
+    reconstruction_root = source_root.resolve() if source_root is not None else REPO
     for log_i, source in enumerate(inventory):
-        lp = REPO / source["path"]
+        lp = reconstruction_root / source["path"]
         try:
-            base_messages, turns = reconstruct_session(lp)
+            base_messages, turns = reconstruct_session(
+                lp,
+                source_repo=reconstruction_root,
+                render_project_dir=REPO,
+            )
         except Exception as exc:
             raise RuntimeError(f"failed to parse declared source log: {lp}") from exc
         # Exclude the always-on system prompt from this scan: it mentions the
@@ -255,6 +442,12 @@ def collect_action_states(inventory: list[dict]):
             activity_text,
             use="teacher_grading",
             source=str(lp),
+            path=(
+                reconstruction_root
+                / "research"
+                / "experiments"
+                / "heldout-quest-v2.json"
+            ),
         )
         if not turns:
             raise RuntimeError(f"declared source log contains no turns: {lp}")
@@ -279,6 +472,7 @@ def collect_action_states(inventory: list[dict]):
                         "turn_idx": turn_idx,
                         "holdout": holdout,
                         "source_run": source["run_id"],
+                        "source_log": source["path"],
                     })
             rolling.append(turn_to_chat(turn))
             for tr in results:
@@ -297,8 +491,10 @@ def collect_action_states(inventory: list[dict]):
             "declared run produced no usable action state(s): " + ", ".join(missing)
         )
     if n_no_emission:
-        print(f"  skipped {n_no_emission} tool-call turns with no reconstructible emission "
-              f"(empty/thinking-block text)")
+        raise RuntimeError(
+            f"{n_no_emission} tool-call turn(s) have no reconstructible emission; "
+            "refusing an incompletely accounted corpus"
+        )
     return states
 
 
@@ -515,6 +711,28 @@ async def _verified_endpoint_attestation(
     return attestation
 
 
+def _state_identity(state: dict) -> dict:
+    return {
+        "source_run": state["source_run"],
+        "source_log": state["source_log"],
+        "session": state["session"],
+        "turn_idx": state["turn_idx"],
+        "verb": state["verb"],
+        "frontier": state["frontier"],
+        "holdout": state["holdout"],
+    }
+
+
+def _publish_create_only(temporary: Path, destination: Path) -> None:
+    try:
+        os.link(temporary, destination)
+    except FileExistsError as exc:
+        raise RuntimeError(
+            f"refusing to replace a concurrently created artifact: {destination}"
+        ) from exc
+    temporary.unlink()
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-ids", nargs="+", default=["run_20260610_140358"])
@@ -533,6 +751,12 @@ async def main():
     # Freeze every local input before session reconstruction, rendering, or
     # tokenization. The same bytes are re-checked immediately before sealing.
     build_sources = _snapshot_build_sources()
+    build_snapshot_dir = tempfile.TemporaryDirectory(
+        prefix="kaetram-opd-build-inputs-"
+    )
+    snapshot_root = Path(build_snapshot_dir.name)
+    _materialize_build_inputs(build_sources, snapshot_root)
+    _load_frozen_local_dependencies(snapshot_root)
     for name in ("student_artifact_sha256", "teacher_artifact_sha256"):
         value = getattr(args, name)
         if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
@@ -544,7 +768,10 @@ async def main():
                 f"--{name.replace('_', '-')} must be a non-URL artifact identifier"
             )
 
-    source_inventory = _snapshot_source_logs(args.run_ids)
+    source_inventory = _snapshot_source_logs(
+        args.run_ids,
+        snapshot_root=snapshot_root,
+    )
     _verify_source_snapshot(source_inventory)
     async with httpx.AsyncClient() as identity_client:
         student_attestation, teacher_attestation = await asyncio.gather(
@@ -567,6 +794,16 @@ async def main():
         ap.error("--tokenizer-path must contain tokenizer.json")
     tokenizer_sha256 = sha256_path(tokenizer_file)
     tokenizer_snapshot_sha256 = _directory_digest(tokenizer_path)
+    frozen_tokenizer_path = _materialize_directory_snapshot(
+        tokenizer_path,
+        snapshot_root / "tokenizer",
+        expected_sha256=tokenizer_snapshot_sha256,
+    )
+    if (
+        sha256_path(frozen_tokenizer_path / "tokenizer.json")
+        != tokenizer_sha256
+    ):
+        raise RuntimeError("tokenizer.json changed while materializing its snapshot")
     if (
         student_attestation["tokenizer_sha256"] != tokenizer_sha256
         or teacher_attestation["tokenizer_sha256"] != tokenizer_sha256
@@ -575,10 +812,11 @@ async def main():
             "local tokenizer.json does not match both endpoint identity attestations"
         )
 
-    tok = load_student_tokenizer(tokenizer_path)
-    states = collect_action_states(source_inventory)
+    tok = load_student_tokenizer(frozen_tokenizer_path)
+    states = collect_action_states(source_inventory, source_root=snapshot_root)
     if args.limit:
         states = states[: args.limit]
+    candidate_state_identities = [_state_identity(state) for state in states]
 
     out_dir = REPO / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -601,6 +839,7 @@ async def main():
     sem_s = asyncio.Semaphore(PER_EP_CONCURRENCY)
     sem_t = asyncio.Semaphore(PER_EP_CONCURRENCY)
     counts = defaultdict(int)
+    excluded_states: list[dict] = []
     diag = defaultdict(lambda: [0.0, 0])
     n_ok = n_hold_done = 0
     n_masked_tokens = n_masked_spans = n_action_tokens = 0
@@ -626,7 +865,19 @@ async def main():
                 chunk = states[i:i + CHUNK]
                 results = await asyncio.gather(
                     *(build_record(client, tok, st, sem_s, sem_t) for st in chunk))
-                for rec, status in results:
+                unexpected = [
+                    {**_state_identity(state), "status": status}
+                    for state, (_, status) in zip(chunk, results)
+                    if status not in {"ok", "ok_cf", "holdout", "overlong"}
+                ]
+                if unexpected:
+                    first = unexpected[0]
+                    raise RuntimeError(
+                        "record construction failed closed: "
+                        f"{first['status']} at {first['source_log']} "
+                        f"turn {first['turn_idx']}"
+                    )
+                for st, (rec, status) in zip(chunk, results):
                     counts[status] += 1
                     if status in ("ok", "ok_cf"):
                         rf.write(json.dumps(rec) + "\n")
@@ -640,12 +891,19 @@ async def main():
                     elif status == "holdout":
                         hf.write(json.dumps(rec) + "\n")
                         n_hold_done += 1
+                    else:
+                        excluded_states.append({
+                            **_state_identity(st),
+                            "status": status,
+                        })
                 rf.flush(); hf.flush()
                 print(f"  {min(i + CHUNK, len(states))}/{len(states)}  {dict(counts)}", flush=True)
 
     print(f"\n=== build done: {dict(counts)} ===")
     print(f"train records appended: {n_ok} -> {rec_path}")
     print(f"heldout appended:       {n_hold_done} -> {hold_path}")
+    if n_ok == 0:
+        raise RuntimeError("record build produced no training records")
     if n_action_tokens:
         print(f"malformed-param spans masked: {n_masked_spans} spans / "
               f"{n_masked_tokens} tokens ({n_masked_tokens/n_action_tokens*100:.2f}% of action tokens)")
@@ -693,6 +951,11 @@ async def main():
         "record_schema_validator_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,
         "n_records": n_ok,
         "n_heldout": n_hold_done,
+        "candidate_states": len(states),
+        "candidate_states_sha256": canonical_sha256(candidate_state_identities),
+        "status_counts": dict(sorted(counts.items())),
+        "excluded_states": excluded_states,
+        "excluded_states_sha256": canonical_sha256(excluded_states),
         "build_sources": build_sources,
         "parameters": {
             "student_endpoint_attestation": student_attestation,
@@ -729,7 +992,7 @@ async def main():
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, manifest_path)
+        _publish_create_only(temporary, manifest_path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -737,6 +1000,7 @@ async def main():
     vol_dst = f"/opd_2b/{out_dir.name}/records.jsonl"
     print(f"\nNext: modal volume put kaetram-model-vol {rec_path.relative_to(REPO)} "
           f"{vol_dst} --force")
+    build_snapshot_dir.cleanup()
 
 
 if __name__ == "__main__":

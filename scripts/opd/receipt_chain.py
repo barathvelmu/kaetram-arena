@@ -55,6 +55,8 @@ BUILD_SOURCE_PATHS = (
     "prompts/personalities/explorer_tinkerer.md",
     "prompts/personalities/grinder.md",
     "prompts/system.md",
+    "research/experiments/heldout-quest-v2.json",
+    "research/experiments/heldout-quest.json",
 )
 SCRIPT_PATHS = {
     MANIFEST_SCHEMA_VERSION: BUILDER_RELATIVE_PATH,
@@ -190,6 +192,13 @@ def _verify_root(receipt: dict, repo_root: Path) -> None:
             and item["meta_size_bytes"] >= 0,
             "source meta entry is invalid",
         )
+        _require(
+            isinstance(item.get("personality_prompt_path"), str)
+            and item["personality_prompt_path"] in BUILD_SOURCE_PATHS
+            and PurePosixPath(item["personality_prompt_path"]).parent
+            == PurePosixPath("prompts/personalities"),
+            "source personality prompt is not bound",
+        )
         paths.append(path)
         meta_paths.append(item["meta_path"])
         run_ids.add(run_id)
@@ -217,6 +226,76 @@ def _verify_root(receipt: dict, repo_root: Path) -> None:
         and receipt["n_heldout"] >= 0
         and is_digest(receipt.get("heldout_sha256")),
         "builder record/heldout counts are invalid",
+    )
+    candidate_states = receipt.get("candidate_states")
+    status_counts = receipt.get("status_counts")
+    excluded_states = receipt.get("excluded_states")
+    _require(
+        isinstance(candidate_states, int)
+        and not isinstance(candidate_states, bool)
+        and candidate_states > 0
+        and is_digest(receipt.get("candidate_states_sha256"))
+        and isinstance(status_counts, dict)
+        and bool(status_counts)
+        and set(status_counts)
+        <= {"ok", "ok_cf", "holdout", "overlong"}
+        and all(
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and value > 0
+            for value in status_counts.values()
+        )
+        and sum(status_counts.values()) == candidate_states
+        and status_counts.get("ok", 0) + status_counts.get("ok_cf", 0)
+        == receipt["n_records"]
+        and status_counts.get("holdout", 0) == receipt["n_heldout"],
+        "builder candidate/status accounting is invalid",
+    )
+    _require(
+        isinstance(excluded_states, list)
+        and len(excluded_states) == status_counts.get("overlong", 0)
+        and receipt.get("excluded_states_sha256")
+        == canonical_sha256(excluded_states),
+        "builder exclusion accounting is invalid",
+    )
+    exclusion_identities: list[tuple[object, ...]] = []
+    for exclusion in excluded_states:
+        _require(
+            isinstance(exclusion, dict)
+            and set(exclusion)
+            == {
+                "source_run",
+                "source_log",
+                "session",
+                "turn_idx",
+                "verb",
+                "frontier",
+                "holdout",
+                "status",
+            }
+            and exclusion.get("status") == "overlong"
+            and all(
+                isinstance(exclusion.get(field), str)
+                and bool(exclusion[field])
+                for field in (
+                    "source_run",
+                    "source_log",
+                    "session",
+                    "verb",
+                    "frontier",
+                )
+            )
+            and isinstance(exclusion.get("turn_idx"), int)
+            and exclusion["turn_idx"] >= 0
+            and isinstance(exclusion.get("holdout"), bool),
+            "builder exclusion entry is invalid",
+        )
+        exclusion_identities.append(
+            tuple(exclusion[field] for field in sorted(exclusion))
+        )
+    _require(
+        len(exclusion_identities) == len(set(exclusion_identities)),
+        "builder exclusions are not unique",
     )
     build_sources = receipt.get("build_sources")
     _require(

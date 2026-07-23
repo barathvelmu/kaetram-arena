@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -61,6 +63,26 @@ def test_source_inventory_requires_adjacent_metadata(
         builder._snapshot_source_logs(["run_a"])
 
 
+def test_source_inventory_materializes_bytes_and_rejects_unbound_personality(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(builder, "REPO", tmp_path)
+    source = _source_log(tmp_path, "run_a", "original")
+    frozen = tmp_path / "frozen"
+    inventory = builder._snapshot_source_logs(["run_a"], snapshot_root=frozen)
+    source.write_text("changed then restored later")
+    source.with_suffix(".meta.json").write_text('{"personality":"grinder"}\n')
+    assert (frozen / inventory[0]["path"]).read_text() == "original"
+    assert (
+        frozen / inventory[0]["meta_path"]
+    ).read_text() == '{"persona":"test"}\n'
+
+    source.with_suffix(".meta.json").write_text('{"personality":"unknown"}\n')
+    with pytest.raises(RuntimeError, match="unbound personality"):
+        builder._snapshot_source_logs(["run_a"])
+
+
 def test_declared_parse_failure_is_not_silently_skipped(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -69,10 +91,10 @@ def test_declared_parse_failure_is_not_silently_skipped(
     _source_log(tmp_path, "run_a")
     inventory = builder._snapshot_source_logs(["run_a"])
 
-    def fail(_path):
+    def fail(_path, *, source_repo=None, render_project_dir=None):
         raise ValueError("bad log")
 
-    monkeypatch.setattr(builder, "reconstruct_session", fail)
+    monkeypatch.setattr(builder, "reconstruct_session", fail, raising=False)
     with pytest.raises(RuntimeError, match="failed to parse declared"):
         builder.collect_action_states(inventory)
 
@@ -141,6 +163,19 @@ def test_no_generic_root_attestor_is_exposed() -> None:
     assert "There is intentionally no reusable" in source
 
 
+def test_builder_manifest_publish_never_replaces_late_destination(
+    tmp_path: Path,
+) -> None:
+    temporary = tmp_path / "temporary"
+    destination = tmp_path / "destination"
+    temporary.write_text("new\n")
+    destination.write_text("owned\n")
+    with pytest.raises(RuntimeError, match="concurrently created"):
+        builder._publish_create_only(temporary, destination)
+    assert destination.read_text() == "owned\n"
+    assert temporary.read_text() == "new\n"
+
+
 def test_material_build_inputs_snapshot_and_detect_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -150,10 +185,70 @@ def test_material_build_inputs_snapshot_and_detect_mutation(
     (tmp_path / "one.py").write_text("one\n")
     (tmp_path / "prompt.md").write_text("prompt\n")
     snapshot = builder._snapshot_build_sources()
+    frozen = tmp_path / "frozen"
+    builder._materialize_build_inputs(snapshot, frozen)
+    assert (frozen / "prompt.md").read_text() == "prompt\n"
     builder._verify_build_source_snapshot(snapshot)
     (tmp_path / "prompt.md").write_text("changed\n")
+    assert (frozen / "prompt.md").read_text() == "prompt\n"
     with pytest.raises(RuntimeError, match="material build input changed"):
         builder._verify_build_source_snapshot(snapshot)
+
+
+def test_local_builder_dependencies_import_only_from_frozen_snapshot() -> None:
+    repo = Path(__file__).parents[2]
+    program = """
+import sys
+import tempfile
+from pathlib import Path
+from scripts.opd import opd_2b_data as builder
+
+snapshot = builder._snapshot_build_sources()
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory).resolve()
+    builder._materialize_build_inputs(snapshot, root)
+    builder._load_frozen_local_dependencies(root)
+    names = (
+        "bootstrap", "canonicalize", "eval_harness", "heldout_guard",
+        "opd_probe", "opd_round1", "opd_wall_probe", "parse",
+        "receipt_chain", "record_schema", "render",
+    )
+    paths = [Path(sys.modules[name].__file__).resolve() for name in names]
+    assert all(path.is_relative_to(root) for path in paths), paths
+"""
+    environment = {
+        **os.environ,
+        "TWOB_EP": "http://127.0.0.1:8101/v1",
+        "FOURB_EP": "http://127.0.0.1:8102/v1",
+    }
+    result = subprocess.run(
+        [sys.executable, "-c", program],
+        cwd=repo,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_tokenizer_directory_is_consumed_from_an_exact_snapshot(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "tokenizer-source"
+    source.mkdir()
+    (source / "tokenizer.json").write_text('{"version":1}\n')
+    (source / "config.json").write_text('{"model":"test"}\n')
+    expected = builder._directory_digest(source)
+    frozen = builder._materialize_directory_snapshot(
+        source,
+        tmp_path / "tokenizer-frozen",
+        expected_sha256=expected,
+    )
+    (source / "tokenizer.json").write_text('{"version":2}\n')
+    assert (frozen / "tokenizer.json").read_text() == '{"version":1}\n'
+    assert builder._directory_digest(frozen) == expected
 
 
 @pytest.mark.parametrize(

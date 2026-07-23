@@ -405,14 +405,16 @@ def resolve_system_prompt(
     username: str,
     personality: str = "",
     *,
+    prompt_assets_dir: str = "",
     include_game_knowledge: bool = True,
     held_out_quest: str = "",
     held_out_registration: HeldOutRegistration | None = None,
     prompt_agent_name: str = "",
 ) -> str:
     """Resolve system.md with optional knowledge and held-out task targeting."""
-    system_path = os.path.join(project_dir, "prompts", "system.md")
-    knowledge_path = os.path.join(project_dir, "prompts", "game_knowledge.md")
+    asset_root = prompt_assets_dir or project_dir
+    system_path = os.path.join(asset_root, "prompts", "system.md")
+    knowledge_path = os.path.join(asset_root, "prompts", "game_knowledge.md")
 
     with open(system_path) as f:
         prompt = f.read()
@@ -424,7 +426,12 @@ def resolve_system_prompt(
     # Load personality block if specified
     personality_block = ""
     if personality:
-        pers_path = os.path.join(project_dir, "prompts", "personalities", f"{personality}.md")
+        pers_path = os.path.join(
+            asset_root,
+            "prompts",
+            "personalities",
+            f"{personality}.md",
+        )
         if os.path.isfile(pers_path):
             with open(pers_path) as f:
                 personality_block = f.read()

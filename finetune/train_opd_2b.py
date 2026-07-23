@@ -119,6 +119,14 @@ train_image = (
         "prompts/personalities/grinder.md",
         "/root/prompts/personalities/grinder.md",
     )
+    .add_local_file(
+        "research/experiments/heldout-quest-v2.json",
+        "/root/research/experiments/heldout-quest-v2.json",
+    )
+    .add_local_file(
+        "research/experiments/heldout-quest.json",
+        "/root/research/experiments/heldout-quest.json",
+    )
 )
 
 # Round-parametrized via the CLI (see main); these are the round-2 defaults.

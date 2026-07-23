@@ -97,6 +97,16 @@ def _temporary(parent: Path, stem: str) -> tuple[BinaryIO, Path]:
     return handle, Path(handle.name)
 
 
+def _publish_create_only(temporary: Path, destination: Path) -> None:
+    try:
+        os.link(temporary, destination)
+    except FileExistsError as exc:
+        raise ArtifactBuildError(
+            f"refusing to replace a concurrently created artifact: {destination}"
+        ) from exc
+    temporary.unlink()
+
+
 def build_uniform_advantages(src: Path, dst: Path) -> dict:
     """Create and attest a uniform-advantage corpus."""
     src = src.resolve()
@@ -136,8 +146,10 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
         raise ArtifactBuildError(f"invalid source provenance chain: {exc}") from exc
     total_abs = 0.0
     n_nonzero = n_zero = n_records = 0
+    source_digest_first_pass = hashlib.sha256()
     with src.open("rb") as handle:
         for line_number, raw in enumerate(handle, start=1):
+            source_digest_first_pass.update(raw)
             rec = _record(raw, line_number=line_number)
             n_records += 1
             for advantage in rec["advantages"]:
@@ -147,6 +159,8 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
                     n_nonzero += 1
                 else:
                     n_zero += 1
+    if source_digest_first_pass.hexdigest() != source_sha256:
+        raise ArtifactBuildError("source changed during the statistics pass")
     if n_records == 0:
         raise ArtifactBuildError("source contains no records")
     if n_nonzero == 0:
@@ -208,8 +222,8 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
                 manifest_handle.write(manifest_bytes)
                 manifest_handle.flush()
                 os.fsync(manifest_handle.fileno())
-            os.replace(output_tmp, dst)
-            os.replace(manifest_tmp, manifest_path)
+            _publish_create_only(output_tmp, dst)
+            _publish_create_only(manifest_tmp, manifest_path)
         finally:
             manifest_tmp.unlink(missing_ok=True)
         return manifest

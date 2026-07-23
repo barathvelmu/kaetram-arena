@@ -116,7 +116,7 @@ KAE-79 through KAE-85 are blocked on their relevant P0 tickets so the board does
 ## What is currently supported
 
 - Round two is the least-confounded historical recovery-off observation: the score was 15/30 versus the base run's 12/30, and wall passage was 3/3 versus 0/3 among clustered prompt variants. Exact checkpoint/configuration parity, the gameplay-RNG seed, and independent reproduction remain unavailable, so it is not a clean weights-only comparison.
-- Round-three reaches 18/30 only with a model-interface recovery affordance. It must be labeled weights plus recovery, not a pure weight result.
+- The reported 18/30 round-three configuration includes a model-interface recovery affordance. It must be labeled weights plus recovery, not a pure weight result.
 - Round-two weights plus recovery was reported at 17/30 in one unmatched
   historical run. It is not a controlled ablation or factorial estimate.
 - The malformed-history copy-prior observation is a mechanism hypothesis: one

@@ -154,3 +154,33 @@ def test_dashboard_fails_closed_on_invalid_pointer(
         "status": "invalid_latest_pointer",
         "models": [],
     }
+
+
+def test_live_dashboard_reads_watchdog_from_promoted_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_dir = tmp_path / "dataset"
+    eval_dir = dataset_dir / "eval"
+    run_dir = eval_dir / "runs" / "new-run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "watchdog_status.json").write_text(
+        '{"timestamp":"2026-07-23T12:00:00-0400","models":{}}'
+    )
+    (run_dir / "watchdog_alert.txt").write_text("test alert\n")
+    promote_latest_eval_run(eval_dir, run_dir)
+    monkeypatch.setattr(dashboard_api, "DATASET_DIR", os.fspath(dataset_dir))
+    monkeypatch.setattr(dashboard_api.glob, "glob", lambda pattern: [])
+    dashboard_api.APIMixin._eval_live_cache = {
+        "data": None,
+        "computed_at": 0,
+        "fingerprint": None,
+    }
+
+    probe = _APIProbe()
+    probe.send_eval_live()
+
+    assert probe.payload["watchdog"] == {
+        "timestamp": "2026-07-23T12:00:00-0400",
+        "models": {},
+    }
+    assert probe.payload["watchdog_alert"] == "test alert"

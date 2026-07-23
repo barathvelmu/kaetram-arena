@@ -898,20 +898,17 @@ class APIMixin:
 
             models[model_name] = model
 
-        eval_dir = os.path.join(DATASET_DIR, "eval", "latest")
-        if not os.path.isdir(eval_dir):
-            eval_dir = os.path.join(DATASET_DIR, "eval")
         watchdog = None
         watchdog_alert = ""
-        status_path = os.path.join(eval_dir, "watchdog_status.json")
-        alert_path = os.path.join(eval_dir, "watchdog_alert.txt")
-        if os.path.isfile(status_path):
+        status_path = os.path.join(completed_eval_dir, "watchdog_status.json")
+        alert_path = os.path.join(completed_eval_dir, "watchdog_alert.txt")
+        if completed_results_allowed and os.path.isfile(status_path):
             try:
                 with open(status_path) as f:
                     watchdog = json.load(f)
             except Exception:
                 watchdog = None
-        if os.path.isfile(alert_path):
+        if completed_results_allowed and os.path.isfile(alert_path):
             try:
                 with open(alert_path) as f:
                     watchdog_alert = f.read().strip()

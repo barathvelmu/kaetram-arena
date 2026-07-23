@@ -137,14 +137,14 @@ This is the headline paper-ready ablation. The earlier r7/r8/r9 deltas (loss mas
 **Harness × model conflation.** All training trajectories are Claude Sonnet via the Claude Code CLI. The base comparator is unfinetuned Qwen3.5-9B served via SGLang (`finetune/serve_modal_base.py`). A reviewer can argue we have not separated "distillation works" from "Sonnet > base Qwen on this task." Mitigation requires either same-model-different-harness or same-harness-different-model runs. Cross-harness infrastructure is in place (Codex/Gemini/OpenCode fully integrated, 6 OpenCode models), but cross-model SFT corpora have not been collected. Tracked in `VARIABLES.md` §"Three most dangerous unisolated variables."
 
 **Statistical power.** The current prospective contract schedules 20
-frozen-checkpoint evaluation clusters. Its 80% calculation is explicitly
-conditional on a three-stage minimum relevant paired difference and
-paired-difference SD no greater than three stages after multiplicity adjustment
-across seven estimands. It does not replicate the training procedure. That
-variance bound has no independent pilot support yet. Before compute, justify it
-with independent pilot data or a conservative prespecified variance grid (or
-use blinded variance re-estimation with a fixed maximum); neither 20 nor the
-historical default of 50 is automatically confirmatory.
+frozen-checkpoint evaluation clusters. Working-normal-model paired-t power is 0.911 per
+contrast under a three-stage mean paired difference, paired-difference SD no
+greater than three, and Bonferroni alpha 0.05/7. This is not 80% power to detect
+all seven effects jointly, and it does not replicate the training procedure.
+The variance bound has no independent pilot support and is especially strong
+for interaction contrasts. The result must therefore be reported as
+conditional on that assumption; the historical default of 50 is not an
+alternative justification.
 
 **Archetype-diversity claim is provisional.** The n=731 automated audit found that "task pressure dominates personality" — under quest deadlines, archetype-flavored agents converge to similar action distributions. We retain capability-archetype labels because they appear to produce different *decision boundaries*, but the 1-archetype-vs-3 ablation is not yet run. If the ablation ties, the claim should be downgraded to "data-augmentation strategy" rather than a research contribution.
 

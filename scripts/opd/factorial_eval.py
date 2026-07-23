@@ -29,6 +29,10 @@ sys.path.insert(0, str(REPO))
 from heldout_guard import HeldOutGuardError, validate_eval_selection  # noqa: E402
 from eval_harness import resolve_system_prompt  # noqa: E402
 from inference_seed import validate_inference_seed  # noqa: E402
+from scripts.opd.factorial_power import (  # noqa: E402
+    PowerContractError,
+    validate_power_record,
+)
 from run_manifest import (  # noqa: E402
     ManifestError,
     atomic_write_json,
@@ -66,9 +70,11 @@ PRIMARY_ESTIMANDS = (
 )
 ENDPOINT_ATTESTATION_SCHEMA = "kaetram.endpoint-attestation.v1"
 POWER_ANALYSIS_SCHEMA = "kaetram-opd-power-analysis-v1"
+ANALYSIS_CONTRACT_SCHEMA = "kaetram-opd-factorial-analysis-contract-v1"
 UNRESOLVED_MARKER = "UNRESOLVED"
 CELL_BUNDLE_SCHEMA = "kaetram.factorial-cell-bundle.v1"
-COMPLETED_INVENTORY_SCHEMA = "kaetram.factorial-completed-inventory.v1"
+PRELAUNCH_SCHEMA = "kaetram.factorial-prelaunch.v2"
+COMPLETED_INVENTORY_SCHEMA = "kaetram.factorial-completed-inventory.v2"
 
 
 @dataclass(frozen=True)
@@ -118,6 +124,8 @@ class ExperimentPlan:
     primary_metric: str
     primary_estimands: tuple[str, ...]
     familywise_alpha: float
+    analysis_contract_artifact: str
+    analysis_contract_sha256: str
     sampling_phase: str
     planned_replicates: int
     target_power: float
@@ -138,6 +146,54 @@ class ExperimentPlan:
     environment_seeds: tuple[int, ...]
     environment_seed_reason: str
     cells: tuple[Cell, ...]
+
+
+def _portable_artifact_path(path: str | Path, digest: str) -> str:
+    """Return an anonymous, portable label without changing the execution path."""
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(REPO).as_posix()
+    except ValueError:
+        return f"external/{digest[:16]}-{resolved.name}"
+
+
+def _portable_prompt_inputs(plan: ExperimentPlan) -> list[dict[str, Any]]:
+    return [
+        {
+            "path": _portable_artifact_path(item["path"], item["sha256"]),
+            "sha256": item["sha256"],
+        }
+        for item in plan.prompt_inputs
+    ]
+
+
+def _portable_model_provenance(plan: ExperimentPlan) -> list[dict[str, Any]]:
+    records = []
+    for model in plan.model_provenance:
+        records.append({
+            **model,
+            "checkpoint_provenance": _portable_artifact_path(
+                model["checkpoint_provenance"],
+                model["checkpoint_provenance_sha256"],
+            ),
+            "endpoint_attestation": _portable_artifact_path(
+                model["endpoint_attestation"],
+                model["endpoint_attestation_sha256"],
+            ),
+        })
+    return records
+
+
+def _expected_endpoint_attestations(plan: ExperimentPlan) -> list[dict[str, Any]]:
+    return [
+        {
+            "weight": model["weight"],
+            "endpoint_env": model["endpoint_env"],
+            "endpoint_attestation_sha256": model["endpoint_attestation_sha256"],
+            "expected_health": model["expected_health"],
+        }
+        for model in plan.model_provenance
+    ]
 
 
 def _require(mapping: dict[str, Any], key: str, kind: type, context: str) -> Any:
@@ -213,6 +269,163 @@ def _load_hashed_json(raw_path: str, expected_sha256: str | None, context: str) 
     return value, path, digest
 
 
+def _validate_analysis_contract(
+    contract: dict[str, Any],
+    *,
+    experiment_id: str,
+    primary_metric: str,
+    familywise_alpha: float,
+) -> None:
+    expected_estimands = (
+        {
+            "name": "r2_minus_base_recovery_off",
+            "formula": "Y(r2,off)-Y(base,off)",
+            "coefficients": {"base_off": -1, "r2_off": 1},
+        },
+        {
+            "name": "r3_minus_base_recovery_off",
+            "formula": "Y(r3,off)-Y(base,off)",
+            "coefficients": {"base_off": -1, "r3_off": 1},
+        },
+        {
+            "name": "recovery_on_minus_off_base",
+            "formula": "Y(base,on)-Y(base,off)",
+            "coefficients": {"base_off": -1, "base_on": 1},
+        },
+        {
+            "name": "recovery_on_minus_off_r2",
+            "formula": "Y(r2,on)-Y(r2,off)",
+            "coefficients": {"r2_off": -1, "r2_on": 1},
+        },
+        {
+            "name": "recovery_on_minus_off_r3",
+            "formula": "Y(r3,on)-Y(r3,off)",
+            "coefficients": {"r3_off": -1, "r3_on": 1},
+        },
+        {
+            "name": "r2_minus_base_recovery_interaction",
+            "formula": "(Y(r2,on)-Y(r2,off))-(Y(base,on)-Y(base,off))",
+            "coefficients": {
+                "base_off": 1,
+                "base_on": -1,
+                "r2_off": -1,
+                "r2_on": 1,
+            },
+        },
+        {
+            "name": "r3_minus_base_recovery_interaction",
+            "formula": "(Y(r3,on)-Y(r3,off))-(Y(base,on)-Y(base,off))",
+            "coefficients": {
+                "base_off": 1,
+                "base_on": -1,
+                "r3_off": -1,
+                "r3_on": 1,
+            },
+        },
+    )
+    expected_sections = {
+        "arm_outcome": {
+            "aggregation": "sum",
+            "personality_lanes": list(REQUIRED_PERSONALITIES),
+            "range": [0, 30],
+        },
+        "estimator": {
+            "name": "mean_paired_cluster_difference",
+            "pairing_key": "replicate",
+            "personality_lanes_are_independent_samples": False,
+        },
+        "inference": {
+            "primary_method": "two_sided_paired_student_t",
+            "null_mean_difference": 0,
+            "familywise_alpha": familywise_alpha,
+            "family_size": len(PRIMARY_ESTIMANDS),
+            "multiplicity_adjustment": "bonferroni",
+            "zero_null_decision": "reject iff bonferroni_adjusted_p<=0.05",
+            "per_comparison_alpha": familywise_alpha / len(PRIMARY_ESTIMANDS),
+            "simultaneous_confidence_level": (
+                1 - familywise_alpha / len(PRIMARY_ESTIMANDS)
+            ),
+            "confidence_interval": "student_t_mean_difference",
+            "statistical_engine": {
+                "package": "scipy",
+                "version": "1.18.0",
+                "distribution": "scipy.stats.t",
+            },
+            "sensitivity_method": "exact_two_sided_sign_flip",
+            "sensitivity_is_confirmatory": False,
+        },
+        "standardized_effect": {
+            "name": "hedges_g_z",
+            "raw_effect": (
+                "cohen_d_z=mean(paired_differences)/sd_sample(paired_differences)"
+            ),
+            "small_sample_correction": (
+                "J(df)=Gamma(df/2)/(sqrt(df/2)*Gamma((df-1)/2))"
+            ),
+            "degrees_of_freedom": "n_replicates-1",
+        },
+        "practical_relevance": {
+            "sesoi_stages": 3,
+            "decision_interval": "bonferroni_simultaneous_confidence_interval",
+            "rules_in_order": [
+                {"decision": "relevant_positive", "condition": "lower_bound>3"},
+                {"decision": "relevant_negative", "condition": "upper_bound<-3"},
+                {
+                    "decision": "practically_equivalent",
+                    "condition": "lower_bound>-3 and upper_bound<3",
+                },
+                {"decision": "inconclusive", "condition": "otherwise"},
+            ],
+        },
+        "zero_variance_policy": {
+            "status": "confirmatory_inference_not_estimable_zero_variance",
+            "test_statistic": None,
+            "p_value": None,
+            "confidence_interval": None,
+            "standardized_effect": None,
+            "practical_relevance_decision": "inconclusive",
+        },
+        "missingness_and_reruns": {
+            "technical_validity_must_be_assessed_without_outcome_access": True,
+            "outcome_dependent_exclusion": "forbidden",
+            "partial_pairwise_deletion": "forbidden",
+            "invalid_cell_scope": "entire_18_cell_replicate_cluster",
+            "confirmatory_requirement": (
+                "all_20_registered_replicate_clusters_complete_and_valid"
+            ),
+            "analysis_on_incomplete_inventory": "forbidden",
+            "replacement_after_any_cell_starts": "forbidden",
+            "rerun_requirement": (
+                "new_experiment_id_and_new_outcome_blind_registration"
+            ),
+        },
+        "stopping_rule": {
+            "interim_outcome_analysis": "forbidden",
+            "early_stopping": "forbidden",
+        },
+    }
+    expected_identity = {
+        "schema_version": ANALYSIS_CONTRACT_SCHEMA,
+        "experiment_id": experiment_id,
+        "status": "prospective_outcome_blind",
+        "registered_before_outcome_access": True,
+        "primary_metric": primary_metric,
+        "independent_unit": "fresh_world_replicate_cluster",
+    }
+    mismatches = {
+        key: {"expected": expected, "actual": contract.get(key)}
+        for key, expected in expected_identity.items()
+        if contract.get(key) != expected
+    }
+    if mismatches:
+        raise ManifestError(f"analysis-contract identity mismatch: {mismatches}")
+    if contract.get("primary_estimands") != list(expected_estimands):
+        raise ManifestError("analysis-contract primary estimand formulas or coefficients drifted")
+    for key, expected in expected_sections.items():
+        if contract.get(key) != expected:
+            raise ManifestError(f"analysis-contract {key} drifted")
+
+
 def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> ExperimentPlan:
     raw, manifest_path = load_manifest(path)
     experiment_id = _require(raw, "experiment_id", str, "manifest").strip()
@@ -262,6 +475,8 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         raise ManifestError("design.recovery must contain exactly false and true")
     if isinstance(replicates, bool) or not isinstance(replicates, int) or replicates < 1:
         raise ManifestError("design.replicates must be a positive integer")
+    if replicates != 20:
+        raise ManifestError("confirmatory factorial design.replicates must be exactly 20")
 
     randomization = _require(raw, "randomization", dict, "manifest")
     schedule_algorithm = _require(
@@ -304,6 +519,10 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
     )
     environment_game_revision = _require(
         environment_seed_cfg, "game_revision", str, "randomization.environment_seed"
+    )
+    environment_game_bundle_sha256 = _sha256(
+        environment_seed_cfg.get("game_bundle_sha256"),
+        "randomization.environment_seed.game_bundle_sha256",
     )
     environment_seeds_raw = _require(
         environment_seed_cfg, "seeds", list, "randomization.environment_seed"
@@ -535,6 +754,26 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
     familywise_alpha = analysis.get("familywise_alpha")
     if familywise_alpha != 0.05:
         raise ManifestError("analysis.familywise_alpha must be 0.05")
+    analysis_contract_raw = _require(
+        analysis, "analysis_contract_artifact", str, "analysis"
+    )
+    analysis_contract_expected_sha = _sha256(
+        analysis.get("analysis_contract_sha256"),
+        "analysis.analysis_contract_sha256",
+    )
+    analysis_contract, analysis_contract_path, analysis_contract_actual_sha = (
+        _load_hashed_json(
+            analysis_contract_raw,
+            analysis_contract_expected_sha,
+            "analysis.analysis_contract_artifact",
+        )
+    )
+    _validate_analysis_contract(
+        analysis_contract,
+        experiment_id=experiment_id,
+        primary_metric=primary_metric,
+        familywise_alpha=familywise_alpha,
+    )
     sample_size = _require(analysis, "sample_size", dict, "analysis")
     if sample_size.get("phase") != "confirmatory":
         raise ManifestError("analysis.sample_size.phase must be confirmatory")
@@ -543,6 +782,8 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         raise ManifestError(
             "planned_replicates, confirmatory_replicates, and design.replicates must match"
         )
+    if planned_replicates != 20:
+        raise ManifestError("confirmatory factorial sample size must remain frozen at 20")
     target_power = sample_size.get("target_power")
     if isinstance(target_power, bool) or not isinstance(target_power, (int, float)) or not 0.8 <= target_power < 1:
         raise ManifestError("analysis.sample_size.target_power must be >=0.8 and <1")
@@ -576,6 +817,19 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         raise ManifestError("power-analysis method must be non-empty")
     if not isinstance(power.get("assumptions"), list) or not power["assumptions"]:
         raise ManifestError("power-analysis assumptions must be non-empty")
+    if (
+        power.get("standardized_effect") != 1.0
+        or power.get("standardized_effect_definition")
+        != (
+            "delta_over_sigma_D=population_mean(paired cluster differences)"
+            "/population_SD(paired cluster differences)"
+        )
+    ):
+        raise ManifestError("power-analysis inferential calculation drifted")
+    try:
+        validate_power_record(power)
+    except PowerContractError as exc:
+        raise ManifestError(str(exc)) from exc
 
     isolation = _require(raw, "isolation", dict, "manifest")
     username_prefix = _require(isolation, "username_prefix", str, "isolation")
@@ -608,7 +862,19 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
     if not sandbox_root.is_absolute() or sandbox_root == Path("/"):
         raise ManifestError("isolation.sandbox_root must be a specific absolute path")
     output_raw = Path(_require(isolation, "output_root", str, "isolation"))
-    output_root = output_raw.resolve() if output_raw.is_absolute() else (REPO / output_raw).resolve()
+    if not output_raw.is_absolute():
+        raise ManifestError(
+            "isolation.output_root must be an absolute local path outside the repository"
+        )
+    output_root = output_raw.resolve()
+    try:
+        output_root.relative_to(REPO)
+    except ValueError:
+        pass
+    else:
+        raise ManifestError(
+            "isolation.output_root must be outside the repository to preserve a clean analysis tree"
+        )
 
     execution = _require(raw, "execution", dict, "manifest")
     allow_launch = execution.get("allow_launch")
@@ -727,6 +993,8 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         primary_metric=primary_metric,
         primary_estimands=PRIMARY_ESTIMANDS,
         familywise_alpha=familywise_alpha,
+        analysis_contract_artifact=str(analysis_contract_path),
+        analysis_contract_sha256=analysis_contract_actual_sha,
         sampling_phase="confirmatory",
         planned_replicates=planned_replicates,
         target_power=float(target_power),
@@ -743,7 +1011,7 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
         environment_seed_mechanism=environment_seed_mechanism,
         environment_rng_algorithm=environment_rng_algorithm,
         environment_game_revision=environment_game_revision,
-        environment_game_bundle_sha256="0" * 64,
+        environment_game_bundle_sha256=environment_game_bundle_sha256,
         environment_seeds=environment_seeds,
         environment_seed_reason=environment_seed_reason,
         cells=tuple(scheduled_cells),
@@ -1038,6 +1306,10 @@ def require_environment_seed_capability(
     actual_bundle_sha256 = hashlib.sha256(entrypoint.read_bytes()).hexdigest()
     if actual_bundle_sha256 != bundle_sha256:
         raise ManifestError("launch blocked: Kaetram server bundle digest mismatch")
+    if bundle_sha256 != plan.environment_game_bundle_sha256:
+        raise ManifestError(
+            "launch blocked: Kaetram server bundle differs from the preregistered digest"
+        )
     return {
         "schema": SERVER_BUILD_ATTESTATION_SCHEMA,
         "game_revision": revision,
@@ -1159,6 +1431,9 @@ def validate_cell_bundle(plan: ExperimentPlan, cell: Cell) -> dict[str, Any]:
 
 def seal_completed_inventory(plan: ExperimentPlan) -> Path:
     """Seal the exact requested/completed-cell inventory after every cell passes."""
+    prelaunch = validate_prelaunch_record(plan)
+    experiment_root = Path(plan.cells[0].run_dir).parent
+    prelaunch_path = experiment_root / "prelaunch.json"
     cells = []
     for cell in plan.cells:
         bundle_path = Path(cell.run_dir) / cell.cell_id / "cell-bundle.json"
@@ -1175,6 +1450,8 @@ def seal_completed_inventory(plan: ExperimentPlan) -> Path:
         "experiment_id": plan.experiment_id,
         "protocol_id": plan.protocol_id,
         "experiment_manifest_sha256": plan.manifest_sha256,
+        "prelaunch_sha256": prelaunch["prelaunch_sha256"],
+        "prelaunch_file": hash_path(prelaunch_path, root=experiment_root),
         "requested_cell_ids": [cell.cell_id for cell in plan.cells],
         "completed_cells": cells,
     }
@@ -1202,6 +1479,16 @@ def validate_completed_inventory(plan: ExperimentPlan) -> dict[str, Any]:
             or inventory.get("experiment_manifest_sha256") != plan.manifest_sha256 \
             or inventory.get("requested_cell_ids") != expected_ids:
         raise ManifestError("completed factorial inventory attribution or requested cells mismatch")
+    prelaunch = validate_prelaunch_record(plan)
+    if inventory.get("prelaunch_sha256") != prelaunch.get("prelaunch_sha256"):
+        raise ManifestError("completed factorial inventory prelaunch digest mismatch")
+    errors = verify_descriptor(
+        inventory.get("prelaunch_file"),
+        Path(plan.cells[0].run_dir).parent,
+        "completed inventory prelaunch ledger",
+    )
+    if errors:
+        raise ManifestError("; ".join(errors))
     completed = inventory.get("completed_cells")
     if not isinstance(completed, list) or [row.get("cell_id") for row in completed if isinstance(row, dict)] != expected_ids:
         raise ManifestError("completed factorial inventory is incomplete, duplicated, or reordered")
@@ -1308,31 +1595,93 @@ def seal_prelaunch_record(
             "launch blocked: immutable provenance requires a clean worktree: "
             + ", ".join(git["dirty_paths"])
         )
+    expected_endpoints = _expected_endpoint_attestations(plan)
+    if endpoint_attestations != expected_endpoints:
+        raise ManifestError(
+            "launch blocked: prelaunch endpoint attestations are incomplete or reordered"
+        )
+    if not isinstance(game_build_attestation, dict):
+        raise ManifestError("launch blocked: prelaunch game-build attestation is missing")
+    required_server_build = {
+        "schema": SERVER_BUILD_ATTESTATION_SCHEMA,
+        "game_revision": plan.environment_game_revision,
+        "entrypoint": "packages/server/dist/main.js",
+        "entrypoint_sha256": plan.environment_game_bundle_sha256,
+    }
+    build_mismatches = {
+        key: {"expected": expected, "actual": game_build_attestation.get(key)}
+        for key, expected in required_server_build.items()
+        if game_build_attestation.get(key) != expected
+    }
+    for key, pattern in (
+        ("source_tree_git_oid", r"[0-9a-f]{40}"),
+        ("build_attestation_sha256", r"[0-9a-f]{64}"),
+    ):
+        if not re.fullmatch(pattern, str(game_build_attestation.get(key, ""))):
+            build_mismatches[key] = {
+                "expected": pattern,
+                "actual": game_build_attestation.get(key),
+            }
+    if build_mismatches:
+        raise ManifestError(
+            f"launch blocked: prelaunch game-build attribution mismatch: {build_mismatches}"
+        )
+    portable_server_build = {
+        key: game_build_attestation[key]
+        for key in (
+            "schema",
+            "game_revision",
+            "source_tree_git_oid",
+            "entrypoint",
+            "entrypoint_sha256",
+            "build_attestation_sha256",
+        )
+    }
     experiment_root = Path(plan.cells[0].run_dir).parent
     record: dict[str, Any] = {
-        "schema_version": "kaetram.factorial-prelaunch.v1",
+        "schema_version": PRELAUNCH_SCHEMA,
         "experiment_id": plan.experiment_id,
         "protocol_id": plan.protocol_id,
-        "source_git": git,
+        "source_git": {
+            "commit": git["commit"],
+            "clean": True,
+        },
         "experiment_manifest": {
-            "path": plan.manifest,
+            "path": _portable_artifact_path(
+                plan.manifest,
+                plan.manifest_sha256,
+            ),
             "sha256": plan.manifest_sha256,
         },
         "tool_schema": tool_schema_record(),
-        "prompt_inputs": list(plan.prompt_inputs),
-        "model_provenance": list(plan.model_provenance),
+        "prompt_inputs": _portable_prompt_inputs(plan),
+        "model_provenance": _portable_model_provenance(plan),
         "verified_endpoint_attestations": endpoint_attestations,
         "held_out": {
             "quest": plan.held_out_quest,
-            "registration": plan.held_out_registration,
+            "registration": (
+                _portable_artifact_path(
+                    plan.held_out_registration,
+                    plan.held_out_registration_sha256,
+                )
+                if plan.held_out_registration else ""
+            ),
             "registration_sha256": plan.held_out_registration_sha256,
         },
         "analysis": {
             "primary_metric": plan.primary_metric,
             "primary_estimands": list(plan.primary_estimands),
             "familywise_alpha": plan.familywise_alpha,
+            "analysis_contract_artifact": _portable_artifact_path(
+                plan.analysis_contract_artifact,
+                plan.analysis_contract_sha256,
+            ),
+            "analysis_contract_sha256": plan.analysis_contract_sha256,
             "planned_replicates": plan.planned_replicates,
-            "power_analysis_artifact": plan.power_analysis_artifact,
+            "power_analysis_artifact": _portable_artifact_path(
+                plan.power_analysis_artifact,
+                plan.power_analysis_sha256,
+            ),
             "power_analysis_sha256": plan.power_analysis_sha256,
         },
         "environment_rng": {
@@ -1341,13 +1690,100 @@ def seal_prelaunch_record(
             "game_revision": plan.environment_game_revision,
             "replicate_seeds": list(plan.environment_seeds),
             "residual_nondeterminism": plan.environment_seed_reason,
-            "server_build": game_build_attestation,
+            "server_build": portable_server_build,
         },
     }
     record["prelaunch_sha256"] = sha256_json(record)
     path = experiment_root / "prelaunch.json"
     atomic_write_json(path, record)
     return path
+
+
+def validate_prelaunch_record(plan: ExperimentPlan) -> dict[str, Any]:
+    """Require the exact anonymous ledger that was sealed before cell launch."""
+    experiment_root = Path(plan.cells[0].run_dir).parent
+    path = experiment_root / "prelaunch.json"
+    try:
+        record = load_json(path)
+    except ManifestError as exc:
+        raise ManifestError(f"prelaunch ledger is missing or unreadable: {exc}") from exc
+    if not isinstance(record, dict) or record.get("schema_version") != PRELAUNCH_SCHEMA:
+        raise ManifestError("prelaunch ledger schema is missing or invalid")
+    payload = dict(record)
+    identity = payload.pop("prelaunch_sha256", None)
+    if identity != sha256_json(payload):
+        raise ManifestError("prelaunch ledger identity mismatch")
+    source_git = record.get("source_git")
+    if source_git != {"commit": plan.source_git_commit, "clean": True}:
+        raise ManifestError("prelaunch source Git attribution mismatch")
+    server_build = (record.get("environment_rng") or {}).get("server_build")
+    expected_endpoints = _expected_endpoint_attestations(plan)
+    expected = {
+        "schema_version": PRELAUNCH_SCHEMA,
+        "experiment_id": plan.experiment_id,
+        "protocol_id": plan.protocol_id,
+        "source_git": {"commit": plan.source_git_commit, "clean": True},
+        "experiment_manifest": {
+            "path": _portable_artifact_path(plan.manifest, plan.manifest_sha256),
+            "sha256": plan.manifest_sha256,
+        },
+        "tool_schema": tool_schema_record(),
+        "prompt_inputs": _portable_prompt_inputs(plan),
+        "model_provenance": _portable_model_provenance(plan),
+        "verified_endpoint_attestations": expected_endpoints,
+        "held_out": {
+            "quest": plan.held_out_quest,
+            "registration": (
+                _portable_artifact_path(
+                    plan.held_out_registration,
+                    plan.held_out_registration_sha256,
+                )
+                if plan.held_out_registration else ""
+            ),
+            "registration_sha256": plan.held_out_registration_sha256,
+        },
+        "analysis": {
+            "primary_metric": plan.primary_metric,
+            "primary_estimands": list(plan.primary_estimands),
+            "familywise_alpha": plan.familywise_alpha,
+            "analysis_contract_artifact": _portable_artifact_path(
+                plan.analysis_contract_artifact,
+                plan.analysis_contract_sha256,
+            ),
+            "analysis_contract_sha256": plan.analysis_contract_sha256,
+            "planned_replicates": plan.planned_replicates,
+            "power_analysis_artifact": _portable_artifact_path(
+                plan.power_analysis_artifact,
+                plan.power_analysis_sha256,
+            ),
+            "power_analysis_sha256": plan.power_analysis_sha256,
+        },
+        "environment_rng": {
+            "mechanism": plan.environment_seed_mechanism,
+            "algorithm": plan.environment_rng_algorithm,
+            "game_revision": plan.environment_game_revision,
+            "replicate_seeds": list(plan.environment_seeds),
+            "residual_nondeterminism": plan.environment_seed_reason,
+            "server_build": server_build,
+        },
+    }
+    if payload != expected:
+        raise ManifestError("prelaunch ledger content does not match the reviewed plan")
+    if not isinstance(server_build, dict):
+        raise ManifestError("prelaunch game-build attestation is missing")
+    required_server_build = {
+        "schema": SERVER_BUILD_ATTESTATION_SCHEMA,
+        "game_revision": plan.environment_game_revision,
+        "source_tree_git_oid": server_build.get("source_tree_git_oid"),
+        "entrypoint": "packages/server/dist/main.js",
+        "entrypoint_sha256": plan.environment_game_bundle_sha256,
+        "build_attestation_sha256": server_build.get("build_attestation_sha256"),
+    }
+    if server_build != required_server_build \
+            or not re.fullmatch(r"[0-9a-f]{40}", str(server_build.get("source_tree_git_oid", ""))) \
+            or not re.fullmatch(r"[0-9a-f]{64}", str(server_build.get("build_attestation_sha256", ""))):
+        raise ManifestError("prelaunch game-build attribution is invalid")
+    return record
 
 
 def _cleanup_processes(processes: list[tuple[Cell, subprocess.Popen, Any]]) -> None:
@@ -1374,12 +1810,12 @@ def launch(plan: ExperimentPlan, *, confirmation: str, environ: dict[str, str] |
         raise ManifestError("launch blocked: set execution.allow_launch=true in the reviewed manifest")
     if confirmation != plan.experiment_id:
         raise ManifestError("launch blocked: --confirm-launch must exactly match experiment_id")
+    if "UNRESOLVED" in str(Path(plan.cells[0].run_dir).parent):
+        raise ManifestError(
+            "launch blocked: replace isolation.output_root with durable local storage"
+        )
     env_source = dict(os.environ if environ is None else environ)
     game_build_attestation = require_environment_seed_capability(plan, env_source)
-    plan = replace(
-        plan,
-        environment_game_bundle_sha256=game_build_attestation["entrypoint_sha256"],
-    )
     env_source["KAETRAM_GAME_BUNDLE_SHA256"] = plan.environment_game_bundle_sha256
     missing = sorted({c.endpoint_env for c in plan.cells if not env_source.get(c.endpoint_env)})
     if missing:

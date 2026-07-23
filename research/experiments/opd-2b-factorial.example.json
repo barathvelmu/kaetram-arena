@@ -70,6 +70,7 @@
       "mechanism": "kaetram-environment-rng-attestation/v2",
       "algorithm": "mulberry32-sha256-v1",
       "game_revision": "0b1f5e4c180b91db54e3a5d0e2ec5aa9a28d96ed",
+      "game_bundle_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "seeds": [
         21001,
         21002,
@@ -143,13 +144,15 @@
       "r3_minus_base_recovery_interaction"
     ],
     "familywise_alpha": 0.05,
+    "analysis_contract_artifact": "research/experiments/opd-2b-factorial-analysis-v1.json",
+    "analysis_contract_sha256": "c8bc3813e9701d7c31053380e9f506b651be808203900b09de247633a7d8a827",
     "sample_size": {
       "phase": "confirmatory",
       "planned_replicates": 20,
       "target_power": 0.8,
       "confirmatory_replicates": 20,
       "power_analysis_artifact": "research/experiments/opd-2b-factorial-power-v1.json",
-      "power_analysis_sha256": "19b0eaf084b9353029136669488b284074b953e453d35f14b8edab788eca2df2"
+      "power_analysis_sha256": "214eec0c2a2bd75e1a543d2115edc22ca6d5847603e2829e58915007a11c8de7"
     }
   },
   "isolation": {
@@ -161,7 +164,7 @@
     },
     "server_port_start": 9300,
     "sandbox_root": "/tmp/kaetram_opd_factorial",
-    "output_root": "dataset/eval/opd_factorial"
+    "output_root": "/UNRESOLVED_LOCAL_STORAGE/kaetram-opd-factorial"
   },
   "execution": {
     "allow_launch": false,

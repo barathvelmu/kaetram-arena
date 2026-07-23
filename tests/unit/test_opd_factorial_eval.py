@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from scripts.opd.factorial_eval import (
+    _validate_analysis_contract,
     _cleanup_processes,
     ManifestError,
     build_plan,
@@ -26,6 +27,7 @@ from scripts.opd.factorial_eval import (
     validate_completed_inventory,
     validate_cross_arm_render_parity,
     validate_live_endpoint_attestations,
+    validate_prelaunch_record,
     require_environment_seed_capability,
     validate_cell_result,
 )
@@ -44,6 +46,30 @@ def _manifest_copy(tmp_path: Path, mutate=None) -> Path:
     path = tmp_path / "manifest.json"
     path.write_text(json.dumps(raw))
     return path
+
+
+def _test_endpoint_attestations(plan):
+    return [
+        {
+            "weight": model["weight"],
+            "endpoint_env": model["endpoint_env"],
+            "endpoint_attestation_sha256": model["endpoint_attestation_sha256"],
+            "expected_health": model["expected_health"],
+        }
+        for model in plan.model_provenance
+    ]
+
+
+def _test_server_build(plan):
+    return {
+        "schema": "kaetram-server-build-attestation/v1",
+        "game_revision": plan.environment_game_revision,
+        "source_tree_git_oid": "e" * 40,
+        "entrypoint": "packages/server/dist/main.js",
+        "entrypoint_sha256": plan.environment_game_bundle_sha256,
+        "build_attestation_path": "/Users/private/game/attestation.json",
+        "build_attestation_sha256": "f" * 64,
+    }
 
 
 def test_manifest_generates_complete_paired_factorial_with_isolation(tmp_path: Path):
@@ -210,6 +236,22 @@ def test_randomization_contract_rejects_missing_environment_seed_attestation(tmp
         (
             lambda raw: raw["execution"].update({"max_parallel": 5}),
             "one analysis cluster",
+        ),
+        (
+            lambda raw: raw["design"].update({"replicates": 21}),
+            "exactly 20",
+        ),
+        (
+            lambda raw: raw["isolation"].update(
+                {"output_root": "dataset/eval/opd_factorial"}
+            ),
+            "absolute local path",
+        ),
+        (
+            lambda raw: raw["isolation"].update(
+                {"output_root": str(REPO / "dataset" / "eval" / "opd_factorial")}
+            ),
+            "outside the repository",
         ),
         (
             lambda raw: raw["isolation"].pop("prompt_agent_names"),
@@ -476,6 +518,7 @@ def test_environment_rng_capability_requires_exact_built_checkout(tmp_path: Path
     server_build.parent.mkdir(parents=True)
     server_build.write_text("// test build")
     bundle_sha = hashlib.sha256(server_build.read_bytes()).hexdigest()
+    plan = replace(plan, environment_game_bundle_sha256=bundle_sha)
     (server_build.parent / "kaetram-build-attestation.json").write_text(json.dumps({
         "schema": "kaetram-server-build-attestation/v1",
         "gameRevision": revision,
@@ -488,6 +531,12 @@ def test_environment_rng_capability_requires_exact_built_checkout(tmp_path: Path
         plan, {"KAETRAM_GAME_DIR": str(game_dir)}
     )
     assert capability["entrypoint_sha256"] == bundle_sha
+
+    with pytest.raises(ManifestError, match="preregistered digest"):
+        require_environment_seed_capability(
+            replace(plan, environment_game_bundle_sha256="0" * 64),
+            {"KAETRAM_GAME_DIR": str(game_dir)},
+        )
 
     with pytest.raises(ManifestError, match="revision mismatch"):
         require_environment_seed_capability(
@@ -731,10 +780,25 @@ def _write_complete_cell_artifacts(plan, cell, *, include_raw_emission=True):
     }))
 
 
-def test_completed_cell_bundle_seals_raw_prompt_state_and_inventory(tmp_path: Path):
+def test_completed_cell_bundle_seals_raw_prompt_state_and_inventory(
+    tmp_path: Path, monkeypatch,
+):
     full_plan = build_plan(_manifest_copy(tmp_path))
     cell = full_plan.cells[0]
-    plan = replace(full_plan, cells=(cell,))
+    commit = "a" * 40
+    plan = replace(full_plan, cells=(cell,), source_git_commit=commit)
+    monkeypatch.setattr("scripts.opd.factorial_eval.capture_git_state", lambda _repo: {
+        "repository": "git@example.test:owner/repo.git",
+        "commit": commit,
+        "branch": "private",
+        "dirty": False,
+        "dirty_paths": [],
+    })
+    seal_prelaunch_record(
+        plan,
+        _test_endpoint_attestations(plan),
+        _test_server_build(plan),
+    )
     _write_complete_cell_artifacts(plan, cell)
 
     validate_cell_result(plan, cell)
@@ -763,7 +827,17 @@ def test_completed_cell_bundle_seals_raw_prompt_state_and_inventory(tmp_path: Pa
     inventory = json.loads(inventory_path.read_text())
     assert inventory["requested_cell_ids"] == [cell.cell_id]
     assert inventory["completed_cells"][0]["bundle_sha256"] == bundle["bundle_sha256"]
+    assert inventory["prelaunch_sha256"]
     assert validate_completed_inventory(plan)["inventory_sha256"] == inventory["inventory_sha256"]
+
+    prelaunch_path = Path(cell.run_dir).parent / "prelaunch.json"
+    prelaunch_text = prelaunch_path.read_text()
+    prelaunch = json.loads(prelaunch_text)
+    prelaunch["analysis"]["familywise_alpha"] = 0.5
+    prelaunch_path.write_text(json.dumps(prelaunch))
+    with pytest.raises(ManifestError, match="prelaunch ledger identity mismatch"):
+        validate_completed_inventory(plan)
+    prelaunch_path.write_text(prelaunch_text)
 
     raw_log = Path(cell.run_dir) / cell.cell_id / "episode_001_raw" / "session_1_test.log"
     raw_log.write_text('{"type":"raw_model_emission","content":"changed"}\n')
@@ -841,7 +915,11 @@ def test_prelaunch_ledger_is_self_hashed_create_only_and_preserves_heldout_metad
 ):
     plan = build_plan(_manifest_copy(tmp_path))
     commit = "a" * 40
-    plan = replace(plan, source_git_commit=commit)
+    plan = replace(
+        plan,
+        source_git_commit=commit,
+        environment_game_bundle_sha256="c" * 64,
+    )
     monkeypatch.setattr("scripts.opd.factorial_eval.capture_git_state", lambda repo: {
         "repository": "git@example.test:owner/repo.git",
         "commit": commit,
@@ -849,8 +927,12 @@ def test_prelaunch_ledger_is_self_hashed_create_only_and_preserves_heldout_metad
         "dirty": False,
         "dirty_paths": [],
     })
-    server_build = {"entrypoint_sha256": "c" * 64}
-    path = seal_prelaunch_record(plan, [], server_build)
+    server_build = _test_server_build(plan)
+    path = seal_prelaunch_record(
+        plan,
+        _test_endpoint_attestations(plan),
+        server_build,
+    )
     record = json.loads(path.read_text())
     assert record["held_out"] == {
         "quest": "",
@@ -863,11 +945,39 @@ def test_prelaunch_ledger_is_self_hashed_create_only_and_preserves_heldout_metad
         "game_revision": plan.environment_game_revision,
         "replicate_seeds": list(plan.environment_seeds),
         "residual_nondeterminism": plan.environment_seed_reason,
-        "server_build": server_build,
+        "server_build": {
+            key: server_build[key]
+            for key in (
+                "schema",
+                "game_revision",
+                "source_tree_git_oid",
+                "entrypoint",
+                "entrypoint_sha256",
+                "build_attestation_sha256",
+            )
+        },
     }
+    assert record["analysis"]["analysis_contract_artifact"] == (
+        "research/experiments/opd-2b-factorial-analysis-v1.json"
+    )
+    assert record["analysis"]["analysis_contract_sha256"] == (
+        plan.analysis_contract_sha256
+    )
     assert record["prelaunch_sha256"]
+    assert record["source_git"] == {"commit": commit, "clean": True}
+    serialized = json.dumps(record)
+    assert "/Users/" not in serialized
+    assert "git@example.test" not in serialized
+    assert "private" not in serialized
+    assert validate_prelaunch_record(plan)["prelaunch_sha256"] == (
+        record["prelaunch_sha256"]
+    )
     with pytest.raises(ManifestError, match="refusing to overwrite"):
-        seal_prelaunch_record(plan, [], server_build)
+        seal_prelaunch_record(
+            plan,
+            _test_endpoint_attestations(plan),
+            server_build,
+        )
 
 
 def test_manifest_rejects_prompt_or_power_artifact_digest_drift(tmp_path: Path):
@@ -882,3 +992,41 @@ def test_manifest_rejects_prompt_or_power_artifact_digest_drift(tmp_path: Path):
 
     with pytest.raises(ManifestError, match="digest mismatch"):
         build_plan(_manifest_copy(tmp_path, power_drift))
+
+    def analysis_contract_drift(raw):
+        raw["analysis"]["analysis_contract_sha256"] = "f" * 64
+
+    with pytest.raises(ManifestError, match="digest mismatch"):
+        build_plan(_manifest_copy(tmp_path, analysis_contract_drift))
+
+
+def test_analysis_contract_rejects_inferential_or_formula_drift() -> None:
+    path = REPO / "research" / "experiments" / "opd-2b-factorial-analysis-v1.json"
+    contract = json.loads(path.read_text())
+
+    _validate_analysis_contract(
+        contract,
+        experiment_id="opd-2b-core3-weights-x-recovery-v1",
+        primary_metric="core3_stages_advanced",
+        familywise_alpha=0.05,
+    )
+
+    changed_method = json.loads(json.dumps(contract))
+    changed_method["inference"]["primary_method"] = "unregistered_test"
+    with pytest.raises(ManifestError, match="inference drifted"):
+        _validate_analysis_contract(
+            changed_method,
+            experiment_id="opd-2b-core3-weights-x-recovery-v1",
+            primary_metric="core3_stages_advanced",
+            familywise_alpha=0.05,
+        )
+
+    changed_formula = json.loads(json.dumps(contract))
+    changed_formula["primary_estimands"][0]["coefficients"]["base_off"] = 1
+    with pytest.raises(ManifestError, match="formulas or coefficients"):
+        _validate_analysis_contract(
+            changed_formula,
+            experiment_id="opd-2b-core3-weights-x-recovery-v1",
+            primary_metric="core3_stages_advanced",
+            familywise_alpha=0.05,
+        )

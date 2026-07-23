@@ -473,10 +473,12 @@ registered full study uses 20 paired fresh-world replicate clusters, sums all
 three personality lanes before comparison, and freezes seven contrasts: round 2
 and round 3 versus base with recovery off; recovery on versus off for each
 checkpoint; and both checkpoint-by-recovery interactions. It controls
-familywise alpha at .05 by a two-sided Bonferroni allocation. The 20-cluster
-record targets 80\% power only under its prospective assumption of a
-three-stage minimum relevant paired difference and paired-difference standard
-deviation at most three; it is not an empirical variance estimate. The separate
+familywise alpha at .05 across seven paired comparisons. The same simultaneous
+intervals classify effects against a frozen $\pm3$-stage threshold. Under the
+working normal-model assumption that paired differences have population mean
+and standard deviation three, 20 clusters give .911 model power for each
+contrast separately---not for all seven together. This is not evidence about
+their actual distribution or variability. The separate
 registered 18-cell local run is exploratory and cannot replace this design; no
 outcome enters the paper until its complete bundle passes the fail-closed audit.
 Reporting separates six objects: raw malformed emissions, emissions eligible
@@ -742,48 +744,31 @@ must point to source runs and transformations. A clean-clone command must verify
 hashes and regenerate every table and figure without network-dependent mutable
 inputs.
 
-The current development artifact does not yet meet this bar. An internal
-read-only recovery contains the headline R10 and OPD run directories and is
-bound to the SHA-256 digest of an external inventory. An independent digest
-audit hashes 60 selected directories totaling 18,812 files, and the R10
-statistics regenerate from those paths. That recovery is not included in the
-anonymous reviewer artifact and is insufficient to attest the historical reset
-command, full game revision, OPD training inputs, or exact render contract.
-An audit also found that one historical evaluation lane reset a different
-database from its game servers. We quarantine results from that lane unless
-their executed revision and clean start are attested. The headline R10 and OPD
-values came from a separate database-aligned orchestrator and are therefore not
-directly implicated by that specific mismatch; the first model-visible state in
-all 36 recovered headline agent-runs matches the canonical level-1 start, but
-the exact reset command and server revision remain unattested. Full dependency installation has
-now been demonstrated for the prospective CPU unit suite in a fresh clone, but
-not for training or paper-table regeneration. A separate local pilot has now
-executed nine matched hash-identified public-weight cells against a recorded
-game revision, using one common Base tokenizer and patched render contract,
-registered inference/environment seeds, exact canonical-start projections, and
-261 rehashed files in sealed per-cell inventories. This records prospective
-local game/model execution, not training, the
-full confirmatory factorial, historical results, or clean-clone table
-regeneration. Neither the recovered historical inventory nor the workstation-local
-pilot bundle is presently a reviewer-accessible artifact; release packaging,
-license review, and clean-clone regeneration remain submission gates.
-Future launches through the local pilot/recovery path are fail-closed: that
-launcher binds the effective Mongo backend/skip/target/mode, rejects ambient
-configuration overrides, verifies exact full model-snapshot closure, and
-rechecks both after service readiness. Those v2 protections are not yet ported
-to the confirmatory factorial launcher. Older v1 bundles require affirmative
-legacy admission and remain labeled \texttt{legacy\_v1\_unattested}; the running
-exploratory factorial cannot be promoted by these later controls. The matched-training
-contract freezes 50 core arm--seed cells plus 20 separately reported
-state--history cells, one LoRA parameterization, shared budgets, interfaces, and
-the exact v2 held-out registration. Its adapter verifies the registered
-snapshot lock and effective tokenizer, decodes both input and supervised-label
-streams for leakage, and emits records marked
-\texttt{prepared\_not\_trained}. Corrected-interface SFT and first-stage
-SCoRe-style preparation are implemented, while SCoRe's reward stage, the live
-Guided-OPD mixed-turn collector/objective, verified training bundles, and
-accelerator results remain absent. These omissions are release blockers, not
-appendix footnotes.
+The current artifact does not yet meet this bar. An internal recovery hashes 60
+selected directories (18,812 files) and regenerates the R10 statistics, but it
+is not in the reviewer artifact and cannot attest the historical reset command,
+game revision, OPD training inputs, or render contract. One historical lane
+also reset a different database from its game servers, so its results are
+quarantined. The headline R10 and OPD values came from a separate,
+database-aligned orchestrator and all 36 recovered first states match the
+canonical level-1 start, but their exact reset command and server revision
+remain unattested.
+
+A fresh clone now installs and passes the prospective CPU unit suite. Separately,
+nine matched public-weight pilot cells bind the game revision, tokenizer,
+render contract, seeds, initial state, and 261-file inventories. This establishes
+local execution, not training, confirmatory evidence, or clean-clone table
+regeneration. Neither bundle is reviewer-accessible yet.
+
+Future local launches fail closed on the effective database, mode, configuration,
+and complete model snapshot. Those protections do not retroactively promote
+older v1 bundles or the running exploratory factorial. The matched-training
+contract freezes the arm--seed cells, shared budgets and interfaces, held-out
+registration, snapshot, tokenizer, and leakage checks. Corrected-interface SFT
+and first-stage SCoRe-style preparation exist; verified training bundles,
+SCoRe's reward stage, live Guided-OPD collection, and accelerator results do
+not. Release packaging, license review, training, and clean-clone regeneration
+remain submission blockers.
 
 \section{Planned Statistical Analysis}
 
@@ -798,15 +783,17 @@ For the fixed-checkpoint weights-by-recovery study, the independent unit is the
 paired fresh-world replicate cluster; inference is conditional on the three
 registered artifacts and cannot estimate training-seed variability. Its seven
 contrasts, 20 clusters, familywise error rule, and assumption-based power record
-are frozen prospectively. Before any method-outcome collection, the team must
-likewise preregister a smallest effect of interest and determine both levels of
-replication from independent pilot variance or a conservative prespecified
-variance grid. If variance is not defensibly known, use blinded variance
-re-estimation with a fixed maximum sample size. The primary comparison is
-two-sided unless a directional alternative and stopping rule are preregistered.
-Report all runs, exclusions, raw and standardized effects, uncertainty
-appropriate to the achieved design, and the complete secondary family with
-multiplicity handling. Exact wall-passage counts remain descriptive when
-sample sizes are small.
+are frozen prospectively. An executable contract fixes the estimator, intervals,
+effect scale, zero-variance behavior, and no-rerun rule before outcome access.
+Completion hash-binds the prelaunch ledger, and analysis requires the same clean
+registered commit while emitting only portable artifact paths.
+For future trained-model comparisons, the smallest effect and both replication
+levels must be set from independent pilot variance or a conservative frozen
+grid. If variance is unknown, use blinded re-estimation with a fixed maximum
+size. Primary tests are two-sided unless direction and stopping are
+preregistered. Report every run and exclusion, raw and standardized primary
+effects, and design-matched uncertainty. Any inferential secondary family needs
+its own prespecified multiplicity rule; otherwise it remains descriptive. Small
+wall-passage counts remain descriptive.
 
 \end{document}

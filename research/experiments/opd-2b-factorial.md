@@ -55,12 +55,33 @@ The seven ordered primary estimands are frozen in the manifest:
 7. the r3-versus-base recovery interaction.
 
 Familywise alpha is 0.05 across these seven contrasts. The prospective
-assumption-driven power record is
+analysis contract is
+[`opd-2b-factorial-analysis-v1.json`](opd-2b-factorial-analysis-v1.json).
+For each contrast it takes the mean of the 20 paired replicate differences,
+uses a two-sided paired Student t test, multiplies the raw p-value by seven,
+and reports the matching 99.2857% Bonferroni interval. Raw stage differences
+are primary; paired Cohen's d and small-sample-corrected Hedges' g are
+descriptive. The exact implementation requires `scipy==1.18.0`.
+
+The same familywise interval drives a separate practical-importance decision.
+An effect is meaningfully positive only when its lower bound is strictly above
++3 stages, meaningfully negative only when its upper bound is strictly below
+-3, and practically equivalent only when the whole interval is strictly
+inside (-3,+3). Boundary equality and all other cases are inconclusive. A
+zero-variance contrast reports its raw mean but no t statistic, p-value,
+interval, standardized effect, or practical-importance conclusion.
+
+The prospective working-model power record is
 [`opd-2b-factorial-power-v1.json`](opd-2b-factorial-power-v1.json). It freezes
-20 replicate clusters for 80% target power under a minimum relevant paired
-difference of 3 stages and paired-difference SD of at most 3. Those assumptions
-are not presented as an empirical variance estimate. Do not reduce the sample
-after looking at outcomes.
+20 replicate clusters. Under the explicitly conditional assumption that a
+paired contrast has mean 3, SD at most 3, and therefore paired standardized
+population effect 1 and normally distributed paired differences, noncentral-t
+model power is 0.911 for each contrast at alpha 0.05/7; 17 would be the minimum
+above 0.8. Mean and variance alone do not determine power without that working
+model. This is not 80% power to detect all seven
+effects together, and the SD assumption is not an empirical estimate. It is
+especially strong for interactions. Do not reduce the sample after looking at
+outcomes.
 
 ## Mandatory immutable inputs
 
@@ -73,6 +94,7 @@ now validates and seals all of the following in a create-only
 - every prompt/personality file digest and the full canonical tool-schema
   digest;
 - the power-analysis artifact digest;
+- the analysis-contract artifact digest;
 - one PR-#41 checkpoint provenance sidecar per weight;
 - one endpoint attestation per weight containing immutable deployment ID,
   checkpoint SHA-256, tokenizer SHA-256, and render-contract SHA-256; and
@@ -150,8 +172,11 @@ A deployable endpoint must return this shape:
 ```
 
 Replace every example checkpoint/endpoint sidecar with real hash-verified
-records, set `protocol.source_git_commit` to the exact clean commit, and only
-then review a copy with `execution.allow_launch=true`.
+records, set `protocol.source_git_commit` and
+`randomization.environment_seed.game_bundle_sha256` to the exact reviewed
+artifacts, and choose a durable absolute `isolation.output_root` outside the Git
+repository (and outside any cloud-synced folder). Only then review an external
+manifest copy with `execution.allow_launch=true`.
 
 ## Safe preflight and launch interlock
 
@@ -181,7 +206,8 @@ existing prelaunch ledger.
 
 The fourth fail-closed interlock is the game-server attestation. Before launch,
 the launcher requires the Kaetram checkout to match the exact registered commit
-and requires its built server artifact. Each cell then starts a new server with
+and requires its built server artifact to match the preregistered bundle digest.
+Each cell then starts a new server with
 the registered seed, required-attestation mode, a unique no-clobber attestation
 path, and the registered game revision. Listening on the port is insufficient:
 the harness hashes the manifest seed and verifies schema, algorithm, digest,
@@ -245,6 +271,41 @@ is `n=20` independent replicate clusters per arm. `pair_id` pairs recovery off/o
 within a replicate, weight, and personality; `cluster_id` groups all three
 personality lanes for a replicate and weight.
 
+## Frozen analysis and failure policy
+
+The analyzer requires the exact sealed 360-cell inventory and revalidates every
+cell bundle before reading the primary metric. That inventory hash-binds the
+self-hashed prelaunch ledger, which records the reviewed manifest, endpoint and
+game-build attestations, model identities, prompts, and analysis contracts
+before any cell starts. Analysis must run from the same clean registered Git
+commit and records hashes for its executable sources and pinned dependency
+lock. Portable artifact labels omit workstation paths, remotes, and branch
+names. No valid cell or replicate may
+be removed, no pairwise deletion or imputation is allowed, and the Bonferroni
+family remains seven even if one contrast is degenerate. Secondary main
+effects, simple effects, the ordinary 95% bootstrap, and the exact sign-flip
+calculation are descriptive or sensitivity outputs, never substitutes for the
+registered primary analysis. For a zero-variance primary contrast, every
+interval and p-value output is suppressed.
+
+Mechanical validity is decided only from the predeclared provenance,
+attestation, duration, return-code, and artifact-integrity checks. One invalid
+cell invalidates its entire 18-cell replicate attempt. The current launcher
+implements the strict fallback policy: after any cell starts, there is no
+replacement attempt under the same registration. An incomplete run cannot
+produce confirmatory output; continuing requires a new experiment ID and a new
+outcome-blind registration. Interim outcome analysis and early stopping are
+forbidden.
+
+After the sealed inventory exists, generate create-only analysis artifacts:
+
+```bash
+python3 scripts/opd/factorial_analyze.py \
+  research/experiments/opd-2b-factorial.example.json \
+  --out /path/to/new/factorial-analysis.json \
+  --clusters-csv /path/to/new/factorial-clusters.csv
+```
+
 ## Operational caveats
 
 - The example requests 20 independent replicates × six arms × three fixed
@@ -255,6 +316,7 @@ personality lanes for a replicate and weight.
 - The launcher runs bounded batches of at most `execution.max_parallel` cells.
   A child-launch exception terminates already-started batch siblings, but
   created run directories remain as an audit trail and must not be reused.
+  Any continuation requires a new outcome-blind registration.
 - This change adds infrastructure only; no endpoint was deployed and no live
   evaluation was run while preparing it.
 
@@ -265,17 +327,20 @@ one successful episode. The launcher then create-only seals a self-hashed cell
 bundle containing the resolved prompt, raw endpoint emissions before recovery
 rewrites, parsed tool-transition transcript, player/quest state-boundary
 snapshots, launcher log, results, and hashes for every artifact. After all 360
-cells pass, it seals an exact requested/completed-cell inventory. Missing,
+cells pass, it seals an exact requested/completed-cell inventory that includes
+the prelaunch ledger digest and file descriptor. Missing,
 rewritten-only, misattributed, or overwritten artifacts fail the batch.
-Every later validation re-hashes every sealed artifact and the inventory; a
+Every later validation re-hashes the prelaunch ledger, every sealed artifact,
+and the inventory; a
 post-run change to any prompt, raw/parsed log, state snapshot, result, bundle,
 or cell list invalidates the experiment rather than silently updating a summary.
 
 ## Cost and current blockers
 
 The frozen plan is 2,160 cell-hours. With six simultaneous cells the nominal
-lower bound is 360 elapsed hours, before startup and retry overhead; endpoint
-capacity and dollar cost must be reviewed before enablement. Real checkpoint
+lower bound is 360 elapsed hours, before startup and failure overhead. Under
+the no-spend policy it must not be enabled unless existing local resources can
+finish it without paid service use. Real checkpoint
 and tokenizer hashes, deployed `/health` attestations, restored endpoints,
 MongoDB/game-server infrastructure, and the exact clean execution commit are
 still required. The checked-in example intentionally proves that none of these

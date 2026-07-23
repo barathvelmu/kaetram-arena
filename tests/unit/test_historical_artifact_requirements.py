@@ -9,7 +9,11 @@ import pytest
 
 from scripts.audit_historical_artifacts import AGENTS, CLAIM_RUNS, build_inventory
 from scripts.log_analysis.artifact_requirements import (
+    INVALID,
+    TERMINAL_ONLY_INTERRUPTED,
     MissingEvidenceError,
+    audit_agent_run_logs,
+    classify_session_evidence,
     has_semantic_session_evidence,
     missing_agent_run_logs,
     require_agent_run_logs,
@@ -30,6 +34,22 @@ def _write_run(root: Path, agent: str, run_id: str) -> None:
     (run / "session_1_test.log").write_text(
         "".join(json.dumps(record) + "\n" for record in records)
     )
+
+
+def _write_terminal_only(run: Path, name: str = "session_2_test.log") -> Path:
+    path = run / name
+    records = [
+        {"type": "system", "subtype": "init", "session_id": "qwen-s2"},
+        {
+            "type": "result",
+            "subtype": "session_end",
+            "result": "interrupted",
+            "terminal_reason": "interrupted",
+            "is_error": False,
+        },
+    ]
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    return path
 
 
 def test_agent_run_check_requires_nonempty_session_bundle(tmp_path: Path) -> None:
@@ -60,6 +80,65 @@ def test_session_evidence_rejects_trivial_or_corrupt_logs(tmp_path: Path, conten
     assert not has_semantic_session_evidence(path)
 
 
+def test_terminal_only_interruption_is_classified_but_not_semantic(tmp_path: Path) -> None:
+    path = _write_terminal_only(tmp_path)
+    assert classify_session_evidence(path) == TERMINAL_ONLY_INTERRUPTED
+    assert not has_semantic_session_evidence(path)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda records: records.append({"type": "assistant", "message": {"content": "act"}}),
+        lambda records: records[1].update({"is_error": True}),
+        lambda records: records[1].update({"result": "context_overflow"}),
+        lambda records: records[0].update({"subtype": "other"}),
+    ),
+)
+def test_terminal_only_classifier_rejects_near_misses(tmp_path: Path, mutation) -> None:
+    path = _write_terminal_only(tmp_path)
+    records = [json.loads(line) for line in path.read_text().splitlines()]
+    mutation(records)
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    assert classify_session_evidence(path) == INVALID
+
+
+def test_run_allows_disclosed_terminal_only_tail_after_semantic_session(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    _write_run(raw, "agent_0", "run_a")
+    run = raw / "agent_0" / "runs" / "run_a"
+    excluded = _write_terminal_only(run)
+
+    audit = audit_agent_run_logs(raw, agents=["agent_0"], run_ids=["run_a"])
+    assert audit["missing"] == []
+    assert audit["invalid_sessions"] == []
+    assert audit["excluded_terminal_only"] == [str(excluded)]
+
+
+def test_run_with_only_terminal_interruption_remains_incomplete(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    run = raw / "agent_0" / "runs" / "run_a"
+    run.mkdir(parents=True)
+    excluded = _write_terminal_only(run)
+
+    audit = audit_agent_run_logs(raw, agents=["agent_0"], run_ids=["run_a"])
+    assert audit["missing"] == [str(run / "session_*.log")]
+    assert audit["excluded_terminal_only"] == [str(excluded)]
+
+
+def test_model_only_session_keeps_otherwise_semantic_bundle_incomplete(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    _write_run(raw, "agent_0", "run_a")
+    run = raw / "agent_0" / "runs" / "run_a"
+    invalid = run / "session_2_test.log"
+    record = {"type": "assistant", "message": {"content": "I observed the world"}}
+    invalid.write_text(json.dumps(record) + "\n")
+
+    audit = audit_agent_run_logs(raw, agents=["agent_0"], run_ids=["run_a"])
+    assert audit["missing"] == [str(run / "session_*.log")]
+    assert audit["invalid_sessions"] == [str(invalid)]
+
+
 def test_requirements_fail_closed_with_actionable_paths(tmp_path: Path) -> None:
     with pytest.raises(MissingEvidenceError, match="Restore the immutable artifacts"):
         require_agent_run_logs(
@@ -79,6 +158,7 @@ def test_inventory_is_complete_only_when_every_claim_bundle_exists(tmp_path: Pat
     complete = build_inventory(tmp_path)
     assert complete["complete"]
     assert all(group["complete"] for group in complete["groups"].values())
+    assert complete["schema_version"] == "kaetram-historical-artifact-inventory-v2"
 
 
 def test_checked_in_r10_scripts_refuse_to_publish_zero_evidence() -> None:

@@ -35,6 +35,7 @@ serve_image = (
     })
     .add_local_python_source("render")
     .add_local_python_source("inference_seed")
+    .add_local_python_source("endpoint_identity")
 )
 
 MERGED_PATH = "/checkpoints/kaetram-qwen3.5-2b-opd-r2/merged"
@@ -66,6 +67,7 @@ QWEN_DECODE_MODE = "thinking_general"
 # convert_to_qwen.py truncation gate.
 from render import patch_qwen_chat_template
 from inference_seed import validate_inference_seed
+from endpoint_identity import endpoint_attestation
 
 
 @app.cls(
@@ -157,6 +159,7 @@ class Inference:
 
         @web_app.get("/health")
         async def health():
+            attestation = endpoint_attestation(MODEL_LABEL)
             return {
                 "status": "ok",
                 "model": MODEL_LABEL,
@@ -172,6 +175,7 @@ class Inference:
                 "capabilities": ["chat", "score"],
                 "supports_system_prefix": True,
                 "supports_seed": True,
+                "attestation": attestation,
             }
 
         def _apply_system_prefix(messages, system_prefix):

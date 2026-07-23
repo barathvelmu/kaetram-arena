@@ -166,3 +166,51 @@ paths, reverify after model startup, and attest the complete locked snapshot
 tree.
 The revision containing this audit implements those gates for future launches;
 it does not retroactively upgrade this already-running bundle.
+
+## Frozen unblinding and export procedure
+
+The complete factorial is unblinded only through the offline analyzer after
+`completed-inventory.json` exists. The command requires the exact pilot ID as an
+explicit confirmation and a new output directory outside the run root. Before
+opening result-bearing artifacts it writes a create-only unblind intent into the
+run root and a user-local registry keyed by the sealed bundle identity. A
+byte-identical copy on the same account cannot start a second transaction. The
+registry is a local procedural guard, not a cross-machine service. A normal
+second attempt is refused; an interrupted attempt can resume only with the exact
+intent digest, unchanged root path, bundle, analyzer revision, and resolved
+output path.
+
+The analyzer rehashes every sealed cell inventory and refuses to release partial
+descriptive results: all 18 cells, all three replicates in each of the six arms,
+and all nine paired contrasts must be present and valid. A launcher-invalid cell
+therefore blocks the registered descriptive export rather than silently changing
+an arm denominator. Publication is staged and byte-verified before one atomic
+directory rename; an interruption leaves no partial final directory. For a
+successful transaction it creates a JSON report,
+cell-level CSV, paired-contrast CSV, fixed Markdown table, fixed LaTeX table,
+artifact index, an embedded receipt that becomes visible in the same atomic
+rename, and matching run-root/user-registry receipts binding the report, analyzer source
+inventory captured before imports and rechecked after analysis, clean Git
+revision, Python runtime, twice-rehashed sealed inputs, and output hashes.
+
+For this legacy-v1 exploratory bundle, run exactly one primary export after the
+launcher exits successfully:
+
+```bash
+python3 scripts/opd/analyze_local_recovery_factorial.py RUN_ROOT \
+  --allow-legacy-v1 \
+  --confirm-unblind local-weights-recovery-30m-v1 \
+  --output-dir ANALYSIS_OUTPUT
+```
+
+If that transaction is interrupted, use the intent SHA-256 printed or recovered
+from `~/.local/state/kaetram-arena/unblind/*.intent.json` (or the equivalent
+`XDG_STATE_HOME` path) and repeat the same command with
+`--resume-unblind-intent INTENT_SHA256`. Do not delete the intent, staging
+directory, or registry entry.
+
+The already-running bundle predates the versioned `results.json` schema added by
+this revision, so it still requires the affirmative `--allow-legacy-v1` flag and
+remains `legacy_v1_unattested`. This post-launch analyzer hardening was completed
+without opening a result-bearing artifact and does not change an outcome,
+diagnostic, contrast, exclusion, or claim boundary.

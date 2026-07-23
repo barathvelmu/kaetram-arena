@@ -1,19 +1,30 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
 from scripts.opd.analyze_local_recovery_factorial import (
+    ARM_VALUE_METRICS,
     AnalysisError,
     _build_cell_row,
     _pair_differences,
+    _paper_table_markdown,
+    _paper_table_tex,
+    _publish_analysis,
+    _rename_directory_noreplace,
+    _require_complete_estimands,
+    _resume_unblind,
+    _reserve_unblind,
     _summarize,
+    _validate_intent_report_identity,
     _verify_completed_cell_artifacts,
     _validate_recovery_receipts,
     _validate_recovery_accounting,
 )
+from run_manifest import sha256_json
 
 
 def _audit(recovered: dict[str, int], malformed: int = 1) -> dict:
@@ -361,3 +372,409 @@ def test_every_completed_cell_requires_a_verified_inventory(
     retained["error"] = "outcome-dependent relabel"
     with pytest.raises(AnalysisError, match="differs from sealed cell status"):
         _verify_completed_cell_artifacts(cell_root, retained)
+
+
+def _complete_rows() -> list[dict]:
+    rows = []
+    schedule_index = 0
+    for replicate in (1, 2, 3):
+        for weight in ("base", "r2", "r3"):
+            for recovery in (False, True):
+                row = {
+                    metric: 0 for metric in ARM_VALUE_METRICS
+                }
+                row.update({
+                    "cell_id": (
+                        f"rep{replicate:02d}-{weight}-"
+                        f"rec-{'on' if recovery else 'off'}"
+                    ),
+                    "replicate": replicate,
+                    "weight": weight,
+                    "recovery": recovery,
+                    "schedule_index": schedule_index,
+                    "canonical_action_counts": {},
+                    "raw_action_counts": {},
+                    "recovered_by_tool": {},
+                })
+                row["raw_generations"] = 1
+                rows.append(row)
+                schedule_index += 1
+    return rows
+
+
+def _complete_report() -> dict:
+    rows = _complete_rows()
+    by_arm = _summarize(rows)
+    pairs = _pair_differences(rows)
+    return {
+        "pilot_id": "local-weights-recovery-30m-v1",
+        "analysis_status": "complete_descriptive",
+        "descriptive_results_released": True,
+        "invalid_cell_receipts": [],
+        "bundle_index_sha256": "b" * 64,
+        "files_rehashed": 42,
+        "rows": rows,
+        "by_arm": by_arm,
+        "paired_differences": pairs,
+        "analysis_code_provenance": {
+            "inventory_sha256": "c" * 64,
+            "source_git_commit": "d" * 40,
+        },
+    }
+
+
+def _bind_report_to_intent(report: dict, intent: dict) -> dict:
+    return {
+        **report,
+        "manifest_sha256": intent["manifest_sha256"],
+        "bundle_index": intent["bundle_index"],
+        "bundle_index_sha256": intent["bundle_index_sha256"],
+    }
+
+
+def test_registered_estimands_require_every_cell_arm_and_pair() -> None:
+    rows = _complete_rows()
+    arms = _summarize(rows)
+    pairs = _pair_differences(rows)
+    _require_complete_estimands(rows, arms, pairs)
+
+    partial = rows[:-1]
+    with pytest.raises(AnalysisError, match="all 18"):
+        _require_complete_estimands(
+            partial,
+            _summarize(partial),
+            _pair_differences(partial),
+        )
+
+
+def test_paper_renderers_are_fixed_and_descriptive() -> None:
+    report = _complete_report()
+    markdown = _paper_table_markdown(report)
+    latex = _paper_table_tex(report)
+    assert markdown.count("| Base |") == 2
+    assert markdown.count("| Round 2 |") == 2
+    assert markdown.count("| Round 3 |") == 2
+    assert "Descriptive only" in markdown
+    assert "\\label{tab:local-recovery-factorial}" in latex
+    assert "Descriptive only" in latex
+
+
+def test_paper_renderers_withhold_partial_estimands() -> None:
+    report = {
+        **_complete_report(),
+        "descriptive_results_released": False,
+        "invalid_cell_receipts": [{
+            "cell_id": "rep03-r3-rec-on",
+            "error": "launcher failure",
+        }],
+        "rows": [],
+        "by_arm": {},
+        "paired_differences": {
+            "complete_pairs": [],
+            "incomplete_pairs": [],
+        },
+    }
+    markdown = _paper_table_markdown(report)
+    latex = _paper_table_tex(report)
+    assert "results withheld" in markdown
+    assert "rep03-r3-rec-on" in markdown
+    assert "\\begin{tabular}" not in latex
+    assert "withheld" in latex
+
+
+def test_unblind_transaction_is_create_only_and_publishes_bound_artifacts(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "run"
+    root.mkdir()
+    (root / "prelaunch.json").write_text("{}")
+    completed = {
+        "schema_version": "completed",
+        "cells": [
+            {
+                "cell_id": f"cell-{index:02d}",
+                "artifact_inventory_sha256": f"{index + 1:064x}",
+            }
+            for index in range(18)
+        ],
+    }
+    (root / "completed-inventory.json").write_text(json.dumps(completed))
+    output_dir = tmp_path / "analysis"
+    manifest = {"pilot_id": "local-weights-recovery-30m-v1"}
+    manifest_sha256 = sha256_json(manifest)
+    code = {
+        "inventory_sha256": "c" * 64,
+        "source_git_commit": "d" * 40,
+    }
+    registry = tmp_path / "registry"
+    intent_path, registry_intent_path, intent = _reserve_unblind(
+        root,
+        output_dir,
+        manifest,
+        manifest_sha256,
+        code,
+        registry,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._validate_publication_inputs",
+        lambda *_: None,
+    )
+    receipt = _publish_analysis(
+        root,
+        output_dir,
+        _bind_report_to_intent(_complete_report(), intent),
+        intent_path,
+        registry_intent_path,
+        intent,
+    )
+
+    assert (output_dir / "analysis-report.json").is_file()
+    assert (output_dir / "cells.csv").is_file()
+    assert (output_dir / "paired-differences.csv").is_file()
+    assert (output_dir / "paper-table.md").is_file()
+    assert (output_dir / "paper-table.tex").is_file()
+    assert (output_dir / "analysis-unblind-receipt.json").is_file()
+    assert receipt["artifact_index_sha256"]
+    assert (root / "analysis-unblind-receipt.json").is_file()
+    with pytest.raises(AnalysisError, match="completed unblind"):
+        _reserve_unblind(
+            root,
+            tmp_path / "analysis-2",
+            manifest,
+            manifest_sha256,
+            code,
+            registry,
+        )
+
+
+def test_unblind_resume_recovers_partial_staging_without_overwrite(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "run"
+    root.mkdir()
+    (root / "prelaunch.json").write_text("{}")
+    cells = [
+        {
+            "cell_id": f"cell-{index:02d}",
+            "artifact_inventory_sha256": f"{index + 1:064x}",
+        }
+        for index in range(18)
+    ]
+    (root / "completed-inventory.json").write_text(json.dumps({"cells": cells}))
+    output_dir = tmp_path / "analysis"
+    registry = tmp_path / "registry"
+    manifest = {"pilot_id": "local-weights-recovery-30m-v1"}
+    manifest_sha256 = sha256_json(manifest)
+    code = {
+        "inventory_sha256": "c" * 64,
+        "source_git_commit": "d" * 40,
+    }
+    intent_path, registry_intent_path, intent = _reserve_unblind(
+        root,
+        output_dir,
+        manifest,
+        manifest_sha256,
+        code,
+        registry,
+    )
+    # Use the implementation's digest-derived staging name and simulate a
+    # crash after the first exact artifact was staged.
+    intent_sha = hashlib.sha256(intent_path.read_bytes()).hexdigest()
+    intent_path.unlink()
+    with pytest.raises(AnalysisError, match=intent_sha):
+        _reserve_unblind(
+            root,
+            output_dir,
+            manifest,
+            manifest_sha256,
+            code,
+            registry,
+        )
+    with pytest.raises(AnalysisError, match="outside the sealed run root"):
+        _resume_unblind(
+            root,
+            root / output_dir.name,
+            manifest,
+            manifest_sha256,
+            code,
+            registry,
+            intent_sha,
+        )
+    staging = output_dir.parent / f".{output_dir.name}.staging-{intent_sha[:16]}"
+    staging.mkdir()
+    report = _bind_report_to_intent(_complete_report(), intent)
+    analysis_bytes = (
+        json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode()
+    (staging / "analysis-report.json").write_bytes(analysis_bytes)
+
+    resumed_intent, resumed_registry, resumed = _resume_unblind(
+        root,
+        output_dir,
+        manifest,
+        manifest_sha256,
+        code,
+        registry,
+        intent_sha,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._validate_publication_inputs",
+        lambda *_: None,
+    )
+    receipt = _publish_analysis(
+        root,
+        output_dir,
+        report,
+        resumed_intent,
+        resumed_registry,
+        resumed,
+    )
+    assert output_dir.is_dir()
+    assert not staging.exists()
+    assert receipt["intent_sha256"] == intent_sha
+
+
+def test_publication_rejects_intent_report_identity_mismatch(tmp_path: Path) -> None:
+    report = {
+        **_complete_report(),
+        "manifest_sha256": "e" * 64,
+        "bundle_index": {"completed_inventory_sha256": "f" * 64},
+    }
+    report["bundle_index_sha256"] = sha256_json(report["bundle_index"])
+    intent = {
+        "pilot_id": report["pilot_id"],
+        "manifest_sha256": report["manifest_sha256"],
+        "bundle_index": report["bundle_index"],
+        "bundle_index_sha256": "0" * 64,
+        "analysis_code_inventory_sha256": "c" * 64,
+        "analysis_source_git_commit": "d" * 40,
+        "output_directory_name": "analysis",
+    }
+    with pytest.raises(AnalysisError, match="intent differs"):
+        _validate_intent_report_identity(
+            intent,
+            report,
+            tmp_path / "analysis",
+        )
+
+
+def test_publication_rejects_replaced_root_intent(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "run"
+    root.mkdir()
+    (root / "prelaunch.json").write_text("{}")
+    (root / "completed-inventory.json").write_text(json.dumps({
+        "cells": [
+            {
+                "cell_id": f"cell-{index:02d}",
+                "artifact_inventory_sha256": f"{index + 1:064x}",
+            }
+            for index in range(18)
+        ],
+    }))
+    manifest = {"pilot_id": "local-weights-recovery-30m-v1"}
+    code = {
+        "inventory_sha256": "c" * 64,
+        "source_git_commit": "d" * 40,
+    }
+    output_dir = tmp_path / "analysis"
+    intent_path, registry_intent_path, intent = _reserve_unblind(
+        root,
+        output_dir,
+        manifest,
+        sha256_json(manifest),
+        code,
+        tmp_path / "registry",
+    )
+    intent_path.write_text('{"tampered":true}\n')
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._validate_publication_inputs",
+        lambda *_: None,
+    )
+    with pytest.raises(AnalysisError, match="differs from expected bytes"):
+        _publish_analysis(
+            root,
+            output_dir,
+            _bind_report_to_intent(_complete_report(), intent),
+            intent_path,
+            registry_intent_path,
+            intent,
+        )
+    assert not output_dir.exists()
+
+
+def test_atomic_publication_never_replaces_existing_directory(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    destination = tmp_path / "destination"
+    source.mkdir()
+    destination.mkdir()
+    (source / "new.txt").write_text("new")
+    (destination / "existing.txt").write_text("existing")
+
+    with pytest.raises(AnalysisError, match="appeared during publication"):
+        _rename_directory_noreplace(source, destination)
+    assert (source / "new.txt").read_text() == "new"
+    assert (destination / "existing.txt").read_text() == "existing"
+
+    (destination / "existing.txt").unlink()
+    destination.rmdir()
+    _rename_directory_noreplace(source, destination)
+    assert not source.exists()
+    assert (destination / "new.txt").read_text() == "new"
+
+
+def test_publisher_never_populates_preexisting_output(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "run"
+    root.mkdir()
+    (root / "prelaunch.json").write_text("{}")
+    (root / "completed-inventory.json").write_text(json.dumps({
+        "cells": [
+            {
+                "cell_id": f"cell-{index:02d}",
+                "artifact_inventory_sha256": f"{index + 1:064x}",
+            }
+            for index in range(18)
+        ],
+    }))
+    manifest = {"pilot_id": "local-weights-recovery-30m-v1"}
+    code = {
+        "inventory_sha256": "c" * 64,
+        "source_git_commit": "d" * 40,
+    }
+    output_dir = tmp_path / "analysis"
+    intent_path, registry_intent_path, intent = _reserve_unblind(
+        root,
+        output_dir,
+        manifest,
+        sha256_json(manifest),
+        code,
+        tmp_path / "registry",
+    )
+    output_dir.mkdir()
+    marker = output_dir / "unrelated.txt"
+    marker.write_text("leave me alone")
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._validate_publication_inputs",
+        lambda *_: None,
+    )
+
+    with pytest.raises(AnalysisError, match="differs from expected bytes"):
+        _publish_analysis(
+            root,
+            output_dir,
+            _bind_report_to_intent(_complete_report(), intent),
+            intent_path,
+            registry_intent_path,
+            intent,
+        )
+    assert sorted(path.name for path in output_dir.iterdir()) == ["unrelated.txt"]
+    assert marker.read_text() == "leave me alone"

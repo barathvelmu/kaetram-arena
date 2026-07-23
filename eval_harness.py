@@ -53,6 +53,8 @@ from run_manifest import sha256_json
 # Constants
 # ---------------------------------------------------------------------------
 
+EVAL_RESULTS_SCHEMA_VERSION = "kaetram.eval-results.v1"
+
 # Default Modal endpoints with per-model config
 # Each model gets its own username (no hyphens — Kaetram rejects them) and game server port.
 # Workspace placeholder "workspace" is anonymized for publication; set
@@ -1676,6 +1678,7 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
 
     budget_seconds = duration_seconds_budget or SCENARIOS[scenario]["duration_minutes"] * 60
     results = {
+        "schema_version": EVAL_RESULTS_SCHEMA_VERSION,
         "meta": {
             "model": model_name,
             "endpoint": endpoint,

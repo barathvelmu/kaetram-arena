@@ -20,6 +20,7 @@ from eval_harness import (  # noqa: E402
     validate_eval_session_terminals,
 )
 from run_manifest import sha256_json  # noqa: E402
+from scripts.opd.canonicalize import is_malformed, recover_tool_calls  # noqa: E402
 from scripts.opd.local_weight_pilot import load_manifest  # noqa: E402
 from tool_surface import (  # noqa: E402
     MODEL_VISIBLE_TOOL_DEFINITIONS,
@@ -113,11 +114,15 @@ def _verify_artifacts(cell_root: Path, expected_inventory_sha256: str) -> int:
     return len(records)
 
 
-def _validate_prelaunch(manifest: dict, prelaunch: dict) -> dict:
+def _validate_prelaunch(
+    manifest: dict,
+    prelaunch: dict,
+    *,
+    expected_schema: str = "kaetram.local-weight-pilot-prelaunch.v1",
+) -> dict:
     expected_cells = manifest["cells"]
     if (
-        prelaunch.get("schema_version")
-        != "kaetram.local-weight-pilot-prelaunch.v1"
+        prelaunch.get("schema_version") != expected_schema
         or prelaunch.get("pilot_id") != manifest["pilot_id"]
         or prelaunch.get("claim_boundary") != manifest["claim_boundary"]
         or prelaunch.get("cells") != expected_cells
@@ -128,6 +133,7 @@ def _validate_prelaunch(manifest: dict, prelaunch: dict) -> dict:
         raise AnalysisError("prelaunch endpoint set differs from the preregistration")
     tokenizers = set()
     renders = set()
+    chat_templates = set()
     checkpoints = {}
     for snapshot, model in manifest["models"].items():
         receipt = receipts[snapshot]
@@ -140,14 +146,20 @@ def _validate_prelaunch(manifest: dict, prelaunch: dict) -> dict:
         }
         if any(attestation.get(key) != value for key, value in expected.items()):
             raise AnalysisError(f"{snapshot}: prelaunch endpoint identity mismatch")
-        for field in ("checkpoint_sha256", "tokenizer_sha256", "render_contract_sha256"):
+        for field in (
+            "checkpoint_sha256",
+            "tokenizer_sha256",
+            "render_contract_sha256",
+            "chat_template_sha256",
+        ):
             value = attestation.get(field)
             if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
                 raise AnalysisError(f"{snapshot}: invalid {field}")
         tokenizers.add(attestation["tokenizer_sha256"])
         renders.add(attestation["render_contract_sha256"])
+        chat_templates.add(attestation["chat_template_sha256"])
         checkpoints[snapshot] = attestation["checkpoint_sha256"]
-    if len(tokenizers) != 1 or len(renders) != 1:
+    if len(tokenizers) != 1 or len(renders) != 1 or len(chat_templates) != 1:
         raise AnalysisError("prelaunch endpoints do not share one renderer")
     game = prelaunch.get("game_build_attestation")
     if (
@@ -165,6 +177,7 @@ def _validate_prelaunch(manifest: dict, prelaunch: dict) -> dict:
     return {
         "tokenizer_sha256": next(iter(tokenizers)),
         "render_contract_sha256": next(iter(renders)),
+        "chat_template_sha256": next(iter(chat_templates)),
         "checkpoint_sha256": checkpoints,
         "source_git_commit": prelaunch["source_git_commit"],
         "game_revision": game["gameRevision"],
@@ -188,6 +201,7 @@ def _validate_cell_attestation(
         "checkpoint_sha256": preflight["checkpoint_sha256"][snapshot],
         "tokenizer_sha256": preflight["tokenizer_sha256"],
         "render_contract_sha256": preflight["render_contract_sha256"],
+        "chat_template_sha256": preflight["chat_template_sha256"],
         "fix_mistral_regex": False,
     }
     mismatches = {
@@ -210,6 +224,27 @@ def _api_error_count(cell_root: Path) -> int:
         "API error:" in line
         for line in stderr.read_text(errors="replace").splitlines()
     )
+
+
+def _ordered_session_logs(raw_dir: Path) -> list[Path]:
+    """Order by the warm-session counter, including session 10 and above."""
+    numbered = []
+    seen = set()
+    for path in raw_dir.glob("session_*.log"):
+        match = re.match(r"session_(\d+)_", path.name)
+        if match is None:
+            raise AnalysisError(f"unrecognized session-log name: {path.name}")
+        counter = int(match.group(1))
+        if counter in seen:
+            raise AnalysisError(f"duplicate session counter: {counter}")
+        seen.add(counter)
+        numbered.append((counter, path))
+    numbered.sort()
+    if numbered and [counter for counter, _ in numbered] != list(
+        range(1, len(numbered) + 1)
+    ):
+        raise AnalysisError("session counters are not contiguous from one")
+    return [path for _, path in numbered]
 
 
 def _validate_arguments(name: str, arguments: object) -> dict:
@@ -244,6 +279,9 @@ def _validate_raw_emissions(session_logs: list[Path]) -> dict:
     calls = 0
     with_calls = 0
     action_counts = {}
+    malformed_emissions = 0
+    recoverable_calls = 0
+    recoverable_action_counts = {}
     for path in session_logs:
         for line_number, raw in enumerate(
             path.read_text(errors="replace").splitlines(), start=1
@@ -262,6 +300,22 @@ def _validate_raw_emissions(session_logs: list[Path]) -> dict:
             emitted = event.get("tool_calls")
             if not isinstance(emitted, list):
                 raise AnalysisError(f"{path.name}: malformed raw tool-call list")
+            content = event.get("content", "")
+            if not isinstance(content, str):
+                raise AnalysisError(f"{path.name}: malformed raw content")
+            if is_malformed(content):
+                malformed_emissions += 1
+            candidates = recover_tool_calls(content) if not emitted else []
+            for candidate in candidates:
+                name = candidate.get("name")
+                if name not in MODEL_VISIBLE_TOOL_NAMES:
+                    raise AnalysisError(
+                        f"{path.name}: noncanonical recoverable tool {name!r}"
+                    )
+                recoverable_calls += 1
+                recoverable_action_counts[name] = (
+                    recoverable_action_counts.get(name, 0) + 1
+                )
             if emitted:
                 with_calls += 1
             for call in emitted:
@@ -281,6 +335,9 @@ def _validate_raw_emissions(session_logs: list[Path]) -> dict:
         "generations_without_structured_call": generations - with_calls,
         "emitted_structured_calls": calls,
         "raw_action_counts": action_counts,
+        "raw_malformed_emissions": malformed_emissions,
+        "raw_recoverable_calls": recoverable_calls,
+        "raw_recoverable_action_counts": recoverable_action_counts,
     }
 
 
@@ -499,7 +556,7 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             _validate_state_boundaries(state, cell_id)
         )
         raw_dir = results_root / "episode_001_raw"
-        session_logs = sorted(raw_dir.glob("session_*.log"))
+        session_logs = _ordered_session_logs(raw_dir)
         try:
             validate_eval_session_terminals(session_logs)
         except RuntimeError as exc:

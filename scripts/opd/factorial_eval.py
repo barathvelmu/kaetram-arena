@@ -829,6 +829,7 @@ def cell_command(plan: ExperimentPlan, cell: Cell) -> list[str]:
         "--factorial-batch-index", str(cell.batch_index),
         "--factorial-cluster-id", cell.cluster_id,
         "--factorial-pair-id", cell.pair_id,
+        "--tool-recovery-enabled", "on" if cell.recovery else "off",
         "--environment-seed-mechanism", plan.environment_seed_mechanism,
         "--environment-seed", str(cell.environment_seed),
         "--environment-rng-algorithm", plan.environment_rng_algorithm,
@@ -919,19 +920,22 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         "factorial_batch_index": cell.batch_index,
         "factorial_cluster_id": cell.cluster_id,
         "factorial_pair_id": cell.pair_id,
+        "tool_recovery_enabled": cell.recovery,
         "environment_seed_mechanism": plan.environment_seed_mechanism,
         "environment_seed": cell.environment_seed,
         "environment_rng_algorithm": plan.environment_rng_algorithm,
         "environment_game_revision": plan.environment_game_revision,
         "environment_game_bundle_sha256": plan.environment_game_bundle_sha256,
         "environment_seed_reason": plan.environment_seed_reason,
-            "environment_rng_attestation": {
+        "environment_rng_attestation": {
             "schema": plan.environment_seed_mechanism,
             "algorithm": plan.environment_rng_algorithm,
-            "seedSha256": hashlib.sha256(str(cell.environment_seed).encode()).hexdigest(),
-                "gameRevision": plan.environment_game_revision,
-                "serverBundleSha256": plan.environment_game_bundle_sha256,
-                "drawsAtAttestation": 0,
+            "seedSha256": hashlib.sha256(
+                str(cell.environment_seed).encode()
+            ).hexdigest(),
+            "gameRevision": plan.environment_game_revision,
+            "serverBundleSha256": plan.environment_game_bundle_sha256,
+            "drawsAtAttestation": 0,
         },
     }
     mismatches = {

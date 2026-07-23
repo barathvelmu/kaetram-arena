@@ -815,6 +815,10 @@ async def run_agent(args):
     # The request-driving CLI value is authoritative; a stale sidecar template
     # must not misattribute sampling provenance.
     harness_meta["inference_seed"] = inference_seed
+    # Recovery is controlled only by this process environment. Persist the
+    # effective Boolean after loading any sidecar so stale metadata cannot
+    # misattribute an off/on factorial arm.
+    harness_meta["tool_recovery_enabled"] = _TOOL_RECOVERY
 
     logger = SessionLogger(run_dir, sandbox, harness_meta)
     mcp = None

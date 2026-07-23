@@ -1608,6 +1608,15 @@ Examples:
     parser.add_argument("--factorial-batch-index", type=int)
     parser.add_argument("--factorial-cluster-id", default="")
     parser.add_argument("--factorial-pair-id", default="")
+    parser.add_argument(
+        "--tool-recovery-enabled",
+        choices=("off", "on"),
+        default="",
+        help=(
+            "Bind the expected KAETRAM_TOOL_RECOVERY state into run metadata "
+            "and fail if the inherited environment differs"
+        ),
+    )
     parser.add_argument("--environment-seed-mechanism", default="")
     parser.add_argument("--environment-seed", type=int)
     parser.add_argument("--environment-rng-algorithm", default="")
@@ -1666,7 +1675,11 @@ Examples:
     if args.factorial_schedule_algorithm:
         if args.inference_seed is None:
             parser.error("factorial provenance requires --inference-seed")
-        if args.factorial_schedule_algorithm != "sha256-rank-v1":
+        if args.factorial_schedule_algorithm not in {
+            "sha256-rank-v1",
+            "sha256-paired-rank-v1",
+            "balanced-paired-order-v1",
+        }:
             parser.error("unsupported factorial schedule algorithm")
         try:
             validate_inference_seed(
@@ -1704,6 +1717,19 @@ Examples:
             "environment_game_bundle_sha256": args.environment_game_bundle_sha256,
             "environment_seed_reason": args.environment_seed_reason,
         }
+    if args.tool_recovery_enabled:
+        requested_recovery = args.tool_recovery_enabled == "on"
+        raw_recovery = os.environ.get("KAETRAM_TOOL_RECOVERY")
+        if raw_recovery not in (None, "", "1"):
+            parser.error(
+                "KAETRAM_TOOL_RECOVERY must be absent/empty for off or exactly 1 for on"
+            )
+        actual_recovery = raw_recovery == "1"
+        if actual_recovery != requested_recovery:
+            parser.error(
+                "--tool-recovery-enabled disagrees with KAETRAM_TOOL_RECOVERY"
+            )
+        run_provenance["tool_recovery_enabled"] = requested_recovery
 
     if args.duration_seconds < 0:
         parser.error("--duration-seconds cannot be negative")
@@ -1868,7 +1894,7 @@ Examples:
                 cmd.extend(["--inference-seed", str(args.inference_seed)])
             if args.prompt_agent_name:
                 cmd.extend(["--prompt-agent-name", args.prompt_agent_name])
-            if run_provenance:
+            if args.factorial_schedule_algorithm:
                 cmd.extend([
                     "--factorial-schedule-algorithm", args.factorial_schedule_algorithm,
                     "--factorial-schedule-seed", str(args.factorial_schedule_seed),
@@ -1880,7 +1906,13 @@ Examples:
                     "--environment-seed", str(args.environment_seed),
                     "--environment-rng-algorithm", args.environment_rng_algorithm,
                     "--environment-game-revision", args.environment_game_revision,
+                    "--environment-game-bundle-sha256",
+                    args.environment_game_bundle_sha256,
                     "--environment-seed-reason", args.environment_seed_reason,
+                ])
+            if args.tool_recovery_enabled:
+                cmd.extend([
+                    "--tool-recovery-enabled", args.tool_recovery_enabled,
                 ])
             print(f"  {model_name}: port={model_cfg['server_port']} user={model_cfg['username']} personality={args.personality or 'none'} log={log_path}")
             procs[model_name] = subprocess.Popen(cmd, stdout=log_f, stderr=subprocess.STDOUT)

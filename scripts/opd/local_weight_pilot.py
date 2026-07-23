@@ -25,12 +25,33 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from run_manifest import canonical_json_bytes, sha256_json  # noqa: E402
+from eval_harness import resolve_system_prompt  # noqa: E402
+from play_qwen import (  # noqa: E402
+    CONTEXT_BUDGET,
+    MAX_SEQ_LEN,
+    QWEN_THINK_PRESENCE_PENALTY,
+    QWEN_THINK_TEMPERATURE,
+    QWEN_THINK_TOP_K,
+    QWEN_THINK_TOP_P,
+    RESPONSE_BUDGET,
+    _FORMAT_NOTE,
+)
 from scripts.local_mlx_endpoint import SUPPORTED_MODELS  # noqa: E402
 
 
 SCHEMA_VERSION = "kaetram.local-weight-pilot.v1"
+RECOVERY_FACTORIAL_SCHEMA_VERSION = "kaetram.local-weight-recovery-factorial.v1"
+PILOT_PRELAUNCH_SCHEMA_VERSION = "kaetram.local-weight-pilot-prelaunch.v1"
+PILOT_INVENTORY_SCHEMA_VERSION = "kaetram.local-weight-pilot-inventory.v1"
+RECOVERY_PRELAUNCH_SCHEMA_VERSION = (
+    "kaetram.local-weight-recovery-factorial-prelaunch.v1"
+)
+RECOVERY_INVENTORY_SCHEMA_VERSION = (
+    "kaetram.local-weight-recovery-factorial-inventory.v1"
+)
 PILOT_STATUS = "preregistered_exploratory"
 WEIGHTS = ("base_2b", "opd_r2_2b", "opd_r3_2b")
+WEIGHT_LABEL = {"base_2b": "base", "opd_r2_2b": "r2", "opd_r3_2b": "r3"}
 ENDPOINT_ENV = "KAETRAM_LOCAL_PILOT_ENDPOINT"
 ENDPOINT_HOST = "127.0.0.1"
 ENDPOINT_PORT = 9801
@@ -88,6 +109,9 @@ def _require_clean_git(repo: Path, label: str) -> str:
 
 
 def _validate_schedule(raw: dict) -> None:
+    if raw.get("schema_version") == RECOVERY_FACTORIAL_SCHEMA_VERSION:
+        _validate_recovery_factorial_schedule(raw)
+        return
     if raw.get("schema_version") != SCHEMA_VERSION:
         raise PilotError(f"manifest schema_version must be {SCHEMA_VERSION}")
     if raw.get("status") != PILOT_STATUS:
@@ -161,6 +185,197 @@ def _validate_schedule(raw: dict) -> None:
         ]
         if actual_order != expected_order:
             raise PilotError(f"replicate {replicate} schedule hash does not match")
+
+
+def _validate_recovery_factorial_schedule(raw: dict) -> None:
+    if raw.get("pilot_id") != "local-weights-recovery-30m-v1":
+        raise PilotError("recovery-factorial pilot_id is not the reviewed identity")
+    if raw.get("status") != PILOT_STATUS:
+        raise PilotError(f"manifest status must be {PILOT_STATUS}")
+    boundary = raw.get("claim_boundary")
+    if not isinstance(boundary, dict) or boundary.get("confirmatory") is not False:
+        raise PilotError("factorial pilot must be explicitly non-confirmatory")
+    expected_prohibited = [
+        "model superiority",
+        "causal weight effect",
+        "causal recovery effect or benefit",
+        "quest-completion improvement",
+        "generalization",
+    ]
+    if boundary.get("prohibited_claims") != expected_prohibited:
+        raise PilotError("recovery-factorial claim boundary has drifted")
+    protocol = raw.get("protocol")
+    if not isinstance(protocol, dict):
+        raise PilotError("manifest protocol must be an object")
+    expected_protocol = {
+        "scenario": "D",
+        "duration_seconds": 1800,
+        "episodes_per_cell": 1,
+        "personality": "completionist",
+        "prompt_agent_name": "EvalCompletionist",
+        "include_game_knowledge": True,
+        "recovery_factor": [False, True],
+        "tool_schema_source": "canonical",
+        "mongo_database": "kaetram_devlopment",
+        "schedule_algorithm": "balanced-paired-order-v1",
+        "schedule_seed": 20260725,
+        "environment_seed_mechanism": "kaetram-environment-rng-attestation/v2",
+        "environment_rng_algorithm": "mulberry32-sha256-v1",
+        "environment_seed_reason": (
+            "Paired seeds hold the initial deterministic gameplay RNG state fixed "
+            "across all weight and recovery arms within each replicate; realized "
+            "streams may diverge after treatment-dependent actions."
+        ),
+    }
+    mismatches = {
+        key: {"expected": value, "actual": protocol.get(key)}
+        for key, value in expected_protocol.items()
+        if protocol.get(key) != value
+    }
+    if mismatches:
+        raise PilotError(f"unreviewed recovery-factorial protocol: {mismatches}")
+    models = raw.get("models")
+    if not isinstance(models, dict) or tuple(models) != WEIGHTS:
+        raise PilotError(f"models must be ordered exactly as {list(WEIGHTS)}")
+    for snapshot in WEIGHTS:
+        if models[snapshot].get("api_model") != SUPPORTED_MODELS[snapshot]:
+            raise PilotError(f"{snapshot} has an unreviewed API model")
+    expected_checkpoints = {
+        "base_2b": "aa33250c4fc64891ddfaba3a314fd9542ea371843c387178b425fbcc5ed680b1",
+        "opd_r2_2b": "636aa92a16ee63965d5211625ba32c0524eb90da87f6b4727ee1f057e0486104",
+        "opd_r3_2b": "c4df1ea2fda9253d595ff4a2068c72dd4de173241ab93cc1ee0d5dc42e302873",
+    }
+    if {
+        snapshot: models[snapshot].get("checkpoint_sha256")
+        for snapshot in WEIGHTS
+    } != expected_checkpoints:
+        raise PilotError("recovery-factorial checkpoint identities have drifted")
+    expected_artifacts = {
+        "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+        "render_contract_sha256": "11908184ad9ba71352740d4d429790ea427446b11146be202bf873bd7163979f",
+        "chat_template_sha256": "562a0a6f72bf5722612866d9f5d7e947be4b08a429e407f8e522e70137db5e1e",
+        "system_prompt_sha256": "b86e0fa3306778f03420ab59528df537723ba035d6d1efec723ac4624c49b734",
+        "game_revision": "7a3d722e8e200ca44fd959099386b42a5fbe0cb5",
+        "game_bundle_sha256": "b0f9e42b0da63dc7bb1f9172136cd8a1361f762e683b72011172db286c256916",
+        "source_identity": (
+            "The launch requires a clean arena commit containing this registration; "
+            "prelaunch.json records that exact commit and every cell must match it."
+        ),
+    }
+    if raw.get("artifact_contract") != expected_artifacts:
+        raise PilotError("recovery-factorial artifact contract has drifted")
+    expected_decoding = {
+        "temperature": QWEN_THINK_TEMPERATURE,
+        "top_p": QWEN_THINK_TOP_P,
+        "top_k": QWEN_THINK_TOP_K,
+        "presence_penalty": QWEN_THINK_PRESENCE_PENALTY,
+        "max_response_tokens": RESPONSE_BUDGET,
+        "max_context_tokens": MAX_SEQ_LEN,
+        "request_seed_derivation": (
+            "derive_request_seed(inference_seed, session_number, turn)"
+        ),
+    }
+    if raw.get("decoding_contract") != expected_decoding:
+        raise PilotError("recovery-factorial decoding contract has drifted")
+    if CONTEXT_BUDGET != MAX_SEQ_LEN - RESPONSE_BUDGET:
+        raise PilotError("runtime context budget is internally inconsistent")
+    recovery_contract = raw.get("recovery_contract")
+    if (
+        not isinstance(recovery_contract, dict)
+        or recovery_contract.get("correction_note_sha256")
+        != hashlib.sha256(_FORMAT_NOTE.encode()).hexdigest()
+        or recovery_contract.get("off_state") != "KAETRAM_TOOL_RECOVERY is absent"
+        or recovery_contract.get("on_state")
+        != "KAETRAM_TOOL_RECOVERY is exactly 1"
+    ):
+        raise PilotError("recovery-factorial treatment contract has drifted")
+
+    cells = raw.get("cells")
+    if not isinstance(cells, list) or len(cells) != 18:
+        raise PilotError("recovery factorial must contain exactly 18 cells")
+    ids = [cell.get("cell_id") for cell in cells if isinstance(cell, dict)]
+    if len(set(ids)) != 18 or any(
+        not isinstance(cell_id, str)
+        or re.fullmatch(
+            r"rep0[1-3]-(?:base|r2|r3)-rec-(?:off|on)", cell_id
+        ) is None
+        for cell_id in ids
+    ):
+        raise PilotError("recovery-factorial cell IDs must be unique and reviewed")
+    if [cell.get("schedule_index") for cell in cells] != list(range(18)):
+        raise PilotError(
+            "recovery-factorial schedule indices must be contiguous and ordered"
+        )
+
+    pilot_id = raw.get("pilot_id")
+    schedule_seed = protocol["schedule_seed"]
+    arms = {(weight, recovery) for weight in WEIGHTS for recovery in (False, True)}
+    expected_seeds = {
+        1: (1729, 42001),
+        2: (2718, 42002),
+        3: (3141, 42003),
+    }
+    weight_ids = {
+        "base_2b": "base",
+        "opd_r2_2b": "r2",
+        "opd_r3_2b": "r3",
+    }
+    for replicate in (1, 2, 3):
+        block = [cell for cell in cells if cell.get("replicate") == replicate]
+        if any(type(cell.get("recovery")) is not bool for cell in block):
+            raise PilotError(
+                f"replicate {replicate} recovery assignments must be Booleans"
+            )
+        if {(cell.get("snapshot"), cell.get("recovery")) for cell in block} != arms:
+            raise PilotError(
+                f"replicate {replicate} must contain all weights x recovery arms"
+            )
+        if len({cell.get("inference_seed") for cell in block}) != 1:
+            raise PilotError(f"replicate {replicate} inference seed is not paired")
+        if len({cell.get("environment_seed") for cell in block}) != 1:
+            raise PilotError(f"replicate {replicate} environment seed is not paired")
+        inference_seed, environment_seed = expected_seeds[replicate]
+        if any(
+            type(cell.get("inference_seed")) is not int
+            or cell.get("inference_seed") != inference_seed
+            or type(cell.get("environment_seed")) is not int
+            or cell.get("environment_seed") != environment_seed
+            for cell in block
+        ):
+            raise PilotError(f"replicate {replicate} seed identities have drifted")
+        for cell in block:
+            expected_id = (
+                f"rep{replicate:02d}-{weight_ids[cell['snapshot']]}-rec-"
+                f"{'on' if cell['recovery'] else 'off'}"
+            )
+            if cell["cell_id"] != expected_id:
+                raise PilotError(
+                    f"{cell['cell_id']}: ID does not match its registered arm"
+                )
+        offset = (2 * (replicate - 1)) % len(WEIGHTS)
+        weight_order = list(WEIGHTS[offset:] + WEIGHTS[:offset])
+        expected_order = []
+        for weight in weight_order:
+            recovery_order = sorted(
+                (False, True),
+                key=lambda recovery: hashlib.sha256(
+                    (
+                        f"{pilot_id}|{schedule_seed}|{replicate}|{weight}|"
+                        f"recovery={str(recovery).lower()}"
+                    ).encode()
+                ).hexdigest(),
+            )
+            expected_order.extend(
+                (weight, recovery) for recovery in recovery_order
+            )
+        actual_order = [
+            (cell["snapshot"], cell["recovery"])
+            for cell in sorted(block, key=lambda cell: cell["schedule_index"])
+        ]
+        if actual_order != expected_order:
+            raise PilotError(
+                f"replicate {replicate} recovery-factorial schedule hash does not match"
+            )
 
 
 def load_manifest(path: Path) -> tuple[dict, str]:
@@ -350,14 +565,53 @@ def _preflight_endpoints(
         for item in render_digests
     ):
         raise PilotError("preflight endpoints do not share one render contract")
+    if manifest["schema_version"] == RECOVERY_FACTORIAL_SCHEMA_VERSION:
+        contract = manifest["artifact_contract"]
+        for snapshot, receipt in receipts.items():
+            attestation = receipt["attestation"]
+            expected = {
+                "checkpoint_sha256": manifest["models"][snapshot][
+                    "checkpoint_sha256"
+                ],
+                "tokenizer_sha256": contract["tokenizer_sha256"],
+                "render_contract_sha256": contract["render_contract_sha256"],
+                "chat_template_sha256": contract["chat_template_sha256"],
+            }
+            mismatches = {
+                key: {"expected": value, "actual": attestation.get(key)}
+                for key, value in expected.items()
+                if attestation.get(key) != value
+            }
+            if mismatches:
+                raise PilotError(
+                    f"{snapshot}: live endpoint differs from registration {mismatches}"
+                )
     return receipts
+
+
+def _cell_recovery(manifest: dict, cell: dict) -> bool:
+    value = cell.get("recovery", manifest["protocol"].get("recovery"))
+    if not isinstance(value, bool):
+        raise PilotError(f"{cell['cell_id']}: recovery assignment is not Boolean")
+    return value
+
+
+def _ledger_schema_versions(manifest: dict) -> tuple[str, str]:
+    if manifest["schema_version"] == RECOVERY_FACTORIAL_SCHEMA_VERSION:
+        return RECOVERY_PRELAUNCH_SCHEMA_VERSION, RECOVERY_INVENTORY_SCHEMA_VERSION
+    return PILOT_PRELAUNCH_SCHEMA_VERSION, PILOT_INVENTORY_SCHEMA_VERSION
 
 
 def _username(cell: dict) -> str:
     weight = {"base_2b": "B", "opd_r2_2b": "R2", "opd_r3_2b": "R3"}[
         cell["snapshot"]
     ]
-    return f"Pilot{weight}R{cell['replicate']:02d}"
+    recovery = (
+        f"{'Y' if cell['recovery'] else 'N'}"
+        if "recovery" in cell
+        else ""
+    )
+    return f"Pilot{weight}{recovery}R{cell['replicate']:02d}"
 
 
 def build_eval_command(
@@ -424,7 +678,12 @@ def build_eval_command(
         "--factorial-cluster-id",
         f"pilot-rep{cell['replicate']:02d}",
         "--factorial-pair-id",
-        f"pilot-rep{cell['replicate']:02d}",
+        (
+            f"pilot-rep{cell['replicate']:02d}-"
+            f"{WEIGHT_LABEL[cell['snapshot']]}"
+        ),
+        "--tool-recovery-enabled",
+        "on" if _cell_recovery(manifest, cell) else "off",
         "--environment-seed-mechanism",
         protocol["environment_seed_mechanism"],
         "--environment-seed",
@@ -444,6 +703,7 @@ def build_eval_environment(
     base: dict[str, str],
     *,
     manifest: dict,
+    cell: dict,
     game_dir: Path,
     node_binary: Path,
 ) -> dict[str, str]:
@@ -454,8 +714,54 @@ def build_eval_environment(
     env["KAETRAM_NODE_BINARY"] = str(node_binary)
     env["KAETRAM_MONGO_DB"] = manifest["protocol"]["mongo_database"]
     env["KAETRAM_TOOL_SCHEMA_SOURCE"] = manifest["protocol"]["tool_schema_source"]
-    env.pop("KAETRAM_TOOL_RECOVERY", None)
+    if _cell_recovery(manifest, cell):
+        env["KAETRAM_TOOL_RECOVERY"] = "1"
+    else:
+        env.pop("KAETRAM_TOOL_RECOVERY", None)
     return env
+
+
+def validate_effective_recovery(
+    results: dict,
+    results_path: Path,
+    *,
+    expected: bool,
+    cell_id: str,
+) -> bool:
+    meta = results.get("meta")
+    if not isinstance(meta, dict) or meta.get("tool_recovery_enabled") is not expected:
+        raise PilotError(f"{cell_id}: results recovery identity mismatch")
+    raw_dir = results_path.parent / "episode_001_raw"
+    template_path = raw_dir / "harness_meta_template.json"
+    try:
+        template = json.loads(template_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PilotError(f"{cell_id}: missing recovery harness template") from exc
+    if (
+        not isinstance(template, dict)
+        or template.get("tool_recovery_enabled") is not expected
+    ):
+        raise PilotError(f"{cell_id}: harness-template recovery identity mismatch")
+    session_logs = sorted(raw_dir.glob("session_*.log"))
+    session_meta_paths = sorted(raw_dir.glob("session_*.meta.json"))
+    expected_meta_paths = {path.with_suffix(".meta.json") for path in session_logs}
+    if not session_logs or set(session_meta_paths) != expected_meta_paths:
+        raise PilotError(f"{cell_id}: no retained session recovery receipts")
+    for path in session_meta_paths:
+        try:
+            session_meta = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise PilotError(
+                f"{cell_id}: invalid session recovery receipt {path.name}"
+            ) from exc
+        if (
+            not isinstance(session_meta, dict)
+            or session_meta.get("tool_recovery_enabled") is not expected
+        ):
+            raise PilotError(
+                f"{cell_id}: session recovery identity mismatch in {path.name}"
+            )
+    return expected
 
 
 def run_pilot(
@@ -474,6 +780,29 @@ def run_pilot(
     source_revision = _require_clean_git(REPO, "arena")
     game_revision = _require_clean_git(game_dir, "game")
     game_attestation = _load_game_attestation(game_dir, game_revision)
+    if manifest["schema_version"] == RECOVERY_FACTORIAL_SCHEMA_VERSION:
+        contract = manifest["artifact_contract"]
+        expected_game = {
+            "gameRevision": contract["game_revision"],
+            "entrypointSha256": contract["game_bundle_sha256"],
+        }
+        if any(
+            game_attestation.get(key) != value
+            for key, value in expected_game.items()
+        ):
+            raise PilotError("live game build differs from the registration")
+        resolved_prompt = resolve_system_prompt(
+            str(REPO),
+            _username(manifest["cells"][0]),
+            manifest["protocol"]["personality"],
+            include_game_knowledge=manifest["protocol"]["include_game_knowledge"],
+            prompt_agent_name=manifest["protocol"]["prompt_agent_name"],
+        )
+        resolved_prompt_sha256 = hashlib.sha256(resolved_prompt.encode()).hexdigest()
+        if resolved_prompt_sha256 != contract["system_prompt_sha256"]:
+            raise PilotError("resolved system prompt differs from the registration")
+    else:
+        resolved_prompt_sha256 = None
     if output_root in {Path("/"), Path.home().resolve()}:
         raise PilotError("output root is too broad")
     for protected, label in (
@@ -506,8 +835,9 @@ def run_pilot(
     endpoint_receipts = _preflight_endpoints(
         manifest, mlx_python, snapshots_root, output_root
     )
+    prelaunch_schema, inventory_schema = _ledger_schema_versions(manifest)
     prelaunch = {
-        "schema_version": "kaetram.local-weight-pilot-prelaunch.v1",
+        "schema_version": prelaunch_schema,
         "pilot_id": manifest["pilot_id"],
         "claim_boundary": manifest["claim_boundary"],
         "manifest_path": str(manifest_path.resolve()),
@@ -515,6 +845,7 @@ def run_pilot(
         "source_git_commit": source_revision,
         "game_git_commit": game_revision,
         "game_build_attestation": game_attestation,
+        "resolved_system_prompt_sha256": resolved_prompt_sha256,
         "endpoint_receipts": endpoint_receipts,
         "cells": manifest["cells"],
         "runtime": {
@@ -534,6 +865,7 @@ def run_pilot(
         status = "invalid"
         returncode = None
         error = ""
+        effective_recovery = None
         try:
             process, health = _start_endpoint(
                 snapshot=cell["snapshot"],
@@ -559,6 +891,7 @@ def run_pilot(
             env = build_eval_environment(
                 dict(os.environ),
                 manifest=manifest,
+                cell=cell,
                 game_dir=game_dir,
                 node_binary=node_binary,
             )
@@ -587,6 +920,12 @@ def run_pilot(
                 elif episodes[0].get("status") != "ok":
                     error = f"episode status is {episodes[0].get('status')!r}"
                 else:
+                    effective_recovery = validate_effective_recovery(
+                        results,
+                        results_path,
+                        expected=_cell_recovery(manifest, cell),
+                        cell_id=cell["cell_id"],
+                    )
                     status = "valid"
         except Exception as exc:  # preserve the failed cell and continue
             error = f"{type(exc).__name__}: {exc}"
@@ -595,6 +934,8 @@ def run_pilot(
         receipt = {
             "cell_id": cell["cell_id"],
             "snapshot": cell["snapshot"],
+            "recovery_assignment": _cell_recovery(manifest, cell),
+            "tool_recovery_enabled": effective_recovery,
             "schedule_index": cell["schedule_index"],
             "status": status,
             "returncode": returncode,
@@ -617,7 +958,7 @@ def run_pilot(
         inventory.append(receipt)
 
     completed = {
-        "schema_version": "kaetram.local-weight-pilot-inventory.v1",
+        "schema_version": inventory_schema,
         "pilot_id": manifest["pilot_id"],
         "manifest_sha256": manifest_sha256,
         "valid_cells": sum(item["status"] == "valid" for item in inventory),

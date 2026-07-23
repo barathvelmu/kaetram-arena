@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -20,6 +21,10 @@ RUN_FILES = (
 )
 ANALYSIS_FILES = ("analysis-summary.json", "cells.csv", "contrasts.csv")
 EXPORT_SCHEMA = "kaetram.local-trigger-incidence-public-artifact.v1"
+REGISTRATION_SCHEMA = "kaetram.local-trigger-incidence-registration.v1"
+DESIGN_SCHEMA = "kaetram.local-trigger-incidence-design.v1"
+RUN_SCHEMA = "kaetram.local-trigger-incidence-run.v1"
+ANALYSIS_SCHEMA = "kaetram.local-trigger-incidence-analysis.v1"
 
 
 class ExportError(RuntimeError):
@@ -53,6 +58,21 @@ def load_json(path: Path) -> dict:
     if not isinstance(value, dict):
         raise ExportError(f"JSON root must be an object: {path}")
     return value
+
+
+def source_tree_sha256(states: list[dict]) -> str:
+    return sha256_json(
+        [
+            {
+                "state_id": state["state_id"],
+                "personality": state["personality"],
+                "source_log": state["source_log"],
+                "source_log_sha256": state["source_log_sha256"],
+                "messages_sha256": state["messages_sha256"],
+            }
+            for state in states
+        ]
+    )
 
 
 def verify_index(root: Path, data_files: tuple[str, ...]) -> tuple[dict, str]:
@@ -120,12 +140,16 @@ def export_bundle(
 
     registration = load_json(registration_path)
     registration_sha256 = sha256_file(registration_path)
+    study_id = registration.get("study_id")
     snapshots = registration.get("snapshots")
     conditions = registration.get("conditions")
     state_pool = registration.get("state_pool")
     sampling = registration.get("sampling")
     if (
-        not isinstance(snapshots, dict)
+        registration.get("schema_version") != REGISTRATION_SCHEMA
+        or not isinstance(study_id, str)
+        or not study_id
+        or not isinstance(snapshots, dict)
         or not isinstance(conditions, list)
         or not isinstance(state_pool, dict)
         or not isinstance(sampling, dict)
@@ -138,11 +162,22 @@ def export_bundle(
     receipt = load_json(receipt_path)
     design_sha256 = sha256_file(design_path)
     source_commit = design.get("source_git_commit")
+    states = design.get("states")
     if (
-        design.get("registration_sha256") != registration_sha256
+        design.get("schema_version") != DESIGN_SCHEMA
+        or design.get("study_id") != study_id
+        or not isinstance(states, list)
+        or len(states) != int(state_pool["state_count"])
+        or receipt.get("schema_version") != f"{DESIGN_SCHEMA}.receipt"
+        or receipt.get("study_id") != study_id
+        or design.get("registration_sha256") != registration_sha256
         or receipt.get("registration_sha256") != registration_sha256
         or receipt.get("design_sha256") != design_sha256
+        or receipt.get("state_count") != len(states)
+        or receipt.get("selected_source_tree_sha256")
+        != source_tree_sha256(states)
         or receipt.get("source_git_commit") != source_commit
+        or re.fullmatch(r"[0-9a-f]{40}", str(source_commit)) is None
         or design.get("dirty_paths") != []
         or receipt.get("dirty_paths") != []
     ):
@@ -165,7 +200,15 @@ def export_bundle(
         if snapshot in seen_snapshots or snapshot not in snapshots:
             raise ExportError(f"duplicate or unregistered snapshot: {snapshot}")
         if (
-            prelaunch.get("snapshot") != snapshot
+            prelaunch.get("schema_version") != f"{RUN_SCHEMA}.prelaunch"
+            or postflight.get("schema_version") != f"{RUN_SCHEMA}.postflight"
+            or completed.get("schema_version") != f"{RUN_SCHEMA}.completed"
+            or run_index.get("schema_version") != f"{RUN_SCHEMA}.artifacts"
+            or prelaunch.get("study_id") != study_id
+            or postflight.get("study_id") != study_id
+            or completed.get("study_id") != study_id
+            or run_index.get("study_id") != study_id
+            or prelaunch.get("snapshot") != snapshot
             or postflight.get("snapshot") != snapshot
             or run_index.get("snapshot") != snapshot
             or prelaunch.get("registration_sha256") != registration_sha256
@@ -212,7 +255,11 @@ def export_bundle(
         key=lambda item: item["snapshot"],
     )
     if (
-        summary.get("registration_sha256") != registration_sha256
+        summary.get("schema_version") != ANALYSIS_SCHEMA
+        or summary.get("study_id") != study_id
+        or analysis_index.get("schema_version")
+        != f"{ANALYSIS_SCHEMA}.artifacts"
+        or summary.get("registration_sha256") != registration_sha256
         or summary.get("design_sha256") != design_sha256
         or summary.get("analysis_status") != "complete"
         or summary.get("scheduled_requests") != expected_total
@@ -257,7 +304,7 @@ def export_bundle(
                 )
         manifest = {
             "schema_version": EXPORT_SCHEMA,
-            "study_id": registration.get("study_id"),
+            "study_id": study_id,
             "source_git_commit": source_commit,
             "registration_sha256": registration_sha256,
             "design_sha256": design_sha256,

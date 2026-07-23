@@ -18,7 +18,20 @@ from scripts.opd.training_record_bundle import (
     TrainingRecordBundleError,
     load_verified_training_records,
 )
-from scripts.opd.opd_data_manifest import create_opd_data_manifest
+from scripts.opd.opd_data_manifest import (
+    BUILDER_RELATIVE_PATH,
+    MANIFEST_SCHEMA_VERSION as ROOT_MANIFEST_SCHEMA_VERSION,
+)
+from scripts.opd.receipt_chain import (
+    BUILD_SOURCE_PATHS,
+    canonical_sha256,
+    sha256_path,
+)
+from scripts.opd.record_schema import (
+    OPD_TRAIN_RECORD_SCHEMA_SHA256,
+    OPD_TRAIN_RECORD_SCHEMA_VERSION,
+    OPD_TRAIN_RECORD_VALIDATOR_SHA256,
+)
 
 
 def _sha256(path: Path) -> str:
@@ -30,6 +43,70 @@ def _write_jsonl(path: Path, records: list[dict]) -> None:
         "".join(json.dumps(record) + "\n" for record in records),
         encoding="utf-8",
     )
+    _write_root_receipt(path)
+
+
+def _write_root_receipt(path: Path) -> Path:
+    repo = Path(__file__).parents[2]
+    inventory = [{
+        "run_id": "run_1",
+        "path": "dataset/raw/agent_test/runs/run_1/session_1.log",
+        "sha256": "c" * 64,
+        "size_bytes": 1,
+    }]
+    tokenizer_sha = "d" * 64
+    attestation = lambda label: {
+        "deployment_id": f"{label}-deployment",
+        "api_model": f"{label}-model",
+        "checkpoint_sha256": ("a" if label == "student" else "b") * 64,
+        "tokenizer_sha256": tokenizer_sha,
+        "render_contract_sha256": "e" * 64,
+    }
+    build_sources = {
+        relative: sha256_path(repo / relative)
+        for relative in BUILD_SOURCE_PATHS
+    }
+    receipt = {
+        "schema_version": ROOT_MANIFEST_SCHEMA_VERSION,
+        "builder": BUILDER_RELATIVE_PATH,
+        "script_sha256": build_sources[BUILDER_RELATIVE_PATH],
+        "source_runs": ["run_1"],
+        "source_logs": inventory,
+        "source_sha256": canonical_sha256(inventory),
+        "output": str(path),
+        "output_sha256": _sha256(path),
+        "heldout": "heldout.jsonl",
+        "heldout_sha256": "f" * 64,
+        "record_schema_version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        "record_schema_sha256": OPD_TRAIN_RECORD_SCHEMA_SHA256,
+        "record_schema_validator_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,
+        "n_records": len(path.read_bytes().splitlines()),
+        "n_heldout": 0,
+        "build_sources": build_sources,
+        "parameters": {
+            "student_endpoint_attestation": attestation("student"),
+            "teacher_endpoint_attestation": attestation("teacher"),
+            "tokenizer_sha256": tokenizer_sha,
+            "tokenizer_snapshot_sha256": "1" * 64,
+            "runtime_versions": {
+                "python": "3.12.0",
+                "httpx": "0.28.1",
+                "transformers": "5.5.0",
+                "tokenizers": "0.22.2",
+            },
+            "max_history_messages": 28,
+            "max_sequence_tokens": 16384,
+            "kl_coefficient": 1.0,
+            "holdout_every": 10,
+            "early_weight": 1.5,
+            "malformed_parameter_pattern": r"<parameter=[^>\n]*=[^>\n]*>",
+            "counterfactual_grading": True,
+            "limit": 0,
+        },
+    }
+    receipt_path = path.with_suffix(".manifest.json")
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+    return receipt_path
 
 
 def _record(record_id: int, advantages: list[float]) -> dict:
@@ -68,6 +145,11 @@ def test_uniform_advantages_preserves_mask_and_attests_bytes(tmp_path: Path) -> 
     assert manifest["source_sha256"] == _sha256(source)
     assert manifest["output_sha256"] == _sha256(output)
     assert manifest["record_schema_version"] == "kaetram-opd-train-record-v2"
+    assert manifest["schema_version"] == "uniform-advantages-manifest-v3"
+    assert manifest["parent_manifest"]["schema_version"] == ROOT_MANIFEST_SCHEMA_VERSION
+    assert manifest["parent_manifest_sha256"] == canonical_sha256(
+        manifest["parent_manifest"]
+    )
     assert len(manifest["record_schema_sha256"]) == 64
     assert len(manifest["record_schema_validator_sha256"]) == 64
     assert json.loads(output.with_suffix(".manifest.json").read_text()) == manifest
@@ -126,6 +208,8 @@ def test_resample_is_deterministic_exact_count_and_attested(tmp_path: Path) -> N
     assert lines_a[:3] == source.read_bytes().splitlines()
     assert manifest_a["output_sha256"] == _sha256(output_a)
     assert manifest_a["record_schema_version"] == "kaetram-opd-train-record-v2"
+    assert manifest_a["schema_version"] == "resampled-records-manifest-v3"
+    assert manifest_a["parent_manifest"]["schema_version"] == ROOT_MANIFEST_SCHEMA_VERSION
     assert len(manifest_a["record_schema_sha256"]) == 64
     assert len(manifest_a["record_schema_validator_sha256"]) == 64
     assert manifest_a["sampled_indices_sha256"] == manifest_b["sampled_indices_sha256"]
@@ -135,6 +219,7 @@ def test_resample_is_deterministic_exact_count_and_attested(tmp_path: Path) -> N
 def test_resample_rejects_malformed_input_and_overwrite(tmp_path: Path) -> None:
     malformed = tmp_path / "malformed.jsonl"
     malformed.write_text(json.dumps(_record(0, [1.0])) + "\nnot-json\n")
+    _write_root_receipt(malformed)
     with pytest.raises(ResampleBuildError, match="invalid UTF-8 JSON"):
         resample_records(malformed, tmp_path / "out.jsonl", target=3, seed=1)
 
@@ -272,36 +357,8 @@ def test_builder_receipt_supports_canonical_untransformed_records(
     tmp_path: Path,
 ) -> None:
     records = tmp_path / "records.jsonl"
-    heldout = tmp_path / "heldout.jsonl"
     receipt = tmp_path / "records.manifest.json"
-    source_log = tmp_path / "session_1.log"
-    source_log.write_text("source session\n")
     _write_jsonl(records, [_record(0, [1.0]), _record(1, [-2.0])])
-    _write_jsonl(heldout, [{"context_text": "x", "full_text": "xy"}])
-    create_opd_data_manifest(
-        records_path=records,
-        heldout_path=heldout,
-        manifest_path=receipt,
-        source_logs=[source_log],
-        source_root=tmp_path,
-        run_ids=["run_1"],
-        builder_path=Path(__file__).parents[2] / "scripts/opd/opd_2b_data.py",
-        parameters={
-            "student_tokenizer_id": "Qwen/Qwen3.5-2B",
-            "student_artifact_id": "student",
-            "student_artifact_sha256": "a" * 64,
-            "teacher_artifact_id": "teacher",
-            "teacher_artifact_sha256": "b" * 64,
-            "max_history_messages": 28,
-            "max_sequence_tokens": 16384,
-            "kl_coefficient": 1.0,
-            "holdout_every": 10,
-            "early_weight": 1.5,
-            "malformed_parameter_pattern": r"<parameter=[^>\n]*=[^>\n]*>",
-            "counterfactual_grading": True,
-            "limit": 0,
-        },
-    )
     assert len(load_verified_training_records(records, receipt)) == 2
 
 
@@ -316,3 +373,44 @@ def test_generic_posthoc_identity_receipts_are_not_supported(tmp_path: Path) -> 
     }))
     with pytest.raises(TrainingRecordBundleError, match="unsupported"):
         load_verified_training_records(records, receipt)
+
+
+def test_transformers_require_and_preserve_a_recursive_parent_chain(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.jsonl"
+    uniform = tmp_path / "uniform.jsonl"
+    resampled = tmp_path / "resampled.jsonl"
+    _write_jsonl(source, [_record(0, [-1.0]), _record(1, [2.0])])
+    build_uniform_advantages(source, uniform)
+    resample_records(uniform, resampled, target=3, seed=7)
+    receipt = json.loads(resampled.with_suffix(".manifest.json").read_text())
+    assert receipt["parent_manifest"]["schema_version"] == (
+        "uniform-advantages-manifest-v3"
+    )
+    assert receipt["parent_manifest"]["parent_manifest"]["schema_version"] == (
+        ROOT_MANIFEST_SCHEMA_VERSION
+    )
+    assert len(load_verified_training_records(
+        resampled, resampled.with_suffix(".manifest.json")
+    )) == 3
+
+    receipt["parent_manifest"]["parent_manifest"]["source_runs"] = ["fake-run"]
+    receipt["parent_manifest"]["parent_manifest_sha256"] = canonical_sha256(
+        receipt["parent_manifest"]["parent_manifest"]
+    )
+    receipt["parent_manifest_sha256"] = canonical_sha256(receipt["parent_manifest"])
+    resampled.with_suffix(".manifest.json").write_text(json.dumps(receipt))
+    with pytest.raises(
+        TrainingRecordBundleError, match="source run coverage"
+    ):
+        load_verified_training_records(
+            resampled, resampled.with_suffix(".manifest.json")
+        )
+
+
+def test_transformer_rejects_source_without_builder_receipt(tmp_path: Path) -> None:
+    source = tmp_path / "source.jsonl"
+    source.write_text(json.dumps(_record(0, [1.0])) + "\n")
+    with pytest.raises(UniformBuildError, match="source provenance manifest"):
+        build_uniform_advantages(source, tmp_path / "uniform.jsonl")

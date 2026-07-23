@@ -4,6 +4,8 @@ Original records are retained in order and exact raw records are sampled with
 replacement using a fixed seed. The transformer validates every source line,
 refuses in-place or accidental overwrite, writes atomically, and emits an
 attested manifest with source, output, script, and sampled-index hashes.
+The source must have an adjacent ``.manifest.json`` receipt; the complete
+validated parent chain is embedded in the derived receipt.
 
 Usage:
   python3 scripts/opd/resample_records.py \
@@ -21,6 +23,12 @@ import tempfile
 from pathlib import Path
 
 try:
+    from .receipt_chain import (
+        RESAMPLE_MANIFEST_SCHEMA_VERSION,
+        ReceiptChainError,
+        canonical_sha256,
+        validate_receipt_chain,
+    )
     from .record_schema import (
         OPD_TRAIN_RECORD_SCHEMA_SHA256,
         OPD_TRAIN_RECORD_SCHEMA_VERSION,
@@ -29,6 +37,12 @@ try:
         validate_opd_train_record,
     )
 except ImportError:  # direct `python scripts/opd/...` execution
+    from receipt_chain import (  # type: ignore[no-redef]
+        RESAMPLE_MANIFEST_SCHEMA_VERSION,
+        ReceiptChainError,
+        canonical_sha256,
+        validate_receipt_chain,
+    )
     from record_schema import (  # type: ignore[no-redef]
         OPD_TRAIN_RECORD_SCHEMA_SHA256,
         OPD_TRAIN_RECORD_SCHEMA_VERSION,
@@ -38,7 +52,7 @@ except ImportError:  # direct `python scripts/opd/...` execution
     )
 
 
-MANIFEST_SCHEMA_VERSION = "resampled-records-manifest-v2"
+MANIFEST_SCHEMA_VERSION = RESAMPLE_MANIFEST_SCHEMA_VERSION
 
 
 class ArtifactBuildError(ValueError):
@@ -98,6 +112,20 @@ def resample_records(
         raise ArtifactBuildError("target must be positive")
 
     source_payload = src.read_bytes()
+    source_manifest_path = src.with_suffix(".manifest.json")
+    if not source_manifest_path.is_file():
+        raise ArtifactBuildError(
+            f"source provenance manifest is required: {source_manifest_path}"
+        )
+    try:
+        source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+        validate_receipt_chain(
+            source_manifest,
+            expected_output_sha256=_sha256_bytes(source_payload),
+            repo_root=Path(__file__).resolve().parents[2],
+        )
+    except (OSError, json.JSONDecodeError, ReceiptChainError) as exc:
+        raise ArtifactBuildError(f"invalid source provenance chain: {exc}") from exc
     lines = _validate_lines(source_payload)
     n_original = len(lines)
     if n_original >= target:
@@ -119,6 +147,8 @@ def resample_records(
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "source": str(src),
         "source_sha256": _sha256_bytes(source_payload),
+        "parent_manifest": source_manifest,
+        "parent_manifest_sha256": canonical_sha256(source_manifest),
         "output": str(dst),
         "output_sha256": _sha256_bytes(output_payload),
         "script_sha256": _sha256(Path(__file__).resolve()),

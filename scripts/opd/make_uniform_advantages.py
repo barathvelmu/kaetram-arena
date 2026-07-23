@@ -5,6 +5,8 @@ nonzero advantage. Zero-valued mask positions remain zero. The transformer is
 fail-closed: it validates record geometry, refuses in-place or accidental
 overwrite, detects source mutation between passes, writes atomically, and
 records byte-level input/output/script hashes beside the result.
+The source must have an adjacent ``.manifest.json`` receipt; the complete
+validated parent chain is embedded in the derived receipt.
 
 Usage:
   python3 scripts/opd/make_uniform_advantages.py \
@@ -23,6 +25,12 @@ from pathlib import Path
 from typing import BinaryIO
 
 try:
+    from .receipt_chain import (
+        UNIFORM_MANIFEST_SCHEMA_VERSION,
+        ReceiptChainError,
+        canonical_sha256,
+        validate_receipt_chain,
+    )
     from .record_schema import (
         OPD_TRAIN_RECORD_SCHEMA_SHA256,
         OPD_TRAIN_RECORD_SCHEMA_VERSION,
@@ -31,6 +39,12 @@ try:
         validate_opd_train_record,
     )
 except ImportError:  # direct `python scripts/opd/...` execution
+    from receipt_chain import (  # type: ignore[no-redef]
+        UNIFORM_MANIFEST_SCHEMA_VERSION,
+        ReceiptChainError,
+        canonical_sha256,
+        validate_receipt_chain,
+    )
     from record_schema import (  # type: ignore[no-redef]
         OPD_TRAIN_RECORD_SCHEMA_SHA256,
         OPD_TRAIN_RECORD_SCHEMA_VERSION,
@@ -40,7 +54,7 @@ except ImportError:  # direct `python scripts/opd/...` execution
     )
 
 
-MANIFEST_SCHEMA_VERSION = "uniform-advantages-manifest-v2"
+MANIFEST_SCHEMA_VERSION = UNIFORM_MANIFEST_SCHEMA_VERSION
 
 
 class ArtifactBuildError(ValueError):
@@ -96,8 +110,22 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
         )
     if not dst.parent.is_dir():
         raise ArtifactBuildError(f"output directory does not exist: {dst.parent}")
+    source_manifest_path = src.with_suffix(".manifest.json")
+    if not source_manifest_path.is_file():
+        raise ArtifactBuildError(
+            f"source provenance manifest is required: {source_manifest_path}"
+        )
 
     source_sha256 = _sha256(src)
+    try:
+        source_manifest = json.loads(source_manifest_path.read_text(encoding="utf-8"))
+        validate_receipt_chain(
+            source_manifest,
+            expected_output_sha256=source_sha256,
+            repo_root=Path(__file__).resolve().parents[2],
+        )
+    except (OSError, json.JSONDecodeError, ReceiptChainError) as exc:
+        raise ArtifactBuildError(f"invalid source provenance chain: {exc}") from exc
     total_abs = 0.0
     n_nonzero = n_zero = n_records = 0
     with src.open("rb") as handle:
@@ -145,6 +173,8 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
             "control": "uniform-clipped-self-imitation",
             "source": str(src),
             "source_sha256": source_sha256,
+            "parent_manifest": source_manifest,
+            "parent_manifest_sha256": canonical_sha256(source_manifest),
             "output": str(dst),
             "output_sha256": output_digest.hexdigest(),
             "script_sha256": _sha256(Path(__file__).resolve()),

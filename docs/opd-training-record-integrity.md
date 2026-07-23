@@ -19,28 +19,46 @@ passing validation even though the trainer would silently discard its signal.
 ## Receipts
 
 `opd_2b_data.py`, `make_uniform_advantages.py`, and `resample_records.py` emit
-their own create-only receipts. The trainer accepts only those three receipt
-types and binds:
+create-only receipts. The trainer accepts only those three receipt types and
+binds:
 
 - the exact JSONL SHA-256;
 - record-schema and validator identities;
 - the exact attestor/transformer source identity; and
-- transformation-specific parameters and record/token counts.
+- transformation-specific parameters and record/token counts; and
+- the recursively embedded parent receipt for every derived corpus.
 
-The base corpus builder also binds the complete source-log inventory, immutable
-student and teacher artifact hashes, held-out bytes, and all material build
-parameters. It refuses to resume into any pre-existing output: a partial build
-must be retained separately and a fresh sealed build started. This prevents a
-new builder receipt from being attached post hoc to records produced by an
-unknown earlier process.
+Before reading a source log, the base corpus builder requires every declared run
+to resolve to at least one log and snapshots every log's bytes. Parse failures,
+empty sessions, or a run with no usable action state abort the build. The same
+inventory is re-hashed before sealing, so the receipt cannot bind end-of-build
+bytes different from those consumed.
 
-There is deliberately no generic post-hoc attestor. Such a tool could relabel a
-uniform or resampled corpus as “untransformed” and erase its source/parameter
-chain. Copying a JSONL file without its matching builder/transformer receipt,
-editing either artifact, or training with a newer validator against an old
-receipt is an error. Paths in a receipt are informational so a byte-identical
-bundle can be staged at a different mount point; the content hash is
-authoritative.
+Both scoring endpoints must expose complete `/health` identity attestations.
+Their deployment and checkpoint identities must match the requested artifacts,
+their tokenizer hashes must match each other and the local immutable
+`tokenizer.json`, and their attestations are checked again after scoring. The
+receipt also hashes every local renderer/parser/guard/schema source file that
+materially participates in the build, the held-out bytes, and all material
+parameters.
+
+The base builder refuses to resume into any pre-existing output: a partial
+build must be retained separately and a fresh sealed build started. Root
+receipt emission exists only inside that exclusive fresh-build path; there is
+no callable post-hoc builder attestor.
+
+Each transformer requires the source's adjacent receipt, validates its complete
+chain before reading records, and embeds that parent plus its canonical digest
+in the new receipt. This prevents a uniform or resampled corpus from being
+accepted after its builder/model/source/parameter ancestry is removed. Copying
+a JSONL file without its matching receipt, editing any link, or training with a
+newer validator against an old receipt is an error. Paths are informational so
+a byte-identical bundle can be staged at a different mount point; content
+hashes are authoritative.
+
+Historical v1/v2 receipts and post-hoc identity receipts are intentionally not
+accepted. A prospective trainable corpus must be freshly built under this
+chain.
 
 ## Zero-spend probes
 

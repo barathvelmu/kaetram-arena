@@ -38,7 +38,8 @@ Usage (round 2 — student EP is the r1 endpoint):
     python3 scripts/opd/opd_2b_data.py --run-ids run_20260610_140358 <seeded_run> \
       --out-dir dataset/opd_2b/round2 \
       --student-artifact-id qwen-2b-r1 --student-artifact-sha256 <64-hex> \
-      --teacher-artifact-id qwen-4b --teacher-artifact-sha256 <64-hex>
+      --teacher-artifact-id qwen-4b --teacher-artifact-sha256 <64-hex> \
+      --tokenizer-path /immutable/qwen-tokenizer
   modal volume put kaetram-model-vol dataset/opd_2b/round2/records.jsonl \
       /opd_2b/round2/records.jsonl --force
 """
@@ -46,12 +47,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.metadata
 import json
 import os
+import platform
 import re
 import sys
+import tempfile
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -65,12 +70,25 @@ from opd_round1 import turn_to_chat  # noqa: E402
 from opd_wall_probe import _frontier, _finished_from_payload  # noqa: E402
 from render import patch_qwen_chat_template  # noqa: E402
 from heldout_guard import assert_text_not_reserved  # noqa: E402
-from opd_data_manifest import create_opd_data_manifest  # noqa: E402
+from opd_data_manifest import (  # noqa: E402
+    BUILDER_RELATIVE_PATH,
+    MANIFEST_SCHEMA_VERSION,
+)
+from receipt_chain import (  # noqa: E402
+    BUILD_SOURCE_PATHS,
+    canonical_sha256,
+    is_digest,
+    sha256_path,
+)
+from record_schema import (  # noqa: E402
+    OPD_TRAIN_RECORD_SCHEMA_SHA256,
+    OPD_TRAIN_RECORD_SCHEMA_VERSION,
+    OPD_TRAIN_RECORD_VALIDATOR_SHA256,
+)
 
 STUDENT_EP = os.environ["TWOB_EP"].rstrip("/")
 TEACHER_EP = os.environ["FOURB_EP"].rstrip("/")
 
-STUDENT_TOKENIZER_ID = "Qwen/Qwen3.5-2B"  # must match serve_modal_2b.py's rendering
 MAX_HIST_MSGS = 28
 MAX_SEQ = 16384
 KL_COEF = 1.0
@@ -85,9 +103,9 @@ SCORE_TIMEOUT = 240.0
 SCORE_RETRIES = 3
 
 
-def load_student_tokenizer():
+def load_student_tokenizer(tokenizer_path: Path):
     from transformers import AutoTokenizer
-    tok = AutoTokenizer.from_pretrained(STUDENT_TOKENIZER_ID, trust_remote_code=True)
+    tok = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
     patch_qwen_chat_template(tok)
     return tok
 
@@ -119,27 +137,70 @@ def _emission_text(turn):
     return content + "<|im_end|>\n"
 
 
-def _source_logs(run_ids):
-    logs = []
-    for run in run_ids:
-        logs.extend(sorted((REPO / "dataset" / "raw").glob(
-            f"agent_*/runs/{run}/session_*.log"
-        )))
-    return logs
+def _snapshot_source_logs(run_ids: list[str]) -> list[dict]:
+    if not run_ids or len(run_ids) != len(set(run_ids)):
+        raise RuntimeError("--run-ids must contain unique run identifiers")
+    inventory = []
+    for run_id in run_ids:
+        logs = sorted((REPO / "dataset" / "raw").glob(
+            f"agent_*/runs/{run_id}/session_*.log"
+        ))
+        if not logs:
+            raise RuntimeError(f"declared run has no source logs: {run_id}")
+        for path in logs:
+            resolved = path.resolve()
+            inventory.append({
+                "run_id": run_id,
+                "path": resolved.relative_to(REPO).as_posix(),
+                "sha256": sha256_path(resolved),
+                "size_bytes": resolved.stat().st_size,
+            })
+    inventory.sort(key=lambda item: item["path"])
+    if len({item["path"] for item in inventory}) != len(inventory):
+        raise RuntimeError("source-log inventory contains duplicate paths")
+    return inventory
 
 
-def collect_action_states(run_ids):
+def _verify_source_snapshot(inventory: list[dict]) -> None:
+    for item in inventory:
+        path = REPO / item["path"]
+        if (
+            not path.is_file()
+            or path.stat().st_size != item["size_bytes"]
+            or sha256_path(path) != item["sha256"]
+        ):
+            raise RuntimeError(f"source log changed during the build: {item['path']}")
+
+
+def _directory_digest(root: Path) -> str:
+    inventory = []
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise RuntimeError(f"tokenizer snapshot contains a symlink: {path}")
+        if path.is_file():
+            inventory.append({
+                "path": path.relative_to(root).as_posix(),
+                "sha256": sha256_path(path),
+                "size_bytes": path.stat().st_size,
+            })
+    if not inventory:
+        raise RuntimeError("tokenizer snapshot contains no regular files")
+    return canonical_sha256(inventory)
+
+
+def collect_action_states(inventory: list[dict]):
     """Per-turn (messages, emission, verb, frontier, session, turn_idx, n_turns,
     holdout) over the rollout logs. messages = [system, bootstrap, ...tail...]
     (context only); emission = the raw action continuation."""
-    logs = _source_logs(run_ids)
     states = []
     n_no_emission = 0
-    for log_i, lp in enumerate(logs):
+    states_by_run = defaultdict(int)
+    for log_i, source in enumerate(inventory):
+        lp = REPO / source["path"]
         try:
             base_messages, turns = reconstruct_session(lp)
-        except Exception:
-            continue
+        except Exception as exc:
+            raise RuntimeError(f"failed to parse declared source log: {lp}") from exc
         # Exclude the always-on system prompt from this scan: it mentions the
         # quest name as a warp prerequisite but contains no walkthrough.  Any
         # model action/reasoning or tool result touching the reserved quest is
@@ -158,7 +219,7 @@ def collect_action_states(run_ids):
             source=str(lp),
         )
         if not turns:
-            continue
+            raise RuntimeError(f"declared source log contains no turns: {lp}")
         holdout = (log_i % HOLDOUT_EVERY) == 0
         rolling = list(base_messages)
         finished: set[str] = set()
@@ -179,6 +240,7 @@ def collect_action_states(run_ids):
                         "session": lp.name,
                         "turn_idx": turn_idx,
                         "holdout": holdout,
+                        "source_run": source["run_id"],
                     })
             rolling.append(turn_to_chat(turn))
             for tr in results:
@@ -189,7 +251,13 @@ def collect_action_states(run_ids):
         n_turns = len(turns)
         for st in session_states:
             st["n_turns"] = n_turns
+            states_by_run[st["source_run"]] += 1
         states.extend(session_states)
+    missing = sorted({item["run_id"] for item in inventory} - set(states_by_run))
+    if missing:
+        raise RuntimeError(
+            "declared run produced no usable action state(s): " + ", ".join(missing)
+        )
     if n_no_emission:
         print(f"  skipped {n_no_emission} tool-call turns with no reconstructible emission "
               f"(empty/thinking-block text)")
@@ -354,6 +422,61 @@ def _print_diagnostic(diag):
             print(f"    {front:<12} mean_rkl {s/n:+.4f}   ({n} action tokens)")
 
 
+def _health_url(endpoint: str) -> str:
+    parts = urlsplit(endpoint)
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        raise RuntimeError("scoring endpoint must be an HTTP(S) URL")
+    base_path = parts.path.rstrip("/")
+    if base_path.endswith("/v1"):
+        base_path = base_path[:-3]
+    return urlunsplit((parts.scheme, parts.netloc, base_path + "/health", "", ""))
+
+
+async def _verified_endpoint_attestation(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    *,
+    expected_deployment_id: str,
+    expected_checkpoint_sha256: str,
+) -> dict:
+    try:
+        response = await client.get(_health_url(endpoint), timeout=60)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, json.JSONDecodeError) as exc:
+        raise RuntimeError("scoring endpoint did not return valid /health JSON") from exc
+    if not isinstance(payload, dict) or payload.get("status") != "ok":
+        raise RuntimeError("scoring endpoint is not healthy")
+    if "score" not in (payload.get("capabilities") or []):
+        raise RuntimeError("scoring endpoint does not attest the score capability")
+    attestation = payload.get("attestation")
+    fields = {
+        "deployment_id",
+        "api_model",
+        "checkpoint_sha256",
+        "tokenizer_sha256",
+        "render_contract_sha256",
+    }
+    if not isinstance(attestation, dict) or set(attestation) != fields:
+        raise RuntimeError("scoring endpoint has no complete identity attestation")
+    if (
+        attestation.get("deployment_id") != expected_deployment_id
+        or attestation.get("checkpoint_sha256") != expected_checkpoint_sha256
+        or not isinstance(attestation.get("api_model"), str)
+        or not attestation["api_model"]
+        or any(
+            not is_digest(attestation.get(field))
+            for field in (
+                "checkpoint_sha256",
+                "tokenizer_sha256",
+                "render_contract_sha256",
+            )
+        )
+    ):
+        raise RuntimeError("scoring endpoint identity does not match the requested artifact")
+    return attestation
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-ids", nargs="+", default=["run_20260610_140358"])
@@ -363,6 +486,11 @@ async def main():
     ap.add_argument("--student-artifact-sha256", required=True)
     ap.add_argument("--teacher-artifact-id", required=True)
     ap.add_argument("--teacher-artifact-sha256", required=True)
+    ap.add_argument(
+        "--tokenizer-path",
+        required=True,
+        help="immutable local tokenizer snapshot containing tokenizer.json",
+    )
     args = ap.parse_args()
     for name in ("student_artifact_sha256", "teacher_artifact_sha256"):
         value = getattr(args, name)
@@ -375,8 +503,39 @@ async def main():
                 f"--{name.replace('_', '-')} must be a non-URL artifact identifier"
             )
 
-    tok = load_student_tokenizer()
-    states = collect_action_states(args.run_ids)
+    source_inventory = _snapshot_source_logs(args.run_ids)
+    _verify_source_snapshot(source_inventory)
+    async with httpx.AsyncClient() as identity_client:
+        student_attestation, teacher_attestation = await asyncio.gather(
+            _verified_endpoint_attestation(
+                identity_client,
+                STUDENT_EP,
+                expected_deployment_id=args.student_artifact_id,
+                expected_checkpoint_sha256=args.student_artifact_sha256,
+            ),
+            _verified_endpoint_attestation(
+                identity_client,
+                TEACHER_EP,
+                expected_deployment_id=args.teacher_artifact_id,
+                expected_checkpoint_sha256=args.teacher_artifact_sha256,
+            ),
+        )
+    tokenizer_path = Path(args.tokenizer_path).resolve()
+    tokenizer_file = tokenizer_path / "tokenizer.json"
+    if not tokenizer_file.is_file():
+        ap.error("--tokenizer-path must contain tokenizer.json")
+    tokenizer_sha256 = sha256_path(tokenizer_file)
+    tokenizer_snapshot_sha256 = _directory_digest(tokenizer_path)
+    if (
+        student_attestation["tokenizer_sha256"] != tokenizer_sha256
+        or teacher_attestation["tokenizer_sha256"] != tokenizer_sha256
+    ):
+        ap.error(
+            "local tokenizer.json does not match both endpoint identity attestations"
+        )
+
+    tok = load_student_tokenizer(tokenizer_path)
+    states = collect_action_states(source_inventory)
     if args.limit:
         states = states[: args.limit]
 
@@ -450,20 +609,59 @@ async def main():
         print(f"malformed-param spans masked: {n_masked_spans} spans / "
               f"{n_masked_tokens} tokens ({n_masked_tokens/n_action_tokens*100:.2f}% of action tokens)")
     _print_diagnostic(diag)
-    manifest = create_opd_data_manifest(
-        records_path=rec_path,
-        heldout_path=hold_path,
-        manifest_path=manifest_path,
-        source_logs=_source_logs(args.run_ids),
-        source_root=REPO,
-        run_ids=args.run_ids,
-        builder_path=Path(__file__),
-        parameters={
-            "student_tokenizer_id": STUDENT_TOKENIZER_ID,
-            "student_artifact_id": args.student_artifact_id,
-            "student_artifact_sha256": args.student_artifact_sha256,
-            "teacher_artifact_id": args.teacher_artifact_id,
-            "teacher_artifact_sha256": args.teacher_artifact_sha256,
+    _verify_source_snapshot(source_inventory)
+    async with httpx.AsyncClient() as identity_client:
+        ending_student, ending_teacher = await asyncio.gather(
+            _verified_endpoint_attestation(
+                identity_client,
+                STUDENT_EP,
+                expected_deployment_id=args.student_artifact_id,
+                expected_checkpoint_sha256=args.student_artifact_sha256,
+            ),
+            _verified_endpoint_attestation(
+                identity_client,
+                TEACHER_EP,
+                expected_deployment_id=args.teacher_artifact_id,
+                expected_checkpoint_sha256=args.teacher_artifact_sha256,
+            ),
+        )
+    if ending_student != student_attestation or ending_teacher != teacher_attestation:
+        raise RuntimeError("scoring endpoint identity changed during the build")
+    # Root receipts are emitted only here, from the two files opened with
+    # exclusive mode by this invocation. There is intentionally no reusable
+    # post-hoc attestor that could relabel arbitrary existing records.
+    build_sources = {
+        relative: sha256_path(REPO / relative)
+        for relative in BUILD_SOURCE_PATHS
+    }
+    manifest = {
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "builder": BUILDER_RELATIVE_PATH,
+        "script_sha256": build_sources[BUILDER_RELATIVE_PATH],
+        "source_runs": list(args.run_ids),
+        "source_logs": source_inventory,
+        "source_sha256": canonical_sha256(source_inventory),
+        "output": str(rec_path.resolve()),
+        "output_sha256": sha256_path(rec_path),
+        "heldout": str(hold_path.resolve()),
+        "heldout_sha256": sha256_path(hold_path),
+        "record_schema_version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        "record_schema_sha256": OPD_TRAIN_RECORD_SCHEMA_SHA256,
+        "record_schema_validator_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,
+        "n_records": n_ok,
+        "n_heldout": n_hold_done,
+        "build_sources": build_sources,
+        "parameters": {
+            "student_endpoint_attestation": student_attestation,
+            "teacher_endpoint_attestation": teacher_attestation,
+            "tokenizer_sha256": tokenizer_sha256,
+            "tokenizer_snapshot_sha256": tokenizer_snapshot_sha256,
+            "runtime_versions": {
+                "python": platform.python_version(),
+                "httpx": importlib.metadata.version("httpx"),
+                "transformers": importlib.metadata.version("transformers"),
+                "tokenizers": importlib.metadata.version("tokenizers"),
+            },
             "max_history_messages": MAX_HIST_MSGS,
             "max_sequence_tokens": MAX_SEQ,
             "kl_coefficient": KL_COEF,
@@ -473,7 +671,25 @@ async def main():
             "counterfactual_grading": True,
             "limit": args.limit,
         },
-    )
+    }
+    payload = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w+b",
+            dir=manifest_path.parent,
+            prefix=f".{manifest_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, manifest_path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     print(f"sealed build receipt: {manifest_path} ({manifest['output_sha256']})")
     vol_dst = f"/opd_2b/{out_dir.name}/records.jsonl"
     print(f"\nNext: modal volume put kaetram-model-vol {rec_path.relative_to(REPO)} "

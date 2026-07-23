@@ -86,6 +86,33 @@ match the reviewed file exactly. The checked-in provenance files are visibly
 marked `unresolved_example`, so the example can be inspected and dry-run but
 cannot launch.
 
+### Zero-cost local endpoint
+
+On Apple silicon, `scripts/local_mlx_endpoint.py` provides the same identity
+contract without Modal or another paid service. It verifies the selected
+snapshot byte-for-byte against
+`provenance/public-hf-snapshots.lock.json`, requires the pinned
+`mlx-lm==0.31.3` runtime, binds both its gateway and MLX-LM backend to
+loopback, and translates the reviewed API model name to MLX-LM's internal
+`default_model` alias. Scientific logs therefore retain `2b-base`,
+`2b-opd-r2`, or `2b-opd-r3`; absolute workstation paths never become model
+identity.
+
+Install the isolated runtime and verify a previously downloaded snapshot:
+
+```bash
+python3.12 -m venv .venv-mlx
+.venv-mlx/bin/pip install -r requirements/local-mlx.lock
+.venv-mlx/bin/python scripts/local_mlx_endpoint.py \
+  --snapshot base_2b --api-model 2b-base \
+  --snapshots-root /path/to/kaetram-model-snapshots \
+  --port 8081 --backend-port 8082 --verify-only
+```
+
+Remove `--verify-only` to serve it at `http://127.0.0.1:8081/v1`. Use distinct
+port pairs for R2 and R3. `/health` reports `status: ok` only after the
+hash-verified model is selected and the private MLX-LM backend is reachable.
+
 A deployable endpoint must return this shape:
 
 ```json

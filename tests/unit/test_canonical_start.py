@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+from types import ModuleType
 from pathlib import Path
 
 import pytest
@@ -39,7 +41,13 @@ def test_seed_uses_exact_historical_canonical_start(monkeypatch) -> None:
             "statistics": {},
         }
 
-    monkeypatch.setattr("bench.seed.seed_player", fake_seed)
+    fake_seed_module = ModuleType("bench.seed")
+    fake_seed_module.STARTER_KIT = [
+        {"index": index, "key": item["key"], "count": item["count"]}
+        for index, item in enumerate(canonical_start.STARTER_INVENTORY)
+    ]
+    fake_seed_module.seed_player = fake_seed
+    monkeypatch.setitem(sys.modules, "bench.seed", fake_seed_module)
     receipt = canonical_start.seed_canonical_player("EvalBot", db_name="eval_db")
 
     assert captured["position"] == (328, 892)

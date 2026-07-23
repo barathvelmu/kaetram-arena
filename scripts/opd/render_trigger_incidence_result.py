@@ -9,6 +9,7 @@ from typing import Any
 
 
 ANALYSIS_SCHEMA = "kaetram.local-trigger-incidence-analysis.v1"
+SEED_AUDIT_SCHEMA = "kaetram.local-trigger-incidence-seed-diversity-audit.v1"
 SNAPSHOT_LABELS = {
     "base_2b": "Base",
     "opd_r2_2b": "Round 2",
@@ -83,10 +84,23 @@ def _index_unique(
     return indexed
 
 
-def _cell_text(cell: dict[str, Any]) -> str:
-    count = cell.get("recovery_opportunities")
-    successful = cell.get("successful_requests")
-    rate = cell.get("opportunity_rate")
+def _cell_text(
+    cell: dict[str, Any],
+    collapsed: dict[str, Any] | None = None,
+) -> str:
+    if collapsed is None:
+        count = cell.get("recovery_opportunities")
+        successful = cell.get("successful_requests")
+        rate = cell.get("opportunity_rate")
+    else:
+        count = collapsed.get("recovery_opportunity_states")
+        successful = collapsed.get("state_outputs")
+        rate = collapsed.get("opportunity_rate")
+        if (
+            collapsed.get("outcome_stable_states") != successful
+            or rate != cell.get("opportunity_rate")
+        ):
+            raise RenderError("collapsed state cell differs from registered rate")
     if (
         not isinstance(count, int)
         or isinstance(count, bool)
@@ -122,7 +136,10 @@ def _effect_text(contrast: dict[str, Any]) -> str:
     return f"{100 * effect:+.1f} pp ({positive}/{negative}/{zero})"
 
 
-def render_tables(summary: dict[str, Any]) -> tuple[str, str]:
+def render_tables(
+    summary: dict[str, Any],
+    seed_audit: dict[str, Any] | None = None,
+) -> tuple[str, str]:
     snapshots = _ordered_snapshots(summary)
     cells = _index_unique(
         summary.get("cells"),
@@ -150,6 +167,24 @@ def render_tables(summary: dict[str, Any]) -> tuple[str, str]:
         raise RenderError("cell identities do not match the registered grid")
     if set(contrasts) != expected_contrast_keys:
         raise RenderError("contrast identities do not match the registered grid")
+    collapsed: dict[tuple[Any, ...], dict[str, Any]] = {}
+    if seed_audit is not None:
+        if (
+            seed_audit.get("schema_version") != SEED_AUDIT_SCHEMA
+            or seed_audit.get("study_id") != summary.get("study_id")
+            or seed_audit.get("groups_with_multiple_semantic_responses") != 0
+            or seed_audit.get("groups_with_identical_semantic_responses")
+            != seed_audit.get("state_condition_groups")
+        ):
+            raise RenderError("seed-diversity audit does not support state collapse")
+        collapsed = _index_unique(
+            seed_audit.get("collapsed_cells"),
+            ("snapshot", "condition_id"),
+            len(expected_cell_keys),
+            "collapsed cell",
+        )
+        if set(collapsed) != expected_cell_keys:
+            raise RenderError("collapsed cell identities do not match the grid")
 
     markdown = [
         "### Recovery-opportunity incidence",
@@ -159,7 +194,10 @@ def render_tables(summary: dict[str, Any]) -> tuple[str, str]:
     ]
     for snapshot in snapshots:
         values = [
-            _cell_text(cells[(snapshot, condition_id)])
+            _cell_text(
+                cells[(snapshot, condition_id)],
+                collapsed.get((snapshot, condition_id)),
+            )
             for condition_id, _label in CONDITION_COLUMNS
         ]
         markdown.append(f"| {SNAPSHOT_LABELS.get(snapshot, snapshot)} | " + " | ".join(values) + " |")
@@ -181,7 +219,12 @@ def render_tables(summary: dict[str, Any]) -> tuple[str, str]:
     markdown.extend(
         [
             "",
-            "Cells report opportunities/successful requests (rate). Contrasts are",
+            (
+                "Cells report opportunity states/state outputs (rate)."
+                if collapsed
+                else "Cells report opportunities/successful requests (rate)."
+            ),
+            "Contrasts are",
             "paired rate differences in percentage points; parenthetical values are",
             "states with positive/negative/zero effects. Descriptive fixed-grid results only.",
             "",
@@ -194,7 +237,19 @@ def render_tables(summary: dict[str, Any]) -> tuple[str, str]:
         "\\centering",
         "\\small",
         "\\caption{Recovery-opportunity incidence on the registered 20-state",
-        "finite grid. Cells show opportunities/successful requests (rate).",
+        (
+            "finite grid. Five nominal request seeds produced identical semantic"
+            if collapsed
+            else "finite grid. Cells show opportunities/successful requests (rate)."
+        ),
+        *(
+            [
+                "responses within every state--condition group, so cells collapse",
+                "duplicates and show opportunity states/state outputs (rate).",
+            ]
+            if collapsed
+            else []
+        ),
         "Contrasts are paired rate differences in percentage points; $+/-/0$",
         "counts the states with positive, negative, or zero effects. Descriptive",
         "fixed-grid results only.}",
@@ -206,7 +261,10 @@ def render_tables(summary: dict[str, Any]) -> tuple[str, str]:
     ]
     for snapshot in snapshots:
         values = [
-            _cell_text(cells[(snapshot, condition_id)]).replace("%", "\\%")
+            _cell_text(
+                cells[(snapshot, condition_id)],
+                collapsed.get((snapshot, condition_id)),
+            ).replace("%", "\\%")
             for condition_id, _label in CONDITION_COLUMNS
         ]
         latex.append(f"{SNAPSHOT_LABELS.get(snapshot, snapshot)} & " + " & ".join(values) + " \\\\")
@@ -242,6 +300,7 @@ def render_tables(summary: dict[str, Any]) -> tuple[str, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--summary", type=Path, required=True)
+    parser.add_argument("--seed-diversity-audit", type=Path)
     parser.add_argument("--markdown-out", type=Path, required=True)
     parser.add_argument("--latex-out", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -250,7 +309,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.markdown_out.exists() or args.latex_out.exists():
         raise RenderError("refusing to overwrite a rendered table")
     summary = _load_summary(args.summary)
-    markdown, latex = render_tables(summary)
+    seed_audit = (
+        json.loads(args.seed_diversity_audit.read_text())
+        if args.seed_diversity_audit is not None
+        else None
+    )
+    markdown, latex = render_tables(summary, seed_audit)
     outputs = (
         (args.markdown_out, markdown),
         (args.latex_out, latex),

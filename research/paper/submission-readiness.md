@@ -77,9 +77,17 @@ the extraction itself is not independently repeatable.
 with 18/18 launcher-valid cells and 1,266 rehashed files. Four cells advanced
 one quest stage, but none of 958 generations was malformed or
 recovery-eligible. The recovery intervention therefore never engaged. This is
-useful negative evidence and a reason to add a cheap trigger-incidence gate
-before any full recovery factorial; it does not satisfy the recovery
-identification gate.
+useful negative evidence, not a recovery effect. The registered follow-up then
+completed 1,200/1,200 local requests with zero failures. On the fixed
+20-state grid, native schema exposure increased content-only recoverable-call
+incidence by 30, 22.5, and 15 percentage points for Base, round 2, and round 3;
+documentation effects were mixed. A second audit found that the five nominal
+request seeds replayed the same semantic output in every state-condition group,
+so the paper collapses duplicates to 20 outputs per cell and makes no
+stochastic-uncertainty claim. The full identity-scrubbed raw bundle is checked
+in and passes producer, independent-outcome, and seed-diversity verification.
+This strengthens the interface audit but still does not satisfy the recovery or
+training-effect identification gates.
 
 Do not frame the paper as the first MCP game agent, embodied learning, continual learning, autonomous skill learning, or world-model learning. Orak already uses MCP across twelve games, and the present system operates on symbolic state and typed actions with procedural walkthroughs.
 

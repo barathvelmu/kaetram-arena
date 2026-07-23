@@ -121,3 +121,35 @@ manifest is
 This supports independent score replay. Because the complete historical
 transcripts remain private, it does not let a reviewer independently repeat the
 raw-to-projection extraction or recover missing launch attestations.
+
+### Public trigger-incidence bundle
+
+`research/artifacts/local-trigger-incidence-v1/` contains the complete
+identity-scrubbed output of the registered local interface grid: frozen rendered
+states, registration, endpoint attestations, all 1,200 raw response rows, the
+sealed analysis, and content indexes. Verify it three ways:
+
+```bash
+python scripts/opd/verify_trigger_incidence_artifact.py \
+  --artifact-dir research/artifacts/local-trigger-incidence-v1
+
+python scripts/opd/audit_trigger_incidence_artifact.py \
+  --artifact-dir research/artifacts/local-trigger-incidence-v1
+
+python scripts/opd/audit_trigger_seed_diversity.py \
+  --artifact-dir research/artifacts/local-trigger-incidence-v1
+```
+
+The producer verifier replays the registered analysis, while the independent
+auditor recomputes message labels, cells, and contrasts without calling the
+producer analyzer. The seed audit records a post-outcome limitation: all five
+nominal request seeds produced the same semantic response within every
+state-condition group. The paper therefore collapses duplicates to 20 state
+outputs per cell. The artifact-index SHA-256 is
+`fe117a98c506be441be12c07e4f467b00751807ee8f473e8026998fa257c1560`.
+
+To verify both checked-in paper evidence bundles in one command:
+
+```bash
+python scripts/verify_public_paper_evidence.py
+```

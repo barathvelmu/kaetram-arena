@@ -59,6 +59,36 @@ def test_render_tables_orders_registered_snapshots_and_reports_counts():
     assert "+12.5 (5/3/12)" in latex
 
 
+def test_render_tables_collapse_identical_seed_replays():
+    summary = _summary()
+    collapsed_cells = []
+    for cell in summary["cells"]:
+        count = cell["recovery_opportunities"]
+        collapsed_cells.append(
+            {
+                "snapshot": cell["snapshot"],
+                "condition_id": cell["condition_id"],
+                "state_outputs": 100,
+                "outcome_stable_states": 100,
+                "recovery_opportunity_states": count,
+                "opportunity_rate": cell["opportunity_rate"],
+            }
+        )
+    seed_audit = {
+        "schema_version": renderer.SEED_AUDIT_SCHEMA,
+        "study_id": summary.get("study_id"),
+        "state_condition_groups": 1200,
+        "groups_with_identical_semantic_responses": 1200,
+        "groups_with_multiple_semantic_responses": 0,
+        "collapsed_cells": collapsed_cells,
+    }
+
+    markdown, latex = renderer.render_tables(summary, seed_audit)
+
+    assert "opportunity states/state outputs" in markdown
+    assert "identical semantic" in latex
+
+
 @pytest.mark.parametrize(
     "mutate, message",
     [

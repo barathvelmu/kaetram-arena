@@ -21,23 +21,22 @@ A Persistent Game-Agent Case Study}
 \maketitle
 
 \begin{abstract}
-On-policy distillation supervises student-visited states, potentially excluding
-persistent states where a teacher has an advantage. We audit this failure mode
-for a 2B agent using 17 tools in a persistent MMORPG. One natural-visitation
-run changes tool use and tempo but not a 12/30 quest score. A later round adds
-rollouts from an intermediate player state and is followed by a reported
-canonical-start score of 15/30. We recover and content-bind nine
-mechanism-arm runs and reproduce every six-hour score from raw records. Across
-four historically intended corpus-and-initialization-matched pairs, uniform
-self-imitation matches or exceeds teacher-graded training in three cells;
-seeded-corpus arms have higher observed scores than natural-only and poor-corpus
-controls. These are one-run
-historical comparisons with incomplete execution provenance, so they locate a
-visitation/corpus hypothesis rather than estimate an effect. We specify the
-replicated study needed to test that hypothesis. A separate preregistered
-18-cell recovery diagnostic completes, but none of 958 generations creates a
-recovery opportunity. The contribution is an audited case, a falsifiable
-protocol, and a failed manipulation check---not an established method effect.
+On-policy distillation only supervises states a student visits, so it may miss
+precisely the states where a teacher is better. We audit this problem for a 2B
+agent using 17 tools in a persistent game. A natural-visitation training round
+changes behavior but leaves the quest score at 12/30; a later round adds
+intermediate-state rollouts and is followed by 15/30. We recover nine later
+mechanism arms and reproduce their six-hour scores from content-bound raw
+records. In four historically intended corpus-matched pairs, uniform
+self-imitation matches or exceeds teacher-graded training three times, while
+seeded corpora outperform natural-only and poor-corpus controls. These one-run
+comparisons motivate a visitation/corpus hypothesis but cannot estimate an
+effect. A preregistered recovery diagnostic yields no eligible defect in 958
+generations. A follow-up fixed-state grid finds recoverable content-only calls
+in 20--60\% of state outputs; native tool-schema exposure raises incidence by
+15--30 percentage points across three checkpoints. Because five nominal seeds
+replay identically, we collapse them. The contribution is an audited case and
+interface diagnosis, not an established training effect.
 \end{abstract}
 
 \section{Introduction}
@@ -96,15 +95,15 @@ This working draft makes three bounded contributions:
   \item We distinguish behavioral imitation from competence in the surviving
   historical record, and recover four intended graded-versus-uniform pairs that
   show no consistent score advantage from teacher-derived token weights.
-  \item We report a preregistered local recovery diagnostic that completes all
-  18 cells yet produces zero eligible defects. This failed manipulation check
-  prevents an otherwise tempting recovery-effect claim and changes the next
-  experiment.
+  \item We report two preregistered local diagnostics. An 18-cell recovery
+  factorial produces no eligible defect. A fixed-state follow-up shows that,
+  under the tested renderer, adding a native tool schema can increase
+  executable calls emitted into text rather than the structured channel.
 \end{enumerate}
 
 Separately, one targeted teacher-forcing probe motivates a copy-prior
-hypothesis at the tool boundary. It does not establish a within-context
-preference reversal and is not a headline contribution.
+hypothesis at the tool boundary (Appendix~\ref{app:copy-prior}). It does not
+establish a within-context preference reversal.
 
 The broader lesson is methodological. Model weights, visited states, and
 runtime affordances are different interventions. A credible agent-training
@@ -456,7 +455,7 @@ the 405 count has not been independently regenerated. It therefore does not show
 that weights learned the format, that the model self-corrected, or that recovery
 generalizes to other defects.
 
-\subsection{Longer local cells expose progress, but not recovery}
+\subsection{A registered interface diagnostic finds dropped executable calls}
 
 The preregistered 30-minute diagnostic completed all 18 Base/R2/R3
 $\times$ recovery off/on cells; 1,266 sealed files rehashed without mismatch.
@@ -466,42 +465,27 @@ or eligible for recovery, and no recovered call occurred. Thus the recovery
 switch never applied its intervention: on/off differences are not recovery
 effects. Three seed blocks over fixed checkpoints also cannot establish
 superiority. Appendix~\ref{app:localpilot} reports this run and the preceding
-five-minute execution pilot. The failed manipulation check rules out spending
-the full factorial budget unchanged; natural trigger incidence must be shown
-first, and controlled defect injection is a separate conditional question.
+five-minute execution pilot.
 
-\section{A Copy-Prior Hypothesis at the Grading Interface}
+We next froze 20 historical decision states and crossed Python-like versus
+canonicalized documentation with omission versus inclusion of the complete
+native tool schema. Base, round 2, and round 3 each completed 400/400 local
+requests with stable checkpoint identity. The five nominal seeds produced the
+same semantic response within every state--condition group, so we collapse
+duplicates to one output: 20 state outputs per cell, with no stochastic-sample
+claim.
 
-Round 1 introduces a malformed parameter-key pattern that is absent in the
-base run. The emitted form places a Boolean value inside the parameter key, so
-the parser silently drops the intended argument. The training records contain
-the correct syntax, and historical notes report that the teacher favors the
-correct delimiter in clean base-policy contexts. After the malformed prefix is
-already present, the same notes report teacher log probability $-0.161$ (about
-85\% probability) for continuing the malformed form, versus $-0.253$ under the
-student. This is a positive teacher-over-student distillation advantage for one
-candidate. The reported correct-form observation uses a different state; without
-both canonical and malformed candidates scored in each matched context, the
-record does not establish a preference reversal.
-
-Thus teacher generation and teacher-forced grading are distinct objects, but the
-historical probe establishes only a candidate failure mode. A teacher that
-generates canonical syntax from a clean history may still assign a locally useful
-distillation signal to continuation of a student's defect after that defect enters
-the context. We call this a \emph{teacher-forcing copy-prior hypothesis}. The
-current record lacks the paired artifact needed to show that the teacher actively
-prefers the malformed candidate.
-
-This hypothesis relates to exposure bias \citep{bengio2015scheduled} and to
-failures of token-level teacher
-agreement on degraded prefixes. CCOPD already conditions a teacher on clean,
-canonical evidence to reduce self-anchored drift in a multi-turn student
-\citep{lin2026ccopd}; that broad clean-context intervention is not novel here.
-The narrower tool-syntax hypothesis gives a testable prediction:
-paired histories differing only in canonical versus malformed prior syntax
-should change teacher log-odds while holding state and candidate continuations
-fixed. Section~\ref{sec:confirmatory} turns that prediction into a multi-state,
-multi-defect experiment.
+Recovery-eligible content-only calls occur in 20--60\% of these outputs. Adding
+the native schema changes their incidence by $+30$, $+22.5$, and $+15$
+percentage points for Base, round 2, and round 3. The corresponding counts of
+states with positive/negative/zero paired effects are 9/0/11, 8/0/12, and
+5/1/14. Canonicalizing the prose documentation has mixed effects: 0, $-7.5$,
+and $+10$ points. Only one of 240 distinct outputs matches the registered
+malformed-syntax detector; the others contain an executable canonical function
+block in text but no structured tool call. Thus model-visible schema exposure
+does not guarantee parser alignment and can increase dropped, recoverable
+actions under this renderer. This is a fixed-grid interface result, not a
+recovery benefit or checkpoint ranking.
 
 \section{Confirmatory Study Design}
 \label{sec:confirmatory}
@@ -624,6 +608,11 @@ does not establish our selector. Matched resets, strong
 OPD baselines, replication, and held-out transfer must decide whether it
 survives.
 
+The local diagnostics add a separate lesson. A model-visible tool schema can
+change whether an executable action arrives through the structured channel or
+as dropped text. Training weights, rendered interface, parser, and recovery
+must therefore be attested as separate interventions.
+
 \label{acl:main-content-end}
 \section*{Limitations}
 
@@ -651,6 +640,10 @@ their outcomes cannot enter the confirmatory estimate. Teacher competence at the
 of trajectories, not estimated precisely.
 The syntax probe covers one defect family and should not be generalized to all
 teacher-forced grading.
+In the trigger-incidence grid, all five nominal request seeds produced the same
+semantic response within each state--condition group. We therefore report 20
+collapsed state outputs per cell and no stochastic sampling uncertainty. The
+states come from one historical run and may be temporally dependent.
 
 \section*{Ethical Considerations}
 
@@ -746,6 +739,35 @@ malformed or recovery-eligible emission. Recovery was therefore not a realized
 treatment in any pair. The table is descriptive across three fixed seed blocks;
 it is not a checkpoint ranking.
 
+\input{../research/results/local-trigger-incidence-v1/paper-table-public.tex}
+
+The follow-up completed all 1,200 scheduled requests with zero failures. A
+byte-identical independent rerun reproduced the sealed summary, cells,
+contrasts, and artifact index. A second auditor recomputed all labels and
+contrasts from the public raw rows. Post-outcome seed-diversity auditing found
+one semantic response in every five-seed state--condition group, so
+Table~\ref{tab:trigger-incidence} reports the 20 distinct state outputs per
+cell. Its percentages and registered paired contrasts are numerically
+unchanged by collapsing duplicates.
+
+\section{A Copy-Prior Hypothesis at the Grading Interface}
+\label{app:copy-prior}
+
+Round 1 introduces a malformed parameter-key pattern that is absent in the
+base run. Historical notes report teacher log probability $-0.161$ for
+continuing one malformed candidate after the defect is already in context,
+versus $-0.253$ under the student. This is a positive teacher-over-student
+distillation advantage for one candidate, not a matched preference reversal:
+the reported correct-form observation uses a different state.
+
+We call the resulting possibility a \emph{teacher-forcing copy-prior
+hypothesis}. A teacher that generates canonical syntax from a clean history may
+still reinforce a student's local defect once that defect enters the grading
+context. The idea relates to exposure bias \citep{bengio2015scheduled}, while
+CCOPD already uses clean canonical evidence to reduce self-anchored drift
+\citep{lin2026ccopd}. A valid test must score canonical and malformed
+continuations in paired histories while holding state and candidates fixed.
+
 \section{Claim-to-Evidence Boundary}
 
 \begin{description}
@@ -772,6 +794,11 @@ claim and cannot enter the confirmatory estimate.
 advanced one stage, but zero of 958 generations was recovery-eligible. The
 recovery manipulation did not engage; on/off differences are not recovery
 effects.
+\item[Trigger incidence.] All 1,200 registered requests completed. After
+collapsing five semantically identical seed replays per state--condition, adding
+the native schema increases content-only recoverable-call incidence by
+15--30 points across the three fixed checkpoints. This is an interface result
+on 20 historical states per cell, not training superiority or recovery benefit.
 \item[Historical bundles.] The recovered external inventories bind the headline
 R10, OPD, and July mechanism agent-run directories, reproduce the R10
 statistics, and regenerate the nine July scores. A checked-in anonymous
@@ -818,6 +845,14 @@ the complete report, receipt, and raw bundles remain local. This establishes
 internal local execution and table generation, not independent reproduction,
 training, or confirmatory evidence.
 
+The trigger-incidence release is stronger: its identity-scrubbed public bundle
+contains all 1,200 raw response rows, the frozen state design, endpoint
+attestations, and sealed analysis. A clean verifier, a separately implemented
+outcome auditor, and a seed-diversity audit reproduce its fixed-grid result.
+The source historical transcripts used to select states remain outside the
+release, and the observed deterministic seed replay reduces each cell to 20
+distinct outputs.
+
 Future local launches fail closed on the effective database, mode, configuration,
 and complete model snapshot. Those protections do not retroactively promote
 older v1 bundles or the completed exploratory factorial. The matched-training
@@ -850,8 +885,6 @@ levels must be set from independent pilot variance or a conservative frozen
 grid. If variance is unknown, use blinded re-estimation with a fixed maximum
 size. Primary tests are two-sided unless direction and stopping are
 preregistered. Report every run and exclusion, raw and standardized primary
-effects, and design-matched uncertainty. Any inferential secondary family needs
-its own prespecified multiplicity rule; otherwise it remains descriptive. Small
-wall-passage counts remain descriptive.
+effects, and design-matched uncertainty.
 
 \end{document}

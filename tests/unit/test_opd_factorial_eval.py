@@ -24,6 +24,7 @@ from scripts.opd.factorial_eval import (
     seal_prelaunch_record,
     validate_cell_bundle,
     validate_completed_inventory,
+    validate_cross_arm_render_parity,
     validate_live_endpoint_attestations,
     require_environment_seed_capability,
     validate_cell_result,
@@ -253,6 +254,31 @@ def test_confirmatory_manifest_requires_canonical_tool_schema(tmp_path: Path):
 
     with pytest.raises(ManifestError, match="tool_schema_source='canonical'"):
         build_plan(_manifest_copy(tmp_path, mutate))
+
+
+@pytest.mark.parametrize(
+    ("field", "match"),
+    [
+        ("tokenizer_sha256", "same model-visible tokenizer"),
+        ("render_contract_sha256", "same model-visible render contract"),
+    ],
+)
+def test_confirmatory_manifest_requires_cross_arm_render_parity(
+    field: str,
+    match: str,
+):
+    models = [
+        {
+            "expected_health": {
+                "tokenizer_sha256": "a" * 64,
+                "render_contract_sha256": "b" * 64,
+            },
+        }
+        for _ in range(3)
+    ]
+    models[-1]["expected_health"][field] = "f" * 64
+    with pytest.raises(ManifestError, match=match):
+        validate_cross_arm_render_parity(models)
 
 
 def test_confirmatory_manifest_rejects_episode_pseudoreplication(tmp_path: Path):

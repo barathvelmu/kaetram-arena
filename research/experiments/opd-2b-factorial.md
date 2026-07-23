@@ -98,6 +98,19 @@ loopback, and translates the reviewed API model name to MLX-LM's internal
 `2b-opd-r2`, or `2b-opd-r3`; absolute workstation paths never become model
 identity.
 
+The launcher does not use each checkpoint's saved tokenizer blindly. It
+assembles an ephemeral, non-mutating runtime view with the selected arm's
+weights and the one revision-locked Base tokenizer for every arm, applies
+`finetune.render.patch_qwen_chat_template`, and explicitly retains Qwen's
+original pre-tokenization regex (`fix_mistral_regex=false`). This avoids a
+Transformers heuristic that can misclassify R2/R3 as Mistral when their saved
+config omits `transformers_version`. Before serving, it renders a registered
+multi-turn tool-history fixture plus adversarial tokenization probes and binds
+their hashes, the effective template hash, tokenizer revision, tool-schema
+hash, and runtime version into `render_contract_sha256`. The confirmatory
+manifest rejects weight arms whose tokenizer or render-contract digests
+differ.
+
 Install the isolated runtime and verify a previously downloaded snapshot:
 
 ```bash

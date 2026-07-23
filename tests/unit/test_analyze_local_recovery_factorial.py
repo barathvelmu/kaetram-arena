@@ -342,10 +342,22 @@ def test_every_completed_cell_requires_a_verified_inventory(
         "scripts.opd.analyze_local_recovery_factorial._verify_artifacts",
         lambda root, digest: verified.append((root, digest)) or 7,
     )
-    digest, count = _verify_completed_cell_artifacts(tmp_path / "invalid-cell", {
+    cell_root = tmp_path / "invalid-cell"
+    cell_root.mkdir()
+    sealed_status = {
         "status": "invalid",
+        "error": "launcher failure",
+    }
+    (cell_root / "cell-status.json").write_text(json.dumps(sealed_status))
+    retained = {
+        **sealed_status,
         "artifact_inventory_sha256": "a" * 64,
-    })
+    }
+    digest, count = _verify_completed_cell_artifacts(cell_root, retained)
     assert digest == "a" * 64
     assert count == 7
-    assert verified == [(tmp_path / "invalid-cell", "a" * 64)]
+    assert verified == [(cell_root, "a" * 64)]
+
+    retained["error"] = "outcome-dependent relabel"
+    with pytest.raises(AnalysisError, match="differs from sealed cell status"):
+        _verify_completed_cell_artifacts(cell_root, retained)

@@ -380,7 +380,17 @@ def _verify_completed_cell_artifacts(
         raise AnalysisError(
             f"{cell_root.name}: completed cell lacks a sealed artifact inventory"
         )
-    return inventory_sha, _verify_artifacts(cell_root, inventory_sha)
+    files_checked = _verify_artifacts(cell_root, inventory_sha)
+    sealed_status = _load_json(cell_root / "cell-status.json")
+    completed_status = {
+        key: value for key, value in retained.items()
+        if key != "artifact_inventory_sha256"
+    }
+    if sealed_status != completed_status:
+        raise AnalysisError(
+            f"{cell_root.name}: completed receipt differs from sealed cell status"
+        )
+    return inventory_sha, files_checked
 
 
 def analyze(root: Path, manifest_path: Path) -> dict:

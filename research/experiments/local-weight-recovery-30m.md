@@ -117,6 +117,9 @@ impossible recovery-error or repeat-recovery totals. Pooled-denominator call
 emission rates are labeled separately from arithmetic means of the three cell
 rates. Every completed cell receipt, including an invalid receipt, must bind a
 successfully rehashed artifact inventory or the complete analysis fails closed.
+The completed-ledger receipt must also exactly match the hashed
+`cell-status.json`, preventing a later ledger edit from relabeling a
+launcher-valid cell as an excluded invalid cell.
 
 At that point only the first cell had sealed. Its artifact inventory and raw
 malformed/recovery counts had been checked, but no quest outcome, recovery-on
@@ -124,10 +127,13 @@ cell, within-weight pair, arm contrast, or complete factorial report had been
 inspected. The schedule, diagnostics, estimands, exclusion rule, and claim
 boundary were not changed.
 
-The recovery-on mate of the first cell sealed at 05:02:20 EDT. The final
+The recovery-on mate of the first cell sealed at 05:02:20 EDT. The first
 auditor-requested provenance patch was committed 29 seconds later, before that
 cell's results or pair difference were inspected and while no complete
-factorial ledger existed. That patch only made sealed inventories mandatory
-for invalid exclusions, bound session receipts to their registered identities,
-and repaired a production-row field-name mismatch; it did not change a
-diagnostic or analysis rule.
+factorial ledger existed. A later code audit—after the two cells' integrity and
+raw-call counts were checked, but before a recovery-on quest outcome, pair
+difference, arm contrast, or complete ledger was inspected—required exact
+agreement between the completed receipt and hashed `cell-status.json`. These
+patches only made exclusions and identities auditable and repaired a
+production-row field-name mismatch; they did not change a diagnostic or
+analysis rule.

@@ -29,14 +29,18 @@ The retained local bundle is
 
 ```bash
 python3 scripts/opd/analyze_local_weight_pilot.py <bundle> \
+  --allow-legacy-v1 \
   --expected-bundle-index-sha256 cf62c370b0e5d133f3049b6aab3c114d4795e5a9ed97dc4f68807ff4f32f1c26
 ```
 
-This binds the analysis to the recorded sealed-ledger root, rehashes every
-inventoried file, validates endpoint/game/seed identities and exact canonical
-projections, inspects terminal chains and raw emissions, recomputes game metrics,
-and regenerates the descriptive summary. The three top-level preflight logs are
-retained but are not members of the sealed per-cell inventories.
+The explicit legacy opt-in is required because this retained bundle predates the
+v2 database and full-snapshot attestations; its report is therefore labeled
+`legacy_v1_unattested`. The analyzer still binds the analysis to the recorded
+sealed-ledger root, rehashes every inventoried file, validates the v1
+endpoint/game/seed identities and exact canonical projections, inspects terminal
+chains and raw emissions, recomputes game metrics, and regenerates the
+descriptive summary. The three top-level preflight logs are retained but are not
+members of the sealed per-cell inventories.
 
 ## Preregistered diagnostics
 

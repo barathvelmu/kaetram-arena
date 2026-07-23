@@ -86,7 +86,13 @@ def test_resolved_prompt_guard_rejects_personality_hint(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "leak",
-    ["Dying-Soldier", "crull field", "lakes world", "lava npc"],
+    [
+        "Dying-Soldier",
+        "crull field",
+        "lakes world",
+        "lava npc",
+        "Ｄｅｓｅｒｔ Ｑｕｅｓｔ",
+    ],
 )
 def test_resolved_prompt_guard_rejects_separator_variants(
     tmp_path: Path, leak: str

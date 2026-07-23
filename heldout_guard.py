@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -27,7 +28,8 @@ class HeldOutGuardError(ValueError):
 
 
 def normalize_quest(value: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", value.casefold())
+    compatible = unicodedata.normalize("NFKC", value)
+    return re.sub(r"[^a-z0-9]", "", compatible.casefold())
 
 
 @dataclass(frozen=True)

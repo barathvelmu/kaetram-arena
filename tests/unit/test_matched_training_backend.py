@@ -381,6 +381,11 @@ def test_heldout_alias_scan_rejects_separator_variants() -> None:
         backend._history_alias_scan(
             record, ["secret-quest-alias"], record_id="record-1"
         )
+    record["history"]["content"] = ["seek Ｄｙｉｎｇ Ｓｏｌｄｉｅｒ"]
+    with pytest.raises(mt.ProtocolError, match="leaks held-out alias"):
+        backend._history_alias_scan(
+            record, ["Dying Soldier"], record_id="record-1"
+        )
 
 
 @pytest.mark.parametrize("bad_label", [-2, 1000])
@@ -475,6 +480,26 @@ def test_array_validation_decodes_normalization_equivalent_token_leak() -> None:
             tokenizer_vocab_size=248077,
             forbidden_token_sequences=[[4737, 517, 14615]],
             tokenizer=tokenizer,
+        )
+    unicode_tokenizer = _FakeTokenizer({
+        (42,): "Ｄｅｓｅｒｔ Ｑｕｅｓｔ",
+    })
+    unicode_supervision = {
+        "input_ids": [42],
+        "labels": [42],
+        "advantages": [1.0],
+        "behavior_logprobs": [-0.1],
+        "step_weight": 1.0,
+    }
+    with pytest.raises(mt.ProtocolError, match="decodes to held-out"):
+        backend._validate_arrays(
+            unicode_supervision,
+            objective="opd",
+            record_id="record-unicode",
+            aliases=["Desert Quest"],
+            tokenizer_vocab_size=248077,
+            forbidden_token_sequences=[[4737, 517, 14615]],
+            tokenizer=unicode_tokenizer,
         )
 
 

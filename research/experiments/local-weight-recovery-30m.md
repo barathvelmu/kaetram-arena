@@ -123,3 +123,11 @@ malformed/recovery counts had been checked, but no quest outcome, recovery-on
 cell, within-weight pair, arm contrast, or complete factorial report had been
 inspected. The schedule, diagnostics, estimands, exclusion rule, and claim
 boundary were not changed.
+
+The recovery-on mate of the first cell sealed at 05:02:20 EDT. The final
+auditor-requested provenance patch was committed 29 seconds later, before that
+cell's results or pair difference were inspected and while no complete
+factorial ledger existed. That patch only made sealed inventories mandatory
+for invalid exclusions, bound session receipts to their registered identities,
+and repaired a production-row field-name mismatch; it did not change a
+diagnostic or analysis rule.

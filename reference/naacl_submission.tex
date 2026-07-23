@@ -7,9 +7,7 @@
 \usepackage{hyperref}
 \usepackage{url}
 
-% INTERNAL FORMAT NOTE (remove before release): built with the current official
-% ACL review template. As of July 19, 2026, NAACL lists the October 12 ARR
-% deadline, but its main-paper CFP remains forthcoming.
+% Review manuscript built with the current official ACL review template.
 
 \title{Auditing a Candidate State-Visitation Bottleneck in On-Policy Distillation:\\
 An Agent Case Study and Confirmatory Protocol}
@@ -19,31 +17,24 @@ An Agent Case Study and Confirmatory Protocol}
 \newcommand{\opd}{\textsc{opd}}
 \newcommand{\core}{\textsc{Core-3}}
 \newcommand{\rkl}{\mathrm{rKL}}
-\newcommand{\todoresult}[1]{\textcolor{red}{#1}}
-
 \begin{document}
 \maketitle
 
 \begin{abstract}
-On-policy distillation supervises student-visited states, yet a long-horizon
-agent may rarely reach persistent states where its teacher has a measurable
-advantage. We audit this failure mode for a Qwen3.5-2B agent using 17 typed tools
-in an open-source MMORPG. In one reported six-hour run per arm,
-the post-distillation run differs in tool use and interaction tempo while
-quest score remains 12/30. A later round adds rollouts from a hand-selected,
-loadable intermediate player state whose legal reachability was not certified.
-Evaluated from a reported canonical start, the resulting policy scores 15/30;
-all three clustered prompt variants pass a wall that none passes earlier. This
-sequence is descriptive, not causal: rounds differ beyond state source and
-historical execution provenance is incomplete. We specify a falsifiable study
-that selects training-only states using frozen visitation, teacher advantage,
-validity, reachability, and recoverability criteria; crosses player state with
-model-visible history; and compares natural OPD, generic resets, successful
-prefixes, and turn-level guidance under matched budgets. A separate nine-cell
-local pilot exercised the registered execution path and produced internally
-hash-checked legacy-v1 artifacts, but no five-minute cell advanced a quest. The
-contribution is an audited case study and bounded protocol, not an established
-method effect.
+On-policy distillation supervises student-visited states, potentially excluding
+persistent states where a teacher has an advantage. We audit this failure mode
+for a 2B agent using 17 tools in a persistent MMORPG. One reported
+natural-visitation run changes tool use and tempo but not a 12/30 quest score. A
+later round augments training with rollouts from a hand-selected intermediate
+player state and is followed by a reported canonical-start score of 15/30; all
+three clustered prompt variants pass a prior wall. This sequence is descriptive:
+rounds differ beyond state source, have one run per arm, and lack complete
+provenance. We specify a matched study that selects training-only states using
+frozen visitation, teacher advantage, validity, reachability, and recoverability;
+crosses player state with model-visible history; and compares targeted states
+with natural visitation, generic resets, successful prefixes, and turn-level
+guidance. The contribution is an audited case study and protocol, not an
+established method effect.
 \end{abstract}
 
 \section{Introduction}
@@ -60,8 +51,9 @@ We examine that bottleneck in a persistent tool-use setting. A
 Qwen/Qwen3.5-2B student \citep{qwen35modelcards2026} plays a tile-based MMORPG
 through a typed action interface. The world
 persists across conversation rollovers, and benchmark progress requires long
-chains of gathering, navigation, dialogue, and quest actions. A scaffolded 4B
-Qwen/Qwen3.5-4B teacher reaches states that the 2B student does not. We apply reverse-KL
+chains of gathering, navigation, dialogue, and quest actions. Historical
+records report a scaffolded Qwen/Qwen3.5-4B teacher run reaching states that the
+2B student run does not. We apply reverse-KL
 on-policy distillation to the student's own emitted tokens. The historical
 comparison contrasts natural student visitation with a mixture that begins some
 rollouts from loadable, walkability-checked intermediate database states; the confirmatory protocol
@@ -74,8 +66,8 @@ experimental units. We therefore separate observations from claims throughout.
 The observed sequence is: base 12/30, natural-visitation round 12/30, and
 state-augmented round 15/30. In the last arm, every prompt variant passes the
 same wall from a canonical-start evaluation world with no intermediate-state
-initialization. This supports the hypothesis that
-training visitation matters, but it does not isolate state seeding from all
+initialization. This motivates testing whether training visitation matters, but
+it does not isolate state seeding from all
 round-to-round changes or estimate population-level uncertainty.
 
 This working draft makes two bounded contributions:
@@ -205,32 +197,27 @@ used in the exploratory round.
 \centering
 \small
 \setlength{\tabcolsep}{4pt}
-\begin{tabular}{c@{\quad$\longrightarrow$\quad}c@{\quad$\longrightarrow$\quad}c}
-\fbox{\parbox{0.25\textwidth}{\centering
-\textbf{Natural OPD}\\
-Canonical start $(\mu_0,q_0)$\\
-Student-induced occupancy}}
+\begin{tabular}{c@{\quad$\Longrightarrow$\quad}c@{\quad$\Longrightarrow$\quad}c}
+\fbox{\parbox{0.19\textwidth}{\centering
+\textbf{Common start}\\
+Checkpoint, teacher,\\
+loss, budgets, seeds}}
 &
-\fbox{\parbox{0.25\textwidth}{\centering
-\textbf{Targeted training}\\
-Certified low-visit $x$\\
-Matched visible history $h$}}
+\fbox{\parbox{0.39\textwidth}{\centering
+\textbf{Parallel training arms}\\
+Natural OPD \quad $\vert$ \quad Targeted $(x,h)$ \quad $\vert$ \quad Controls\\
+\scriptsize generic resets, successful prefixes, turn-level guidance}}
 &
-\fbox{\parbox{0.25\textwidth}{\centering
-\textbf{Evaluation}\\
-Fresh canonical start only\\
-Nested seeded runs}}
-\\[-1pt]
-\multicolumn{1}{c}{\scriptsize common-state teacher grades}
-&
-\multicolumn{1}{c}{\scriptsize same student rollout and teacher loss}
-&
-\multicolumn{1}{c}{\scriptsize no restored training state}
+\fbox{\parbox{0.19\textwidth}{\centering
+\textbf{Common evaluation}\\
+Canonical starts;\\
+nested seeds}}
 \end{tabular}
-\caption{Intervention boundary. Targeted player-state restoration changes
-training occupancy, while the loss and canonical-start evaluation contract stay
-fixed. Model-visible history is crossed explicitly because a database snapshot
-alone is not the policy state.}
+\caption{Causal geometry of the proposed matched study. Training arms run in
+parallel from common initialization; they do not form a sequential curriculum.
+Model-visible history is crossed explicitly because a database snapshot alone
+is not the policy state. The fixed-checkpoint weights-by-recovery factorial is a
+separate diagnostic and cannot estimate this intervention.}
 \label{fig:intervention}
 \end{figure*}
 
@@ -418,17 +405,11 @@ multi-defect experiment.
 \section{Confirmatory Study Design}
 \label{sec:confirmatory}
 
-The repository contains integrated but incomplete fail-closed contracts that
-enumerate the following matched arms. A hash-pinned preparation adapter
-validates and normalizes every arm's immutable record contract. The integrated
-components freeze one fresh LoRA parameterization across the matrix, provide a
-direct-token corrected-interface SFT trainer, and prepare the first stage of the
-SCoRe-style condition. They do not supply verified arm artifacts, a completed SCoRe-style
-second stage, a live Guided-OPD collector and actor-conditioned objective
-backend, or accelerator execution. A separate integrated validator checks the prospective
-Guided-OPD role schedule and complete mixed-history record contract, then
-blocks the legacy trainer. Results are not reported until the remaining
-implementation boundaries, the full protocol, and immutable run bundles exist.
+Every matched-training arm below is prospective. The anonymous preparation
+artifact validates immutable record contracts and common optimization settings,
+but it does not contain verified trained-arm bundles or accelerator outcomes.
+Results will not be reported until every arm, analysis rule, and immutable run
+bundle passes the same fail-closed protocol.
 
 Only the state-source family and player-state-by-history ablation determine the
 primary selector claim. The weights-by-recovery study, supervision-structure
@@ -545,7 +526,9 @@ teacher and student turns \citep{li2026guidedopd}; ReOPD designs reliable prefix
 distributions offline \citep{liao2026reopd}; TRB anneals a teacher-near rollout
 policy inside a student-centered trust region \citep{plyusov2026trb}; and SCoRe
 localizes the first student error before short-horizon training
-\citep{lyu2025score}. SOD and KAT study supervision on degraded prefixes
+\citep{lyu2025score}. TCOD, Guided-OPD, ReOPD, and TRB are concurrent preprints,
+so we treat them as relevant contemporaneous methods rather than refereed
+precedent. SOD and KAT study supervision on degraded prefixes
 \citep{zhong2026sod,xin2026kat}. SOD in particular treats post-tool-error
 high-divergence steps as increasingly unreliable and reweights them; our
 unvalidated hypothesis is narrower, predicting locally wrong-signed candidate
@@ -578,7 +561,7 @@ novel here.
 Game-agent benchmarks already cover long-horizon language and vision agents.
 BALROG emphasizes knowing--doing gaps across games \citep{paglieri2025balrog},
 while Orak uses MCP across twelve games and releases gameplay fine-tuning data
-\citep{park2026orak}. Orak emphasizes breadth through modular evaluation across
+\citep{park2025orak}. Orak emphasizes breadth through modular evaluation across
 genres, agent/input ablations, data quality, generalization, latency, and a
 public artifact. Our intended contribution is narrower depth in one persistent
 game: causal isolation of player state, visible history, weights, and runtime
@@ -608,7 +591,7 @@ result of this submission draft.
 
 \section{Conclusion}
 
-The audited case supports a concrete hypothesis: low-occupancy player states
+The audited case motivates a concrete hypothesis: low-occupancy player states
 may hide useful teacher competence from natural OPD. Natural-visitation OPD
 was followed by behavior differences without a score difference; a later hand-selected state-augmented
 round was followed by reported canonical-start passage of a wall that the earlier
@@ -672,8 +655,8 @@ private-user data are used.
 \section{Training Details}
 \label{app:training}
 
-The settings below are reconstructed from the current implementation and project
-notes committed after the June runs; they are reported settings, not a
+The settings below are reconstructed from the current implementation and notes
+written after the historical runs; they are reported settings, not a
 hash-attested historical training configuration.
 
 The teacher is a scaffolded Qwen/Qwen3.5-4B model and the student begins from
@@ -759,24 +742,24 @@ must point to source runs and transformations. A clean-clone command must verify
 hashes and regenerate every table and figure without network-dependent mutable
 inputs.
 
-The current development artifact does not yet meet this bar. A read-only
-external recovery now contains the headline R10 and OPD run directories and is
-bound to the SHA-256 digest of an external inventory. The checked-in run-digest
-audit independently hashes 60 selected directories totaling 18,812 files, and
-the R10 statistics regenerate from those paths. That recovery is not checked
-into this repository, publicly released, or sufficient to attest the
-historical reset command, full game revision, OPD training inputs, or exact
-render contract.
-From April 25 through PR~\#37's July 22 merge, the dedicated
-\texttt{run-eval.sh} lane on main reset a different database from its game
-servers (a fixed branch existed from July 18). The headline R10 and June OPD
-values used a separate 9001/9011/9021 orchestrator and are not implicated by
-that specific mismatch; the first model-visible state in all 36 recovered
-headline agent-runs matches the canonical level-1 start. Full dependency installation has
+The current development artifact does not yet meet this bar. An internal
+read-only recovery contains the headline R10 and OPD run directories and is
+bound to the SHA-256 digest of an external inventory. An independent digest
+audit hashes 60 selected directories totaling 18,812 files, and the R10
+statistics regenerate from those paths. That recovery is not included in the
+anonymous reviewer artifact and is insufficient to attest the historical reset
+command, full game revision, OPD training inputs, or exact render contract.
+An audit also found that one historical evaluation lane reset a different
+database from its game servers. We quarantine results from that lane unless
+their executed revision and clean start are attested. The headline R10 and OPD
+values came from a separate database-aligned orchestrator and are therefore not
+directly implicated by that specific mismatch; the first model-visible state in
+all 36 recovered headline agent-runs matches the canonical level-1 start, but
+the exact reset command and server revision remain unattested. Full dependency installation has
 now been demonstrated for the prospective CPU unit suite in a fresh clone, but
 not for training or paper-table regeneration. A separate local pilot has now
 executed nine matched hash-identified public-weight cells against a recorded
-game-fork commit, using one common Base tokenizer and patched render contract,
+game revision, using one common Base tokenizer and patched render contract,
 registered inference/environment seeds, exact canonical-start projections, and
 261 rehashed files in sealed per-cell inventories. This records prospective
 local game/model execution, not training, the

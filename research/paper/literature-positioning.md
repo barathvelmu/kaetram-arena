@@ -1,4 +1,4 @@
-# Literature positioning — verified July 19, 2026
+# Literature positioning — verified July 23, 2026
 
 ## Candidate contribution boundary
 
@@ -13,6 +13,7 @@ Do not use “to our knowledge” novelty language until the matched comparisons
 ## Closest on-policy distillation work
 
 - **GKD / On-Policy Distillation of Language Models** establishes student-generated rollouts with teacher feedback and was published at ICLR 2024. It preempts broad OPD novelty. [ICLR paper](https://proceedings.iclr.cc/paper_files/paper/2024/hash/5be69a584901a26c521c2b51e40a4c20-Abstract-Conference.html)
+- **Structured Agent Distillation (SAD)** separates reasoning and action spans and applies component-specific supervision, with ablations over segmentation and loss structure. It preempts novelty for structured/action-aware agent distillation and motivates a supervision-structure comparator that must be kept separate from the proposed state-source intervention. [arXiv:2505.13820](https://arxiv.org/abs/2505.13820)
 - **On-Policy Context Distillation** studies context-conditioned teachers, including system-prompt distillation and text-based games. [arXiv:2602.12275](https://arxiv.org/abs/2602.12275)
 - **Privileged Information Distillation** uses privileged context to teach multi-turn/action behavior without ordinary cross-vocabulary SFT. [arXiv:2602.04942](https://arxiv.org/abs/2602.04942)
 - **Canonical-Context OPD (CCOPD)** conditions a frozen teacher on a clean full presentation while the student acts on its own raw multi-turn history, directly preempting broad clean-context or self-anchored-drift novelty. [arXiv:2605.30251](https://arxiv.org/abs/2605.30251)
@@ -22,11 +23,13 @@ Do not use “to our knowledge” novelty language until the matched comparisons
 - **SCoRe** identifies a student's earliest error and starts short-horizon reinforcement learning from the verified pre-error prefix. It preempts broad student-failure-localization claims. [arXiv:2509.14257](https://arxiv.org/abs/2509.14257)
 - **On-policy Expert Corrections** switches from a student prefix to an expert suffix and is a strong partially on-policy imitation baseline. [arXiv:2512.14895](https://arxiv.org/abs/2512.14895)
 - **Step-wise OPD for Small Language Model Agents (SOD)** directly studies cascading tool errors, worsening teacher reliability after state drift, and divergence-weighted supervision. The present hypothesis is narrower only if a matched probe shows actively wrong-signed candidate preference. [arXiv:2605.07725](https://arxiv.org/abs/2605.07725)
+- **Trust Region On-Policy Distillation (TrOPD)** partitions student tokens by teacher-verifiable agreement, changes the divergence treatment for outliers, and adds teacher-prefix guidance. It is another reason not to claim novelty for identifying unreliable high-divergence supervision. [arXiv:2606.01249](https://arxiv.org/abs/2606.01249)
 - **Trust-Region Behavior Blending (TRB)** changes early occupancy through a teacher-near behavior policy inside an annealed student-centered KL region while keeping the OPD loss unchanged. It is a primary occupancy baseline candidate. [arXiv:2605.31159](https://arxiv.org/abs/2605.31159)
 - **Unmasking On-Policy Distillation** supplies per-token/per-context diagnostics and shows that the useful teacher context depends on task and capacity. It is the strongest precedent for the probe framing. [arXiv:2605.10889](https://arxiv.org/abs/2605.10889)
 - **SERL / Selective Hindsight Distillation** studies which environmental feedback sources and insertion points help multi-turn agents. It belongs in related work but is not a mandatory state-reset baseline. [arXiv:2605.19447](https://arxiv.org/abs/2605.19447)
 - **Post-Training Is About States, Not Tokens** formalizes the state-distribution view that directly motivates the visitation argument. [arXiv:2605.22731](https://arxiv.org/abs/2605.22731)
 - **KAT** identifies low-KL agreement on degraded prefixes and terminates weak supervision. The present copy-prior result is sharper only if it demonstrates wrong-signed endorsement rather than merely absent signal. [arXiv:2606.09471](https://arxiv.org/abs/2606.09471)
+- **Fission-GRPO** converts execution errors into on-policy corrective training instances and evaluates learned multi-turn recovery. The present recovery factorial instead rewrites or retries emissions in the harness for fixed checkpoints; it cannot be described as model self-correction or learned recovery. [ACL Anthology](https://aclanthology.org/2026.acl-long.1880/)
 - **Rethinking On-Policy Distillation** argues that the teacher must expose genuinely new capabilities and analyzes compatibility between teacher and student behavior. [arXiv:2604.13016](https://arxiv.org/abs/2604.13016)
 - **Self-Distillation Enables Continual Learning**, an ICML 2026 Spotlight, evaluates sequential skill accumulation and retention. It is a reason not to label the current same-task rounds “continual learning.” [OpenReview](https://openreview.net/forum?id=HlWA3V6iKF&noteId=DVexpZo7mv)
 

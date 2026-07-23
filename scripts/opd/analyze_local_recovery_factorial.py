@@ -1240,6 +1240,89 @@ def _load_validated_envelope(
     )
 
 
+def verify_sealed_bundle_integrity(
+    root: Path,
+    manifest_path: Path,
+    *,
+    allow_legacy_v1: bool = False,
+    analysis_code_provenance: dict | None = None,
+) -> dict:
+    """Rehash the sealed bundle without parsing result-bearing artifacts."""
+    manifest, manifest_sha256 = load_manifest(manifest_path)
+    if manifest.get("schema_version") != RECOVERY_FACTORIAL_SCHEMA_VERSION:
+        raise AnalysisError("manifest is not the reviewed recovery factorial")
+    prelaunch_sha256_before = _file_sha256(root / "prelaunch.json")
+    completed_sha256_before = _file_sha256(root / "completed-inventory.json")
+    (
+        _prelaunch_path,
+        _completed_path,
+        _prelaunch,
+        _completed,
+        preflight,
+        _completed_cells,
+        completed_by_id,
+        valid_receipts,
+        invalid_receipts,
+    ) = _load_validated_envelope(
+        root,
+        manifest,
+        manifest_sha256,
+        allow_legacy_v1=allow_legacy_v1,
+    )
+
+    files_checked = 0
+    for cell in manifest["cells"]:
+        cell_id = cell["cell_id"]
+        retained = completed_by_id[cell_id]
+        if (
+            retained.get("snapshot") != cell["snapshot"]
+            or retained.get("schedule_index") != cell["schedule_index"]
+            or retained.get("recovery_assignment") is not cell["recovery"]
+        ):
+            raise AnalysisError(f"{cell_id}: cell receipt identity mismatch")
+        _inventory_sha, rehashed = _verify_completed_cell_artifacts(
+            root / cell_id,
+            retained,
+        )
+        files_checked += rehashed
+
+    _reverify_analysis_inputs(
+        root=root,
+        completed_by_id=completed_by_id,
+        expected_prelaunch_sha256=prelaunch_sha256_before,
+        expected_completed_sha256=completed_sha256_before,
+        expected_files_checked=files_checked,
+    )
+    code = analysis_code_provenance or _analysis_code_provenance()
+    index_record = {
+        "prelaunch_sha256": prelaunch_sha256_before,
+        "completed_inventory_sha256": completed_sha256_before,
+        "cell_artifact_inventory_sha256": {
+            cell_id: completed_by_id[cell_id]["artifact_inventory_sha256"]
+            for cell_id in sorted(completed_by_id)
+        },
+    }
+    return {
+        "schema_version": (
+            "kaetram.local-weight-recovery-factorial-integrity-check.v1"
+        ),
+        "integrity_status": "verified",
+        "outcome_values_parsed": False,
+        "pilot_id": manifest["pilot_id"],
+        "claim_boundary": manifest["claim_boundary"],
+        "manifest_sha256": manifest_sha256,
+        "provenance_tier": preflight["provenance_tier"],
+        "analysis_code_provenance": code,
+        "bundle_index": index_record,
+        "bundle_index_sha256": sha256_json(index_record),
+        "registered_cells": len(manifest["cells"]),
+        "launcher_valid_cells": valid_receipts,
+        "launcher_invalid_cells": invalid_receipts,
+        "all_registered_cells_launcher_valid": invalid_receipts == 0,
+        "files_rehashed": files_checked,
+    }
+
+
 def analyze(
     root: Path,
     manifest_path: Path,
@@ -1630,7 +1713,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        required=True,
         help=(
             "Create-only directory for the sealed JSON, CSV, Markdown, and "
             "LaTeX analysis artifacts; it must be outside the run root."
@@ -1638,10 +1720,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--confirm-unblind",
-        required=True,
         help=(
             "Must exactly equal the registered pilot_id. The analyzer records "
             "a create-only intent before opening result-bearing artifacts."
+        ),
+    )
+    parser.add_argument(
+        "--integrity-only",
+        action="store_true",
+        help=(
+            "Validate ledgers and rehash every sealed artifact without parsing "
+            "result-bearing files or creating an unblind intent."
         ),
     )
     parser.add_argument(
@@ -1663,10 +1752,29 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root = args.root.resolve()
         manifest_path = args.manifest.resolve()
-        output_dir = args.output_dir.resolve()
         manifest, manifest_sha256 = load_manifest(manifest_path)
         if manifest.get("schema_version") != RECOVERY_FACTORIAL_SCHEMA_VERSION:
             raise AnalysisError("manifest is not the reviewed recovery factorial")
+        if args.integrity_only:
+            if args.resume_unblind_intent:
+                raise AnalysisError(
+                    "--integrity-only cannot resume an unblind transaction"
+                )
+            report = verify_sealed_bundle_integrity(
+                root,
+                manifest_path,
+                allow_legacy_v1=args.allow_legacy_v1,
+            )
+            expected = args.expected_bundle_index_sha256
+            if expected is not None and report["bundle_index_sha256"] != expected:
+                raise AnalysisError("bundle-index digest differs from expected root")
+            print(json.dumps(report, indent=2, sort_keys=True))
+            return 0
+        if args.output_dir is None or args.confirm_unblind is None:
+            raise AnalysisError(
+                "unblinding requires both --output-dir and --confirm-unblind"
+            )
+        output_dir = args.output_dir.resolve()
         if args.confirm_unblind != manifest["pilot_id"]:
             raise AnalysisError(
                 "--confirm-unblind must exactly equal the registered pilot_id"

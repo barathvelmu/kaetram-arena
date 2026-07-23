@@ -23,6 +23,8 @@ from scripts.opd.analyze_local_recovery_factorial import (
     _verify_completed_cell_artifacts,
     _validate_recovery_receipts,
     _validate_recovery_accounting,
+    main,
+    verify_sealed_bundle_integrity,
 )
 from run_manifest import sha256_json
 
@@ -372,6 +374,119 @@ def test_every_completed_cell_requires_a_verified_inventory(
     retained["error"] = "outcome-dependent relabel"
     with pytest.raises(AnalysisError, match="differs from sealed cell status"):
         _verify_completed_cell_artifacts(cell_root, retained)
+
+
+def test_integrity_check_rehashes_without_opening_outcomes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    cells = [
+        {
+            "cell_id": f"cell-{index}",
+            "snapshot": "base_2b",
+            "schedule_index": index,
+            "recovery": bool(index % 2),
+        }
+        for index in range(18)
+    ]
+    manifest = {
+        "schema_version": "kaetram.local-weight-recovery-factorial.v1",
+        "pilot_id": "local-weights-recovery-30m-v1",
+        "claim_boundary": {"confirmatory": False},
+        "cells": cells,
+    }
+    completed_by_id = {
+        cell["cell_id"]: {
+            "cell_id": cell["cell_id"],
+            "snapshot": cell["snapshot"],
+            "schedule_index": cell["schedule_index"],
+            "recovery_assignment": cell["recovery"],
+            "artifact_inventory_sha256": f"{index:064x}",
+        }
+        for index, cell in enumerate(cells)
+    }
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial.load_manifest",
+        lambda _: (manifest, "a" * 64),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._file_sha256",
+        lambda path: "b" * 64 if path.name == "prelaunch.json" else "c" * 64,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._load_validated_envelope",
+        lambda *args, **kwargs: (
+            tmp_path / "prelaunch.json",
+            tmp_path / "completed-inventory.json",
+            {},
+            {},
+            {"provenance_tier": "legacy_v1_unattested"},
+            list(completed_by_id.values()),
+            completed_by_id,
+            18,
+            0,
+        ),
+    )
+    rehashed = []
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._verify_completed_cell_artifacts",
+        lambda root, retained: (
+            rehashed.append(root.name) or retained["artifact_inventory_sha256"],
+            2,
+        ),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._reverify_analysis_inputs",
+        lambda **kwargs: None,
+    )
+    provenance = {
+        "source_git_commit": "d" * 40,
+        "inventory_sha256": "e" * 64,
+    }
+
+    report = verify_sealed_bundle_integrity(
+        tmp_path,
+        tmp_path / "manifest.json",
+        allow_legacy_v1=True,
+        analysis_code_provenance=provenance,
+    )
+
+    assert report["integrity_status"] == "verified"
+    assert report["outcome_values_parsed"] is False
+    assert report["all_registered_cells_launcher_valid"] is True
+    assert report["files_rehashed"] == 36
+    assert rehashed == [cell["cell_id"] for cell in cells]
+    assert "rows" not in report
+    assert "by_arm" not in report
+
+
+def test_integrity_only_cli_does_not_require_unblind_arguments(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    report = {
+        "integrity_status": "verified",
+        "bundle_index_sha256": "b" * 64,
+    }
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial.load_manifest",
+        lambda _: ({
+            "schema_version": "kaetram.local-weight-recovery-factorial.v1",
+        }, "a" * 64),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial.verify_sealed_bundle_integrity",
+        lambda *args, **kwargs: report,
+    )
+
+    assert main([
+        str(tmp_path),
+        "--manifest",
+        str(tmp_path / "manifest.json"),
+        "--integrity-only",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out) == report
 
 
 def _complete_rows() -> list[dict]:

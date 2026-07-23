@@ -119,9 +119,46 @@ For schema-only review when the artifact bundle is intentionally unavailable:
 python3 scripts/run_manifest.py validate run.manifest.json --structure-only
 ```
 
+## 4. Fetch the public model snapshots
+
+The immutable Hub lock at
+`research/experiments/provenance/public-hf-snapshots.lock.json` records exact
+revisions and every file identity for Base 2B, OPD R1/R2/R3, and the 4B
+teacher. Large Git-LFS objects use their content SHA-256; ordinary Git files
+use the canonical blob SHA-1 over `blob <size>\0<content>`.
+
+Download only the models needed for a local pilot:
+
+```bash
+python3 scripts/fetch_hf_snapshot.py \
+  --dest /external/model-snapshots \
+  --snapshot base_2b opd_r2_2b opd_r3_2b \
+  --receipt /external/model-snapshots/receipt.json
+```
+
+The downloader pins every URL to the locked commit, resumes partial transfers,
+and verifies size plus content identity before publishing a file into the
+snapshot directory. Existing files that fail verification are never silently
+overwritten. Recheck an already downloaded snapshot without network access:
+
+```bash
+python3 scripts/fetch_hf_snapshot.py \
+  --dest /external/model-snapshots \
+  --snapshot base_2b opd_r2_2b opd_r3_2b \
+  --verify-only
+```
+
+Regenerating the lock contacts only public Hugging Face metadata endpoints and
+does not download weights:
+
+```bash
+python3 scripts/build_hf_snapshot_lock.py
+```
+
 ## Current boundary
 
 This first version seals completed runs and makes verification fail closed. It
-does not yet upload bundles, query Modal for checkpoint digests, or automatically
-finalize manifests when `orchestrate.py` exits. Those integrations should call
-the pure builder rather than inventing a second schema.
+does not yet upload bundles or automatically finalize manifests when
+`orchestrate.py` exits. Public Hub snapshots are now pinned independently; the
+historical private training environment and exact run-time model server remain
+separate provenance gaps.

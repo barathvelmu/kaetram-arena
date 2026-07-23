@@ -36,7 +36,7 @@ Official sources:
 
 ## Working paper
 
-**Working title:** *State-Visitation Failures in On-Policy Distillation: An Audited Agent Case Study and Confirmatory Protocol*
+**Working title:** *Auditing a Candidate State-Visitation Bottleneck in On-Policy Distillation: An Agent Case Study and Confirmatory Protocol*
 
 **Core question:** When a small agent never visits the states where its teacher is more capable, can changing the training-state distribution—without changing the reverse-KL objective—transfer long-horizon competence?
 

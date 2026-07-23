@@ -11,8 +11,8 @@
 % ACL review template. As of July 19, 2026, NAACL lists the October 12 ARR
 % deadline, but its main-paper CFP remains forthcoming.
 
-\title{State-Visitation Failures in On-Policy Distillation:\\
-An Audited Agent Case Study and Confirmatory Protocol}
+\title{Auditing a Candidate State-Visitation Bottleneck in On-Policy Distillation:\\
+An Agent Case Study and Confirmatory Protocol}
 
 \author{Anonymous submission}
 
@@ -25,26 +25,25 @@ An Audited Agent Case Study and Confirmatory Protocol}
 \maketitle
 
 \begin{abstract}
-On-policy distillation supervises states visited by the student, yet a
-long-horizon agent may rarely reach persistent states where its teacher has a
-measurable conditional advantage. We audit this failure mode for a
-Qwen3.5-2B agent acting through 17 typed tools in an open-source MMORPG. In one
-reported six-hour run per arm, natural-visitation distillation changes tool use
-and interaction tempo but leaves quest score at 12/30. A later round adds
-student rollouts from a hand-selected, loadable intermediate player state whose
-legal reachability was not certified. Evaluated from a reported canonical
-start, without intermediate-state initialization, the resulting policy scores
-15/30 and all three clustered prompt variants pass a wall that none passes in
-the earlier runs. This sequence is descriptive, not a causal estimate: training
-rounds differ in more than state source, and exact historical execution
-provenance is incomplete. We therefore specify a falsifiable study that selects
-training-only states using frozen visitation, teacher-advantage, validity,
-reachability, and recoverability criteria; crosses player state with
+On-policy distillation supervises student-visited states, yet a long-horizon
+agent may rarely reach persistent states where its teacher has a measurable
+advantage. We audit this failure mode for a Qwen3.5-2B agent using 17 typed tools
+in an open-source MMORPG. In one reported six-hour run per arm,
+the post-distillation run differs in tool use and interaction tempo while
+quest score remains 12/30. A later round adds rollouts from a hand-selected,
+loadable intermediate player state whose legal reachability was not certified.
+Evaluated from a reported canonical start, the resulting policy scores 15/30;
+all three clustered prompt variants pass a wall that none passes earlier. This
+sequence is descriptive, not causal: rounds differ beyond state source and
+historical execution provenance is incomplete. We specify a falsifiable study
+that selects training-only states using frozen visitation, teacher advantage,
+validity, reachability, and recoverability criteria; crosses player state with
 model-visible history; and compares natural OPD, generic resets, successful
 prefixes, and turn-level guidance under matched budgets. A separate nine-cell
-local pilot validates the prospective execution path, but none of its
-five-minute cells advances a quest. The contribution is an audited case study
-and bounded protocol, not an established method effect.
+local pilot exercised the registered execution path and produced internally
+hash-checked legacy-v1 artifacts, but no five-minute cell advanced a quest. The
+contribution is an audited case study and bounded protocol, not an established
+method effect.
 \end{abstract}
 
 \section{Introduction}
@@ -79,7 +78,7 @@ initialization. This supports the hypothesis that
 training visitation matters, but it does not isolate state seeding from all
 round-to-round changes or estimate population-level uncertainty.
 
-This working draft makes three bounded contributions:
+This working draft makes two bounded contributions:
 
 \begin{enumerate}
   \item We audit a state-visitation failure case and separate observations that
@@ -87,15 +86,13 @@ This working draft makes three bounded contributions:
   confirmatory protocol with controls capable of falsifying the proposed
   player-state intervention.
   \item We distinguish behavioral imitation from competence in the surviving
-  historical record: the first round
-  closely changes measured tool mix and tempo toward the teacher while the
-  benchmark score remains fixed.
-  \item We document an interface diagnostic that token-average analyses obscure:
-  in one targeted teacher-forcing probe, a malformed continuation reportedly has
-  positive teacher-over-student distillation advantage. This secondary diagnostic
-  does not yet establish a within-context preference reversal and is separated from a runtime
-  recovery result and from any general mechanism claim.
+  historical record: the reported post-distillation run moves measured tool mix
+  and tempo toward the teacher while the benchmark score remains fixed.
 \end{enumerate}
+
+Separately, one targeted teacher-forcing probe motivates a copy-prior
+hypothesis at the tool boundary. It does not establish a within-context
+preference reversal and is not a headline contribution.
 
 The broader lesson is methodological. Model weights, visited states, and
 runtime affordances are different interventions. A credible agent-training
@@ -317,39 +314,14 @@ format analyses; rewritten history is not an authoritative defect counter.
 natural-visitation round}
 
 Round 1 leaves \core{} unchanged at 12/30 and every agent reaches the same 4/10
-stage profile as base. Nevertheless, several behavioral measurements move
-toward the 4B teacher (Table~\ref{tab:behavior}). Rounded to one decimal place,
-the average number of turns per session equals the teacher value; observation
-and navigation shares approach
-the teacher, and query frequency overshoots it. The result is consistent with
-mode-seeking behavioral imitation and with the hypothesis that agreement on
-frequently visited states can be insufficient for this quest wall.
-
-\begin{table}[t]
-\caption{Behavior changes in the first OPD round. Percentages are shares of
-tool calls in one run per policy; they are diagnostics, not independent trials.}
-\label{tab:behavior}
-\centering
-\small
-\begin{tabular}{lrrr}
-\toprule
-Measure & Base & Round 1 & Teacher \\
-\midrule
-Turns per session & 9.1 & 6.1 & 6.1 \\
-Observe share & 26.6\% & 35.5\% & 36.1\% \\
-Navigate share & 14.3\% & 9.4\% & 9.1\% \\
-Attack share & 17.9\% & 6.6\% & 9.1\% \\
-Query-quest share & 5.3\% & 18.0\% & 8.7\% \\
-Chars./turn & 411 & 1,248 & 864 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Development logs also contain per-verb reverse-KL diagnostics, but the surviving
-summary lacks matched-state opportunities and uncertainty. We therefore make no
-quantitative KL--behavior correspondence claim from those values. The aggregate
-tool mix is descriptive and does not establish that a specific token update
-caused downstream quest behavior.
+stage profile as base. Nevertheless, turns per session and several aggregate
+tool shares move toward the 4B teacher: turns/session are
+9.1/6.1/6.1 for base/round~1/teacher, observe shares are
+26.6/35.5/36.1\%, and navigate shares are 14.3/9.4/9.1\%. Query-quest share
+instead overshoots (5.3/18.0/8.7\%). These one-run diagnostics are consistent
+with behavioral imitation on frequently visited states, but they lack
+matched-state opportunities and uncertainty. We therefore make no quantitative
+KL--behavior correspondence or token-level causal claim.
 
 \subsection{The seeded-training round is followed by canonical-start wall passage}
 
@@ -401,38 +373,14 @@ generalizes to other defects.
 \subsection{Prospective pilot executes all cells, not the task}
 
 All nine preregistered local cells completed with exact canonical-start
-projections and seed-bound environment-RNG receipts. Across 106 raw endpoint
-generations, 42 emitted one structured call and 64 emitted none
-(Table~\ref{tab:localpilot}). Every emitted call had a canonical tool name and
-JSON-object arguments; the retained stderr logs contain no logged
-\texttt{API error:} line,
-and every final session records duration exhaustion. Rehashing the 261 files in
-the sealed per-cell inventories found no mismatch. Mean structured calls per observed minute were
-0.968 for Base, 0.736 for round 2, and 0.872 for round 3. The per-cell counts
-overlap substantially, and with only three short cells per snapshot we perform
-no superiority test. No cell advanced a quest or a \core{} stage. Thus the
-pilot provides a narrow operational observation: the matched local
-stack executed the registered paired cells and retained internally hash-checked
-evidence; five minutes is too short to support an informative task-level estimate.
-
-\begin{table}[t]
-\caption{Preregistered local feasibility pilot. Each snapshot has three paired,
-five-minute cells. Calls/min uses observed wall time, including the final
-in-flight generation. No-call counts include thinking-only generations. These
-are descriptive diagnostics, not policy-effect estimates.}
-\label{tab:localpilot}
-\centering
-\small
-\begin{tabular}{lccc}
-\toprule
-Weights & Calls/cell & Calls/min & No-call sum \\
-\midrule
-Base & 5, 6, 5 & 0.968 & 21 \\
-Round 2 & 1, 5, 6 & 0.736 & 22 \\
-Round 3 & 5, 4, 5 & 0.872 & 21 \\
-\bottomrule
-\end{tabular}
-\end{table}
+projections and seed-bound environment-RNG receipts. Rehashing the 261 files in
+their sealed inventories found no mismatch. Across 106 raw generations, 42
+emitted a canonical structured call and 64 emitted none, but no cell advanced a
+quest or a \core{} stage. The complete throughput diagnostics appear in
+Appendix~\ref{app:localpilot}. The retained bundle predates the v2 database and
+full-snapshot attestations and is explicitly labeled
+\texttt{legacy\_v1\_unattested}. This is execution evidence only; five minutes
+is too short for a task-level or policy-quality estimate.
 
 \section{A Teacher-Forcing Failure at the Interface}
 
@@ -470,17 +418,22 @@ multi-defect experiment.
 \section{Confirmatory Study Design}
 \label{sec:confirmatory}
 
-The repository contains a draft fail-closed launcher contract that enumerates
-the following matched arms. A hash-pinned preparation adapter validates and
-normalizes every arm's immutable record contract. Stacked drafts additionally
-freeze one fresh LoRA parameterization across the matrix, provide a direct-token
-corrected-interface SFT trainer, and prepare the first stage of the SCoRe-style
-condition. They do not supply verified arm artifacts, a completed SCoRe-style
+The repository contains integrated but incomplete fail-closed contracts that
+enumerate the following matched arms. A hash-pinned preparation adapter
+validates and normalizes every arm's immutable record contract. The integrated
+components freeze one fresh LoRA parameterization across the matrix, provide a
+direct-token corrected-interface SFT trainer, and prepare the first stage of the
+SCoRe-style condition. They do not supply verified arm artifacts, a completed SCoRe-style
 second stage, a live Guided-OPD collector and actor-conditioned objective
-backend, or accelerator execution. One stacked draft validates the prospective
+backend, or accelerator execution. A separate integrated validator checks the prospective
 Guided-OPD role schedule and complete mixed-history record contract, then
 blocks the legacy trainer. Results are not reported until the remaining
 implementation boundaries, the full protocol, and immutable run bundles exist.
+
+Only the state-source family and player-state-by-history ablation determine the
+primary selector claim. The weights-by-recovery study, supervision-structure
+comparison, and copy-prior probe are separately reported secondary modules; they
+cannot rescue a failed primary contrast or inflate its arm family.
 
 \paragraph{Primary endpoint and unit.}
 The method estimand is over independently initialized training
@@ -496,7 +449,7 @@ and nested evaluation replication. All runs, confidence intervals, effect
 sizes, exclusions, and stopping rules must be reported.
 
 \paragraph{State-source ablation.}
-The six implemented primary training contracts are natural OPD, targeted persistent player states,
+The six specified primary training contracts are natural OPD, targeted persistent player states,
 random-valid player states, progress-matched player states, TCOD-B2F
 teacher-success prefixes, and Guided-OPD. Four prespecified mechanism/baseline
 arms---visitation-only selection, teacher-advantage-only selection,
@@ -510,6 +463,15 @@ teacher-near behavior policy while retaining OPD; it is not yet implemented in
 the launcher. The method claim fails if random or progress-matched resets,
 TCOD-B2F, Guided-OPD, or TRB ties the targeted arm within the preregistered
 smallest effect of interest.
+
+Supervision structure is a separate axis. Structured Agent Distillation (SAD)
+uses distinct reasoning- and action-span objectives rather than the historical
+action-only head \citep{liu2026sad}. Before any method-outcome analysis, the
+study must add and freeze a separately reported natural-visitation comparator
+that holds trajectories and state source fixed while varying action-only versus
+SAD-style structured supervision. This arm is not yet registered or
+implemented; it will not be counted as another state-source arm or conflated
+with corrected-interface SFT.
 
 \paragraph{Player-state by history ablation.}
 For the same certified player state, compare (i) a direct snapshot with the
@@ -536,15 +498,26 @@ three-stage minimum relevant paired difference and paired-difference standard
 deviation at most three; it is not an empirical variance estimate. The separate
 registered 18-cell local run is exploratory and cannot replace this design; no
 outcome enters the paper until its complete bundle passes the fail-closed audit.
+Reporting separates six objects: raw malformed emissions, emissions eligible
+for correction, harness rewrites or retries, parser-accepted calls,
+environment-executed calls, and state-changing calls. Harness recovery for a
+fixed checkpoint is therefore not labeled model self-correction or a learned
+recovery policy. The running exploratory analysis retains its frozen
+diagnostics; any additional trace analysis is explicitly post hoc.
 
 \paragraph{Generalization.}
-Hold out at least one quest from candidate discovery, state selection, and
-training, then compare full-walkthrough against no-walkthrough prompts. Report
-the probability of reaching the bottleneck, crossing it conditional on arrival,
-and finishing downstream. A second environment or model family is needed for
-any broad claim. Corrected-interface SFT and a SCoRe-style first-error-prefix
-condition are additional baselines under matched interaction and teacher-
-scoring budgets \citep{lyu2025score}.
+One quest is now frozen in an evaluation-only v2 registration that supersedes
+the original task-choice record before any held-out-quest outcome was inspected. The registration
+hash-binds all aliases, resolved-prompt leakage markers, the Base tokenizer
+snapshot, and text/token exclusions that every prospective registered training
+contract must enforce. No verified trained arm bundle yet exists. The
+no-walkthrough prompt omits game knowledge and is checked after all personality
+blocks are resolved. We will report reaching the bottleneck, crossing it
+conditional on arrival, and downstream completion; no held-out outcome is
+present in this draft. A second environment or model family remains necessary
+for any broad claim. Corrected-interface SFT and a SCoRe-style
+first-error-prefix condition are additional baselines under matched interaction
+and teacher-scoring budgets \citep{lyu2025score}.
 
 \paragraph{Copy-prior test.}
 Construct paired canonical/malformed histories across tools, states, defect
@@ -557,7 +530,12 @@ rather than inferring generation from grader-side movement.
 
 GKD establishes on-policy distillation from student-generated sequences with
 teacher feedback \citep{agarwal2024gkd}; our work does not claim novelty for
-OPD itself. OPCD distills contextual experience on student-generated
+OPD itself. Rethinking OPD identifies teacher--student compatibility and
+genuinely new teacher capability at student-visited states as success conditions
+\citep{li2026rethinking}; our historical sequence does not validate a broader
+visitation principle. SAD changes the unit and weighting of supervision over reasoning
+and action spans \citep{liu2026sad}; our proposed intervention instead changes
+training-state occupancy while holding the loss fixed. OPCD distills contextual experience on student-generated
 trajectories, including in text games \citep{ye2026opcd}; On-Policy Expert
 Corrections switch from student to expert within a trajectory to address
 covariate shift \citep{lauffer2025oec}. TCOD directly studies temporal curricula and intermediate-state
@@ -571,7 +549,9 @@ localizes the first student error before short-horizon training
 \citep{zhong2026sod,xin2026kat}. SOD in particular treats post-tool-error
 high-divergence steps as increasingly unreliable and reweights them; our
 unvalidated hypothesis is narrower, predicting locally wrong-signed candidate
-preference. Unmasking OPD likewise motivates per-token, per-context diagnostics
+preference. TrOPD likewise filters or changes the divergence direction outside
+a teacher-verifiable trust region and adds off-policy teacher-prefix guidance
+\citep{xing2026tropd}. Unmasking OPD motivates per-token, per-context diagnostics
 rather than aggregate-loss interpretation \citep{armandpour2026unmasking}.
 These methods make intermediate-state,
 student-failure, and state-centric novelty claims unavailable. DAgger formalizes
@@ -598,8 +578,12 @@ novel here.
 Game-agent benchmarks already cover long-horizon language and vision agents.
 BALROG emphasizes knowing--doing gaps across games \citep{paglieri2025balrog},
 while Orak uses MCP across twelve games and releases gameplay fine-tuning data
-\citep{park2026orak}. MCP and game play are therefore infrastructure here, not
-novelty claims. GITM uses LLM-generated plans, text memory, and structured
+\citep{park2026orak}. Orak emphasizes breadth through modular evaluation across
+genres, agent/input ablations, data quality, generalization, latency, and a
+public artifact. Our intended contribution is narrower depth in one persistent
+game: causal isolation of player state, visible history, weights, and runtime
+interface. MCP and game play are therefore infrastructure here, not novelty
+claims. GITM uses LLM-generated plans, text memory, and structured
 actions in open-world Minecraft \citep{zhu2023gitm}. Voyager and AgentTrek use
 curricula, reusable skills, or guided
 replay to obtain long-horizon behavior
@@ -607,6 +591,13 @@ replay to obtain long-horizon behavior
 frozen selector over low-occupancy, teacher-competent persistent player states
 adds value beyond natural OPD, successful-prefix replay, turn-level guidance,
 and matched generic resets.
+
+Learned tool-error recovery is also distinct from the present runtime
+factorial. Fission-GRPO converts execution errors into on-policy corrective
+training instances and evaluates learned multi-turn recovery
+\citep{zhang2026fission}. Here the recovery-on arm rewrites or retries a fixed
+checkpoint's malformed emission in the harness; it cannot establish that the
+model learned to diagnose or repair its own error.
 
 Supervised imitation can compound errors under distribution shift
 \citep{ross2011dagger}, and knowledge distillation does not guarantee functional
@@ -619,7 +610,7 @@ result of this submission draft.
 
 The audited case supports a concrete hypothesis: low-occupancy player states
 may hide useful teacher competence from natural OPD. Natural-visitation OPD
-changed behavior without changing score; a later hand-selected state-augmented
+was followed by behavior differences without a score difference; a later hand-selected state-augmented
 round was followed by reported canonical-start passage of a wall that the earlier
 reported policies had not passed. That sequence
 does not establish the proposed selector. Random and progress-matched resets,
@@ -627,8 +618,8 @@ TCOD-B2F, Guided-OPD, replication, and held-out transfer decide whether the
 narrow method survives. A malformed-prefix probe separately motivates, but does
 not yet establish, a wrong-signed teacher-feedback mechanism at the tool
 boundary. A prospective local pilot executed all registered cells with internally
-hash-checked evidence, but its short horizon produces no quest progress and no
-policy-quality claim.
+hash-checked legacy-v1 evidence, but its short horizon produces no quest
+progress and no policy-quality claim.
 
 \label{acl:main-content-end}
 \section*{Limitations}
@@ -707,6 +698,33 @@ records before the 7,024/825 train/held-out split. The seed encodes accepted
 Herbalist stage 1, Foraging level 5, starter inventory, and a walkability-checked tile near
 the target resource. Evaluation never loads this state.
 
+\section{Local Pilot Diagnostics}
+\label{app:localpilot}
+
+\begin{table}[h]
+\caption{Preregistered local feasibility pilot. Each snapshot has three paired,
+five-minute cells. Calls/min uses observed wall time, including the final
+in-flight generation. No-call counts include thinking-only generations.}
+\label{tab:localpilot}
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Weights & Calls/cell & Calls/min & No-call sum \\
+\midrule
+Base & 5, 6, 5 & 0.968 & 21 \\
+Round 2 & 1, 5, 6 & 0.736 & 22 \\
+Round 3 & 5, 4, 5 & 0.872 & 21 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Every emitted call had a canonical tool name and JSON-object arguments. The
+retained stderr logs contain no logged \texttt{API error:} line, every final
+session records duration exhaustion, and all sealed inventory hashes reverify.
+The per-cell call counts overlap substantially; the pilot was not powered for a
+superiority test and produced no task progress.
+
 \section{Claim-to-Evidence Boundary}
 
 \begin{description}
@@ -766,25 +784,23 @@ full confirmatory factorial, historical results, or clean-clone table
 regeneration. Neither the recovered historical inventory nor the workstation-local
 pilot bundle is presently a reviewer-accessible artifact; release packaging,
 license review, and clean-clone regeneration remain submission gates.
-Confirmatory launch remains fail-closed. A draft isolated-service reachability checker executes
-hash-pinned MCP transitions and persistent player-state comparisons, but it has
-not yet produced a certificate in a live game/Mongo lane. A draft matched-training launcher
-freezes 50 core arm--seed cells plus 20 separately reported state--history
-ablation cells, shared budgets, interfaces, and held-out exclusion. A stacked
-draft adapter hash-verifies source material, checks held-out and arm-specific
-evidence, and emits normalized records marked \texttt{prepared\_not\_trained};
-another stacked draft freezes a fresh bf16 LoRA ($r=64$, $\alpha=64$) over the
-same seven attention/MLP projections for every cell and provides a direct-token
-corrected-interface SFT execution path without re-rendering. A separate
-SCoRe-style adapter prepares correction SFT but fails closed before its
-short-horizon reward stage. A third draft validates prospective Guided-OPD
-records with complete-turn teacher/student roles, a frozen cosine training-step
-curriculum, and mixed-history traces; earlier stacked branches remain blocked
-from executing an unfaithful approximation. The live mixed-turn collector and
-actor-conditioned forward/reverse-KL backend remain unimplemented. Verified
-training bundles, SCoRe-style second-stage artifacts, and accelerator results
-also remain absent. These
-omissions are release blockers, not appendix footnotes.
+Future launches through the local pilot/recovery path are fail-closed: that
+launcher binds the effective Mongo backend/skip/target/mode, rejects ambient
+configuration overrides, verifies exact full model-snapshot closure, and
+rechecks both after service readiness. Those v2 protections are not yet ported
+to the confirmatory factorial launcher. Older v1 bundles require affirmative
+legacy admission and remain labeled \texttt{legacy\_v1\_unattested}; the running
+exploratory factorial cannot be promoted by these later controls. The matched-training
+contract freezes 50 core arm--seed cells plus 20 separately reported
+state--history cells, one LoRA parameterization, shared budgets, interfaces, and
+the exact v2 held-out registration. Its adapter verifies the registered
+snapshot lock and effective tokenizer, decodes both input and supervised-label
+streams for leakage, and emits records marked
+\texttt{prepared\_not\_trained}. Corrected-interface SFT and first-stage
+SCoRe-style preparation are implemented, while SCoRe's reward stage, the live
+Guided-OPD mixed-turn collector/objective, verified training bundles, and
+accelerator results remain absent. These omissions are release blockers, not
+appendix footnotes.
 
 \section{Planned Statistical Analysis}
 

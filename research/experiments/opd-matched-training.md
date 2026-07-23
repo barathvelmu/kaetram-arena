@@ -107,6 +107,14 @@ count. Snapshot-based arms additionally require a passed witness-trajectory or
 invariant-certificate reachability record; “loadable by the server” is not
 treated as evidence of legal reachability.
 
+The registry cannot restate or weaken that policy inline. Its verified
+held-out artifact points to the repository's locked v2 registration by exact
+path and SHA-256. That one document defines every quest alias, prompt-leakage
+marker, base-tokenizer identity, vocabulary bound, and forbidden token
+sequence. The preflight and backend independently load and validate it; the
+backend derives its text and token scans from the document rather than from
+registry-supplied lists.
+
 TCOD-B2F alone accepts teacher-success prefix artifacts with a hash-backed,
 DB-authoritative quest-completion record and moves backward from success over
 action-token progress. Guided-OPD instead requires fresh live mixed rollouts.

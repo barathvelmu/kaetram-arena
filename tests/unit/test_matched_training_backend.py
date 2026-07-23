@@ -9,6 +9,24 @@ import pytest
 from scripts.opd import matched_training as mt
 from scripts.opd import matched_training_backend as backend
 
+SOURCE_REPO = Path(__file__).resolve().parents[2]
+
+
+class _FakeTokenizer:
+    def __init__(self, decoded: dict[tuple[int, ...], str] | None = None):
+        self.decoded = decoded or {}
+
+    def decode(self, token_ids, *, skip_special_tokens=False):
+        return self.decoded.get(tuple(token_ids), "ordinary training text")
+
+
+class _TinyRawTokenizer:
+    def get_vocab_size(self, *, with_added_tokens=True):
+        return 2
+
+    def decode(self, token_ids, *, skip_special_tokens=False):
+        return "".join({0: "A", 1: "B"}[token_id] for token_id in token_ids)
+
 
 def _sha_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
@@ -27,6 +45,11 @@ def _write(path: Path, value: bytes) -> str:
 def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
     repo = tmp_path / "repo"
     monkeypatch.setattr(backend, "REPO", repo)
+    monkeypatch.setattr(
+        backend,
+        "_load_verified_tokenizer",
+        lambda *_args, **_kwargs: _FakeTokenizer(),
+    )
     interface_files = []
     for name, content in (("system.md", b"system"), ("knowledge.md", b"knowledge"), ("render.py", b"render")):
         path = repo / "interface" / name
@@ -97,6 +120,15 @@ def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
     source_sha = _write(source_path, (json.dumps(record) + "\n").encode())
     base_path = repo / "artifacts" / "base.bin"
     teacher_path = repo / "artifacts" / "teacher.json"
+    heldout_path = repo / "research" / "experiments" / "heldout-quest-v2.json"
+    _write(
+        repo / "research" / "experiments" / "heldout-quest.json",
+        (SOURCE_REPO / "research" / "experiments" / "heldout-quest.json").read_bytes(),
+    )
+    heldout_sha = _write(
+        heldout_path,
+        (SOURCE_REPO / "research" / "experiments" / "heldout-quest-v2.json").read_bytes(),
+    )
     registry = {
         "schema_version": mt.REGISTRY_SCHEMA,
         "artifacts": {
@@ -110,9 +142,10 @@ def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
             },
             "heldout": {
                 "kind": "heldout_registration", "status": "verified",
-                "quest": "held-out-quest", "aliases": ["secret-quest-alias"],
-                "tokenizer_vocab_size": 1000,
-                "forbidden_token_sequences": [[777, 778]],
+                "payload": {
+                    "uri": "repo:research/experiments/heldout-quest-v2.json",
+                    "sha256": heldout_sha,
+                },
             },
             "natural": {
                 "kind": "on_policy_rollouts", "status": "verified",
@@ -146,6 +179,10 @@ def _natural_fixture(tmp_path: Path, monkeypatch) -> Path:
             "teacher_artifact_id": "teacher",
             "teacher_endpoint_env": "TEACHER_ENDPOINT",
             "held_out_registration_artifact_id": "heldout",
+            "held_out_registration": {
+                "path": "research/experiments/heldout-quest-v2.json",
+                "sha256": heldout_sha,
+            },
             "interface_contract_id": mt.INTERFACE_CONTRACT,
             "frozen_interfaces": interface_files,
             "parameterization": parameterization,
@@ -175,6 +212,19 @@ def test_materializes_hash_verified_records_without_claiming_training(tmp_path, 
     assert normalized["budget_usage"]["action_tokens"] == 2
     with pytest.raises(FileExistsError):
         backend.materialize(cell_path)
+
+
+def test_relative_cell_contract_resolves_from_repository_not_caller_cwd(
+    tmp_path, monkeypatch
+) -> None:
+    cell_path = _natural_fixture(tmp_path, monkeypatch)
+    relative = cell_path.relative_to(backend.REPO)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    plan, records = backend.build_backend_plan(relative)
+    assert plan["cell_id"] == "natural-opd-seed-7"
+    assert len(records) == 1
 
 
 def test_rejects_source_material_hash_drift(tmp_path, monkeypatch) -> None:
@@ -322,6 +372,22 @@ def test_heldout_alias_scan_checks_values_not_json_keys() -> None:
         backend._history_alias_scan(record, ["secret-quest-alias"], record_id="record-1")
 
 
+def test_heldout_alias_scan_rejects_separator_variants() -> None:
+    record = {
+        "state": {"content": {"location": "ordinary"}},
+        "history": {"content": ["seek secret quest alias"]},
+    }
+    with pytest.raises(mt.ProtocolError, match="leaks held-out alias"):
+        backend._history_alias_scan(
+            record, ["secret-quest-alias"], record_id="record-1"
+        )
+    record["history"]["content"] = ["seek Ｄｙｉｎｇ Ｓｏｌｄｉｅｒ"]
+    with pytest.raises(mt.ProtocolError, match="leaks held-out alias"):
+        backend._history_alias_scan(
+            record, ["Dying Soldier"], record_id="record-1"
+        )
+
+
 @pytest.mark.parametrize("bad_label", [-2, 1000])
 def test_array_validation_rejects_invalid_label_token_ids(bad_label) -> None:
     supervision = {
@@ -338,6 +404,8 @@ def test_array_validation_rejects_invalid_label_token_ids(bad_label) -> None:
             record_id="record-1",
             tokenizer_vocab_size=1000,
             forbidden_token_sequences=[[777, 778]],
+            aliases=["secret-quest-alias"],
+            tokenizer=_FakeTokenizer(),
         )
 
 
@@ -356,4 +424,91 @@ def test_array_validation_rejects_heldout_token_sequence() -> None:
             record_id="record-1",
             tokenizer_vocab_size=1000,
             forbidden_token_sequences=[[777, 778]],
+            aliases=["secret-quest-alias"],
+            tokenizer=_FakeTokenizer(),
         )
+
+
+def test_array_validation_scans_labels_and_rejects_mismatched_targets() -> None:
+    label_leak = {
+        "input_ids": [10, 11, 12, 13],
+        "labels": [-100, 777, 778, 13],
+        "advantages": [0.0, 1.0, 1.0, 1.0],
+        "behavior_logprobs": [0.0, -0.2, -0.2, -0.1],
+        "step_weight": 1.0,
+    }
+    with pytest.raises(mt.ProtocolError, match="labels leak"):
+        backend._validate_arrays(
+            label_leak,
+            objective="opd",
+            record_id="record-1",
+            tokenizer_vocab_size=1000,
+            forbidden_token_sequences=[[777, 778]],
+            aliases=["secret-quest-alias"],
+            tokenizer=_FakeTokenizer(),
+        )
+    label_leak["labels"] = [-100, 12, 12, 13]
+    with pytest.raises(mt.ProtocolError, match="must equal"):
+        backend._validate_arrays(
+            label_leak,
+            objective="opd",
+            record_id="record-1",
+            tokenizer_vocab_size=1000,
+            forbidden_token_sequences=[[777, 778]],
+            aliases=["secret-quest-alias"],
+            tokenizer=_FakeTokenizer(),
+        )
+
+
+def test_array_validation_decodes_normalization_equivalent_token_leak() -> None:
+    supervision = {
+        "input_ids": [4737, 517, 12, 19179],
+        "labels": [4737, 517, 12, 19179],
+        "advantages": [0.0, 1.0, 1.0, 1.0],
+        "behavior_logprobs": [0.0, -0.2, -0.2, -0.1],
+        "step_weight": 1.0,
+    }
+    tokenizer = _FakeTokenizer({
+        (4737, 517, 12, 19179): "Desert-Quest",
+    })
+    with pytest.raises(mt.ProtocolError, match="decodes to held-out"):
+        backend._validate_arrays(
+            supervision,
+            objective="opd",
+            record_id="record-1",
+            aliases=["Desert Quest"],
+            tokenizer_vocab_size=248077,
+            forbidden_token_sequences=[[4737, 517, 14615]],
+            tokenizer=tokenizer,
+        )
+    unicode_tokenizer = _FakeTokenizer({
+        (42,): "Ｄｅｓｅｒｔ Ｑｕｅｓｔ",
+    })
+    unicode_supervision = {
+        "input_ids": [42],
+        "labels": [42],
+        "advantages": [1.0],
+        "behavior_logprobs": [-0.1],
+        "step_weight": 1.0,
+    }
+    with pytest.raises(mt.ProtocolError, match="decodes to held-out"):
+        backend._validate_arrays(
+            unicode_supervision,
+            objective="opd",
+            record_id="record-unicode",
+            aliases=["Desert Quest"],
+            tokenizer_vocab_size=248077,
+            forbidden_token_sequences=[[4737, 517, 14615]],
+            tokenizer=unicode_tokenizer,
+        )
+
+
+def test_effective_tokenizer_decodes_registered_added_token_suffix() -> None:
+    tokenizer = backend._EffectiveTokenizer(
+        _TinyRawTokenizer(),
+        {0: "A", 1: "B", 2: "<extra-one>", 3: "<extra-two>"},
+    )
+    assert tokenizer.get_vocab_size(with_added_tokens=True) == 4
+    assert tokenizer.decode([0, 2, 1, 3]) == "A<extra-one>B<extra-two>"
+    with pytest.raises(mt.ProtocolError, match="absent"):
+        tokenizer.decode([4])

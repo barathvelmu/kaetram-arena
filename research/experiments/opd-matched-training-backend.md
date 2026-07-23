@@ -36,9 +36,18 @@ non-empty, contiguous correction target; prefix labels must be masked; and
 SHA-256 digests of both token regions must match the record semantics. An
 opaque first-error evidence digest alone is not treated as a token boundary.
 
-The adapter rechecks the held-out exclusion registration, scans model-visible
-state/history for held-out aliases, rejects duplicate records, and requires the
-aggregate source bundle to exactly fill all three registered budgets.
+The adapter rechecks the exact path and SHA-256 of the locked v2 held-out
+registration. It derives the complete alias set, tokenizer vocabulary bound,
+and forbidden token sequences from that file—not from editable registry
+metadata—then verifies and loads the base checkpoint's exact `tokenizer.json`.
+The backend also verifies the registered public-snapshot lock and every
+tokenizer runtime input (`tokenizer_config.json`, vocabulary, merges, and chat
+template), reconstructs the registered added-token suffix, and requires exact
+effective vocabulary size. It applies the same separator-insensitive alias check to model-visible
+state/history and to decoded input and supervised-label token streams, in
+addition to exact registered token-sequence checks. It rejects
+duplicate records and requires the aggregate source bundle to exactly fill all
+three registered budgets.
 
 ## Curriculum handling
 

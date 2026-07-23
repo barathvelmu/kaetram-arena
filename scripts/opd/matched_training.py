@@ -21,6 +21,12 @@ from typing import Any
 
 
 REPO = Path(__file__).resolve().parents[2]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from heldout_guard import HeldOutGuardError, load_registration  # noqa: E402
+
+
 PROTOCOL_ID = "kaetram.opd-matched-training.v1"
 REGISTRY_SCHEMA = "kaetram.matched-training-artifact-registry.v1"
 INTERFACE_CONTRACT = "kaetram-tool-render-contract-v1"
@@ -160,6 +166,8 @@ class TrainingPlan:
     teacher_artifact_id: str
     teacher_endpoint_env: str
     held_out_registration_artifact_id: str
+    held_out_registration_path: str
+    held_out_registration_sha256: str
     frozen_interfaces: tuple[dict[str, str], ...]
     parameterization: dict[str, Any]
     parameterization_sha256: str
@@ -610,18 +618,40 @@ def build_plan(path: str | Path) -> TrainingPlan:
     _artifact(artifacts, base_id, kind="checkpoint", blockers=blockers)
     _artifact(artifacts, teacher_id, kind="teacher_attestation", blockers=blockers)
     heldout = _artifact(artifacts, heldout_id, kind="heldout_registration", blockers=blockers)
-    if not isinstance(heldout.get("quest"), str) or not heldout["quest"]:
-        raise ProtocolError("held-out registration must name a quest")
-    aliases = heldout.get("aliases")
-    if not isinstance(aliases, list) or not aliases or not all(
-        isinstance(alias, str) and alias for alias in aliases
-    ):
-        raise ProtocolError("held-out registration aliases must be non-empty strings")
+    _exact_keys(
+        heldout,
+        {"kind", "status", "payload"},
+        label=f"artifact {heldout_id}",
+    )
     heldout_payload = _mapping(heldout.get("payload"), label="held-out registration payload")
-    expected_inline_digest = _sha256_json({"quest": heldout["quest"], "aliases": aliases})
-    if heldout_payload.get("uri") == "inline://heldout-registration-v1" \
-            and heldout_payload.get("sha256") != expected_inline_digest:
-        raise ProtocolError("held-out inline registration digest mismatch")
+    heldout_uri = heldout_payload.get("uri")
+    if not isinstance(heldout_uri, str) or not heldout_uri.startswith("repo:"):
+        raise ProtocolError("held-out registration payload must use a repo: URI")
+    heldout_path = _repo_file(
+        heldout_uri.removeprefix("repo:"),
+        label="held-out registration payload",
+    )
+    heldout_sha = _digest(
+        heldout_payload.get("sha256"),
+        label="held-out registration payload SHA-256",
+        nonzero=True,
+    )
+    if _sha256(heldout_path) != heldout_sha:
+        raise ProtocolError("held-out registration payload SHA-256 mismatch")
+    try:
+        heldout_registration = load_registration(heldout_path)
+    except HeldOutGuardError as exc:
+        raise ProtocolError(f"invalid held-out registration: {exc}") from exc
+    if (
+        not heldout_registration.training_exclusion_terms
+        or not heldout_registration.forbidden_token_sequences
+        or not heldout_registration.tokenizer_sha256
+        or not heldout_registration.snapshot_lock_sha256
+        or heldout_registration.tokenizer_vocab_size < 1
+    ):
+        raise ProtocolError(
+            "matched training requires a tokenizer-bound v2 held-out registration"
+        )
 
     interface = _mapping(shared.get("frozen_interfaces"), label="shared_inputs.frozen_interfaces")
     _exact_keys(interface, {"contract_id", "files"}, label="shared_inputs.frozen_interfaces")
@@ -747,6 +777,10 @@ def build_plan(path: str | Path) -> TrainingPlan:
         "teacher_artifact_id": teacher_id,
         "teacher_endpoint_env": teacher_env,
         "held_out_registration_artifact_id": heldout_id,
+        "held_out_registration": {
+            "path": heldout_path.relative_to(REPO).as_posix(),
+            "sha256": heldout_sha,
+        },
         "interface_contract_id": INTERFACE_CONTRACT,
         "frozen_interfaces": frozen,
         "parameterization": parameterization,
@@ -814,6 +848,8 @@ def build_plan(path: str | Path) -> TrainingPlan:
         teacher_artifact_id=teacher_id,
         teacher_endpoint_env=teacher_env,
         held_out_registration_artifact_id=heldout_id,
+        held_out_registration_path=str(heldout_path),
+        held_out_registration_sha256=heldout_sha,
         frozen_interfaces=tuple(frozen),
         parameterization=parameterization,
         parameterization_sha256=parameterization_sha,
@@ -890,6 +926,10 @@ def launch(plan: TrainingPlan, *, confirmation: str, environ: dict[str, str] | N
         "source_git_commit": commit,
         "manifest": {"path": plan.manifest, "sha256": plan.manifest_sha256},
         "artifact_registry": {"path": plan.registry_path, "sha256": plan.registry_sha256},
+        "held_out_registration": {
+            "path": plan.held_out_registration_path,
+            "sha256": plan.held_out_registration_sha256,
+        },
         "backend_adapter": {
             "path": plan.backend_adapter_path,
             "sha256": plan.backend_adapter_sha256,

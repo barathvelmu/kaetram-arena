@@ -34,6 +34,8 @@ from pathlib import Path
 from heldout_guard import (
     DEFAULT_REGISTRATION,
     HeldOutRegistration,
+    HeldOutGuardError,
+    assert_prompt_not_reserved,
     normalize_quest,
     validate_eval_selection,
 )
@@ -405,6 +407,7 @@ def resolve_system_prompt(
     *,
     include_game_knowledge: bool = True,
     held_out_quest: str = "",
+    held_out_registration: HeldOutRegistration | None = None,
     prompt_agent_name: str = "",
 ) -> str:
     """Resolve system.md with optional knowledge and held-out task targeting."""
@@ -435,6 +438,17 @@ def resolve_system_prompt(
     prompt = prompt.replace("__PROJECT_DIR__", project_dir)
     prompt = prompt.replace("__SERVER_PORT__", "")
     if held_out_quest:
+        registration = held_out_registration or validate_eval_selection(
+            held_out_quest, DEFAULT_REGISTRATION
+        )
+        if registration.schema_version != 2:
+            raise HeldOutGuardError(
+                "held-out prompt resolution requires a schema_version 2 registration"
+            )
+        if normalize_quest(held_out_quest) not in registration.normalized_aliases:
+            raise HeldOutGuardError(
+                "held-out prompt target does not match its locked registration"
+            )
         # Remove the two static Desert Quest utility hints from system.md when
         # that quest is held out. The only remaining name occurrence is the
         # target declaration below; mechanics must be discovered live.
@@ -450,9 +464,15 @@ def resolve_system_prompt(
                 "Some destination warps are quest-gated and fail silently; only use warps "
                 "you have observed as unlocked.",
             )
+        assert_prompt_not_reserved(
+            prompt,
+            registration=registration,
+            source=f"resolved personality {personality or 'none'}",
+        )
         target = (
             "\n\n<held_out_evaluation>\n"
-            f"For this evaluation only, your sole objective is to complete {held_out_quest}. "
+            f"For this evaluation only, your sole objective is to complete "
+            f"{registration.quest_name}. "
             "Ignore the Core-3 ordering elsewhere in this prompt. No walkthrough has been "
             "provided; discover and execute the quest through the normal game tools.\n"
             "</held_out_evaluation>\n"
@@ -1217,6 +1237,7 @@ def run_model_eval(
         personality,
         include_game_knowledge=include_game_knowledge,
         held_out_quest=held_out_quest,
+        held_out_registration=held_out_registration,
         prompt_agent_name=resolved_prompt_agent_name,
     )
     prompt_file = model_output_dir / "system_prompt.md"
@@ -1658,6 +1679,9 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "include_game_knowledge": include_game_knowledge,
             "held_out_quest": held_out_registration.quest_name if held_out_registration else "",
             "held_out_registration": str(held_out_registration.path) if held_out_registration else "",
+            "held_out_registration_sha256": (
+                held_out_registration.sha256 if held_out_registration else ""
+            ),
             "tool_schema_source": os.environ.get("KAETRAM_TOOL_SCHEMA_SOURCE", "runtime-default"),
             "total_episodes": len(episodes),
             "ok_episodes": len(ok_episodes),
@@ -1790,6 +1814,11 @@ Examples:
     parser.add_argument(
         "--held-out-registration", type=Path, default=DEFAULT_REGISTRATION,
         help=f"Locked held-out quest registration (default: {DEFAULT_REGISTRATION})",
+    )
+    parser.add_argument(
+        "--held-out-registration-sha256",
+        default="",
+        help="Expected SHA-256 of the locked held-out registration",
     )
     parser.add_argument(
         "--sandbox", default="",
@@ -1972,6 +2001,10 @@ Examples:
     if args.held_out_quest:
         if not args.omit_game_knowledge:
             parser.error("--held-out-quest requires --omit-game-knowledge")
+        if not re.fullmatch(r"[0-9a-f]{64}", args.held_out_registration_sha256):
+            parser.error(
+                "--held-out-quest requires --held-out-registration-sha256"
+            )
         try:
             held_out_registration = validate_eval_selection(
                 args.held_out_quest,
@@ -1979,6 +2012,20 @@ Examples:
             )
         except ValueError as exc:
             parser.error(str(exc))
+        if held_out_registration.sha256 != args.held_out_registration_sha256:
+            parser.error(
+                "held-out registration SHA-256 mismatch: "
+                f"expected {args.held_out_registration_sha256}, "
+                f"loaded {held_out_registration.sha256}"
+            )
+        provenance_meta = {
+            **(provenance_meta or {}),
+            "held_out_registration_sha256": held_out_registration.sha256,
+        }
+    elif args.held_out_registration_sha256:
+        parser.error(
+            "--held-out-registration-sha256 requires --held-out-quest"
+        )
 
     # Parse model definitions
     models = {}
@@ -2097,6 +2144,8 @@ Examples:
                 cmd.extend([
                     "--held-out-quest", held_out_registration.quest_name,
                     "--held-out-registration", str(held_out_registration.path),
+                    "--held-out-registration-sha256",
+                    held_out_registration.sha256,
                 ])
             if args.sandbox:
                 cmd.extend(["--sandbox", args.sandbox])

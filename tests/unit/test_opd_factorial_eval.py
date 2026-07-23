@@ -237,6 +237,22 @@ def test_manifest_is_frozen_core3_protocol_without_heldout(tmp_path: Path):
     assert all("--held-out-quest" not in cell_command(plan, cell) for cell in plan.cells)
 
 
+def test_heldout_cell_command_carries_registration_digest(tmp_path: Path):
+    plan = build_plan(_manifest_copy(tmp_path))
+    heldout = replace(
+        plan,
+        omit_game_knowledge=True,
+        held_out_quest="Desert Quest",
+        held_out_registration="/tmp/locked-heldout.json",
+        held_out_registration_sha256="a" * 64,
+    )
+    command = cell_command(heldout, heldout.cells[0])
+    path_index = command.index("--held-out-registration") + 1
+    digest_index = command.index("--held-out-registration-sha256") + 1
+    assert command[path_index] == "/tmp/locked-heldout.json"
+    assert command[digest_index] == "a" * 64
+
+
 def test_manifest_rejects_non_six_hour_or_seeded_core3_protocol(tmp_path: Path):
     def mutate(raw):
         raw["protocol"]["duration_seconds"] = 1800

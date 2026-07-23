@@ -36,6 +36,8 @@ def _sandbox_manifest(tmp_path: Path, monkeypatch, mutate_manifest=None, mutate_
         SOURCE_REPO / "prompts" / "game_knowledge.md",
         SOURCE_REPO / "finetune" / "render.py",
         SOURCE_REPO / "scripts" / "opd" / "matched_training_backend.py",
+        SOURCE_REPO / "research" / "experiments" / "heldout-quest.json",
+        SOURCE_REPO / "research" / "experiments" / "heldout-quest-v2.json",
     ):
         relative = source.relative_to(SOURCE_REPO)
         target = repo / relative
@@ -76,6 +78,9 @@ def test_example_expands_core_and_separate_history_cells_with_matched_contracts(
     assert plan.parameterization["rank"] == 64
     assert plan.parameterization["alpha"] == 64
     assert plan.parameterization["target_modules"] == list(mt.LORA_TARGET_MODULES)
+    registration = plan.cells[0].config["shared_contract"]["held_out_registration"]
+    assert registration["path"] == "research/experiments/heldout-quest-v2.json"
+    assert registration["sha256"] == plan.held_out_registration_sha256
     assert all(
         cell.config["shared_contract"]["parameterization_sha256"]
         == plan.parameterization_sha256
@@ -199,6 +204,29 @@ def test_registry_drift_is_rejected(tmp_path: Path, monkeypatch) -> None:
     registry = mt.REPO / "research" / "experiments" / REGISTRY.name
     registry.write_text(registry.read_text() + " ")
     with pytest.raises(mt.ProtocolError, match="registry SHA-256 mismatch"):
+        mt.build_plan(manifest)
+
+
+def test_registry_cannot_supply_a_weaker_inline_heldout_policy(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def mutate(registry):
+        heldout = registry["artifacts"]["heldout_registration"]
+        heldout["aliases"] = ["Desert Quest"]
+
+    with pytest.raises(mt.ProtocolError, match="fields must be exactly"):
+        mt.build_plan(_sandbox_manifest(tmp_path, monkeypatch, mutate_registry=mutate))
+
+
+def test_heldout_registration_material_drift_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    manifest = _sandbox_manifest(tmp_path, monkeypatch)
+    registration = (
+        mt.REPO / "research" / "experiments" / "heldout-quest-v2.json"
+    )
+    registration.write_text(registration.read_text() + " ")
+    with pytest.raises(mt.ProtocolError, match="payload SHA-256 mismatch"):
         mt.build_plan(manifest)
 
 

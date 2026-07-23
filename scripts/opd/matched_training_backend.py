@@ -17,6 +17,11 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
+from heldout_guard import (  # noqa: E402
+    HeldOutGuardError,
+    load_registration,
+    normalize_quest,
+)
 from scripts.opd.matched_training import (  # noqa: E402
     EXPECTED_CONSTRUCTORS,
     FIRST_ERROR_ARMS,
@@ -105,6 +110,14 @@ def _inside_repo(path: Path, *, label: str) -> Path:
     except ValueError as exc:
         raise ProtocolError(f"{label} must resolve inside the repository") from exc
     return path
+
+
+def _declared_repo_path(value: str | Path, *, label: str) -> Path:
+    candidate = Path(value)
+    return _inside_repo(
+        candidate if candidate.is_absolute() else REPO / candidate,
+        label=label,
+    )
 
 
 def _artifact_root(value: Any) -> Path:
@@ -236,13 +249,199 @@ def _history_alias_scan(record: dict[str, Any], aliases: list[str], *, record_id
         "state": record["state"]["content"],
         "history": record["history"]["content"],
     }))
+    normalized_visible = tuple(normalize_quest(value) for value in visible)
     leaked = sorted({
         alias
         for alias in aliases
-        if any(alias.casefold() in value.casefold() for value in visible)
+        if any(normalize_quest(alias) in value for value in normalized_visible)
     })
     if leaked:
         raise ProtocolError(f"source record {record_id} leaks held-out alias(es): {leaked}")
+
+
+class _EffectiveTokenizer:
+    def __init__(self, raw: Any, added_tokens: dict[int, str]):
+        self.raw = raw
+        self.raw_size = raw.get_vocab_size(with_added_tokens=True)
+        self.added_tokens = {
+            token_id: content
+            for token_id, content in added_tokens.items()
+            if token_id >= self.raw_size
+        }
+        expected_added = set(range(
+            self.raw_size,
+            max(self.added_tokens, default=self.raw_size - 1) + 1,
+        ))
+        if set(self.added_tokens) != expected_added:
+            raise ProtocolError(
+                "tokenizer_config added-token IDs must form a contiguous suffix"
+            )
+
+    def get_vocab_size(self, *, with_added_tokens: bool = True) -> int:
+        if not with_added_tokens or not self.added_tokens:
+            return self.raw_size
+        return max(self.added_tokens) + 1
+
+    def decode(self, token_ids: list[int], *, skip_special_tokens: bool = False) -> str:
+        if skip_special_tokens:
+            raise ProtocolError("held-out scanning must retain special tokens")
+        pieces: list[str] = []
+        raw_run: list[int] = []
+
+        def flush() -> None:
+            if raw_run:
+                pieces.append(self.raw.decode(raw_run, skip_special_tokens=False))
+                raw_run.clear()
+
+        for token_id in token_ids:
+            if token_id < self.raw_size:
+                raw_run.append(token_id)
+            elif token_id in self.added_tokens:
+                flush()
+                pieces.append(self.added_tokens[token_id])
+            else:
+                raise ProtocolError(
+                    f"token ID {token_id} is absent from the effective tokenizer"
+                )
+        flush()
+        return "".join(pieces)
+
+
+def _git_blob_sha1(path: Path) -> str:
+    payload = path.read_bytes()
+    return hashlib.sha1(
+        f"blob {len(payload)}\0".encode() + payload
+    ).hexdigest()
+
+
+def _verify_locked_tokenizer_runtime(
+    base_checkpoint_path: Path,
+    registration: Any,
+) -> None:
+    lock_path = (
+        REPO
+        / "research"
+        / "experiments"
+        / "provenance"
+        / "public-hf-snapshots.lock.json"
+    )
+    lock = _mapping(_load_json(lock_path, label="public snapshot lock"), label="public snapshot lock")
+    recorded_lock_sha = lock.get("lock_sha256")
+    unsigned = dict(lock)
+    unsigned.pop("lock_sha256", None)
+    if (
+        recorded_lock_sha != registration.snapshot_lock_sha256
+        or _sha256_json(unsigned) != recorded_lock_sha
+    ):
+        raise ProtocolError("public snapshot lock differs from the held-out registration")
+    snapshots = _mapping(lock.get("snapshots"), label="public snapshot lock.snapshots")
+    snapshot = _mapping(snapshots.get("base_2b"), label="public snapshot lock base_2b")
+    records = snapshot.get("files")
+    if not isinstance(records, list):
+        raise ProtocolError("base_2b snapshot lock files must be a list")
+    by_path = {
+        record.get("path"): record
+        for record in records
+        if isinstance(record, dict) and isinstance(record.get("path"), str)
+    }
+    runtime_paths = (
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "chat_template.jinja",
+    )
+    for relative in runtime_paths:
+        record = _mapping(by_path.get(relative), label=f"locked tokenizer file {relative}")
+        path = base_checkpoint_path / relative
+        if not path.is_file() or path.stat().st_size != record.get("size_bytes"):
+            raise ProtocolError(f"locked tokenizer runtime file differs: {relative}")
+        if "sha256" in record:
+            actual = _sha256(path)
+            expected = record.get("sha256")
+        elif "git_blob_sha1" in record:
+            actual = _git_blob_sha1(path)
+            expected = record.get("git_blob_sha1")
+        else:
+            raise ProtocolError(f"locked tokenizer file has no identity: {relative}")
+        if actual != expected:
+            raise ProtocolError(f"locked tokenizer runtime file differs: {relative}")
+
+
+def _load_verified_tokenizer(
+    base_checkpoint_path: Path,
+    registration: Any,
+) -> Any:
+    if not base_checkpoint_path.is_dir():
+        raise ProtocolError(
+            "base checkpoint material must be a directory containing tokenizer.json"
+        )
+    _verify_locked_tokenizer_runtime(base_checkpoint_path, registration)
+    tokenizer_path = base_checkpoint_path / "tokenizer.json"
+    if (
+        not tokenizer_path.is_file()
+        or _sha256(tokenizer_path) != registration.tokenizer_sha256
+    ):
+        raise ProtocolError(
+            "base checkpoint tokenizer.json differs from the held-out registration"
+        )
+    try:
+        from tokenizers import Tokenizer
+        raw_tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    except (ImportError, OSError, ValueError) as exc:
+        raise ProtocolError(
+            "verified held-out exclusion requires tokenizers and a loadable tokenizer.json"
+        ) from exc
+    tokenizer_config = _mapping(
+        _load_json(
+            base_checkpoint_path / "tokenizer_config.json",
+            label="tokenizer_config.json",
+        ),
+        label="tokenizer_config.json",
+    )
+    raw_added = _mapping(
+        tokenizer_config.get("added_tokens_decoder"),
+        label="tokenizer_config.json added_tokens_decoder",
+    )
+    added_tokens: dict[int, str] = {}
+    for raw_id, raw_record in raw_added.items():
+        if not isinstance(raw_id, str) or not raw_id.isdigit():
+            raise ProtocolError("tokenizer_config added-token ID is invalid")
+        record = _mapping(raw_record, label=f"added token {raw_id}")
+        content = record.get("content")
+        if not isinstance(content, str) or not content:
+            raise ProtocolError(f"added token {raw_id} has no content")
+        added_tokens[int(raw_id)] = content
+    tokenizer = _EffectiveTokenizer(raw_tokenizer, added_tokens)
+    if tokenizer.get_vocab_size(with_added_tokens=True) != registration.tokenizer_vocab_size:
+        raise ProtocolError(
+            "effective tokenizer vocabulary differs from the held-out registration"
+        )
+    return tokenizer
+
+
+def _decoded_alias_scan(
+    tokenizer: Any,
+    token_ids: list[int],
+    aliases: list[str],
+    *,
+    record_id: str,
+    source: str,
+) -> None:
+    try:
+        decoded = tokenizer.decode(token_ids, skip_special_tokens=False)
+    except Exception as exc:
+        raise ProtocolError(
+            f"record {record_id} {source} could not be decoded by the registered tokenizer"
+        ) from exc
+    normalized = normalize_quest(decoded)
+    leaked = sorted(
+        alias for alias in aliases if normalize_quest(alias) in normalized
+    )
+    if leaked:
+        raise ProtocolError(
+            f"record {record_id} {source} decodes to held-out alias(es): {leaked}"
+        )
 
 
 def _validate_arrays(
@@ -250,8 +449,10 @@ def _validate_arrays(
     *,
     objective: str,
     record_id: str,
+    aliases: list[str],
     tokenizer_vocab_size: int,
     forbidden_token_sequences: list[list[int]],
+    tokenizer: Any,
     guided_actor_role: str | None = None,
 ) -> int:
     _exact_keys(
@@ -283,6 +484,41 @@ def _validate_arrays(
         width = len(sequence)
         if any(input_ids[index:index + width] == sequence for index in range(len(input_ids) - width + 1)):
             raise ProtocolError(f"record {record_id} input_ids leak a held-out token sequence")
+        if any(labels[index:index + width] == sequence for index in range(len(labels) - width + 1)):
+            raise ProtocolError(f"record {record_id} labels leak a held-out token sequence")
+    _decoded_alias_scan(
+        tokenizer,
+        input_ids,
+        aliases,
+        record_id=record_id,
+        source="input_ids",
+    )
+    target_run: list[int] = []
+    target_runs: list[list[int]] = []
+    for label in labels:
+        if label == -100:
+            if target_run:
+                target_runs.append(target_run)
+                target_run = []
+        else:
+            target_run.append(label)
+    if target_run:
+        target_runs.append(target_run)
+    for index, run in enumerate(target_runs):
+        _decoded_alias_scan(
+            tokenizer,
+            run,
+            aliases,
+            record_id=record_id,
+            source=f"labels[{index}]",
+        )
+    if any(
+        label != -100 and label != input_id
+        for input_id, label in zip(input_ids, labels, strict=True)
+    ):
+        raise ProtocolError(
+            f"record {record_id} supervised labels must equal their input token IDs"
+        )
     action_tokens = sum(label != -100 for label in labels)
     if action_tokens < 1:
         raise ProtocolError(f"record {record_id} has no supervised action tokens")
@@ -501,6 +737,7 @@ def _validate_source_record(
     aliases: list[str],
     tokenizer_vocab_size: int,
     forbidden_token_sequences: list[list[int]],
+    tokenizer: Any,
     render_sha: str,
     source_artifact_id: str,
     source_payload_sha: str,
@@ -554,8 +791,10 @@ def _validate_source_record(
         supervision,
         objective=arm["objective"],
         record_id=record_id,
+        aliases=aliases,
         tokenizer_vocab_size=tokenizer_vocab_size,
         forbidden_token_sequences=forbidden_token_sequences,
+        tokenizer=tokenizer,
         guided_actor_role=guided_actor_role,
     )
     usage = _mapping(record["budget_usage"], label=f"record {record_id}.budget_usage")
@@ -775,7 +1014,7 @@ def _trainer_route(arm: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    config_path = _inside_repo(Path(cell_config_path), label="cell config")
+    config_path = _declared_repo_path(cell_config_path, label="cell config")
     cell = _mapping(_load_json(config_path, label="cell config"), label="cell config")
     _exact_keys(
         cell,
@@ -794,9 +1033,10 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
         {
             "source_git_commit", "experiment_manifest_sha256",
             "base_checkpoint_artifact_id", "teacher_artifact_id", "teacher_endpoint_env",
-            "held_out_registration_artifact_id", "interface_contract_id", "frozen_interfaces",
-            "parameterization", "parameterization_sha256", "optimizer", "budgets",
-            "artifact_registry", "artifact_root",
+            "held_out_registration_artifact_id", "held_out_registration",
+            "interface_contract_id", "frozen_interfaces", "parameterization",
+            "parameterization_sha256", "optimizer", "budgets", "artifact_registry",
+            "artifact_root",
         },
         label="shared_contract",
     )
@@ -817,7 +1057,10 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
         raise ProtocolError("shared_contract parameterization SHA-256 mismatch")
     registry_ref = _mapping(shared["artifact_registry"], label="artifact_registry")
     _exact_keys(registry_ref, {"path", "sha256"}, label="artifact_registry")
-    registry_path = _inside_repo(Path(registry_ref["path"]), label="artifact registry")
+    registry_path = _declared_repo_path(
+        registry_ref["path"],
+        label="artifact registry",
+    )
     expected_registry_sha = _digest(registry_ref["sha256"], label="artifact_registry.sha256")
     if not registry_path.is_file() or _sha256(registry_path) != expected_registry_sha:
         raise ProtocolError("artifact registry material SHA-256 mismatch")
@@ -829,37 +1072,62 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
     base_id = shared["base_checkpoint_artifact_id"]
     teacher_id = shared["teacher_artifact_id"]
     heldout_id = shared["held_out_registration_artifact_id"]
-    _verified_material(
+    _, base_checkpoint_path, _ = _verified_material(
         artifacts, base_id, artifact_root=material_root, expected_kind="checkpoint"
     )
     _verified_material(
         artifacts, teacher_id, artifact_root=material_root, expected_kind="teacher_attestation"
     )
     heldout = _mapping(artifacts.get(heldout_id), label=f"artifact {heldout_id}")
+    _exact_keys(
+        heldout,
+        {"kind", "status", "payload"},
+        label=f"artifact {heldout_id}",
+    )
     if heldout.get("status") != "verified" or heldout.get("kind") != "heldout_registration":
         raise ProtocolError("held-out registration artifact must be verified")
-    aliases = heldout.get("aliases")
-    if not isinstance(aliases, list) or not aliases or not all(isinstance(alias, str) and alias for alias in aliases):
-        raise ProtocolError("held-out registration aliases are invalid")
-    tokenizer_vocab_size = heldout.get("tokenizer_vocab_size")
-    if not isinstance(tokenizer_vocab_size, int) or isinstance(tokenizer_vocab_size, bool) \
-            or tokenizer_vocab_size < 1:
-        raise ProtocolError("held-out registration tokenizer_vocab_size is invalid")
-    forbidden_token_sequences = heldout.get("forbidden_token_sequences")
-    if not isinstance(forbidden_token_sequences, list) or not forbidden_token_sequences:
-        raise ProtocolError("held-out registration must include forbidden token sequences")
-    if not all(
-        isinstance(sequence, list)
-        and sequence
-        and all(
-            isinstance(token, int)
-            and not isinstance(token, bool)
-            and 0 <= token < tokenizer_vocab_size
-            for token in sequence
-        )
-        for sequence in forbidden_token_sequences
+    heldout_ref = _mapping(
+        shared.get("held_out_registration"),
+        label="shared_contract.held_out_registration",
+    )
+    _exact_keys(heldout_ref, {"path", "sha256"}, label="shared_contract.held_out_registration")
+    heldout_raw_path = heldout_ref.get("path")
+    if not isinstance(heldout_raw_path, str) or not heldout_raw_path:
+        raise ProtocolError("held-out registration path must be non-empty")
+    declared_heldout_path = Path(heldout_raw_path)
+    heldout_path = _declared_repo_path(
+        declared_heldout_path,
+        label="held-out registration",
+    )
+    heldout_sha = _digest(
+        heldout_ref.get("sha256"),
+        label="held-out registration SHA-256",
+    )
+    payload = _mapping(heldout.get("payload"), label=f"artifact {heldout_id}.payload")
+    _exact_keys(payload, {"uri", "sha256"}, label=f"artifact {heldout_id}.payload")
+    expected_uri = f"repo:{heldout_path.relative_to(REPO).as_posix()}"
+    if payload.get("uri") != expected_uri or payload.get("sha256") != heldout_sha:
+        raise ProtocolError("registry and cell disagree on the held-out registration")
+    if not heldout_path.is_file() or _sha256(heldout_path) != heldout_sha:
+        raise ProtocolError("held-out registration material SHA-256 mismatch")
+    try:
+        registration = load_registration(heldout_path)
+    except HeldOutGuardError as exc:
+        raise ProtocolError(f"invalid held-out registration: {exc}") from exc
+    aliases = list(registration.training_exclusion_terms)
+    tokenizer_vocab_size = registration.tokenizer_vocab_size
+    forbidden_token_sequences = [
+        list(sequence) for sequence in registration.forbidden_token_sequences
+    ]
+    if (
+        not aliases
+        or tokenizer_vocab_size < 1
+        or not forbidden_token_sequences
     ):
-        raise ProtocolError("held-out registration forbidden token sequences are invalid")
+        raise ProtocolError(
+            "matched training requires a tokenizer-bound v2 held-out registration"
+        )
+    tokenizer = _load_verified_tokenizer(base_checkpoint_path, registration)
 
     training_artifact_id = arm.get("training_artifact_id")
     artifact, source_path, source_payload_sha = _verified_material(
@@ -915,6 +1183,7 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
             aliases=aliases,
             tokenizer_vocab_size=tokenizer_vocab_size,
             forbidden_token_sequences=forbidden_token_sequences,
+            tokenizer=tokenizer,
             render_sha=render_sha,
             source_artifact_id=training_artifact_id,
             source_payload_sha=source_payload_sha,
@@ -1025,7 +1294,10 @@ def _write_new(path: Path, content: str) -> None:
 
 def materialize(cell_config_path: str | Path) -> dict[str, Any]:
     plan, records = build_backend_plan(cell_config_path)
-    output_dir = _inside_repo(Path(cell_config_path).resolve().parent, label="cell output directory")
+    output_dir = _declared_repo_path(
+        cell_config_path,
+        label="cell config",
+    ).parent
     plan_path = output_dir / "backend-plan.json"
     records_path = output_dir / "normalized-records.jsonl"
     result_path = output_dir / "result.json"

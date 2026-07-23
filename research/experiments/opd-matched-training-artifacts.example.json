@@ -20,15 +20,9 @@
     "heldout_registration": {
       "kind": "heldout_registration",
       "status": "verified",
-      "quest": "Desert Quest",
-      "aliases": [
-        "Desert Quest"
-      ],
-      "tokenizer_vocab_size": "UNRESOLVED://tokenizer-vocab-size",
-      "forbidden_token_sequences": "UNRESOLVED://heldout-token-sequences",
       "payload": {
-        "uri": "inline://heldout-registration-v1",
-        "sha256": "807eacca429f5bae8c2724f010cf420f90f63ad07b5dc2422b0d71e95ff961f5"
+        "uri": "repo:research/experiments/heldout-quest-v2.json",
+        "sha256": "a68bb6f71edb8ce53ec94af61731ebe787b0bc4b592f7aa770a41f14c6adc5aa"
       }
     },
     "natural_rollouts": {

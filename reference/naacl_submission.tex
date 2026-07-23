@@ -33,8 +33,10 @@ provenance. We specify a matched study that selects training-only states using
 frozen visitation, teacher advantage, validity, reachability, and recoverability;
 crosses player state with model-visible history; and compares targeted states
 with natural visitation, generic resets, successful prefixes, and turn-level
-guidance. The contribution is an audited case study and protocol, not an
-established method effect.
+guidance. A preregistered 18-cell diagnostic completes, but none of 958
+generations creates a recovery opportunity; the intervention never engages.
+The contribution is an audited case, failed manipulation check, and
+protocol---not an established method effect.
 \end{abstract}
 
 \section{Introduction}
@@ -70,7 +72,7 @@ initialization. This motivates testing whether training visitation matters, but
 it does not isolate state seeding from all
 round-to-round changes or estimate population-level uncertainty.
 
-This working draft makes two bounded contributions:
+This working draft makes three bounded contributions:
 
 \begin{enumerate}
   \item We audit a state-visitation failure case and separate observations that
@@ -80,6 +82,10 @@ This working draft makes two bounded contributions:
   \item We distinguish behavioral imitation from competence in the surviving
   historical record: the reported post-distillation run moves measured tool mix
   and tempo toward the teacher while the benchmark score remains fixed.
+  \item We report a preregistered local recovery diagnostic that completes all
+  18 cells yet produces zero eligible defects. This failed manipulation check
+  prevents an otherwise tempting recovery-effect claim and changes the next
+  experiment.
 \end{enumerate}
 
 Separately, one targeted teacher-forcing probe motivates a copy-prior
@@ -268,6 +274,9 @@ prompt identity, recovery off, a canonical tool schema, the same locked
 tokenizer and patched render contract, and one five-minute canonical-start
 episode. This pilot tests execution and action throughput only; it is not the
 six-hour weights-by-recovery factorial and cannot establish policy superiority.
+We then preregistered a longer 18-cell diagnostic crossing the same three fixed
+checkpoints with recovery off/on and three paired 30-minute seeds. It remains
+exploratory and cannot estimate a training procedure.
 
 \begin{table*}[t]
 \caption{Observed development runs and the claims they permit. Scores are
@@ -357,17 +366,19 @@ the 405 count has not been independently regenerated. It therefore does not show
 that weights learned the format, that the model self-corrected, or that recovery
 generalizes to other defects.
 
-\subsection{Prospective pilot executes all cells, not the task}
+\subsection{Longer local cells expose progress, but not recovery}
 
-All nine preregistered local cells completed with exact canonical-start
-projections and seed-bound environment-RNG receipts. Rehashing the 261 files in
-their sealed inventories found no mismatch. Across 106 raw generations, 42
-emitted a canonical structured call and 64 emitted none, but no cell advanced a
-quest or a \core{} stage. The complete throughput diagnostics appear in
-Appendix~\ref{app:localpilot}. The retained bundle predates the v2 database and
-full-snapshot attestations and is explicitly labeled
-\texttt{legacy\_v1\_unattested}. This is execution evidence only; five minutes
-is too short for a task-level or policy-quality estimate.
+The preregistered 30-minute diagnostic completed all 18 Base/R2/R3
+$\times$ recovery off/on cells; 1,266 sealed files rehashed without mismatch.
+Four cells advanced one stage in the registered completionist lane. Across 958 raw generations, 294
+contained canonical structured calls and 664 contained none. None was malformed
+or eligible for recovery, and no recovered call occurred. Thus the recovery
+switch never applied its intervention: on/off differences are not recovery
+effects. Three seed blocks over fixed checkpoints also cannot establish
+superiority. Appendix~\ref{app:localpilot} reports this run and the preceding
+five-minute execution pilot. The failed manipulation check rules out spending
+the full factorial budget unchanged; natural trigger incidence must be shown
+first, and controlled defect injection is a separate conditional question.
 
 \section{A Teacher-Forcing Failure at the Interface}
 
@@ -479,14 +490,15 @@ working normal-model assumption that paired differences have population mean
 and standard deviation three, 20 clusters give .911 model power for each
 contrast separately---not for all seven together. This is not evidence about
 their actual distribution or variability. The separate
-registered 18-cell local run is exploratory and cannot replace this design; no
-outcome enters the paper until its complete bundle passes the fail-closed audit.
+registered 18-cell local run is exploratory and cannot replace this design. Its
+complete bundle passed the internal fail-closed audit, but zero
+recovery-eligible emissions meant the intervention did not engage.
 Reporting separates six objects: raw malformed emissions, emissions eligible
 for correction, harness rewrites or retries, parser-accepted calls,
 environment-executed calls, and state-changing calls. Harness recovery for a
 fixed checkpoint is therefore not labeled model self-correction or a learned
-recovery policy. The running exploratory analysis retains its frozen
-diagnostics; any additional trace analysis is explicitly post hoc.
+recovery policy. The exploratory analysis retains its frozen diagnostics; any
+additional trace analysis is explicitly post hoc.
 
 \paragraph{Generalization.}
 One quest is now frozen in an evaluation-only v2 registration that supersedes
@@ -594,17 +606,9 @@ result of this submission draft.
 \section{Conclusion}
 
 The audited case motivates a concrete hypothesis: low-occupancy player states
-may hide useful teacher competence from natural OPD. Natural-visitation OPD
-was followed by behavior differences without a score difference; a later hand-selected state-augmented
-round was followed by reported canonical-start passage of a wall that the earlier
-reported policies had not passed. That sequence
-does not establish the proposed selector. Random and progress-matched resets,
-TCOD-B2F, Guided-OPD, replication, and held-out transfer decide whether the
-narrow method survives. A malformed-prefix probe separately motivates, but does
-not yet establish, a wrong-signed teacher-feedback mechanism at the tool
-boundary. A prospective local pilot executed all registered cells with internally
-hash-checked legacy-v1 evidence, but its short horizon produces no quest
-progress and no policy-quality claim.
+may hide useful teacher competence from natural OPD. Historical runs motivate
+but do not establish our selector. Matched resets, strong OPD baselines,
+replication, and held-out transfer must decide whether it survives.
 
 \label{acl:main-content-end}
 \section*{Limitations}
@@ -621,9 +625,9 @@ and a clean clone regenerates every main table.
 Direct database construction is environment-specific and may not transfer to
 systems without restorable state. The historical failure state was selected
 retrospectively, so selection bias is possible; the prospective selector has no
-outcome yet. The local pilot has only three five-minute cells per snapshot; it
-was designed for feasibility, not power, and its outcomes cannot enter the
-confirmatory estimate. Teacher competence at the target state is observed in a small number
+outcome yet. The local studies use only three seed blocks per fixed checkpoint;
+they were designed for feasibility and manipulation checking, not power, and
+their outcomes cannot enter the confirmatory estimate. Teacher competence at the target state is observed in a small number
 of trajectories, not estimated precisely.
 The syntax probe covers one defect family and should not be generalized to all
 teacher-forced grading.
@@ -683,7 +687,7 @@ records before the 7,024/825 train/held-out split. The seed encodes accepted
 Herbalist stage 1, Foraging level 5, starter inventory, and a walkability-checked tile near
 the target resource. Evaluation never loads this state.
 
-\section{Local Pilot Diagnostics}
+\section{Local Exploratory Diagnostics}
 \label{app:localpilot}
 
 \begin{table}[h]
@@ -710,6 +714,18 @@ session records duration exhaustion, and all sealed inventory hashes reverify.
 The per-cell call counts overlap substantially; the pilot was not powered for a
 superiority test and produced no task progress.
 
+\begingroup
+\let\small\scriptsize
+\setlength{\tabcolsep}{2pt}
+\input{../research/results/local-weight-recovery-30m-v1/paper-table-public.tex}
+\endgroup
+
+The longer diagnostic produced four cells with one registered single-lane
+stage of progress, but no
+malformed or recovery-eligible emission. Recovery was therefore not a realized
+treatment in any pair. The table is descriptive across three fixed seed blocks;
+it is not a checkpoint ranking.
+
 \section{Claim-to-Evidence Boundary}
 
 \begin{description}
@@ -726,6 +742,10 @@ emissions and an independently regenerated marker count are unavailable.
 \item[Local pilot.] Nine short paired cells executed through the matched local
 stack with internally hash-checked artifacts; they provide no model-superiority or quest-performance
 claim and cannot enter the confirmatory estimate.
+\item[Recovery diagnostic.] All 18 registered 30-minute cells executed and four
+advanced one stage, but zero of 958 generations was recovery-eligible. The
+recovery manipulation did not engage; on/off differences are not recovery
+effects.
 \item[Historical bundles.] The recovered external inventory binds the headline
 R10 and OPD agent-run directories and reproduces the R10 statistics, but it is
 not a public reviewer artifact and does not attest the executed reset command,
@@ -755,14 +775,16 @@ canonical level-1 start, but their exact reset command and server revision
 remain unattested.
 
 A fresh clone now installs and passes the prospective CPU unit suite. Separately,
-nine matched public-weight pilot cells bind the game revision, tokenizer,
-render contract, seeds, initial state, and 261-file inventories. This establishes
-local execution, not training, confirmatory evidence, or clean-clone table
-regeneration. Neither bundle is reviewer-accessible yet.
+nine five-minute and eighteen 30-minute matched public-weight cells bind the
+game revision, tokenizer, render contract, seeds, initial state, and sealed
+inventories. Anonymous CSVs and a public table derivative are checked in, while
+the complete report, receipt, and raw bundles remain local. This establishes
+internal local execution and table generation, not independent reproduction,
+training, or confirmatory evidence.
 
 Future local launches fail closed on the effective database, mode, configuration,
 and complete model snapshot. Those protections do not retroactively promote
-older v1 bundles or the running exploratory factorial. The matched-training
+older v1 bundles or the completed exploratory factorial. The matched-training
 contract freezes the arm--seed cells, shared budgets and interfaces, held-out
 registration, snapshot, tokenizer, and leakage checks. Corrected-interface SFT
 and first-stage SCoRe-style preparation exist; verified training bundles,

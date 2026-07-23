@@ -1,6 +1,7 @@
 # Local 30-minute weights × recovery exploratory factorial
 
-Status: preregistered exploratory run; not launched at registration.
+Status: completed exploratory run; preregistered before launch and unblinded
+once after sealed-bundle verification.
 
 This no-paid-endpoint study is the next feasibility tier after the completed
 five-minute renderer pilot. It asks whether a longer local horizon exposes any
@@ -106,6 +107,45 @@ completion, that OPD caused an effect, or that any result generalizes.
 The complete machine-readable registration is
 [`local-weight-recovery-30m.json`](local-weight-recovery-30m.json).
 
+## Registered result
+
+All 18 registered cells were launcher-valid. Before outcome parsing, the
+integrity-only analyzer rehashed 1,266 sealed files without mismatch and fixed
+bundle-index SHA-256
+`c6c69bbf3416cf8405c211032b5c1e3fdc250c264325faed69bf618e941aab0e`.
+The one-time create-only unblinding then completed successfully.
+
+Across 958 raw generations, 294 contained canonical structured calls and 664
+contained no structured call. The run logged no API errors, malformed
+emissions, recovery opportunities, recovered calls, or recovery execution
+errors. Four of 18 cells advanced one stage in the registered completionist
+lane: two Base/recovery-off
+cells, one Base/recovery-on cell, and one R3/recovery-off cell. No R2 cell and no
+R3/recovery-on cell advanced a stage.
+
+The primary diagnostic is therefore a manipulation-check failure. Because no
+generation created a recovery opportunity, the recovery-on arm never applied
+its treatment. Paired on-minus-off differences in throughput, position count,
+XP, or quest progress are ordinary trajectory variation under an inert switch,
+not recovery effects. The three checkpoints are fixed artifacts rather than
+independently trained method replicates, and three seed blocks per arm are too
+small for a policy-quality claim.
+
+This result argues against spending the full confirmatory budget on the same
+unmodified recovery design. A cheaper registered trigger-validation stage
+should first demonstrate that the frozen evaluation distribution produces
+nonzero eligible defects, or a separate controlled defect-injection study
+should test recovery conditional on a known malformed emission. Neither may be
+substituted post hoc for natural defect incidence.
+
+Anonymous exact CSVs, a public summary, and clarified paper tables are
+preserved under
+[`research/results/local-weight-recovery-30m-v1`](../results/local-weight-recovery-30m-v1/).
+The complete create-only report, artifact index, receipt, and raw 33 MB bundle
+remain local and are not yet a reviewer-accessible release. The evidence tier
+remains `legacy_v1_unattested`; the successful post-launch database audit does
+not replace a preregistered server-side attestation.
+
 ## Post-launch analyzer hardening record
 
 On July 23, 2026, before a `completed-inventory.json` or any cross-arm result
@@ -165,11 +205,11 @@ symlinks in model snapshot roots, construct runtime views only from locked
 paths, reverify after model startup, and attest the complete locked snapshot
 tree.
 The revision containing this audit implements those gates for future launches;
-it does not retroactively upgrade this already-running bundle.
+it does not retroactively upgrade this legacy-v1 bundle.
 
 ## Frozen unblinding and export procedure
 
-The complete factorial is unblinded only through the offline analyzer after
+The complete factorial was unblinded only through the offline analyzer after
 `completed-inventory.json` exists. The command requires the exact pilot ID as an
 explicit confirmation and a new output directory outside the run root. Before
 opening result-bearing artifacts it writes a create-only unblind intent into the
@@ -193,8 +233,19 @@ rename, and matching run-root/user-registry receipts binding the report, analyze
 inventory captured before imports and rechecked after analysis, clean Git
 revision, Python runtime, twice-rehashed sealed inputs, and output hashes.
 
-For this legacy-v1 exploratory bundle, run exactly one primary export after the
-launcher exits successfully:
+Before creating an unblind intent, the bundle was checked with:
+
+```bash
+python3 scripts/opd/analyze_local_recovery_factorial.py RUN_ROOT \
+  --allow-legacy-v1 \
+  --integrity-only
+```
+
+This path parses only ledgers and artifact inventories, mechanically rehashes
+the retained bytes, and does not decode result values.
+
+For this legacy-v1 exploratory bundle, the following primary export was run
+exactly once after the launcher exited successfully:
 
 ```bash
 python3 scripts/opd/analyze_local_recovery_factorial.py RUN_ROOT \
@@ -209,7 +260,7 @@ from `~/.local/state/kaetram-arena/unblind/*.intent.json` (or the equivalent
 `--resume-unblind-intent INTENT_SHA256`. Do not delete the intent, staging
 directory, or registry entry.
 
-The already-running bundle predates the versioned `results.json` schema added by
+The completed bundle predates the versioned `results.json` schema added by
 this revision, so it still requires the affirmative `--allow-legacy-v1` flag and
 remains `legacy_v1_unattested`. This post-launch analyzer hardening was completed
 without opening a result-bearing artifact and does not change an outcome,

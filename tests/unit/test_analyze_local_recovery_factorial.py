@@ -380,6 +380,8 @@ def test_integrity_check_rehashes_without_opening_outcomes(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    (tmp_path / "prelaunch.json").write_text("{}")
+    (tmp_path / "completed-inventory.json").write_text("{}")
     cells = [
         {
             "cell_id": f"cell-{index}",
@@ -395,23 +397,50 @@ def test_integrity_check_rehashes_without_opening_outcomes(
         "claim_boundary": {"confirmatory": False},
         "cells": cells,
     }
-    completed_by_id = {
-        cell["cell_id"]: {
+    completed_by_id = {}
+    for cell in cells:
+        cell_root = tmp_path / cell["cell_id"]
+        cell_root.mkdir()
+        sealed_status = {
             "cell_id": cell["cell_id"],
             "snapshot": cell["snapshot"],
             "schedule_index": cell["schedule_index"],
             "recovery_assignment": cell["recovery"],
-            "artifact_inventory_sha256": f"{index:064x}",
+            "status": "valid",
+            "returncode": 0,
+            "tool_recovery_enabled": cell["recovery"],
         }
-        for index, cell in enumerate(cells)
-    }
+        (cell_root / "cell-status.json").write_text(
+            json.dumps(sealed_status, sort_keys=True)
+        )
+        # Invalid JSON proves the integrity path hashes but never parses outcomes.
+        (cell_root / "outcome-bearing-results.json").write_text("{not-json")
+        records = []
+        for relative in ("cell-status.json", "outcome-bearing-results.json"):
+            path = cell_root / relative
+            content = path.read_bytes()
+            records.append({
+                "path": relative,
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "size_bytes": len(content),
+            })
+        inventory = {
+            "schema_version": "kaetram.local-weight-pilot-artifacts.v1",
+            "file_count": len(records),
+            "tree_sha256": sha256_json(records),
+            "files": records,
+        }
+        inventory_path = cell_root / "artifact-inventory.json"
+        inventory_path.write_text(json.dumps(inventory, sort_keys=True))
+        completed_by_id[cell["cell_id"]] = {
+            **sealed_status,
+            "artifact_inventory_sha256": hashlib.sha256(
+                inventory_path.read_bytes()
+            ).hexdigest(),
+        }
     monkeypatch.setattr(
         "scripts.opd.analyze_local_recovery_factorial.load_manifest",
         lambda _: (manifest, "a" * 64),
-    )
-    monkeypatch.setattr(
-        "scripts.opd.analyze_local_recovery_factorial._file_sha256",
-        lambda path: "b" * 64 if path.name == "prelaunch.json" else "c" * 64,
     )
     monkeypatch.setattr(
         "scripts.opd.analyze_local_recovery_factorial._load_validated_envelope",
@@ -426,18 +455,6 @@ def test_integrity_check_rehashes_without_opening_outcomes(
             18,
             0,
         ),
-    )
-    rehashed = []
-    monkeypatch.setattr(
-        "scripts.opd.analyze_local_recovery_factorial._verify_completed_cell_artifacts",
-        lambda root, retained: (
-            rehashed.append(root.name) or retained["artifact_inventory_sha256"],
-            2,
-        ),
-    )
-    monkeypatch.setattr(
-        "scripts.opd.analyze_local_recovery_factorial._reverify_analysis_inputs",
-        lambda **kwargs: None,
     )
     provenance = {
         "source_git_commit": "d" * 40,
@@ -455,9 +472,17 @@ def test_integrity_check_rehashes_without_opening_outcomes(
     assert report["outcome_values_parsed"] is False
     assert report["all_registered_cells_launcher_valid"] is True
     assert report["files_rehashed"] == 36
-    assert rehashed == [cell["cell_id"] for cell in cells]
     assert "rows" not in report
     assert "by_arm" not in report
+
+    completed_by_id[cells[0]["cell_id"]]["returncode"] = 9
+    with pytest.raises(AnalysisError, match="technically inconsistent"):
+        verify_sealed_bundle_integrity(
+            tmp_path,
+            tmp_path / "manifest.json",
+            allow_legacy_v1=True,
+            analysis_code_provenance=provenance,
+        )
 
 
 def test_integrity_only_cli_does_not_require_unblind_arguments(

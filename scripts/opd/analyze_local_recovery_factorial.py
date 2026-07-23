@@ -524,7 +524,6 @@ def _analysis_code_provenance() -> dict:
         )
     return {
         "source_git_commit": git["commit"],
-        "source_git_repository": git["repository"],
         "dirty_paths": [],
         "python_runtime": {
             "implementation": sys.implementation.name,
@@ -1280,6 +1279,16 @@ def verify_sealed_bundle_integrity(
             or retained.get("recovery_assignment") is not cell["recovery"]
         ):
             raise AnalysisError(f"{cell_id}: cell receipt identity mismatch")
+        status = retained.get("status")
+        if status not in {"valid", "invalid"}:
+            raise AnalysisError(f"{cell_id}: unknown launcher status")
+        if status == "valid" and (
+            retained.get("returncode") != 0
+            or retained.get("tool_recovery_enabled") is not cell["recovery"]
+        ):
+            raise AnalysisError(
+                f"{cell_id}: valid cell receipt is technically inconsistent"
+            )
         _inventory_sha, rehashed = _verify_completed_cell_artifacts(
             root / cell_id,
             retained,

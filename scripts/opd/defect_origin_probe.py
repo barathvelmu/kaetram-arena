@@ -13,9 +13,12 @@ States: action states drawn from the base-2B baseline run (neutral contexts, no
 malformed history), rendered byte-parity via reconstruct_session/turn_to_chat.
 
 Usage:
-  R1_EP=https://...-kaetram-qwen-2b-opd-inference-serve.modal.run/v1 \
-  BASE_EP=https://...-kaetram-qwen-2b-inference-serve.modal.run/v1 \
+  R1_EP=http://127.0.0.1:8101/v1 \
+  BASE_EP=http://127.0.0.1:8102/v1 \
   python3 scripts/opd/defect_origin_probe.py -n 20 -k 5
+
+No endpoint is launched by this script. The zero-spend workflow uses already
+running local endpoints; do not point it at a metered service.
 """
 from __future__ import annotations
 

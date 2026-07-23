@@ -21,7 +21,7 @@ History of the Qwen3.5 finetuning runs: the 9B SFT era (r1–r10) and the r11 er
 | r11-scaffold | May 28–Jun 4 | harness (no training) | — | R11 scaffold/state-contract reframe across model sizes | base-9B Core-3 4→19/30; scaffold transfers down the size ladder (27B 15, 4B 17, 2B 12) — capacity isn't the lever. See `opd-2b.md`, `r11-direction.md`. |
 | opd-r1 | Jun 10 | OPD | 5,564 / 574 | 4B teacher → base-2B student, clipped-IS reverse-KL (init==generator) | Core-3 **12/30** — style transferred, competence didn't (visitation coupling + teacher-forcing copy-prior). |
 | opd-r2 | Jun 12 | OPD | 7,024 / 825 | + env-state seeding at the Herbalist wall (bucket-B) | **Reported 15/30** recovery-off run; clustered prompts passed Herbalist stage 1; causal attribution unavailable. |
-| opd-r3 | Jun 13 | OPD | 8,856 / 1,040 | + counterfactual-canonicalized grading + full-ladder seeding + harness recovery | **Reported 18/30** weights-plus-recovery system run; a later live probe traces Rick's 0/4 to four seeding/door/navigation bugs rather than cooking incompetence. |
+| opd-r3 | Jun 13 | OPD | 8,856 / 1,040 | + counterfactual-canonicalized grading + full-ladder seeding + harness recovery | **Reported 18/30** weights-plus-recovery system run; later maintainer notes propose seeding/door/navigation defects as alternative explanations for Rick's 0/4. |
 
 ---
 
@@ -254,7 +254,7 @@ After the reported r10 negative result the program pivoted twice. First, harness
 | base-2B | 12 | — | scaffold floor |
 | opd-r1 | 12 | reverse-KL OPD | style transferred, competence didn't (visitation coupling; teacher-forcing copy-prior) |
 | opd-r2 | **15** | + env-state seeding at the Herbalist wall | recovery-off historical run; clustered prompts passed stage 1 |
-| opd-r3 | **18** | + counterfactual grading + full-ladder seeding + harness recovery | weights-plus-recovery historical system run; later Rick's probe found seeding/door/navigation bugs |
+| opd-r3 | **18** | + counterfactual grading + full-ladder seeding + harness recovery | weights-plus-recovery historical system run; later maintainer notes propose Rick's seeding/door/navigation defects |
 
 An unmatched r2-weights-plus-recovery run is reported at 17/30; it does not decompose weights and recovery. Full evidence boundary: **`research/paper/claims-evidence-matrix.md`**. Historical narrative: **`research/experiments/opd-2b.md`**. Trainer: `finetune/train_opd_2b.py` (round-parametrized). The 9B OPD lane (`train_opd_modal.py`) was parked with round-1 data built but never trained.
 

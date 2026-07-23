@@ -23,8 +23,11 @@ Contexts are reconstructed byte-parity with the OPD build (reconstruct_session
 graded under exactly the distribution the training pipeline queries it on.
 
 Usage:
-  FOURB_EP=https://<ws>--kaetram-qwen-4b-inference-serve.modal.run/v1 \
+  FOURB_EP=http://127.0.0.1:8104/v1 \
       python3 scripts/opd/cook_grade_probe.py -n 30
+
+No endpoint is launched by this script. The zero-spend workflow uses an
+already-running local scorer; do not point it at a metered service.
 """
 from __future__ import annotations
 

@@ -55,6 +55,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - [pr-integration-audit.md](paper/pr-integration-audit.md) — exact merge/rebase order, cross-PR conflicts, and fail-closed compute gates for the current paper stack.
 - [reviewer-handoff.md](paper/reviewer-handoff.md) — Central handoff for collaborators: PR order, current truth, experiment launch gates, work packages, and review checklist
 - [gargantua-review-2026-07-19.md](paper/gargantua-review-2026-07-19.md) — Exhaustive red-team ledger across code correctness, historical provenance, statistics, novelty, paper structure, venue fit, release gates, and falsification criteria
+- [upstream-pr54-integration.md](paper/upstream-pr54-integration.md) — Curated import audit for the maintainer's July mechanism campaign: accepted code, excluded claims/deployment pieces, zero-spend boundary, and verification.
 - [contribution.md](paper/contribution.md) — Paper 1: What's novel, framing, outline, key ablations needed
 - [VARIABLES.md](paper/VARIABLES.md) — Design-variables catalog (KAE-49): every knob reviewers can question, grouped by layer
 - [submission-readiness.md](paper/submission-readiness.md) — July 18 go/no-go decision, venue calendar, critical path, and submission policy

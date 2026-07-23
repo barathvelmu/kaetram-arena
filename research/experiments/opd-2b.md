@@ -851,7 +851,9 @@ performed where they mattered, and the recorder was the loss function.*
 ### Clean-r1, the discriminating arm (2026-07-17): defect ELIMINATED by the context-parity fix; clean grading lands at parity-to-slightly-positive vs uniform
 
 `2b-opd-r1-clean` (eval run_20260716_215512): the r1 recipe with ONE repair — build/score
-contexts rendered with the `tools=` block (byte-parity with serving; `OPD_BUILD_TOOLS_JSON`).
+contexts rendered with the frozen canonical `tools=` block (byte-parity with serving;
+current interface: `OPD_BUILD_TOOL_SCHEMA_SOURCE=canonical`). The original ad-hoc
+JSON snapshot is not a reusable contract and is deliberately not retained.
 Same base init, same natural base-rollout corpus (5,575 records — parity contexts even
 recovered the original build's ~1% score-fails), same trainer. Result: **14/30 (4/5/5), wall
 2/3, malformed emissions 1 in 7,218 calls.**

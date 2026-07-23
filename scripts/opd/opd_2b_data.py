@@ -55,6 +55,7 @@ import httpx
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "opd"))
 sys.path.insert(0, str(REPO / "finetune"))
+sys.path.insert(0, str(REPO))
 
 from canonicalize import docify_system_prompt, is_malformed  # noqa: E402
 from opd_probe import reconstruct_session  # noqa: E402
@@ -62,6 +63,10 @@ from opd_round1 import turn_to_chat  # noqa: E402
 from opd_wall_probe import _frontier, _finished_from_payload  # noqa: E402
 from render import patch_qwen_chat_template  # noqa: E402
 from heldout_guard import assert_text_not_reserved  # noqa: E402
+from tool_surface import (  # noqa: E402
+    MODEL_VISIBLE_TOOL_DEFINITIONS,
+    MODEL_VISIBLE_TOOL_SCHEMA_SHA256,
+)
 
 STUDENT_EP = os.environ["TWOB_EP"].rstrip("/")
 TEACHER_EP = os.environ["FOURB_EP"].rstrip("/")
@@ -76,9 +81,37 @@ EARLY_WEIGHT = 1.5        # step_weight for the first third of each session
 # <parameter=accept_quest_offer=True>) — advantages on these spans are masked.
 MALFORMED_PARAM_RE = re.compile(r"<parameter=[^>\n]*=[^>\n]*>")
 PER_EP_CONCURRENCY = 6    # per-endpoint in-flight cap (server max_running_requests=8)
-CHUNK = int(os.environ.get("OPD_BUILD_CHUNK", "200"))  # states per submission wave; records flush per wave, so smaller = more frequent progress/failure visibility on slow (16K-context) tails
 SCORE_TIMEOUT = 240.0
 SCORE_RETRIES = 3
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    try:
+        value = default if raw is None else int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be a positive integer, got {raw!r}") from exc
+    if value <= 0:
+        raise RuntimeError(f"{name} must be a positive integer, got {value}")
+    return value
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(
+        f"{name} must be one of 1/0, true/false, yes/no, or on/off; got {raw!r}"
+    )
+
+
+CHUNK = _positive_int_env("OPD_BUILD_CHUNK", 200)
+NO_COUNTERFACTUAL = _bool_env("OPD_BUILD_NO_CF", False)
 
 
 def load_student_tokenizer():
@@ -185,19 +218,27 @@ def collect_action_states(run_ids):
     return states
 
 
-_BUILD_TOOLS = None
+_TOOL_SCHEMA_SOURCE = os.environ.get("OPD_BUILD_TOOL_SCHEMA_SOURCE", "none")
 if os.environ.get("OPD_BUILD_TOOLS_JSON"):
-    # Serving-context parity (Seam-1 repair): rollouts are generated and evals
-    # served WITH the native tools= block (play_qwen sends it; the chat template
-    # renders the canonical-format reminder). The historical builds rendered
-    # build/score contexts WITHOUT it, so every gradient was computed on a
-    # context missing that reminder — the environment where even base leaks
-    # Python-call forms at 7–9% (defect-origin probe, 2026-07-16). Passing the
-    # snapshot restores byte-parity between the gradient context and serving.
-    with open(os.environ["OPD_BUILD_TOOLS_JSON"]) as _f:
-        _d = json.load(_f)
-        _BUILD_TOOLS = _d if isinstance(_d, list) else _d.get("tools")
-    print(f"serving-context parity ON: rendering with {len(_BUILD_TOOLS)} tool specs")
+    raise RuntimeError(
+        "OPD_BUILD_TOOLS_JSON is unsafe and unsupported: arbitrary snapshots can "
+        "drift from the serving contract; set "
+        "OPD_BUILD_TOOL_SCHEMA_SOURCE=canonical instead"
+    )
+if _TOOL_SCHEMA_SOURCE == "canonical":
+    _BUILD_TOOLS = MODEL_VISIBLE_TOOL_DEFINITIONS
+    print(
+        "serving-context parity ON: rendering with "
+        f"{len(_BUILD_TOOLS)} canonical tool specs "
+        f"(sha256={MODEL_VISIBLE_TOOL_SCHEMA_SHA256})"
+    )
+elif _TOOL_SCHEMA_SOURCE == "none":
+    _BUILD_TOOLS = None
+else:
+    raise RuntimeError(
+        "OPD_BUILD_TOOL_SCHEMA_SOURCE must be 'none' or 'canonical', got "
+        f"{_TOOL_SCHEMA_SOURCE!r}"
+    )
 
 
 def _render(tok, msgs, emission):
@@ -245,7 +286,7 @@ async def build_record(client, tok, st, sem_s, sem_t):
     # counterfactual grading) — required for arm parity in ablation builds
     # whose comparison arm was built pre-round-3 (e.g. the ±seeding ablation
     # against the round-2 corpus).
-    counterfactual = (not os.environ.get("OPD_BUILD_NO_CF")) and is_malformed(st["emission"])
+    counterfactual = (not NO_COUNTERFACTUAL) and is_malformed(st["emission"])
     if counterfactual:
         cf_msgs = [{**st["messages"][0],
                     "content": docify_system_prompt(st["messages"][0]["content"])}] \

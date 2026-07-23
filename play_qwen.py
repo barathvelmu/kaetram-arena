@@ -64,6 +64,26 @@ _FORMAT_NOTE = (
     "<parameter=key=value>."
 )
 
+
+def resolve_mcp_python() -> str:
+    """Resolve the sibling MCP server's Python runtime portably.
+
+    A checkout-local ``.venv`` is absent in clean clones and fresh worktrees.
+    Since this process already imports the required MCP/OpenAI stack, its
+    active interpreter is the safe default. Operators may explicitly select a
+    different executable when they intentionally maintain split runtimes.
+    """
+    override = os.environ.get("KAETRAM_MCP_PYTHON", "").strip()
+    candidate = Path(override).expanduser() if override else Path(sys.executable)
+    if not candidate.is_file() or not os.access(candidate, os.X_OK):
+        source = "KAETRAM_MCP_PYTHON" if override else "sys.executable"
+        raise RuntimeError(
+            f"{source} does not identify an executable Python interpreter: "
+            f"{candidate}"
+        )
+    return str(candidate.resolve())
+
+
 # ---------------------------------------------------------------------------
 # MCP client — spawns mcp_game_server.py and calls tools over stdio
 # ---------------------------------------------------------------------------
@@ -816,7 +836,7 @@ async def run_agent(args):
     # logged in for the entire process lifetime; sessions only reset the
     # conversation.
     project_dir = args.project_dir
-    venv_python = os.path.join(project_dir, ".venv", "bin", "python3")
+    venv_python = resolve_mcp_python()
     server_script = os.path.join(project_dir, "mcp_game_server.py")
 
     # Register signal handlers so cleanup runs on SIGTERM/SIGINT

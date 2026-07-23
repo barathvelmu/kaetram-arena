@@ -15,24 +15,31 @@ been downloaded.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import hashlib
+import io
 import json
 import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
-from run_manifest import tool_schema_record  # noqa: E402
+from finetune.render import patch_qwen_chat_template  # noqa: E402
+from run_manifest import sha256_json, tool_schema_record  # noqa: E402
 from scripts.fetch_hf_snapshot import fetch_snapshot, load_lock  # noqa: E402
+from tool_surface import MODEL_VISIBLE_TOOL_DEFINITIONS  # noqa: E402
 
 
 PINNED_MLX_LM_VERSION = "0.31.3"
@@ -42,6 +49,24 @@ SUPPORTED_MODELS = {
     "opd_r3_2b": "2b-opd-r3",
 }
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+CANONICAL_TOKENIZER_SNAPSHOT = "base_2b"
+TOKENIZER_RUNTIME_FILES = frozenset({
+    "added_tokens.json",
+    "chat_template.jinja",
+    "merges.txt",
+    "special_tokens_map.json",
+    "tokenizer.json",
+    "tokenizer.model",
+    "tokenizer_config.json",
+    "vocab.json",
+})
+LOCAL_RENDER_CONTRACT_SCHEMA = "kaetram.local-render-contract.v1"
+RENDER_PROBE_STRINGS = (
+    "isOpen",
+    "waitForTimeout",
+    "C'mon",
+    "...///\n/a",
+)
 HOP_BY_HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -66,6 +91,9 @@ class EndpointIdentity:
     checkpoint_sha256: str
     tokenizer_sha256: str
     render_contract_sha256: str
+    chat_template_sha256: str
+    tokenizer_source_revision: str
+    fix_mistral_regex: bool
 
     def health_payload(self) -> dict:
         return {
@@ -76,6 +104,9 @@ class EndpointIdentity:
                 "checkpoint_sha256": self.checkpoint_sha256,
                 "tokenizer_sha256": self.tokenizer_sha256,
                 "render_contract_sha256": self.render_contract_sha256,
+                "chat_template_sha256": self.chat_template_sha256,
+                "tokenizer_source_revision": self.tokenizer_source_revision,
+                "fix_mistral_regex": self.fix_mistral_regex,
             },
         }
 
@@ -114,7 +145,88 @@ def _locked_sha256(snapshot: dict, relative_path: str) -> str:
     return matches[0]["sha256"]
 
 
-def build_identity(lock: dict, snapshot_name: str, api_model: str) -> EndpointIdentity:
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    except OSError as exc:
+        raise LocalEndpointError(f"cannot hash runtime input: {path}") from exc
+    return digest.hexdigest()
+
+
+def load_patched_chat_template(canonical_tokenizer_dir: Path) -> str:
+    """Load and patch the one canonical Qwen renderer without changing its files."""
+    config_path = canonical_tokenizer_dir / "tokenizer_config.json"
+    try:
+        tokenizer_config = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LocalEndpointError(
+            f"cannot read canonical tokenizer config: {config_path}"
+        ) from exc
+    configured = tokenizer_config.get("chat_template")
+    template_path = canonical_tokenizer_dir / "chat_template.jinja"
+    try:
+        file_template = template_path.read_text() if template_path.exists() else None
+    except OSError as exc:
+        raise LocalEndpointError(
+            f"cannot read canonical chat template: {template_path}"
+        ) from exc
+    if file_template is not None and configured is not None and file_template != configured:
+        raise LocalEndpointError(
+            "canonical tokenizer_config.json and chat_template.jinja disagree"
+        )
+    template = file_template if file_template is not None else configured
+    if not isinstance(template, str) or not template:
+        raise LocalEndpointError("canonical tokenizer has no chat template")
+    holder = SimpleNamespace(chat_template=template)
+    try:
+        # This CLI's stdout is machine-readable JSON in --verify-only mode.
+        with contextlib.redirect_stdout(io.StringIO()):
+            patch_qwen_chat_template(holder)
+    except RuntimeError as exc:
+        raise LocalEndpointError(str(exc)) from exc
+    return holder.chat_template
+
+
+def build_render_contract(
+    lock: dict,
+    patched_chat_template: str,
+    canonical_tokenizer_dir: Path,
+    effective_renderer: dict,
+) -> dict:
+    """Describe every model-visible local rendering choice."""
+    snapshot = lock["snapshots"][CANONICAL_TOKENIZER_SNAPSHOT]
+    return {
+        "schema_version": LOCAL_RENDER_CONTRACT_SCHEMA,
+        "engine": "mlx-lm",
+        "engine_version": PINNED_MLX_LM_VERSION,
+        "tokenizer_snapshot": CANONICAL_TOKENIZER_SNAPSHOT,
+        "tokenizer_repo_id": snapshot["repo_id"],
+        "tokenizer_revision": snapshot["revision"],
+        "tokenizer_sha256": _locked_sha256(snapshot, "tokenizer.json"),
+        "tokenizer_config_sha256": _sha256_file(
+            canonical_tokenizer_dir / "tokenizer_config.json"
+        ),
+        "chat_template_sha256": hashlib.sha256(
+            patched_chat_template.encode("utf-8")
+        ).hexdigest(),
+        # Transformers 5.14 can misclassify checkpoint-local Qwen configs as
+        # Mistral when transformers_version is absent. The training and
+        # historical serving contract uses Qwen's original regex.
+        "fix_mistral_regex": False,
+        "tool_schema_sha256": tool_schema_record()["sha256"],
+        "effective_renderer": effective_renderer,
+    }
+
+
+def build_identity(
+    lock: dict,
+    snapshot_name: str,
+    api_model: str,
+    render_contract: dict,
+) -> EndpointIdentity:
     if snapshot_name not in SUPPORTED_MODELS:
         raise LocalEndpointError(f"unsupported local evaluation snapshot: {snapshot_name}")
     expected_api_model = SUPPORTED_MODELS[snapshot_name]
@@ -135,7 +247,8 @@ def build_identity(lock: dict, snapshot_name: str, api_model: str) -> EndpointId
             f"{snapshot_name}: expected one top-level SHA-256-identified weights file"
         )
     checkpoint_sha256 = top_level_weights[0]["sha256"]
-    tokenizer_sha256 = _locked_sha256(snapshot, "tokenizer.json")
+    canonical_tokenizer = lock["snapshots"][CANONICAL_TOKENIZER_SNAPSHOT]
+    tokenizer_sha256 = _locked_sha256(canonical_tokenizer, "tokenizer.json")
     revision = snapshot.get("revision", "")
     if not isinstance(revision, str) or len(revision) != 40:
         raise LocalEndpointError(f"{snapshot_name}: invalid locked revision")
@@ -144,12 +257,131 @@ def build_identity(lock: dict, snapshot_name: str, api_model: str) -> EndpointId
         api_model=api_model,
         deployment_id=(
             f"local-mlx-lm-{PINNED_MLX_LM_VERSION}-"
-            f"{snapshot_name}-{revision[:12]}"
+            f"{snapshot_name}-{revision[:12]}-"
+            f"{sha256_json(render_contract)[:12]}"
         ),
         checkpoint_sha256=checkpoint_sha256,
         tokenizer_sha256=tokenizer_sha256,
-        render_contract_sha256=tool_schema_record()["sha256"],
+        render_contract_sha256=sha256_json(render_contract),
+        chat_template_sha256=render_contract["chat_template_sha256"],
+        tokenizer_source_revision=render_contract["tokenizer_revision"],
+        fix_mistral_regex=render_contract["fix_mistral_regex"],
     )
+
+
+def build_runtime_view(
+    model_dir: Path,
+    canonical_tokenizer_dir: Path,
+    destination: Path,
+    patched_chat_template: str,
+) -> Path:
+    """Assemble a non-mutating view: arm weights plus one canonical tokenizer."""
+    destination.mkdir(parents=True, exist_ok=False)
+    for source in model_dir.iterdir():
+        (destination / source.name).symlink_to(source, target_is_directory=source.is_dir())
+
+    for filename in TOKENIZER_RUNTIME_FILES:
+        target = destination / filename
+        if target.is_symlink() or target.exists():
+            target.unlink()
+        source = canonical_tokenizer_dir / filename
+        if source.exists():
+            target.symlink_to(source)
+
+    config_path = destination / "tokenizer_config.json"
+    template_path = destination / "chat_template.jinja"
+    for generated in (config_path, template_path):
+        if generated.is_symlink() or generated.exists():
+            generated.unlink()
+    linked_config = canonical_tokenizer_dir / "tokenizer_config.json"
+    try:
+        tokenizer_config = json.loads(linked_config.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LocalEndpointError(
+            f"cannot build canonical tokenizer runtime view from {linked_config}"
+        ) from exc
+    tokenizer_config["chat_template"] = patched_chat_template
+    tokenizer_config["fix_mistral_regex"] = False
+    config_path.write_text(
+        json.dumps(tokenizer_config, ensure_ascii=False, sort_keys=True) + "\n"
+    )
+    template_path.write_text(patched_chat_template)
+    return destination
+
+
+def verify_effective_renderer(
+    runtime_model_dir: Path,
+    patched_chat_template: str,
+) -> dict:
+    """Exercise the exact derived tokenizer on tool history and drift probes."""
+    try:
+        from transformers import AutoTokenizer
+    except ImportError as exc:
+        raise LocalEndpointError(
+            "transformers is required to attest the effective local renderer"
+        ) from exc
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(
+            runtime_model_dir,
+            local_files_only=True,
+            fix_mistral_regex=False,
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        raise LocalEndpointError(
+            f"cannot load effective tokenizer from {runtime_model_dir}"
+        ) from exc
+    actual_template = tokenizer.chat_template
+    if actual_template != patched_chat_template:
+        raise LocalEndpointError(
+            "effective tokenizer chat template differs from the canonical patch"
+        )
+
+    messages = [
+        {"role": "system", "content": "You are the registered render probe."},
+        {"role": "user", "content": "Inspect the game state."},
+        {
+            "role": "assistant",
+            "reasoning_content": "I should observe before acting.",
+            "content": "",
+            "tool_calls": [{
+                "type": "function",
+                "function": {"name": "observe", "arguments": {}},
+            }],
+        },
+        {
+            "role": "tool",
+            "content": json.dumps({
+                "position": {"x": 328, "y": 892},
+                "isOpen": True,
+                "waitForTimeout": False,
+                "dialogue": "C'mon",
+            }, separators=(",", ":")),
+        },
+        {"role": "user", "content": "Continue."},
+    ]
+    try:
+        rendered = tokenizer.apply_chat_template(
+            messages,
+            tools=MODEL_VISIBLE_TOOL_DEFINITIONS,
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=True,
+        )
+        token_ids = tokenizer.encode(rendered, add_special_tokens=False)
+        probe_ids = {
+            probe: tokenizer.encode(probe, add_special_tokens=False)
+            for probe in RENDER_PROBE_STRINGS
+        }
+    except (ValueError, TypeError, RuntimeError) as exc:
+        raise LocalEndpointError("effective renderer probe failed") from exc
+    return {
+        "tokenizer_class": type(tokenizer).__name__,
+        "vocab_size": len(tokenizer),
+        "rendered_text_sha256": hashlib.sha256(rendered.encode("utf-8")).hexdigest(),
+        "rendered_token_ids_sha256": sha256_json(token_ids),
+        "rendered_token_count": len(token_ids),
+        "probe_token_ids_sha256": sha256_json(probe_ids),
+    }
 
 
 def build_backend_command(
@@ -157,6 +389,7 @@ def build_backend_command(
     model_dir: Path,
     host: str,
     port: int,
+    patched_chat_template: str,
 ) -> list[str]:
     require_loopback(host)
     return [
@@ -172,6 +405,8 @@ def build_backend_command(
         str(port),
         "--prompt-cache-size",
         "1",
+        "--chat-template",
+        patched_chat_template,
         "--chat-template-args",
         '{"enable_thinking":true}',
         "--log-level",
@@ -418,21 +653,59 @@ def main(argv: list[str] | None = None) -> int:
 
     backend = None
     server = None
+    runtime_view_context = None
     try:
         require_loopback(args.host)
         require_loopback(args.backend_host)
         require_mlx_runtime()
         lock = load_lock(args.lock)
-        identity = build_identity(lock, args.snapshot, args.api_model)
         model_dir = (args.snapshots_root / args.snapshot).resolve()
+        canonical_tokenizer_dir = (
+            args.snapshots_root / CANONICAL_TOKENIZER_SNAPSHOT
+        ).resolve()
         fetch_snapshot(lock["snapshots"][args.snapshot], model_dir, verify_only=True)
+        if args.snapshot != CANONICAL_TOKENIZER_SNAPSHOT:
+            fetch_snapshot(
+                lock["snapshots"][CANONICAL_TOKENIZER_SNAPSHOT],
+                canonical_tokenizer_dir,
+                verify_only=True,
+            )
+        patched_chat_template = load_patched_chat_template(canonical_tokenizer_dir)
+        runtime_view_context = tempfile.TemporaryDirectory(
+            prefix=f"kaetram-{args.snapshot}-runtime-"
+        )
+        runtime_model_dir = build_runtime_view(
+            model_dir,
+            canonical_tokenizer_dir,
+            Path(runtime_view_context.name) / "model",
+            patched_chat_template,
+        )
+        effective_renderer = verify_effective_renderer(
+            runtime_model_dir, patched_chat_template
+        )
+        render_contract = build_render_contract(
+            lock,
+            patched_chat_template,
+            canonical_tokenizer_dir,
+            effective_renderer,
+        )
+        identity = build_identity(
+            lock, args.snapshot, args.api_model, render_contract
+        )
         if args.verify_only:
-            print(json.dumps(identity.health_payload(), indent=2, sort_keys=True))
+            print(json.dumps({
+                **identity.health_payload(),
+                "render_contract": render_contract,
+            }, indent=2, sort_keys=True))
             return 0
 
         backend_url = f"http://{args.backend_host}:{args.backend_port}"
         command = build_backend_command(
-            sys.executable, model_dir, args.backend_host, args.backend_port
+            sys.executable,
+            runtime_model_dir,
+            args.backend_host,
+            args.backend_port,
+            patched_chat_template,
         )
         backend = subprocess.Popen(command, start_new_session=True)
         _backend_ready(backend_url, args.startup_timeout_seconds)
@@ -476,6 +749,8 @@ def main(argv: list[str] | None = None) -> int:
             except subprocess.TimeoutExpired:
                 os.killpg(backend.pid, signal.SIGKILL)
                 backend.wait()
+        if runtime_view_context is not None:
+            runtime_view_context.cleanup()
 
 
 if __name__ == "__main__":

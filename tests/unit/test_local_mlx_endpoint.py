@@ -6,13 +6,16 @@ from pathlib import Path
 
 import pytest
 
-from run_manifest import sha256_json, tool_schema_record
+from run_manifest import sha256_json
 from scripts.build_hf_snapshot_lock import SCHEMA_VERSION
 from scripts.local_mlx_endpoint import (
+    CANONICAL_TOKENIZER_SNAPSHOT,
     LocalEndpointError,
     PINNED_MLX_LM_VERSION,
     build_backend_command,
     build_identity,
+    build_render_contract,
+    build_runtime_view,
     normalize_mlx_tool_arguments,
     require_loopback,
     rewrite_chat_request,
@@ -25,8 +28,8 @@ def _lock() -> dict:
         "repo_type": "model",
         "repo_id": "owner/model",
         "revision": "a" * 40,
-        "file_count": 2,
-        "size_bytes": 7,
+        "file_count": 3,
+        "size_bytes": 9,
         "files": [
             {
                 "path": "model.safetensors",
@@ -37,6 +40,11 @@ def _lock() -> dict:
                 "path": "tokenizer.json",
                 "size_bytes": 4,
                 "sha256": hashlib.sha256(b"tokn").hexdigest(),
+            },
+            {
+                "path": "tokenizer_config.json",
+                "size_bytes": 2,
+                "sha256": hashlib.sha256(b"{}").hexdigest(),
             },
         ],
     }
@@ -49,20 +57,88 @@ def _lock() -> dict:
     return lock
 
 
-def test_identity_is_derived_only_from_locked_artifacts() -> None:
-    identity = build_identity(_lock(), "base_2b", "2b-base")
+def _render_contract(tmp_path: Path) -> dict:
+    canonical_dir = tmp_path / CANONICAL_TOKENIZER_SNAPSHOT
+    canonical_dir.mkdir(exist_ok=True)
+    (canonical_dir / "tokenizer_config.json").write_text("{}")
+    return build_render_contract(
+        _lock(),
+        "patched-template",
+        canonical_dir,
+        {"rendered_text_sha256": "f" * 64},
+    )
+
+
+def test_identity_is_derived_only_from_locked_artifacts(tmp_path: Path) -> None:
+    render_contract = _render_contract(tmp_path)
+    identity = build_identity(_lock(), "base_2b", "2b-base", render_contract)
     assert identity.deployment_id == (
-        f"local-mlx-lm-{PINNED_MLX_LM_VERSION}-base_2b-" + "a" * 12
+        f"local-mlx-lm-{PINNED_MLX_LM_VERSION}-base_2b-"
+        + "a" * 12
+        + "-"
+        + sha256_json(render_contract)[:12]
     )
     assert identity.checkpoint_sha256 == hashlib.sha256(b"abc").hexdigest()
     assert identity.tokenizer_sha256 == hashlib.sha256(b"tokn").hexdigest()
-    assert identity.render_contract_sha256 == tool_schema_record()["sha256"]
+    assert identity.render_contract_sha256 == sha256_json(render_contract)
+    assert identity.chat_template_sha256 == hashlib.sha256(
+        b"patched-template"
+    ).hexdigest()
+    assert identity.tokenizer_source_revision == "a" * 40
+    assert identity.fix_mistral_regex is False
     assert identity.health_payload()["attestation"]["api_model"] == "2b-base"
 
 
-def test_identity_rejects_scientific_alias_drift() -> None:
+def test_identity_rejects_scientific_alias_drift(tmp_path: Path) -> None:
     with pytest.raises(LocalEndpointError, match="reviewed API model"):
-        build_identity(_lock(), "base_2b", "wrong-name")
+        build_identity(
+            _lock(),
+            "base_2b",
+            "wrong-name",
+            _render_contract(tmp_path),
+        )
+
+
+def test_runtime_view_uses_canonical_tokenizer_without_mutating_sources(
+    tmp_path: Path,
+) -> None:
+    model_dir = tmp_path / "arm"
+    canonical_dir = tmp_path / CANONICAL_TOKENIZER_SNAPSHOT
+    runtime_dir = tmp_path / "runtime"
+    model_dir.mkdir()
+    canonical_dir.mkdir()
+    (model_dir / "config.json").write_text('{"arm":"r2"}')
+    (model_dir / "model.safetensors").write_bytes(b"weights")
+    (model_dir / "tokenizer.json").write_text('{"arm":"r2"}')
+    original_config = {
+        "chat_template": "unpatched",
+        "tokenizer_class": "Qwen2Tokenizer",
+    }
+    (canonical_dir / "tokenizer.json").write_text('{"canonical":true}')
+    (canonical_dir / "tokenizer_config.json").write_text(
+        json.dumps(original_config)
+    )
+    (canonical_dir / "chat_template.jinja").write_text("unpatched")
+    (canonical_dir / "merges.txt").write_text("merges")
+
+    build_runtime_view(
+        model_dir,
+        canonical_dir,
+        runtime_dir,
+        "patched-template",
+    )
+
+    assert (runtime_dir / "config.json").read_text() == '{"arm":"r2"}'
+    assert (runtime_dir / "model.safetensors").read_bytes() == b"weights"
+    assert (runtime_dir / "tokenizer.json").read_text() == '{"canonical":true}'
+    assert (runtime_dir / "merges.txt").read_text() == "merges"
+    runtime_config = json.loads((runtime_dir / "tokenizer_config.json").read_text())
+    assert runtime_config["chat_template"] == "patched-template"
+    assert runtime_config["fix_mistral_regex"] is False
+    assert (runtime_dir / "chat_template.jinja").read_text() == "patched-template"
+    assert json.loads((canonical_dir / "tokenizer_config.json").read_text()) == (
+        original_config
+    )
 
 
 def test_request_rewrite_preserves_payload_and_hides_backend_path() -> None:
@@ -210,10 +286,15 @@ def test_loopback_is_mandatory_for_both_listeners() -> None:
 
 def test_backend_command_is_pinned_to_local_snapshot(tmp_path: Path) -> None:
     command = build_backend_command(
-        "/venv/bin/python", tmp_path / "base_2b", "127.0.0.1", 8082
+        "/venv/bin/python",
+        tmp_path / "base_2b",
+        "127.0.0.1",
+        8082,
+        "patched-template",
     )
     assert command[:4] == ["/venv/bin/python", "-m", "mlx_lm", "server"]
     assert command[command.index("--model") + 1] == str(tmp_path / "base_2b")
     assert command[command.index("--host") + 1] == "127.0.0.1"
     assert command[command.index("--port") + 1] == "8082"
+    assert command[command.index("--chat-template") + 1] == "patched-template"
     assert '{"enable_thinking":true}' in command

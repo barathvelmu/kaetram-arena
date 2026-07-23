@@ -146,6 +146,26 @@ def _require(mapping: dict[str, Any], key: str, kind: type, context: str) -> Any
     return value
 
 
+def validate_cross_arm_render_parity(model_provenance: list[dict[str, Any]]) -> None:
+    """Require a true weights-only comparison at the model-visible boundary."""
+    tokenizer_digests = {
+        model["expected_health"]["tokenizer_sha256"]
+        for model in model_provenance
+    }
+    if len(tokenizer_digests) != 1:
+        raise ManifestError(
+            "all weight arms must attest the same model-visible tokenizer"
+        )
+    render_contract_digests = {
+        model["expected_health"]["render_contract_sha256"]
+        for model in model_provenance
+    }
+    if len(render_contract_digests) != 1:
+        raise ManifestError(
+            "all weight arms must attest the same model-visible render contract"
+        )
+
+
 def load_manifest(path: str | Path) -> tuple[dict[str, Any], Path]:
     manifest_path = Path(path).resolve()
     try:
@@ -422,6 +442,7 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
                 "render_contract_sha256": render_contract_sha,
             },
         })
+    validate_cross_arm_render_parity(model_provenance)
 
     evaluation = _require(raw, "evaluation", dict, "manifest")
     episodes = evaluation.get("episodes")

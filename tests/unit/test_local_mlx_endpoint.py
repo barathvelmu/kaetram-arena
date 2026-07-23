@@ -13,6 +13,7 @@ from scripts.local_mlx_endpoint import (
     PINNED_MLX_LM_VERSION,
     build_backend_command,
     build_identity,
+    normalize_mlx_tool_arguments,
     require_loopback,
     rewrite_chat_request,
     rewrite_chat_response,
@@ -78,6 +79,103 @@ def test_request_rewrite_preserves_payload_and_hides_backend_path() -> None:
 
     with pytest.raises(LocalEndpointError, match="attested API model"):
         rewrite_chat_request(b'{"model":"2b-opd-r2"}', "2b-base")
+
+
+def test_request_rewrite_normalizes_multi_turn_tool_history_for_mlx() -> None:
+    observe_args = {}
+    warp_args = {"location": "müdwich", "options": {"safe": True}}
+    spaced_args = '{  "x": 188, "y": 157 }'
+    source = {
+        "model": "2b-base",
+        "messages": [
+            {"role": "system", "content": "play"},
+            {
+                "role": "assistant",
+                "tool_calls": [{
+                    "type": "function",
+                    "function": {"name": "observe", "arguments": observe_args},
+                }],
+            },
+            {"role": "tool", "content": '{"pos":{"x":328,"y":892}}'},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {"name": "warp", "arguments": warp_args},
+                    },
+                    {
+                        "type": "function",
+                        "function": {"name": "navigate", "arguments": spaced_args},
+                    },
+                ],
+            },
+        ],
+        "tools": [{
+            "type": "function",
+            "function": {
+                "name": "warp",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }],
+        "seed": 17,
+    }
+
+    rewritten = json.loads(
+        rewrite_chat_request(json.dumps(source).encode(), "2b-base")
+    )
+    calls = [
+        call
+        for message in rewritten["messages"]
+        for call in message.get("tool_calls", [])
+    ]
+    assert json.loads(calls[0]["function"]["arguments"]) == observe_args
+    assert json.loads(calls[1]["function"]["arguments"]) == warp_args
+    assert calls[2]["function"]["arguments"] == spaced_args
+    assert rewritten["tools"] == source["tools"]
+    assert rewritten["messages"][2] == source["messages"][2]
+    assert rewritten["seed"] == 17
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        None,
+        [],
+        1,
+        True,
+        "",
+        "{broken",
+        "[]",
+        "null",
+        "true",
+    ],
+)
+def test_mlx_history_rejects_non_object_tool_arguments(arguments: object) -> None:
+    messages = [{
+        "role": "assistant",
+        "tool_calls": [{
+            "type": "function",
+            "function": {"name": "observe", "arguments": arguments},
+        }],
+    }]
+    with pytest.raises(
+        LocalEndpointError,
+        match=r"messages\[0\]\.tool_calls\[0\]\.function\.arguments",
+    ):
+        normalize_mlx_tool_arguments(messages)
+
+
+def test_mlx_history_rejects_non_json_mapping_values() -> None:
+    messages = [{
+        "role": "assistant",
+        "tool_calls": [{
+            "type": "function",
+            "function": {"name": "navigate", "arguments": {"x": float("nan")}},
+        }],
+    }]
+    with pytest.raises(LocalEndpointError, match="JSON object"):
+        normalize_mlx_tool_arguments(messages)
 
 
 def test_response_rewrite_restores_alias_and_thinking_shape() -> None:

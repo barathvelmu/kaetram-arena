@@ -7,6 +7,7 @@ import pytest
 from scripts.opd.analyze_local_recovery_factorial import (
     AnalysisError,
     _pair_differences,
+    _validate_recovery_receipts,
     _validate_recovery_accounting,
 )
 
@@ -80,6 +81,22 @@ def test_recovery_accounting_rejects_unexplained_canonical_call(monkeypatch) -> 
             },
             {"warp": 1, "observe": 1},
             True,
+        )
+
+
+def test_analysis_requires_one_recovery_receipt_per_session(tmp_path: Path) -> None:
+    raw = tmp_path / "episode_001_raw"
+    raw.mkdir()
+    (raw / "harness_meta_template.json").write_text(
+        '{"tool_recovery_enabled":true}'
+    )
+    (raw / "session_1_test.log").write_text("{}\n")
+    with pytest.raises(AnalysisError, match="recovery receipts"):
+        _validate_recovery_receipts(
+            tmp_path,
+            {"meta": {"tool_recovery_enabled": True}},
+            True,
+            "cell",
         )
 
 

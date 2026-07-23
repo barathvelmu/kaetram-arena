@@ -78,6 +78,7 @@ def _validate_recovery_receipts(
     results: dict,
     expected: bool,
     cell_id: str,
+    expected_identity: dict,
 ) -> None:
     meta = results.get("meta")
     if not isinstance(meta, dict) or meta.get("tool_recovery_enabled") is not expected:
@@ -92,9 +93,28 @@ def _validate_recovery_receipts(
     paths.extend(session_receipts)
     for path in paths:
         receipt = _load_json(path)
+        required_identity = (
+            {
+                key: value for key, value in expected_identity.items()
+                if key != "tool_schema_source"
+            }
+            if path.name == "harness_meta_template.json"
+            else expected_identity
+        )
+        mismatches = {
+            key: {"expected": value, "actual": receipt.get(key)}
+            for key, value in required_identity.items()
+            if receipt.get(key) != value
+        }
         if receipt.get("tool_recovery_enabled") is not expected:
+            mismatches["tool_recovery_enabled"] = {
+                "expected": expected,
+                "actual": receipt.get("tool_recovery_enabled"),
+            }
+        if mismatches:
             raise AnalysisError(
-                f"{cell_id}: recovery identity mismatch in {path.name}"
+                f"{cell_id}: session identity mismatch in "
+                f"{path.name} {mismatches}"
             )
 
 
@@ -166,6 +186,62 @@ def _validate_recovery_accounting(
         "recovered_execution_successes": recovered_total - recovered_errors,
         "repeat_recoveries_within_window": repeat_recoveries,
         "recovered_by_tool": recovered,
+    }
+
+
+def _build_cell_row(
+    *,
+    cell: dict,
+    duration: float,
+    duration_budget: int,
+    episode: dict,
+    recomputed: dict,
+    raw_metrics: dict,
+    recovery_metrics: dict,
+    api_errors: int,
+    sub_sessions: int,
+) -> dict:
+    executed_calls = sum(recomputed["action_counts"].values())
+    return {
+        "cell_id": cell["cell_id"],
+        "replicate": cell["replicate"],
+        "weight": WEIGHT_LABEL[cell["snapshot"]],
+        "recovery": cell["recovery"],
+        "schedule_index": cell["schedule_index"],
+        "duration_seconds": duration,
+        "budget_overrun_seconds": round(duration - duration_budget, 3),
+        "turns": int(episode["turns_played"]),
+        "canonical_executed_calls": executed_calls,
+        "canonical_executed_calls_per_minute": round(
+            executed_calls / (duration / 60), 6
+        ),
+        "canonical_tool_bearing_turns": int(episode["tool_calls_valid"]),
+        "tool_parse_rate": float(episode["tool_parse_rate"]),
+        "api_errors": api_errors,
+        "sub_sessions": sub_sessions,
+        "core3_stages_advanced": int(episode["core3_stages_advanced"]),
+        "quest_stages_advanced": int(episode["quest_stages_advanced"]),
+        "xp_db_delta": int(episode["xp_db_delta"]),
+        "unique_positions": int(episode["unique_positions"]),
+        "canonical_action_counts": recomputed["action_counts"],
+        "raw_generations": raw_metrics["raw_generations"],
+        "generations_with_structured_call": raw_metrics[
+            "generations_with_structured_call"
+        ],
+        "generations_without_structured_call": raw_metrics[
+            "generations_without_structured_call"
+        ],
+        "structured_call_emission_rate": round(
+            raw_metrics["generations_with_structured_call"]
+            / raw_metrics["raw_generations"],
+            6,
+        ),
+        "raw_structured_calls": raw_metrics["emitted_structured_calls"],
+        "raw_structured_calls_per_minute": round(
+            raw_metrics["emitted_structured_calls"] / (duration / 60), 6
+        ),
+        "raw_action_counts": raw_metrics["raw_action_counts"],
+        **recovery_metrics,
     }
 
 
@@ -295,6 +371,18 @@ def _summarize(rows: list[dict]) -> dict:
     return result
 
 
+def _verify_completed_cell_artifacts(
+    cell_root: Path,
+    retained: dict,
+) -> tuple[str, int]:
+    inventory_sha = retained.get("artifact_inventory_sha256")
+    if not isinstance(inventory_sha, str) or not inventory_sha:
+        raise AnalysisError(
+            f"{cell_root.name}: completed cell lacks a sealed artifact inventory"
+        )
+    return inventory_sha, _verify_artifacts(cell_root, inventory_sha)
+
+
 def analyze(root: Path, manifest_path: Path) -> dict:
     manifest, manifest_sha256 = load_manifest(manifest_path)
     if manifest.get("schema_version") != RECOVERY_FACTORIAL_SCHEMA_VERSION:
@@ -370,9 +458,10 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             or retained.get("recovery_assignment") is not recovery
         ):
             raise AnalysisError(f"{cell_id}: cell receipt identity mismatch")
-        inventory_sha = retained.get("artifact_inventory_sha256")
-        if isinstance(inventory_sha, str) and inventory_sha:
-            files_checked += _verify_artifacts(cell_root, inventory_sha)
+        inventory_sha, rehashed = _verify_completed_cell_artifacts(
+            cell_root, retained
+        )
+        files_checked += rehashed
         if retained.get("status") != "valid":
             invalid_cells.append({
                 "cell_id": cell_id,
@@ -382,14 +471,12 @@ def analyze(root: Path, manifest_path: Path) -> dict:
                 "schedule_index": cell["schedule_index"],
                 "returncode": retained.get("returncode"),
                 "error": retained.get("error"),
-                "artifacts_sealed": bool(inventory_sha),
+                "artifacts_sealed": True,
             })
             continue
         if (
             retained.get("returncode") != 0
             or retained.get("tool_recovery_enabled") is not recovery
-            or not isinstance(inventory_sha, str)
-            or not inventory_sha
         ):
             raise AnalysisError(f"{cell_id}: valid cell receipt is inconsistent")
         endpoint, endpoint_sha = _validate_cell_attestation(
@@ -457,7 +544,43 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             rng.get(key) != value for key, value in expected_rng.items()
         ):
             raise AnalysisError(f"{cell_id}: environment RNG attestation mismatch")
-        _validate_recovery_receipts(results_root, results, recovery, cell_id)
+        expected_session_identity = {
+            "personality": protocol["personality"],
+            "harness": "qwen",
+            "model": manifest["models"][cell["snapshot"]]["api_model"],
+            "tool_schema_source": protocol["tool_schema_source"],
+            "inference_seed": cell["inference_seed"],
+            "protocol_id": manifest["pilot_id"],
+            "experiment_manifest_sha256": manifest_sha256,
+            "endpoint_attestation_sha256": endpoint_sha,
+            "checkpoint_sha256": endpoint["checkpoint_sha256"],
+            "tokenizer_sha256": preflight["tokenizer_sha256"],
+            "render_contract_sha256": preflight["render_contract_sha256"],
+            "factorial_schedule_algorithm": protocol["schedule_algorithm"],
+            "factorial_schedule_seed": protocol["schedule_seed"],
+            "factorial_schedule_index": cell["schedule_index"],
+            "factorial_batch_index": cell["replicate"] - 1,
+            "factorial_cluster_id": f"pilot-rep{cell['replicate']:02d}",
+            "factorial_pair_id": (
+                f"pilot-rep{cell['replicate']:02d}-"
+                f"{WEIGHT_LABEL[cell['snapshot']]}"
+            ),
+            "environment_seed_mechanism": protocol["environment_seed_mechanism"],
+            "environment_seed": cell["environment_seed"],
+            "environment_rng_algorithm": protocol["environment_rng_algorithm"],
+            "environment_game_revision": preflight["game_revision"],
+            "environment_game_bundle_sha256": preflight["game_bundle_sha256"],
+            "environment_seed_reason": protocol["environment_seed_reason"],
+            "environment_rng_attestation": expected_rng,
+            "tool_recovery_enabled": recovery,
+        }
+        _validate_recovery_receipts(
+            results_root,
+            results,
+            recovery,
+            cell_id,
+            expected_session_identity,
+        )
         if (
             _file_sha256(results_root / "system_prompt.md")
             != contract["system_prompt_sha256"]
@@ -505,51 +628,17 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         duration = float(episode["duration_seconds"])
         if duration < protocol["duration_seconds"]:
             raise AnalysisError(f"{cell_id}: episode ended before fixed budget")
-        tool_bearing_turns = int(episode["tool_calls_valid"])
-        executed_calls = sum(recomputed["action_counts"].values())
-        rows.append({
-            "cell_id": cell_id,
-            "replicate": cell["replicate"],
-            "weight": WEIGHT_LABEL[cell["snapshot"]],
-            "recovery": recovery,
-            "schedule_index": cell["schedule_index"],
-            "duration_seconds": duration,
-            "budget_overrun_seconds": round(
-                duration - protocol["duration_seconds"], 3
-            ),
-            "turns": int(episode["turns_played"]),
-            "canonical_executed_calls": executed_calls,
-            "canonical_executed_calls_per_minute": round(
-                executed_calls / (duration / 60), 6
-            ),
-            "canonical_tool_bearing_turns": tool_bearing_turns,
-            "tool_parse_rate": float(episode["tool_parse_rate"]),
-            "api_errors": _api_error_count(cell_root),
-            "sub_sessions": len(session_logs),
-            "core3_stages_advanced": int(episode["core3_stages_advanced"]),
-            "quest_stages_advanced": int(episode["quest_stages_advanced"]),
-            "xp_db_delta": int(episode["xp_db_delta"]),
-            "unique_positions": int(episode["unique_positions"]),
-            "canonical_action_counts": recomputed["action_counts"],
-            "raw_generations": raw_metrics["raw_generations"],
-            "generations_with_structured_call": raw_metrics[
-                "generations_with_structured_call"
-            ],
-            "generations_without_structured_call": raw_metrics[
-                "generations_without_structured_call"
-            ],
-            "pooled_structured_call_emission_rate": round(
-                raw_metrics["generations_with_structured_call"]
-                / raw_metrics["raw_generations"],
-                6,
-            ),
-            "raw_structured_calls": raw_metrics["emitted_structured_calls"],
-            "raw_structured_calls_per_minute": round(
-                raw_metrics["emitted_structured_calls"] / (duration / 60), 6
-            ),
-            "raw_action_counts": raw_metrics["raw_action_counts"],
-            **recovery_metrics,
-        })
+        rows.append(_build_cell_row(
+            cell=cell,
+            duration=duration,
+            duration_budget=protocol["duration_seconds"],
+            episode=episode,
+            recomputed=recomputed,
+            raw_metrics=raw_metrics,
+            recovery_metrics=recovery_metrics,
+            api_errors=_api_error_count(cell_root),
+            sub_sessions=len(session_logs),
+        ))
 
     index_record = {
         "prelaunch_sha256": _file_sha256(prelaunch_path),
@@ -582,7 +671,7 @@ def analyze(root: Path, manifest_path: Path) -> dict:
             "generations_without_structured_call": sum(
                 row["generations_without_structured_call"] for row in rows
             ),
-            "structured_call_emission_rate": round(
+            "pooled_structured_call_emission_rate": round(
                 sum(row["generations_with_structured_call"] for row in rows)
                 / sum(row["raw_generations"] for row in rows),
                 6,

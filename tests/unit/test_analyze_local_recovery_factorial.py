@@ -6,10 +6,11 @@ from pathlib import Path
 import pytest
 
 from scripts.opd.analyze_local_recovery_factorial import (
-    ARM_VALUE_METRICS,
     AnalysisError,
+    _build_cell_row,
     _pair_differences,
     _summarize,
+    _verify_completed_cell_artifacts,
     _validate_recovery_receipts,
     _validate_recovery_accounting,
 )
@@ -206,6 +207,32 @@ def test_analysis_requires_one_recovery_receipt_per_session(tmp_path: Path) -> N
             {"meta": {"tool_recovery_enabled": True}},
             True,
             "cell",
+            {"model": "2b-base", "tool_recovery_enabled": True},
+        )
+
+
+def test_analysis_rejects_session_identity_drift(tmp_path: Path) -> None:
+    raw = tmp_path / "episode_001_raw"
+    raw.mkdir()
+    expected = {
+        "model": "2b-base",
+        "inference_seed": 1729,
+        "tool_recovery_enabled": True,
+    }
+    (raw / "harness_meta_template.json").write_text(json.dumps(expected))
+    (raw / "session_1_test.log").write_text("{}\n")
+    (raw / "session_1_test.meta.json").write_text(json.dumps({
+        **expected,
+        "model": "2b-r2",
+    }))
+
+    with pytest.raises(AnalysisError, match="session identity mismatch"):
+        _validate_recovery_receipts(
+            tmp_path,
+            {"meta": {"tool_recovery_enabled": True}},
+            True,
+            "cell",
+            expected,
         )
 
 
@@ -245,15 +272,45 @@ def test_pair_differences_require_and_preserve_all_nine_pairs() -> None:
 def test_arm_summary_retains_replicate_values_and_descriptive_means() -> None:
     rows = []
     for replicate in (3, 1, 2):
-        row = {
-            "cell_id": f"rep{replicate:02d}-base-rec-off",
-            "replicate": replicate,
-            "weight": "base",
-            "recovery": False,
-            "schedule_index": replicate + 10,
-        }
-        row.update({metric: replicate for metric in ARM_VALUE_METRICS})
-        rows.append(row)
+        rows.append(_build_cell_row(
+            cell={
+                "cell_id": f"rep{replicate:02d}-base-rec-off",
+                "replicate": replicate,
+                "snapshot": "base_2b",
+                "recovery": False,
+                "schedule_index": replicate + 10,
+            },
+            duration=60.0,
+            duration_budget=59,
+            episode={
+                "turns_played": replicate,
+                "tool_calls_valid": replicate,
+                "tool_parse_rate": replicate,
+                "core3_stages_advanced": replicate,
+                "quest_stages_advanced": replicate,
+                "xp_db_delta": replicate,
+                "unique_positions": replicate,
+            },
+            recomputed={"action_counts": {"observe": replicate}},
+            raw_metrics={
+                "raw_generations": replicate,
+                "generations_with_structured_call": replicate,
+                "generations_without_structured_call": 0,
+                "emitted_structured_calls": replicate,
+                "raw_action_counts": {"observe": replicate},
+            },
+            recovery_metrics={
+                "malformed_emissions": replicate,
+                "recoverable_raw_calls": replicate,
+                "recovered_calls": replicate,
+                "recovered_execution_errors": 0,
+                "recovered_execution_successes": replicate,
+                "repeat_recoveries_within_window": replicate,
+                "recovered_by_tool": {"observe": replicate},
+            },
+            api_errors=replicate,
+            sub_sessions=replicate,
+        ))
 
     arm = _summarize(rows)["base-recovery-off"]
     assert arm["cell_ids"] == [
@@ -268,3 +325,27 @@ def test_arm_summary_retains_replicate_values_and_descriptive_means() -> None:
     assert arm["values"]["raw_structured_calls_per_minute"] == [1, 2, 3]
     assert arm["means"]["raw_structured_calls_per_minute"] == 2
     assert arm["pooled_structured_call_emission_rate"] == 1
+
+
+def test_every_completed_cell_requires_a_verified_inventory(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    with pytest.raises(AnalysisError, match="lacks a sealed artifact inventory"):
+        _verify_completed_cell_artifacts(tmp_path / "invalid-cell", {
+            "status": "invalid",
+            "artifact_inventory_sha256": "",
+        })
+
+    verified = []
+    monkeypatch.setattr(
+        "scripts.opd.analyze_local_recovery_factorial._verify_artifacts",
+        lambda root, digest: verified.append((root, digest)) or 7,
+    )
+    digest, count = _verify_completed_cell_artifacts(tmp_path / "invalid-cell", {
+        "status": "invalid",
+        "artifact_inventory_sha256": "a" * 64,
+    })
+    assert digest == "a" * 64
+    assert count == 7
+    assert verified == [(tmp_path / "invalid-cell", "a" * 64)]

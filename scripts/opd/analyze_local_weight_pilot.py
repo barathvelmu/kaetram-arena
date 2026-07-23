@@ -234,19 +234,29 @@ def _validate_prelaunch(
                 "schema",
                 "expected_database",
                 "effective_database",
+                "effective_backend",
+                "skip_database",
                 "effective_host",
                 "effective_port",
+                "tls",
+                "srv",
+                "authentication_enabled",
                 "node_env",
                 "config_files",
                 "attestation_sha256",
             }
-            or database.get("schema") != "kaetram-game-database-attestation/v1"
+            or database.get("schema") != "kaetram-game-database-attestation/v2"
             or database.get("expected_database")
             != manifest["protocol"]["mongo_database"]
             or database.get("effective_database")
             != manifest["protocol"]["mongo_database"]
+            or database.get("effective_backend") != "mongodb"
+            or database.get("skip_database") is not False
             or database.get("effective_host") != "127.0.0.1"
             or database.get("effective_port") != 27017
+            or database.get("tls") is not False
+            or database.get("srv") is not False
+            or database.get("authentication_enabled") is not False
             or not isinstance(node_env, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]*", node_env)
             or not isinstance(config_files, list)

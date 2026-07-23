@@ -196,11 +196,16 @@ def _extended_prelaunch_fixture() -> tuple[dict, dict]:
         "cells": [{"cell_id": "base"}, {"cell_id": "r2"}],
     }
     database = {
-        "schema": "kaetram-game-database-attestation/v1",
+        "schema": "kaetram-game-database-attestation/v2",
         "expected_database": "kaetram_eval",
         "effective_database": "kaetram_eval",
+        "effective_backend": "mongodb",
+        "skip_database": False,
         "effective_host": "127.0.0.1",
         "effective_port": 27017,
+        "tls": False,
+        "srv": False,
+        "authentication_enabled": False,
         "node_env": "",
         "config_files": [
             {"path": ".env.defaults", "sha256": "1" * 64},

@@ -80,11 +80,20 @@ def test_game_database_attestation_binds_effective_dotenv_lane(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".env.defaults").write_text(
+        "DATABASE='mongodb'\n"
+        "SKIP_DATABASE=true\n"
         "MONGODB_HOST='127.0.0.1'\n"
         "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_devlopment'\n"
+        "MONGODB_TLS=false\n"
+        "MONGODB_SRV=false\n"
+        "MONGODB_USER=''\n"
+        "MONGODB_PASSWORD=''\n"
+        "MONGODB_AUTH_SOURCE=''\n"
     )
     (tmp_path / ".env").write_text(
+        "DATABASE='mongodb'\n"
+        "SKIP_DATABASE=false\n"
         "MONGODB_HOST='127.0.0.1'\n"
         "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_eval'\n"
@@ -95,6 +104,8 @@ def test_game_database_attestation_binds_effective_dotenv_lane(
     )
 
     assert record["schema"] == eval_harness.GAME_DATABASE_ATTESTATION_SCHEMA
+    assert record["effective_backend"] == "mongodb"
+    assert record["skip_database"] is False
     assert record["effective_database"] == "kaetram_eval"
     assert [item["path"] for item in record["config_files"]] == [
         ".env.defaults",
@@ -107,11 +118,20 @@ def test_game_database_attestation_rejects_lane_mismatch_and_node_override(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".env.defaults").write_text(
+        "DATABASE='mongodb'\n"
+        "SKIP_DATABASE=false\n"
         "MONGODB_HOST='127.0.0.1'\n"
         "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_devlopment'\n"
+        "MONGODB_TLS=false\n"
+        "MONGODB_SRV=false\n"
+        "MONGODB_USER=''\n"
+        "MONGODB_PASSWORD=''\n"
+        "MONGODB_AUTH_SOURCE=''\n"
     )
     (tmp_path / ".env").write_text(
+        "DATABASE='mongodb'\n"
+        "SKIP_DATABASE=false\n"
         "MONGODB_HOST='127.0.0.1'\n"
         "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_eval'\n"
@@ -127,14 +147,34 @@ def test_game_database_attestation_rejects_lane_mismatch_and_node_override(
             tmp_path, "kaetram_eval", environ={"NODE_ENV": "e2e"}
         )
 
+    (tmp_path / ".env.e2e").unlink()
+    (tmp_path / ".env").write_text(
+        "DATABASE='mongodb'\n"
+        "SKIP_DATABASE=true\n"
+        "MONGODB_HOST='127.0.0.1'\n"
+        "MONGODB_PORT=27017\n"
+        "MONGODB_DATABASE='kaetram_eval'\n"
+    )
+    with pytest.raises(RuntimeError, match="skip_database='true'"):
+        eval_harness.attest_game_database_configuration(
+            tmp_path, "kaetram_eval", environ={}
+        )
+
 
 def test_game_database_attestation_rejects_ambiguous_or_untracked_inputs(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".env.defaults").write_text(
+        "DATABASE='mongodb'\n"
+        "SKIP_DATABASE=false\n"
         "MONGODB_HOST='127.0.0.1'\n"
         "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_devlopment'\n"
+        "MONGODB_TLS=false\n"
+        "MONGODB_SRV=false\n"
+        "MONGODB_USER=''\n"
+        "MONGODB_PASSWORD=''\n"
+        "MONGODB_AUTH_SOURCE=''\n"
     )
     (tmp_path / ".env").write_text(
         "MONGODB_DATABASE='one'\nMONGODB_DATABASE='two'\n"
@@ -166,6 +206,7 @@ def test_game_database_attestation_rejects_ambiguous_or_untracked_inputs(
         },
         {"DOTENV_CONFIG_PATH": "/tmp/untracked.env"},
         {"MONGODB_DATABASE": "wrong_lane"},
+        {"SKIP_DATABASE": "false"},
     ],
 )
 def test_game_database_attestation_rejects_ambient_dotenv_overrides(
@@ -173,11 +214,20 @@ def test_game_database_attestation_rejects_ambient_dotenv_overrides(
     environ: dict[str, str],
 ) -> None:
     (tmp_path / ".env.defaults").write_text(
+        "DATABASE='mongodb'\n"
+        "SKIP_DATABASE=false\n"
         "MONGODB_HOST='127.0.0.1'\n"
         "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_devlopment'\n"
+        "MONGODB_TLS=false\n"
+        "MONGODB_SRV=false\n"
+        "MONGODB_USER=''\n"
+        "MONGODB_PASSWORD=''\n"
+        "MONGODB_AUTH_SOURCE=''\n"
     )
     (tmp_path / ".env").write_text(
+        "DATABASE='mongodb'\n"
+        "SKIP_DATABASE=false\n"
         "MONGODB_HOST='127.0.0.1'\n"
         "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_eval'\n"

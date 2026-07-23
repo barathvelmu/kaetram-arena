@@ -146,15 +146,19 @@ from ignored dotenv files. The running bundle did not exhibit the upstream
 #37 mismatch: the registration and live harness both named
 `kaetram_devlopment`; the game `.env` also named `kaetram_devlopment`, had
 SHA-256 `58a086da1d6de1462f9903d2dab40878aa1e4831114410e07b4a9f7b9f93f614`,
-and its 00:25:17 EDT modification time preceded the 04:01:01 EDT launcher
-start. No quest outcome or cross-cell contrast was inspected for this check.
+selected `DATABASE=mongodb` through the tracked defaults, explicitly overrode
+the tracked `SKIP_DATABASE=true` default with `SKIP_DATABASE=false`, and its
+00:25:17 EDT modification time preceded the 04:01:01 EDT launcher start. No
+quest outcome or cross-cell contrast was inspected for this check.
 
 This is post-launch filesystem evidence, not a preregistered server-side
 attestation. The current bundle therefore remains exploratory and cannot be
 promoted to confirmatory evidence on that basis. A subsequent launcher revision
 must fail before any cell unless the dotenv-resolved game database equals the
-harness database on the registered loopback host and port, reject ambient
-dotenv controls, hash every contributing dotenv file in the prelaunch ledger,
+harness database on the registered loopback host and port, require the MongoDB
+backend with database skipping disabled and local non-SRV/no-TLS/no-auth
+settings, reject ambient dotenv controls, hash every contributing dotenv file
+in the prelaunch ledger,
 recheck those hashes after game startup, and carry the attestation into result
 metadata. The same revision must reject unlocked files, directories, and
 symlinks in model snapshot roots, construct runtime views only from locked

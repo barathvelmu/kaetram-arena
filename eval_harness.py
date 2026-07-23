@@ -105,7 +105,7 @@ MONGO_CONTAINER = "kaetram-mongo"
 MONGO_DB = os.environ.get("KAETRAM_MONGO_DB", "kaetram_devlopment")
 ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v2"
 ENVIRONMENT_RNG_ALGORITHM = "mulberry32-sha256-v1"
-GAME_DATABASE_ATTESTATION_SCHEMA = "kaetram-game-database-attestation/v1"
+GAME_DATABASE_ATTESTATION_SCHEMA = "kaetram-game-database-attestation/v2"
 GAME_MONGO_HOST = "127.0.0.1"
 GAME_MONGO_PORT = 27017
 MONGO_COLLECTIONS = [
@@ -194,9 +194,16 @@ def _sha256_path(path: Path) -> str:
 def _mongo_connection_from_env_file(path: Path) -> dict[str, str]:
     """Read conservative Mongo connection assignments from a dotenv file."""
     matches: dict[str, list[str]] = {
+        "DATABASE": [],
+        "SKIP_DATABASE": [],
         "MONGODB_HOST": [],
         "MONGODB_PORT": [],
         "MONGODB_DATABASE": [],
+        "MONGODB_TLS": [],
+        "MONGODB_SRV": [],
+        "MONGODB_USER": [],
+        "MONGODB_PASSWORD": [],
+        "MONGODB_AUTH_SOURCE": [],
     }
     for line_number, raw_line in enumerate(
         path.read_text(encoding="utf-8").splitlines(), start=1
@@ -205,16 +212,18 @@ def _mongo_connection_from_env_file(path: Path) -> dict[str, str]:
         if not stripped or stripped.startswith("#"):
             continue
         match = re.fullmatch(
-            r"(MONGODB_HOST|MONGODB_PORT|MONGODB_DATABASE)\s*=\s*(.*)",
+            r"(DATABASE|SKIP_DATABASE|MONGODB_HOST|MONGODB_PORT|"
+            r"MONGODB_DATABASE|MONGODB_TLS|MONGODB_SRV|MONGODB_USER|"
+            r"MONGODB_PASSWORD|MONGODB_AUTH_SOURCE)\s*=\s*(.*)",
             stripped,
         )
         if not match:
             continue
         key, raw_value = match.group(1), match.group(2).strip()
         value_match = re.fullmatch(
-            r"(?:'(?P<single>[A-Za-z0-9_.:-]+)'|"
-            r'"(?P<double>[A-Za-z0-9_.:-]+)"|'
-            r"(?P<plain>[A-Za-z0-9_.:-]+))",
+            r"(?:'(?P<single>[A-Za-z0-9_.:-]*)'|"
+            r'"(?P<double>[A-Za-z0-9_.:-]*)"|'
+            r"(?P<plain>[A-Za-z0-9_.:-]*))",
             raw_value,
         )
         if not value_match:
@@ -222,7 +231,10 @@ def _mongo_connection_from_env_file(path: Path) -> dict[str, str]:
                 f"{path}:{line_number}: ambiguous or unsafe "
                 f"{key} value"
             )
-        value = next(value for value in value_match.groupdict().values() if value)
+        value = next(
+            value for value in value_match.groupdict().values()
+            if value is not None
+        )
         matches[key].append(value)
     duplicates = sorted(key for key, values in matches.items() if len(values) > 1)
     if duplicates:
@@ -256,10 +268,16 @@ def attest_game_database_configuration(
             "refusing ambient dotenv-extended controls that can change game "
             f"configuration semantics: {dotenv_controls}"
         )
-    if "MONGODB_DATABASE" in active_environ:
+    ambient_database_controls = sorted(
+        key
+        for key in active_environ
+        if key in {"DATABASE", "SKIP_DATABASE"} or key.startswith("MONGODB_")
+    )
+    if ambient_database_controls:
         raise RuntimeError(
-            "refusing ambient MONGODB_DATABASE; the game database must come "
-            "only from the hash-attested dotenv files"
+            "refusing ambient database controls; game database configuration "
+            "must come only from the hash-attested dotenv files: "
+            f"{ambient_database_controls}"
         )
     node_env = active_environ.get("NODE_ENV", "")
     if node_env and not re.fullmatch(r"[A-Za-z0-9_-]+", node_env):
@@ -282,17 +300,34 @@ def attest_game_database_configuration(
             "sha256": _sha256_path(path),
         })
     effective_database = effective.get("MONGODB_DATABASE")
+    effective_backend = effective.get("DATABASE")
+    skip_database = effective.get("SKIP_DATABASE")
     effective_host = effective.get("MONGODB_HOST")
     effective_port = effective.get("MONGODB_PORT")
+    tls = effective.get("MONGODB_TLS")
+    srv = effective.get("MONGODB_SRV")
+    user = effective.get("MONGODB_USER")
+    password = effective.get("MONGODB_PASSWORD")
+    auth_source = effective.get("MONGODB_AUTH_SOURCE")
     if (
         effective_database != expected_database
+        or effective_backend != "mongodb"
+        or skip_database != "false"
         or effective_host != GAME_MONGO_HOST
         or effective_port != str(GAME_MONGO_PORT)
+        or tls != "false"
+        or srv != "false"
+        or user != ""
+        or password != ""
+        or auth_source != ""
     ):
         raise RuntimeError(
             "game server MongoDB target differs from harness attested local "
-            f"lane: game=({effective_host!r}, {effective_port!r}, "
-            f"{effective_database!r}), harness=({GAME_MONGO_HOST!r}, "
+            f"lane: backend={effective_backend!r}, "
+            f"skip_database={skip_database!r}, game=({effective_host!r}, {effective_port!r}, "
+            f"{effective_database!r}), tls={tls!r}, srv={srv!r}, "
+            f"authentication_enabled={bool(user or password or auth_source)!r}, "
+            f"harness=({GAME_MONGO_HOST!r}, "
             f"{GAME_MONGO_PORT!r}, {expected_database!r})"
         )
 
@@ -300,8 +335,13 @@ def attest_game_database_configuration(
         "schema": GAME_DATABASE_ATTESTATION_SCHEMA,
         "expected_database": expected_database,
         "effective_database": effective_database,
+        "effective_backend": effective_backend,
+        "skip_database": False,
         "effective_host": effective_host,
         "effective_port": int(effective_port),
+        "tls": False,
+        "srv": False,
+        "authentication_enabled": False,
         "node_env": node_env,
         "config_files": files,
     }
@@ -1255,7 +1295,7 @@ def run_model_eval(
                     "--port",
                     str(server_port),
                 ]
-                game_env = {**os.environ, "ACCEPT_LICENSE": "true", "SKIP_DATABASE": "false"}
+                game_env = {**os.environ, "ACCEPT_LICENSE": "true"}
                 attestation_path = model_output_dir / "environment-rng.json"
                 if rng_required:
                     if attestation_path.exists():

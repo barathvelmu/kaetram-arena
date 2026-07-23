@@ -356,7 +356,10 @@ def test_rejects_resealed_row_with_forged_outcome(tmp_path: Path) -> None:
 def test_rejects_resealed_stale_analysis(tmp_path: Path) -> None:
     fixture = _fixture(tmp_path)
     cells = fixture["analysis_dir"] / "cells.csv"
-    cells.write_text(cells.read_text().replace(",4,", ",999,", 1))
+    original = cells.read_text()
+    altered = original.replace(",1,1,0,", ",1,1,0.25,", 1)
+    assert altered != original
+    cells.write_text(altered)
     _seal_analysis(fixture["analysis_dir"])
 
     with pytest.raises(ExportError, match="differs from raw-data reanalysis"):

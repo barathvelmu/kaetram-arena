@@ -50,6 +50,12 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def preserve_invoked_path(path: Path) -> Path:
+    """Make a CLI path absolute without resolving virtualenv symlinks."""
+    expanded = path.expanduser()
+    return expanded if expanded.is_absolute() else Path.cwd() / expanded
+
+
 def _require_clean_git(repo: Path, label: str) -> str:
     try:
         top = subprocess.run(
@@ -671,8 +677,8 @@ def main(argv: list[str] | None = None) -> int:
             output_root=args.output_root.resolve(),
             snapshots_root=args.snapshots_root.resolve(),
             game_dir=args.game_dir.resolve(),
-            mlx_python=args.mlx_python.resolve(),
-            node_binary=args.node_binary.resolve(),
+            mlx_python=preserve_invoked_path(args.mlx_python),
+            node_binary=preserve_invoked_path(args.node_binary),
             confirmation=args.confirm,
         )
     except (PilotError, OSError, json.JSONDecodeError) as exc:

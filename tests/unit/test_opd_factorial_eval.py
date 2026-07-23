@@ -57,6 +57,13 @@ def test_manifest_generates_complete_paired_factorial_with_isolation(tmp_path: P
         "grinder", "completionist", "explorer_tinkerer"
     }
     assert len({c.username for c in plan.cells}) == 360
+    assert {
+        (c.personality, c.prompt_agent_name) for c in plan.cells
+    } == {
+        ("grinder", "EvalGrinder"),
+        ("completionist", "EvalCompletionist"),
+        ("explorer_tinkerer", "EvalExplorer"),
+    }
     assert len({c.server_port for c in plan.cells}) == 360
     assert len({c.sandbox for c in plan.cells}) == 360
     assert len({c.run_dir for c in plan.cells}) == 360
@@ -108,6 +115,7 @@ def test_preflight_plan_uses_endpoint_placeholders_and_never_resolves_or_launche
     assert all("21600" in command for command in commands)
     assert payload["launchability"] == "attested_environment_rng_configured"
     assert all("--environment-seed" in command for command in commands)
+    assert all("--prompt-agent-name" in command for command in commands)
 
 
 def test_cli_dry_run_has_no_endpoint_game_db_or_directory_side_effects(tmp_path: Path):
@@ -190,6 +198,16 @@ def test_randomization_contract_rejects_missing_environment_seed_attestation(tmp
         (
             lambda raw: raw["execution"].update({"max_parallel": 5}),
             "one analysis cluster",
+        ),
+        (
+            lambda raw: raw["isolation"].pop("prompt_agent_names"),
+            "prompt_agent_names",
+        ),
+        (
+            lambda raw: raw["isolation"]["prompt_agent_names"].update(
+                {"grinder": "EvalCompletionist"}
+            ),
+            "must be unique",
         ),
     ],
 )
@@ -478,6 +496,7 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
                 "include_game_knowledge": not plan.omit_game_knowledge,
                 "held_out_quest": plan.held_out_quest,
                 "inference_seed": cell.inference_seed,
+                "prompt_agent_name": cell.prompt_agent_name,
                 "factorial_schedule_algorithm": plan.schedule_algorithm,
                 "factorial_schedule_seed": plan.schedule_seed,
                 "factorial_schedule_index": cell.schedule_index,
@@ -553,6 +572,7 @@ def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Pat
             "include_game_knowledge": True,
             "held_out_quest": "",
             "inference_seed": cell.inference_seed,
+            "prompt_agent_name": cell.prompt_agent_name,
             "factorial_schedule_algorithm": plan.schedule_algorithm,
             "factorial_schedule_seed": plan.schedule_seed,
             "factorial_schedule_index": cell.schedule_index,
@@ -622,6 +642,7 @@ def _write_complete_cell_artifacts(plan, cell, *, include_raw_emission=True):
             "include_game_knowledge": not plan.omit_game_knowledge,
             "held_out_quest": plan.held_out_quest,
             "inference_seed": cell.inference_seed,
+            "prompt_agent_name": cell.prompt_agent_name,
             "factorial_schedule_algorithm": plan.schedule_algorithm,
             "factorial_schedule_seed": plan.schedule_seed,
             "factorial_schedule_index": cell.schedule_index,

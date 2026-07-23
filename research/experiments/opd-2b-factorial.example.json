@@ -154,6 +154,11 @@
   },
   "isolation": {
     "username_prefix": "opdfx",
+    "prompt_agent_names": {
+      "grinder": "EvalGrinder",
+      "completionist": "EvalCompletionist",
+      "explorer_tinkerer": "EvalExplorer"
+    },
     "server_port_start": 9300,
     "sandbox_root": "/tmp/kaetram_opd_factorial",
     "output_root": "dataset/eval/opd_factorial"

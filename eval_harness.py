@@ -237,6 +237,7 @@ def resolve_system_prompt(
     *,
     include_game_knowledge: bool = True,
     held_out_quest: str = "",
+    prompt_agent_name: str = "",
 ) -> str:
     """Resolve system.md with optional knowledge and held-out task targeting."""
     system_path = os.path.join(project_dir, "prompts", "system.md")
@@ -260,7 +261,7 @@ def resolve_system_prompt(
         else:
             print(f"  WARNING: personality file not found: {pers_path}")
 
-    prompt = prompt.replace("__USERNAME__", username)
+    prompt = prompt.replace("__USERNAME__", prompt_agent_name or username)
     prompt = prompt.replace("__GAME_KNOWLEDGE_BLOCK__", knowledge)
     prompt = prompt.replace("__PERSONALITY_BLOCK__", personality_block)
     prompt = prompt.replace("__PROJECT_DIR__", project_dir)
@@ -1028,6 +1029,7 @@ def run_model_eval(
     inference_seed: int | None = None,
     duration_seconds_override: int = 0,
     provenance_meta: dict | None = None,
+    prompt_agent_name: str = "",
 ) -> dict:
     """Run all episodes for one model. Returns full results dict."""
     scenario_cfg = SCENARIOS[scenario]
@@ -1040,12 +1042,14 @@ def run_model_eval(
     # Resolve system prompt once, write to temp file
     held_out_quest = held_out_registration.quest_name if held_out_registration else ""
     endpoint_ref = endpoint_ref or "direct-endpoint"
+    resolved_prompt_agent_name = prompt_agent_name or username
     prompt_text = resolve_system_prompt(
         project_dir,
         username,
         personality,
         include_game_knowledge=include_game_knowledge,
         held_out_quest=held_out_quest,
+        prompt_agent_name=resolved_prompt_agent_name,
     )
     prompt_file = model_output_dir / "system_prompt.md"
     prompt_file.write_text(prompt_text)
@@ -1060,6 +1064,7 @@ def run_model_eval(
     print(f"  Episodes:  {n_episodes} (resuming from {resume_from})")
     print(f"  Sandbox:   {sandbox}")
     print(f"  Username:  {username}")
+    print(f"  Prompt ID: {resolved_prompt_agent_name}")
     print(f"  Port:      {server_port}")
     print(f"  Knowledge: {'included' if include_game_knowledge else 'omitted'}")
     if inference_seed is not None:
@@ -1254,6 +1259,7 @@ def run_model_eval(
                 inference_seed=inference_seed,
                 duration_seconds_budget=duration_seconds,
                 provenance_meta=provenance_meta,
+                prompt_agent_name=resolved_prompt_agent_name,
             )
             print("  Aborting remaining episodes after zero-turn failure to avoid contaminating the run")
             break
@@ -1287,6 +1293,7 @@ def run_model_eval(
                 inference_seed=inference_seed,
                 duration_seconds_budget=duration_seconds,
                 provenance_meta=provenance_meta,
+                prompt_agent_name=resolved_prompt_agent_name,
             )
             print("  Aborting remaining episodes after invalid environment evidence")
             break
@@ -1351,6 +1358,7 @@ def run_model_eval(
             inference_seed=inference_seed,
             duration_seconds_budget=duration_seconds,
             provenance_meta=provenance_meta,
+            prompt_agent_name=resolved_prompt_agent_name,
         )
 
     # Clean up game server if we started one
@@ -1370,6 +1378,7 @@ def run_model_eval(
         inference_seed=inference_seed,
         duration_seconds_budget=duration_seconds,
         provenance_meta=provenance_meta,
+        prompt_agent_name=resolved_prompt_agent_name,
     )
     return results
 
@@ -1379,7 +1388,8 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
                   held_out_registration: HeldOutRegistration | None = None,
                   inference_seed: int | None = None,
                   duration_seconds_budget: int | None = None,
-                  provenance_meta: dict | None = None) -> dict:
+                  provenance_meta: dict | None = None,
+                  prompt_agent_name: str = "") -> dict:
     """Save results JSON with metadata and aggregated metrics."""
     # Aggregate per-metric arrays for eval_compare.py
     ok_episodes = [e for e in episodes if e.get("status") == "ok"]
@@ -1454,6 +1464,7 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "timestamp": datetime.now().isoformat(),
             "git_sha": git_sha,
             "inference_seed": inference_seed,
+            "prompt_agent_name": prompt_agent_name,
             **(provenance_meta or {}),
         },
         "episodes": episodes,
@@ -1543,6 +1554,14 @@ Examples:
         help="In-game username (default: per-model from DEFAULT_MODELS, no hyphens)",
     )
     parser.add_argument(
+        "--prompt-agent-name",
+        default="",
+        help=(
+            "Stable model-visible agent name, independent of the isolated DB "
+            "username; matched parallel protocols should set this explicitly"
+        ),
+    )
+    parser.add_argument(
         "--project-dir", default=os.path.dirname(os.path.abspath(__file__)),
         help="Project directory",
     )
@@ -1613,6 +1632,13 @@ Examples:
     )
     args = parser.parse_args()
 
+    if args.prompt_agent_name and not re.fullmatch(
+        r"[A-Za-z][A-Za-z0-9]{0,23}", args.prompt_agent_name
+    ):
+        parser.error(
+            "--prompt-agent-name must be alphanumeric, start with a letter, "
+            "and contain at most 24 characters"
+        )
     if args.inference_seed is not None:
         try:
             validate_inference_seed(args.inference_seed)
@@ -1840,6 +1866,8 @@ Examples:
                 cmd.extend(["--model-api-name", args.model_api_name])
             if args.inference_seed is not None:
                 cmd.extend(["--inference-seed", str(args.inference_seed)])
+            if args.prompt_agent_name:
+                cmd.extend(["--prompt-agent-name", args.prompt_agent_name])
             if run_provenance:
                 cmd.extend([
                     "--factorial-schedule-algorithm", args.factorial_schedule_algorithm,
@@ -1915,6 +1943,7 @@ Examples:
                 inference_seed=args.inference_seed,
                 duration_seconds_override=args.duration_seconds,
                 provenance_meta=provenance_meta,
+                prompt_agent_name=args.prompt_agent_name,
             )
             all_results[model_name] = results
 

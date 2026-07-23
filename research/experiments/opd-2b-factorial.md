@@ -192,7 +192,14 @@ Verify the canonical schema and provenance before analysis.
 Every cell has a unique username, server port, sandbox, output directory, and
 cell ID. Preflight rejects an incomplete/duplicate grid, missing recovery mate,
 duplicate isolation value, unexpected weight label, invalid port range, or
-held-out metadata drift. Recovery is set explicitly per child process:
+held-out metadata drift.
+Database usernames remain unique for process isolation, but they are not shown
+to the model. The manifest registers one stable model-visible agent name per
+personality lane, and every weights/recovery/replicate cell in that lane renders
+that same name. This prevents infrastructure identifiers from changing prompt
+tokens across matched arms.
+
+Recovery is set explicitly per child process:
 the off cell removes `KAETRAM_TOOL_RECOVERY`; the on cell sets it to `1`.
 `execution.max_parallel` is a hard launch cap; the checked-in design uses six.
 Schema v2 requires exactly six: each randomized batch is one complete

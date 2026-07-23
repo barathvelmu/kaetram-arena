@@ -6,6 +6,7 @@ source_dir="$repo_root/reference"
 build_dir="$repo_root/tmp/pdfs/submission-build"
 output_pdf="$repo_root/output/pdf/kaetram-opd-naacl-working-draft.pdf"
 log_file="$build_dir/naacl_submission.log"
+aux_file="$build_dir/naacl_submission.aux"
 
 for command_name in latexmk pdfinfo; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -45,5 +46,19 @@ case "$page_size" in
     ;;
 esac
 
+main_content_page="$(
+  sed -n \
+    's/.*newlabel{acl:main-content-end}{{[^}]*}{\([0-9][0-9]*\)}.*/\1/p' \
+    "$aux_file" | tail -n 1
+)"
+if [[ -z "$main_content_page" ]]; then
+  echo "could not locate the main-content page sentinel" >&2
+  exit 1
+fi
+if (( main_content_page > 8 )); then
+  echo "main content exceeds the ACL long-paper limit: ends on page $main_content_page" >&2
+  exit 1
+fi
+
 cp "$build_dir/naacl_submission.pdf" "$output_pdf"
-echo "built $output_pdf"
+echo "built $output_pdf (main content ends on page $main_content_page)"

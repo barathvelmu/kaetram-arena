@@ -18,7 +18,9 @@ The verdict remains **2/10, strong reject**, but the failure surface is now shar
    mismatch and an internal-quest-key/display-name scoring mismatch that can turn a completed
    Core-3 quest into zero.
 2. The public “12 to 18 weights-only, same harness” claim was false. The 18/30 run used recovery;
-   12/15/17/18 are one unmatched historical run per cell and their raw bundles are absent.
+   12/15/17/18 are one unmatched historical run per cell. Their run directories
+   were recovered externally, but exact execution parity and reviewer-accessible
+   packaging are absent.
 3. The 20 frozen-checkpoint evaluation clusters do not replicate training. Only fresh training
    seeds can support a method-level uncertainty claim.
 4. A stacked launcher could have made an unfaithful Guided-OPD approximation executable. PRs
@@ -40,15 +42,15 @@ The complete severity and release-gate ledger is in
 
 1. Round one versus round two is not a causal state-seeding experiment. Initialization, collected data, policy history, data volume, and training differ.
 2. There is one full run per OPD arm. The three prompt variants are clustered observations, not independent replications.
-3. Historical render contracts and immutable raw bundles are incomplete. Prospective PRs do not retroactively repair old checkpoints.
+3. Historical render contracts remain incomplete. Recovered external run bundles are immutable-inventory-bound but unreleased, and prospective PRs do not retroactively attest old checkpoints, reset commands, or server revisions.
 4. The 18/30 configuration combines weights and recovery. One 17-versus-18 contrast does not identify main or interaction effects.
 5. TCOD, Guided-OPD, ReOPD, and SCoRe preempt broad intermediate-state, state-distribution, and student-failure curriculum novelty.
 6. The copy-prior probe is post-hoc, small, single-family, and uses a length-sensitive score.
 7. No held-out quest, no-walkthrough transfer, retention suite, or serious matched baseline has results.
-8. Historical r10 raw inputs are missing, its analysis script fails, and the model-visible render contract differs.
+8. Historical r10 inputs were recovered externally and the analyses rerun, but the bundle is not reviewer-accessible and the model-visible render contract still differs.
 9. The old report’s capacity and development-envelope claims mix durations and selected runs.
 10. PRs #39–#42 add infrastructure and launchers, not scientific evidence.
-11. The April 25–July 18 dedicated `run-eval.sh` path reset and snapshotted a different Mongo database from its game servers. Results from that dedicated lane are quarantined. The headline r10 and June OPD paths used the separate database-aligned orchestrator lane, so this specific mismatch does not implicate them; their raw bundles are still missing.
+11. The April 25–July 22 main-branch `run-eval.sh` path reset and snapshotted a different Mongo database from its game servers; July 18 is the first fixed branch commit. Results from the affected dedicated lane are quarantined. The headline r10 and June OPD paths used the separate database-aligned orchestrator lane, so this specific mismatch does not implicate them. Their recovered bundles show canonical first-observed state but do not attest the reset command or exact server revision.
 
 ## Required experiments
 

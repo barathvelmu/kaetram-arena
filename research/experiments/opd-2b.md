@@ -552,8 +552,10 @@ All three completed Herbalist 3/3 (2.7–4.0h, sessions ~181–205) — r2 had *
 
 The historical reports give base 12/30, round 2 at 15/30 without recovery, round-2 weights with
 recovery at 17/30, and round-3 weights with recovery at 18/30. These are one unmatched run per
-cell. Their raw bundles, exact checkpoint/render parity, gameplay seeds, and immutable
-configuration manifests are absent, so subtracting the scores does **not** identify weights,
+cell. Their raw run directories were recovered read-only and bound to the external inventory
+recorded in `research/audits/historical-run-digests.json`, but exact checkpoint/render parity,
+gameplay seeds, reset receipts, and immutable configuration manifests are absent. The recovery
+is not a public artifact. Therefore subtracting the scores does **not** identify weights,
 recovery, or interaction effects. In the reported recovery-off round-2 run, the Herbalist wall
 fell 3/3 across clustered prompt variants; that is the strongest descriptive observation, not
 three independent replications or a pure-weights estimate.
@@ -561,9 +563,9 @@ three independent replications or a pure-weights estimate.
 The project also reports **round-2 weights with the recovery affordance on**
 (`run_20260613_214956`) at **17/30** (grinder 6, completionist 6, explorer 5). The notes also
 report that r3 reached Herbalist stage 2 in **~2.0h vs r2's ~4.5h** and produced
-**~40% more turns per hour (511 vs 366)**. Without the underlying bundles and matched replicated
-runs, neither the score differences nor the throughput difference can be attributed to a single
-lever.
+**~40% more turns per hour (511 vs 366)**. Even with the recovered bundles, without matched
+replicated runs and exact execution parity neither the score differences nor the throughput
+difference can be attributed to a single lever.
 
 We therefore label 18/30 a **weights-plus-interface** result. The recovery-off round-2 passage is
 the least-confounded historical comparison, but it is not a pure-weights effect estimate.
@@ -598,25 +600,27 @@ Arc: base (tool-spam, no grounding) → r1 (maximal verbose churn) → r2 (still
 → **r3 (concise, halved churn, grounding preserved)**. Brevity is overhead removal, and it
 bought both more progress and ~2× the speed to the wall.
 
-### Historical recovery behavior (source logs not packaged)
+### Historical recovery behavior (rewritten bundles recovered)
 
 Historical notes report 405 rewritten sessions with one `[format]` marker and no later marker;
-90% reportedly fire at turn 2. The source logs and raw pre-rewrite emissions are absent, so this
-cannot establish model self-correction, zero relapse, or the true malformation denominator. The
-reported 335 malformed emissions and 405 markers use different units.
+90% reportedly fire at turn 2. Recovered rewritten session bundles exist, but raw pre-rewrite
+emissions are absent and the counts have not been independently regenerated. This cannot establish
+model self-correction, zero relapse, or the true malformation denominator. The reported 335
+malformed emissions and 405 markers use different units.
 
-### What round 3 established (the clean separation)
+### Descriptive takeaways; causal separation still pending
 
-- **Visitation-corrected weights instill competence over base** — the Herbalist wall base
-  passed 0/3 falls 3/3 unseeded (round 2, pure weights, no affordance: 12→15). This is the core
-  *better-than-base* result; round 3's stage-2 break extended it. Over base, weights led the +6
-  (~+4 of 6).
-- **A harness affordance dissolved what weights-side fixes could not** (the format
-  defect: r1 created it, r2's masking contained-not-cured, r3's counterfactual grading
-  *regressed* the emission; recovery + context-canonicalization fixed it instantly). This is
-  the harness+weights co-evolution thesis made concrete — the program's clearest single lesson.
-- **A teacher cannot grade in what it cannot do** (Rick's: the 4B never cooks → flat,
-  weak seeded-state grades → 0 cook transfer, exactly as the pre-training diagnostic predicted).
+- **A seeded-training round was followed by canonical-start wall passage.** Base and round 1
+  report 0/3 clustered prompt variants across the Herbalist wall; round 2 reports 3/3 and 15/30
+  with recovery off. This is one unmatched historical sequence, not evidence that seeding or
+  weights alone caused the change.
+- **Weights and runtime recovery are distinct intervention candidates.** Recovery can execute a
+  dropped malformed call and canonicalize retained history, while the training rounds attempted
+  weights-side changes. The unmatched 12/15/17/18 cells do not identify either main effect or an
+  interaction.
+- **No cooking behavior was observed from the same-family teacher in these runs.** That conditional
+  null explains why this teacher is a weak source of cooking supervision here; it does not show
+  that a teacher generally cannot transfer the behavior.
 
 **Framing:** the r3 18/30 is a **weights + harness recovery** arm — env-changed, not
 pure-weights like base/r1/r2 — so we label it as such. The recovery-off round-2 report is the

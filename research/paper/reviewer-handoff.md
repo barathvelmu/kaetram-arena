@@ -87,8 +87,9 @@ The checked headline OPD and r10 numbers were not produced through that lane:
 - checked-in dataset/evaluation artifacts used by the report predate the April 25 lane change.
 
 Therefore PR #37 does not invalidate E3-prime, E4, Arm-C, or the historical r10 headline values.
-It does invalidate trust in any un-audited result produced through `run-eval.sh` between April 25
-and July 18. The May/June raw bundles were subsequently recovered read-only from the original VM
+It does invalidate trust in any un-audited result produced through `run-eval.sh` on main between
+April 25 and PR #37's July 22 merge, unless the run attests the July 18 fixed branch. The May/June
+raw bundles were subsequently recovered read-only from the original VM
 and bound to a SHA-256 inventory. `research/audits/historical-initial-state.json` verifies that the
 first recorded action in all 15 OPD and all 21 R10 agent-runs is `observe`, with the exact canonical
 level-1 starter state and no state anomaly. The R10 statistics and credit diagnostic also rerun

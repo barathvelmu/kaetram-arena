@@ -25,32 +25,26 @@ An Audited Agent Case Study and Confirmatory Protocol}
 \maketitle
 
 \begin{abstract}
-On-policy distillation supervises states visited by the student, but long-horizon
-agents may rarely reach persistent player states where a teacher has a measurable
-conditional advantage. We study a 2B-parameter language model
-acting for six hours through 17 typed tools in an open-source MMORPG. In one
-reported run per arm, natural-visitation distillation changes tool use and
-interaction tempo but leaves the quest score at 12/30. A second round augments
-student rollouts with hand-selected, loadable and walkability-checked intermediate
-player states whose legal reachability was not certified. Evaluated from what the
-historical notes describe as a canonical-start player state in a restarted server,
-with no intermediate-state initialization, the resulting policy scores 15/30; all three clustered prompt
-variants pass a wall that none passes under the reported base or first-round
-policy. This is a reported recovery-off observation, not a replicated causal estimate:
-the training rounds differ in more than state source. A targeted teacher-forcing
-probe reportedly gives one malformed continuation positive teacher-over-student
-distillation advantage; it does not compare both candidate continuations in the
-same context. Historical notes state that correction markers do not repeat within
-rewritten sessions; the source logs are not packaged. These observations motivate a confirmatory comparison in which
-training-only player states are selected by frozen student-visitation, teacher-
-advantage, validity, and recoverability criteria. Random-valid, progress-matched,
-teacher-success-prefix, natural-OPD, and guided-OPD controls separate targeted
-coverage from generic resets and prefix curricula. We present a falsifiable
-protocol and audited failure analysis, not an established method effect. A
-prospective nine-cell, five-minute local pilot exercises the matched
-tokenizer/render and seed-attested environment path. All 42 emitted structured
-calls use canonical names and JSON-object arguments, but 64 of 106 generations
-emit no structured call and no cell advances a quest.
+On-policy distillation supervises states visited by the student, yet a
+long-horizon agent may rarely reach persistent states where its teacher has a
+measurable conditional advantage. We audit this failure mode for a
+Qwen3.5-2B agent acting through 17 typed tools in an open-source MMORPG. In one
+reported six-hour run per arm, natural-visitation distillation changes tool use
+and interaction tempo but leaves quest score at 12/30. A later round adds
+student rollouts from a hand-selected, loadable intermediate player state whose
+legal reachability was not certified. Evaluated from a reported canonical
+start, without intermediate-state initialization, the resulting policy scores
+15/30 and all three clustered prompt variants pass a wall that none passes in
+the earlier runs. This sequence is descriptive, not a causal estimate: training
+rounds differ in more than state source, and exact historical execution
+provenance is incomplete. We therefore specify a falsifiable study that selects
+training-only states using frozen visitation, teacher-advantage, validity,
+reachability, and recoverability criteria; crosses player state with
+model-visible history; and compares natural OPD, generic resets, successful
+prefixes, and turn-level guidance under matched budgets. A separate nine-cell
+local pilot validates the prospective execution path, but none of its
+five-minute cells advances a quest. The contribution is an audited case study
+and bounded protocol, not an established method effect.
 \end{abstract}
 
 \section{Introduction}
@@ -63,11 +57,12 @@ a state-visitation bottleneck: improving token-level agreement on common states
 can alter style without transferring the competence that distinguishes the
 teacher.
 
-We examine that bottleneck in a persistent tool-use setting. A Qwen-family 2B
-student plays a tile-based MMORPG through a typed action interface. The world
+We examine that bottleneck in a persistent tool-use setting. A
+Qwen/Qwen3.5-2B student \citep{qwen35modelcards2026} plays a tile-based MMORPG
+through a typed action interface. The world
 persists across conversation rollovers, and benchmark progress requires long
 chains of gathering, navigation, dialogue, and quest actions. A scaffolded 4B
-teacher reaches states that the 2B student does not. We apply reverse-KL
+Qwen/Qwen3.5-4B teacher reaches states that the 2B student does not. We apply reverse-KL
 on-policy distillation to the student's own emitted tokens. The historical
 comparison contrasts natural student visitation with a mixture that begins some
 rollouts from loadable, walkability-checked intermediate database states; the confirmatory protocol
@@ -110,8 +105,9 @@ result must preserve and cross them rather than roll them into one headline.
 
 \subsection{Persistent tool-use benchmark}
 
-The environment is Kaetram, an open-source tile-based MMORPG backed by a game
-server and MongoDB. Each policy controls three agents with different priority
+The environment is a pinned fork of Kaetram, an open-source tile-based MMORPG
+\citep{kaetram2026}, backed by a game server and MongoDB. Each policy controls
+three agents with different priority
 prompts (grinder, completionist, and explorer) through 17 typed tools. Tools
 cover observation, navigation, combat, gathering, dialogue, quest inspection,
 inventory use, and crafting. The prompt includes procedural quest guidance, so
@@ -208,13 +204,68 @@ snapshots, and hash-verified validation artifacts are frozen before outcomes.
 This rule distinguishes the proposed method from the hand-selected milestone
 used in the exploratory round.
 
+\begin{figure*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{c@{\quad$\longrightarrow$\quad}c@{\quad$\longrightarrow$\quad}c}
+\fbox{\parbox{0.25\textwidth}{\centering
+\textbf{Natural OPD}\\
+Canonical start $(\mu_0,q_0)$\\
+Student-induced occupancy}}
+&
+\fbox{\parbox{0.25\textwidth}{\centering
+\textbf{Targeted training}\\
+Certified low-visit $x$\\
+Matched visible history $h$}}
+&
+\fbox{\parbox{0.25\textwidth}{\centering
+\textbf{Evaluation}\\
+Fresh canonical start only\\
+Nested seeded runs}}
+\\[-1pt]
+\multicolumn{1}{c}{\scriptsize common-state teacher grades}
+&
+\multicolumn{1}{c}{\scriptsize same student rollout and teacher loss}
+&
+\multicolumn{1}{c}{\scriptsize no restored training state}
+\end{tabular}
+\caption{Intervention boundary. Targeted player-state restoration changes
+training occupancy, while the loss and canonical-start evaluation contract stay
+fixed. Model-visible history is crossed explicitly because a database snapshot
+alone is not the policy state.}
+\label{fig:intervention}
+\end{figure*}
+
+\begin{table}[t]
+\caption{Frozen targeted-state admission rule. $L$ and $U$ are 95\% Wilson
+bounds recomputed from hash-bound Boolean trials. Every row must pass.}
+\label{tab:selector}
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lrl@{}}
+\toprule
+Criterion & $n_{\min}$ & Rule \\
+\midrule
+Visit rate & 500 & $U(v)\leq .05$ \\
+Teacher success & 100 & $L(p_T)\geq .60$ \\
+Teacher--student gap & 100 each & $L(p_T)-U(p_S)\geq .30$ \\
+Recovery & 100 & $L(p_R)\geq .80$ \\
+Validity/reachability & -- & pinned check \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \section{Evidence Protocol}
 
-We grade evidence before interpreting it. A \emph{run} is the independent unit;
-agents within a run share the policy, launch, infrastructure, and analysis
-pipeline. Exact scores from single runs are descriptive. Counts over agents or
-sessions diagnose mechanisms but cannot be treated as independent replications
-of a policy effect.
+We grade evidence before interpreting it. For a fixed checkpoint, a fresh-world
+evaluation run is the independent unit; agents within it share the policy,
+launch, infrastructure, and analysis pipeline. For a training-method claim, the
+independent unit is instead a freshly initialized training seed/checkpoint, with
+evaluation seeds nested within it. Exact scores from single historical runs are
+descriptive. Counts over agents or sessions diagnose mechanisms but cannot be
+treated as independent replications of either effect.
 
 The principal historical sequence uses a 2B model lineage, six-hour
 canonical-start evaluation protocol, benchmark, and nominal harness, but it is
@@ -267,8 +318,9 @@ natural-visitation round}
 
 Round 1 leaves \core{} unchanged at 12/30 and every agent reaches the same 4/10
 stage profile as base. Nevertheless, several behavioral measurements move
-toward the 4B teacher (Table~\ref{tab:behavior}). The average number of turns per
-session exactly matches the teacher, observation and navigation shares approach
+toward the 4B teacher (Table~\ref{tab:behavior}). Rounded to one decimal place,
+the average number of turns per session equals the teacher value; observation
+and navigation shares approach
 the teacher, and query frequency overshoots it. The result is consistent with
 mode-seeking behavioral imitation and with the hypothesis that agreement on
 frequently visited states can be insufficient for this quest wall.
@@ -283,21 +335,21 @@ tool calls in one run per policy; they are diagnostics, not independent trials.}
 \toprule
 Measure & Base & Round 1 & Teacher \\
 \midrule
-Turns per session & 9.1 & \textbf{6.1} & 6.1 \\
-Observe share & 26.6\% & \textbf{35.5\%} & 36.1\% \\
-Navigate share & 14.3\% & \textbf{9.4\%} & 9.1\% \\
-Attack share & 17.9\% & \textbf{6.6\%} & 9.1\% \\
-Query-quest share & 5.3\% & \textbf{18.0\%} & 8.7\% \\
-Chars./turn & 411 & \textbf{1,248} & 864 \\
+Turns per session & 9.1 & 6.1 & 6.1 \\
+Observe share & 26.6\% & 35.5\% & 36.1\% \\
+Navigate share & 14.3\% & 9.4\% & 9.1\% \\
+Attack share & 17.9\% & 6.6\% & 9.1\% \\
+Query-quest share & 5.3\% & 18.0\% & 8.7\% \\
+Chars./turn & 411 & 1,248 & 864 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Per-verb reverse-KL signs and behavioral movement are also aligned in the
-development logs: verbs whose held-out divergence falls generally move toward
-the teacher's usage, while query-quest both diverges and behaviorally overshoots
-the teacher. This is descriptive triangulation. It does not establish that a
-specific token update caused downstream quest behavior.
+Development logs also contain per-verb reverse-KL diagnostics, but the surviving
+summary lacks matched-state opportunities and uncertainty. We therefore make no
+quantitative KL--behavior correspondence claim from those values. The aggregate
+tool mix is descriptive and does not establish that a specific token update
+caused downstream quest behavior.
 
 \subsection{The seeded-training round is followed by canonical-start wall passage}
 
@@ -330,19 +382,21 @@ included (Section~\ref{sec:confirmatory}).
 
 Round 3 combines broader state seeding with a runtime recovery affordance and
 scores 18/30. That number is not a pure-weights result. A separate unmatched run
-of round-2 weights with recovery reports 17/30; missing raw bundles,
-configuration parity, and gameplay seeds prevent attribution of either score
-difference to the interface or weights. The reported recovery-off contrast is base 12/30 versus round 2
+of round-2 weights with recovery reports 17/30. The run directories were
+recovered externally, but missing configuration parity, checkpoint/render
+attestation, reset receipts, and gameplay seeds prevent attribution of either
+score difference to the interface or weights. The reported recovery-off contrast is base 12/30 versus round 2
 15/30, one run per arm; exact checkpoint, render, seed, and artifact parity is
 unavailable, so even this contrast is not a clean causal weights comparison.
 
 The recovery mechanism detects a dropped malformed call, reconstructs the
 executable call, rewrites the retained history into canonical form, executes the
 action, and returns an explicit correction note. Historical notes report 405
-rewritten sessions with exactly one recovery marker and no later marker. Because
-the source logs and raw pre-rewrite emissions are absent, that count is not
-independently auditable and does not show that weights learned the format, that
-the model self-corrected, or that recovery generalizes to other defects.
+rewritten sessions with exactly one recovery marker and no later marker.
+Recovered rewritten bundles exist, but raw pre-rewrite emissions are absent and
+the 405 count has not been independently regenerated. It therefore does not show
+that weights learned the format, that the model self-corrected, or that recovery
+generalizes to other defects.
 
 \subsection{Prospective pilot executes all cells, not the task}
 
@@ -402,7 +456,8 @@ the context. We call this a \emph{teacher-forcing copy-prior hypothesis}. The
 current record lacks the paired artifact needed to show that the teacher actively
 prefers the malformed candidate.
 
-This hypothesis relates to exposure bias and to failures of token-level teacher
+This hypothesis relates to exposure bias \citep{bengio2015scheduled} and to
+failures of token-level teacher
 agreement on degraded prefixes. CCOPD already conditions a teacher on clean,
 canonical evidence to reduce self-anchored drift in a multi-turn student
 \citep{lin2026ccopd}; that broad clean-context intervention is not novel here.
@@ -428,14 +483,20 @@ blocks the legacy trainer. Results are not reported until the remaining
 implementation boundaries, the full protocol, and immutable run bundles exist.
 
 \paragraph{Primary endpoint and unit.}
-The independent unit is a six-hour run from a fresh canonical-start world with no
-intermediate player-state initialization and with a registered gameplay-RNG seed. The
-preregistered primary endpoint is total \core{} stage gain across the three
-clustered agents. Quest-wall passage is secondary. All runs, confidence
-intervals, effect sizes, and stopping rules must be reported.
+The method estimand is over independently initialized training
+seeds/checkpoints. Within each training seed, evaluation seeds are nested:
+each evaluation is a six-hour run from a fresh canonical-start world, with no
+intermediate player-state initialization and a registered gameplay-RNG seed.
+The preregistered endpoint aggregates total \core{} stage gain across the three
+clustered agents and then across the frozen evaluation-seed schedule. Quest-wall
+passage is secondary. The current five-training-seed launcher grid is an
+unpowered execution template, not a justified sample size; no method claim is
+permitted until a prospective two-level power analysis freezes both training
+and nested evaluation replication. All runs, confidence intervals, effect
+sizes, exclusions, and stopping rules must be reported.
 
 \paragraph{State-source ablation.}
-The six primary training arms are natural OPD, targeted persistent player states,
+The six implemented primary training contracts are natural OPD, targeted persistent player states,
 random-valid player states, progress-matched player states, TCOD-B2F
 teacher-success prefixes, and Guided-OPD. Four prespecified mechanism/baseline
 arms---visitation-only selection, teacher-advantage-only selection,
@@ -443,9 +504,12 @@ corrected-interface SFT, and SCoRe-style first-error prefixes---are analyzed
 separately rather than silently counted as extra primary arms. Match teacher,
 optimizer, action-token and teacher-scoring budgets,
 environment interactions, and training-seed schedule; evaluate every arm from
-the original canonical-start state. The method claim fails if random or progress-
-matched resets, TCOD-B2F, or Guided-OPD ties the targeted arm within the
-preregistered smallest effect of interest.
+the original canonical-start state. A matched Trust-Region Behavior Blending
+(TRB) arm is additionally required because it changes occupancy through a
+teacher-near behavior policy while retaining OPD; it is not yet implemented in
+the launcher. The method claim fails if random or progress-matched resets,
+TCOD-B2F, Guided-OPD, or TRB ties the targeted arm within the preregistered
+smallest effect of interest.
 
 \paragraph{Player-state by history ablation.}
 For the same certified player state, compare (i) a direct snapshot with the
@@ -460,9 +524,18 @@ concurrent-player state), so no full-world-state claim is made.
 
 \paragraph{Weights by recovery factorial.}
 Evaluate base, round-2, and round-3 weights with recovery both off and on.
-Preserve raw pre-rewrite emissions. This estimates main effects and interactions
-for stage progress and format-defect rate instead of attributing a combined
-system score to weights.
+Preserve raw pre-rewrite emissions. These are conditional contrasts among three
+fixed checkpoint artifacts, not estimates of a training procedure. The
+registered full study uses 20 paired fresh-world replicate clusters, sums all
+three personality lanes before comparison, and freezes seven contrasts: round 2
+and round 3 versus base with recovery off; recovery on versus off for each
+checkpoint; and both checkpoint-by-recovery interactions. It controls
+familywise alpha at .05 by a two-sided Bonferroni allocation. The 20-cluster
+record targets 80\% power only under its prospective assumption of a
+three-stage minimum relevant paired difference and paired-difference standard
+deviation at most three; it is not an empirical variance estimate. The
+separate 18-cell local run is exploratory execution evidence and cannot replace
+this design.
 
 \paragraph{Generalization.}
 Hold out at least one quest from candidate discovery, state selection, and
@@ -526,7 +599,9 @@ Game-agent benchmarks already cover long-horizon language and vision agents.
 BALROG emphasizes knowing--doing gaps across games \citep{paglieri2025balrog},
 while Orak uses MCP across twelve games and releases gameplay fine-tuning data
 \citep{park2026orak}. MCP and game play are therefore infrastructure here, not
-novelty claims. Voyager and AgentTrek use curricula, reusable skills, or guided
+novelty claims. GITM uses LLM-generated plans, text memory, and structured
+actions in open-world Minecraft \citep{zhu2023gitm}. Voyager and AgentTrek use
+curricula, reusable skills, or guided
 replay to obtain long-horizon behavior
 \citep{wang2023voyager,zheng2025agenttrek}. Our narrower question is whether a
 frozen selector over low-occupancy, teacher-competent persistent player states
@@ -555,6 +630,7 @@ boundary. A prospective local pilot executed all registered cells with internall
 hash-checked evidence, but its short horizon produces no quest progress and no
 policy-quality claim.
 
+\label{acl:main-content-end}
 \section*{Limitations}
 
 The central limitation is statistical: one run per principal arm cannot support
@@ -609,14 +685,16 @@ The settings below are reconstructed from the current implementation and project
 notes committed after the June runs; they are reported settings, not a
 hash-attested historical training configuration.
 
-The teacher is a scaffolded Qwen-family 4B model and the student begins from a
-2B checkpoint. Both use the same vocabulary. Student rollouts are reconstructed
+The teacher is a scaffolded Qwen/Qwen3.5-4B model and the student begins from
+Qwen/Qwen3.5-2B \citep{qwen35modelcards2026}. Both use the same vocabulary.
+Student rollouts are reconstructed
 as the byte-exact serving prompt plus the verbatim emitted continuation. This
 prefix property avoids re-rendering differences caused by chat-template handling
 of reasoning delimiters. Teacher and behavior log probabilities are computed on
 the identical raw string. Every tenth session is held out for development gates.
 
-The update uses PPO-style clipped importance weighting with clip $\epsilon=0.3$,
+The update uses PPO-style clipped importance weighting
+\citep{schulman2017ppo} with clip $\epsilon=0.3$,
 advantage clamp $[-3,3]$, and a 1.5 weight on the first third of each session.
 Training uses one epoch, learning rate $5\times10^{-5}$, effective batch size 32,
 and a fresh LoRA initialized over the prior merged checkpoint. Action positions
@@ -640,10 +718,15 @@ the target resource. Evaluation never loads this state.
 \item[Copy prior.] Positive teacher-over-student advantage for one malformed
 continuation in a targeted historical probe; no matched preference reversal.
 \item[Recovery.] Historical notes report no repeat marker after correction in
-rewritten sessions; source logs and raw relapse are unavailable.
+rewritten sessions. Recovered rewritten bundles exist, but raw pre-rewrite
+emissions and an independently regenerated marker count are unavailable.
 \item[Local pilot.] Nine short paired cells executed through the matched local
 stack with internally hash-checked artifacts; they provide no model-superiority or quest-performance
 claim and cannot enter the confirmatory estimate.
+\item[Historical bundles.] The recovered external inventory binds the headline
+R10 and OPD agent-run directories and reproduces the R10 statistics, but it is
+not a public reviewer artifact and does not attest the executed reset command,
+game revision, or OPD training inputs.
 \item[Cross-task transfer.] Unsupported; no claim.
 \end{description}
 
@@ -658,12 +741,18 @@ must point to source runs and transformations. A clean-clone command must verify
 hashes and regenerate every table and figure without network-dependent mutable
 inputs.
 
-The current development artifact does not yet meet this bar. In particular, raw
-inputs for the historical r10 analysis and some OPD gate summaries are absent.
-After April 25 the dedicated \texttt{run-eval.sh} lane reset a different database
-from its game servers. The headline r10 and June OPD values used a separate
-database-aligned orchestrator and are not implicated by that specific mismatch,
-but their raw bundles are also absent. Full dependency installation has
+The current development artifact does not yet meet this bar. A read-only
+external recovery now contains the headline R10 and OPD run directories, bound
+to an inventory whose 19,728 listed files rehash successfully; the R10
+statistics regenerate from those paths. That recovery is not checked into this
+repository, publicly released, or sufficient to attest the historical reset
+command, full game revision, OPD training inputs, or exact render contract.
+From April 25 through PR~\#37's July 22 merge, the dedicated
+\texttt{run-eval.sh} lane on main reset a different database from its game
+servers (a fixed branch existed from July 18). The headline R10 and June OPD
+values used a separate 9001/9011/9021 orchestrator and are not implicated by
+that specific mismatch; the first model-visible state in all 36 recovered
+headline agent-runs matches the canonical level-1 start. Full dependency installation has
 now been demonstrated for the prospective CPU unit suite in a fresh clone, but
 not for training or paper-table regeneration. A separate local pilot has now
 executed nine matched hash-identified public-weight cells against a recorded
@@ -672,7 +761,10 @@ registered inference/environment seeds, exact canonical-start projections, and
 261 rehashed files in sealed per-cell inventories. This records prospective
 local game/model execution, not training, the
 full confirmatory factorial, historical results, or clean-clone table
-regeneration. Confirmatory launch remains fail-closed. A draft isolated-service reachability checker executes
+regeneration. Neither the recovered historical inventory nor the workstation-local
+pilot bundle is presently a reviewer-accessible artifact; release packaging,
+license review, and clean-clone regeneration remain submission gates.
+Confirmatory launch remains fail-closed. A draft isolated-service reachability checker executes
 hash-pinned MCP transitions and persistent player-state comparisons, but it has
 not yet produced a certificate in a live game/Mongo lane. A draft matched-training launcher
 freezes 50 core arm--seed cells plus 20 separately reported state--history
@@ -694,18 +786,26 @@ omissions are release blockers, not appendix footnotes.
 
 \section{Planned Statistical Analysis}
 
-No session- or agent-level pseudo-replication will be used for policy effects.
-The run is the analysis unit. Before confirmatory outcome collection, the team
-must preregister a smallest effect of interest and determine the run count from
-a documented power calculation using independent pilot variance or a
-conservative prespecified variance grid. If variance is not defensibly known,
-the protocol must use blinded variance re-estimation with a fixed maximum sample
-size; there is no default ``five runs per arm.'' The primary comparison is
-two-sided unless a
-directional alternative and stopping rule are preregistered before collection.
-We will report all runs, bootstrap or randomization-based confidence intervals
-appropriate to the achieved sample, standardized and raw effect sizes, and the
-full family of secondary endpoints with multiplicity handling. Exact categorical
-wall-passage counts will be reported descriptively when sample sizes are small.
+No session- or agent-level pseudo-replication will be used. For the causal
+training comparison, a freshly trained checkpoint is the independent unit and
+fresh-world evaluation seeds are nested repeated measurements. The primary
+method contrast must aggregate the frozen nested evaluations within each
+training seed before uncertainty across training seeds is estimated. The five
+seeds in the current launcher example are not a power justification.
+
+For the fixed-checkpoint weights-by-recovery study, the independent unit is the
+paired fresh-world replicate cluster; inference is conditional on the three
+registered artifacts and cannot estimate training-seed variability. Its seven
+contrasts, 20 clusters, familywise error rule, and assumption-based power record
+are frozen prospectively. Before any method-outcome collection, the team must
+likewise preregister a smallest effect of interest and determine both levels of
+replication from independent pilot variance or a conservative prespecified
+variance grid. If variance is not defensibly known, use blinded variance
+re-estimation with a fixed maximum sample size. The primary comparison is
+two-sided unless a directional alternative and stopping rule are preregistered.
+Report all runs, exclusions, raw and standardized effects, uncertainty
+appropriate to the achieved design, and the complete secondary family with
+multiplicity handling. Exact wall-passage counts remain descriptive when
+sample sizes are small.
 
 \end{document}

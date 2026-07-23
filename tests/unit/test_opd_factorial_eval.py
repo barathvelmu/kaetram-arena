@@ -141,17 +141,28 @@ def test_cli_dry_run_has_no_endpoint_game_db_or_directory_side_effects(tmp_path:
     assert not (tmp_path / "sandboxes").exists()
 
 
-def test_cell_commands_keep_recovery_out_of_argv(tmp_path: Path):
+def test_cell_commands_declare_recovery_without_exposing_endpoint(tmp_path: Path):
     plan = build_plan(_manifest_copy(tmp_path))
     pair = [c for c in plan.cells if c.pair_id == "rep01-base-grinder"]
     off = next(cell for cell in pair if not cell.recovery)
     on = next(cell for cell in pair if cell.recovery)
     assert off.recovery is False and on.recovery is True
-    assert cell_command(plan, off) == cell_command(
-        plan, replace(on, cell_id=off.cell_id, username=off.username,
-                      server_port=off.server_port, sandbox=off.sandbox, run_dir=off.run_dir,
-                      schedule_index=off.schedule_index),
+    matched_on = replace(
+        on,
+        cell_id=off.cell_id,
+        username=off.username,
+        server_port=off.server_port,
+        sandbox=off.sandbox,
+        run_dir=off.run_dir,
+        schedule_index=off.schedule_index,
     )
+    off_command = cell_command(plan, off)
+    on_command = cell_command(plan, matched_on)
+    recovery_index = off_command.index("--tool-recovery-enabled") + 1
+    assert off_command[recovery_index] == "off"
+    assert on_command[recovery_index] == "on"
+    assert off_command[:recovery_index] == on_command[:recovery_index]
+    assert off_command[recovery_index + 1:] == on_command[recovery_index + 1:]
 
 
 def test_schedule_is_deterministic_and_seed_sensitive_without_breaking_blocks(tmp_path: Path):
@@ -529,6 +540,7 @@ def test_cell_result_validation_rejects_failed_or_misattributed_artifacts(tmp_pa
                 "factorial_batch_index": cell.batch_index,
                 "factorial_cluster_id": cell.cluster_id,
                 "factorial_pair_id": cell.pair_id,
+                "tool_recovery_enabled": cell.recovery,
                 "environment_seed_mechanism": plan.environment_seed_mechanism,
                 "environment_seed": cell.environment_seed,
                 "environment_rng_algorithm": plan.environment_rng_algorithm,
@@ -605,6 +617,7 @@ def test_cell_result_validation_accepts_frozen_core3_empty_heldout(tmp_path: Pat
             "factorial_batch_index": cell.batch_index,
             "factorial_cluster_id": cell.cluster_id,
             "factorial_pair_id": cell.pair_id,
+            "tool_recovery_enabled": cell.recovery,
             "environment_seed_mechanism": plan.environment_seed_mechanism,
             "environment_seed": cell.environment_seed,
             "environment_rng_algorithm": plan.environment_rng_algorithm,
@@ -675,6 +688,7 @@ def _write_complete_cell_artifacts(plan, cell, *, include_raw_emission=True):
             "factorial_batch_index": cell.batch_index,
             "factorial_cluster_id": cell.cluster_id,
             "factorial_pair_id": cell.pair_id,
+            "tool_recovery_enabled": cell.recovery,
             "environment_seed_mechanism": plan.environment_seed_mechanism,
             "environment_seed": cell.environment_seed,
             "environment_rng_algorithm": plan.environment_rng_algorithm,

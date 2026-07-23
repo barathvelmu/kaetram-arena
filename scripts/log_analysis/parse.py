@@ -250,7 +250,8 @@ class ToolCall:
         # ("Error executing tool gather: 1 validation error ..."), not JSON —
         # without this branch the largest qwen failure class is invisible.
         if isinstance(self.result_payload, str) and self.result_payload.startswith(
-                "Error executing tool"):
+            ("Error executing tool", "Error:")
+        ):
             return True
         return False
 
@@ -1293,4 +1294,3 @@ def categorize_error(text: str) -> str:
         if rx.search(text):
             return label
     return "OTHER"
-

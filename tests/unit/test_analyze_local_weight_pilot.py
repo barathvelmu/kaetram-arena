@@ -13,6 +13,7 @@ from scripts.opd.analyze_local_weight_pilot import (
     _api_error_count,
     _canonical_start_ok,
     _file_sha256,
+    _ordered_session_logs,
     _validate_raw_emissions,
     _validate_state_boundaries,
     _verify_artifacts,
@@ -122,6 +123,23 @@ def test_raw_emission_audit_counts_no_call_generations(tmp_path: Path) -> None:
     assert metrics["raw_generations"] == 2
     assert metrics["emitted_structured_calls"] == 1
     assert metrics["generations_without_structured_call"] == 1
+    assert metrics["raw_malformed_emissions"] == 0
+    assert metrics["raw_recoverable_calls"] == 0
+
+
+def test_raw_emission_audit_counts_recoverable_malformed_calls(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "session_1.log"
+    log.write_text(json.dumps({
+        "type": "raw_model_emission",
+        "content": '<function=warp("mudwich")>',
+        "tool_calls": [],
+    }))
+    metrics = _validate_raw_emissions([log])
+    assert metrics["raw_malformed_emissions"] == 1
+    assert metrics["raw_recoverable_calls"] == 1
+    assert metrics["raw_recoverable_action_counts"] == {"warp": 1}
 
 
 def test_raw_emission_audit_rejects_malformed_arguments(tmp_path: Path) -> None:
@@ -146,6 +164,17 @@ def test_api_error_audit_reads_retained_stderr(tmp_path: Path) -> None:
     stderr.parent.mkdir(parents=True)
     stderr.write_text("  [2] API error: transient\ncontinued\n")
     assert _api_error_count(tmp_path) == 1
+
+
+def test_session_order_uses_preserved_execution_time_beyond_nine(
+    tmp_path: Path,
+) -> None:
+    paths = []
+    for index in range(1, 12):
+        path = tmp_path / f"session_{index}_test.log"
+        path.write_text("{}\n")
+        paths.append(path)
+    assert _ordered_session_logs(tmp_path) == paths
 
 
 def test_state_boundary_audit_rejects_missing_db_snapshot() -> None:

@@ -85,6 +85,7 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
                 "factorial_batch_index": cell.batch_index,
                 "factorial_cluster_id": cell.cluster_id,
                 "factorial_pair_id": cell.pair_id,
+                "tool_recovery_enabled": cell.recovery,
                 "environment_seed_mechanism": plan.environment_seed_mechanism,
                 "environment_seed": cell.environment_seed,
                 "environment_rng_algorithm": plan.environment_rng_algorithm,

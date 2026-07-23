@@ -7,8 +7,10 @@ round 3 combined new weights with recovery. The June raw session trees, immutabl
 checkpoint/configuration digests, and gameplay seeds are not preserved in this repository, so the
 sequence cannot establish a causal weights effect, exact harness parity, or a +3/+2/+1 effect
 decomposition. Within the reported runs, every round-3 agent completed Foresting and Herbalist's
-Desperation where the reported base agents completed only Foresting. Round 3 broke the stage-2 wall and fixed the format defect via the harness recovery
-affordance — but Rick's Roll stayed 0/4 (over-determined: a displaced fishing tool gates link 1
+Desperation where the reported base agents completed only Foresting. Round 3 was reported to
+break the stage-2 wall while the harness recovery affordance was enabled; the retained evidence
+does not establish that recovery causally fixed the format defect. Rick's Roll stayed 0/4
+(over-determined: a displaced fishing tool gates link 1
 before cooking is reached, with the cook-incompetent teacher a wall behind it). The reported
 round-2-weights-plus-recovery result (17/30) was also a single unmatched historical run; it is
 suggestive, not a controlled effect estimate.
@@ -477,9 +479,10 @@ error class conflates HP_FULL/slot-shift with validation empties).
 
 ## Round 3 (June 12–13): counterfactual grading, full-ladder seeding, harness recovery — 18/30
 
-Round 3 attacked the two open wounds from round 2 — the mutated malformed-call attractor and
-the stalled Herbalist stage 2 — and aimed at 10/10. It produced the program's best result
-(**18/30, 6/10 every agent**) and a clean separation of what training vs harness can each do.
+Round 3 targeted the two open wounds from round 2—the mutated malformed-call attractor and
+the stalled Herbalist stage 2—and aimed at 10/10. It produced the program's best reported result
+(**18/30, 6/10 every agent**), but because weights and recovery changed together it cannot
+separate what training and the harness each contributed.
 
 ### Design
 

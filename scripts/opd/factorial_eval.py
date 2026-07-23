@@ -858,6 +858,8 @@ def cell_command(plan: ExperimentPlan, cell: Cell) -> list[str]:
         cmd.extend([
             "--held-out-quest", plan.held_out_quest,
             "--held-out-registration", plan.held_out_registration,
+            "--held-out-registration-sha256",
+            plan.held_out_registration_sha256,
         ])
     return cmd
 
@@ -952,6 +954,11 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
             "drawsAtAttestation": 0,
         },
     }
+    if plan.held_out_quest:
+        expected_meta.update({
+            "held_out_registration": plan.held_out_registration,
+            "held_out_registration_sha256": plan.held_out_registration_sha256,
+        })
     mismatches = {
         key: {"expected": expected, "actual": meta.get(key)}
         for key, expected in expected_meta.items()

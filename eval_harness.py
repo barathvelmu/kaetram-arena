@@ -1675,6 +1675,9 @@ def _save_results(path: Path, model_name: str, endpoint: str, scenario: str,
             "include_game_knowledge": include_game_knowledge,
             "held_out_quest": held_out_registration.quest_name if held_out_registration else "",
             "held_out_registration": str(held_out_registration.path) if held_out_registration else "",
+            "held_out_registration_sha256": (
+                held_out_registration.sha256 if held_out_registration else ""
+            ),
             "tool_schema_source": os.environ.get("KAETRAM_TOOL_SCHEMA_SOURCE", "runtime-default"),
             "total_episodes": len(episodes),
             "ok_episodes": len(ok_episodes),
@@ -1807,6 +1810,11 @@ Examples:
     parser.add_argument(
         "--held-out-registration", type=Path, default=DEFAULT_REGISTRATION,
         help=f"Locked held-out quest registration (default: {DEFAULT_REGISTRATION})",
+    )
+    parser.add_argument(
+        "--held-out-registration-sha256",
+        default="",
+        help="Expected SHA-256 of the locked held-out registration",
     )
     parser.add_argument(
         "--sandbox", default="",
@@ -1989,6 +1997,10 @@ Examples:
     if args.held_out_quest:
         if not args.omit_game_knowledge:
             parser.error("--held-out-quest requires --omit-game-knowledge")
+        if not re.fullmatch(r"[0-9a-f]{64}", args.held_out_registration_sha256):
+            parser.error(
+                "--held-out-quest requires --held-out-registration-sha256"
+            )
         try:
             held_out_registration = validate_eval_selection(
                 args.held_out_quest,
@@ -1996,6 +2008,20 @@ Examples:
             )
         except ValueError as exc:
             parser.error(str(exc))
+        if held_out_registration.sha256 != args.held_out_registration_sha256:
+            parser.error(
+                "held-out registration SHA-256 mismatch: "
+                f"expected {args.held_out_registration_sha256}, "
+                f"loaded {held_out_registration.sha256}"
+            )
+        provenance_meta = {
+            **(provenance_meta or {}),
+            "held_out_registration_sha256": held_out_registration.sha256,
+        }
+    elif args.held_out_registration_sha256:
+        parser.error(
+            "--held-out-registration-sha256 requires --held-out-quest"
+        )
 
     # Parse model definitions
     models = {}
@@ -2114,6 +2140,8 @@ Examples:
                 cmd.extend([
                     "--held-out-quest", held_out_registration.quest_name,
                     "--held-out-registration", str(held_out_registration.path),
+                    "--held-out-registration-sha256",
+                    held_out_registration.sha256,
                 ])
             if args.sandbox:
                 cmd.extend(["--sandbox", args.sandbox])

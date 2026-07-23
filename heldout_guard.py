@@ -45,6 +45,7 @@ class HeldOutRegistration:
     allowed_uses: frozenset[str]
     forbidden_uses: frozenset[str]
     path: Path
+    content_sha256: str
 
     @property
     def normalized_aliases(self) -> frozenset[str]:
@@ -60,14 +61,15 @@ class HeldOutRegistration:
 
     @property
     def sha256(self) -> str:
-        return hashlib.sha256(self.path.read_bytes()).hexdigest()
+        return self.content_sha256
 
 
 def load_registration(path: str | Path = DEFAULT_REGISTRATION) -> HeldOutRegistration:
     registration_path = Path(path).resolve()
     try:
-        raw = json.loads(registration_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        registration_bytes = registration_path.read_bytes()
+        raw = json.loads(registration_bytes.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise HeldOutGuardError(f"cannot load held-out registration {registration_path}: {exc}") from exc
 
     schema_version = raw.get("schema_version") if isinstance(raw, dict) else None
@@ -228,6 +230,7 @@ def load_registration(path: str | Path = DEFAULT_REGISTRATION) -> HeldOutRegistr
         allowed_uses=allowed,
         forbidden_uses=forbidden,
         path=registration_path,
+        content_sha256=hashlib.sha256(registration_bytes).hexdigest(),
     )
 
 
@@ -294,9 +297,11 @@ def assert_prompt_not_reserved(
     markers = tuple(dict.fromkeys(
         [*registration.aliases, *registration.prompt_forbidden_markers]
     ))
-    folded = prompt_without_objective.casefold()
+    normalized_prompt = normalize_quest(prompt_without_objective)
     matches = sorted(
-        marker for marker in markers if marker.casefold() in folded
+        marker
+        for marker in markers
+        if normalize_quest(marker) in normalized_prompt
     )
     if matches:
         raise HeldOutGuardError(

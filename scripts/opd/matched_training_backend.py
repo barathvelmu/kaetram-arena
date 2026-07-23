@@ -17,7 +17,11 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
-from heldout_guard import HeldOutGuardError, load_registration  # noqa: E402
+from heldout_guard import (  # noqa: E402
+    HeldOutGuardError,
+    load_registration,
+    normalize_quest,
+)
 from scripts.opd.matched_training import (  # noqa: E402
     EXPECTED_CONSTRUCTORS,
     FIRST_ERROR_ARMS,
@@ -106,6 +110,14 @@ def _inside_repo(path: Path, *, label: str) -> Path:
     except ValueError as exc:
         raise ProtocolError(f"{label} must resolve inside the repository") from exc
     return path
+
+
+def _declared_repo_path(value: str | Path, *, label: str) -> Path:
+    candidate = Path(value)
+    return _inside_repo(
+        candidate if candidate.is_absolute() else REPO / candidate,
+        label=label,
+    )
 
 
 def _artifact_root(value: Any) -> Path:
@@ -237,10 +249,11 @@ def _history_alias_scan(record: dict[str, Any], aliases: list[str], *, record_id
         "state": record["state"]["content"],
         "history": record["history"]["content"],
     }))
+    normalized_visible = tuple(normalize_quest(value) for value in visible)
     leaked = sorted({
         alias
         for alias in aliases
-        if any(alias.casefold() in value.casefold() for value in visible)
+        if any(normalize_quest(alias) in value for value in normalized_visible)
     })
     if leaked:
         raise ProtocolError(f"source record {record_id} leaks held-out alias(es): {leaked}")
@@ -284,6 +297,15 @@ def _validate_arrays(
         width = len(sequence)
         if any(input_ids[index:index + width] == sequence for index in range(len(input_ids) - width + 1)):
             raise ProtocolError(f"record {record_id} input_ids leak a held-out token sequence")
+        if any(labels[index:index + width] == sequence for index in range(len(labels) - width + 1)):
+            raise ProtocolError(f"record {record_id} labels leak a held-out token sequence")
+    if any(
+        label != -100 and label != input_id
+        for input_id, label in zip(input_ids, labels, strict=True)
+    ):
+        raise ProtocolError(
+            f"record {record_id} supervised labels must equal their input token IDs"
+        )
     action_tokens = sum(label != -100 for label in labels)
     if action_tokens < 1:
         raise ProtocolError(f"record {record_id} has no supervised action tokens")
@@ -776,7 +798,7 @@ def _trainer_route(arm: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    config_path = _inside_repo(Path(cell_config_path), label="cell config")
+    config_path = _declared_repo_path(cell_config_path, label="cell config")
     cell = _mapping(_load_json(config_path, label="cell config"), label="cell config")
     _exact_keys(
         cell,
@@ -819,7 +841,10 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
         raise ProtocolError("shared_contract parameterization SHA-256 mismatch")
     registry_ref = _mapping(shared["artifact_registry"], label="artifact_registry")
     _exact_keys(registry_ref, {"path", "sha256"}, label="artifact_registry")
-    registry_path = _inside_repo(Path(registry_ref["path"]), label="artifact registry")
+    registry_path = _declared_repo_path(
+        registry_ref["path"],
+        label="artifact registry",
+    )
     expected_registry_sha = _digest(registry_ref["sha256"], label="artifact_registry.sha256")
     if not registry_path.is_file() or _sha256(registry_path) != expected_registry_sha:
         raise ProtocolError("artifact registry material SHA-256 mismatch")
@@ -854,9 +879,8 @@ def build_backend_plan(cell_config_path: str | Path) -> tuple[dict[str, Any], li
     if not isinstance(heldout_raw_path, str) or not heldout_raw_path:
         raise ProtocolError("held-out registration path must be non-empty")
     declared_heldout_path = Path(heldout_raw_path)
-    heldout_path = _inside_repo(
-        declared_heldout_path if declared_heldout_path.is_absolute()
-        else REPO / declared_heldout_path,
+    heldout_path = _declared_repo_path(
+        declared_heldout_path,
         label="held-out registration",
     )
     heldout_sha = _digest(
@@ -1052,7 +1076,10 @@ def _write_new(path: Path, content: str) -> None:
 
 def materialize(cell_config_path: str | Path) -> dict[str, Any]:
     plan, records = build_backend_plan(cell_config_path)
-    output_dir = _inside_repo(Path(cell_config_path).resolve().parent, label="cell output directory")
+    output_dir = _declared_repo_path(
+        cell_config_path,
+        label="cell config",
+    ).parent
     plan_path = output_dir / "backend-plan.json"
     records_path = output_dir / "normalized-records.jsonl"
     result_path = output_dir / "result.json"

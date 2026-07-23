@@ -193,6 +193,19 @@ def test_materializes_hash_verified_records_without_claiming_training(tmp_path, 
         backend.materialize(cell_path)
 
 
+def test_relative_cell_contract_resolves_from_repository_not_caller_cwd(
+    tmp_path, monkeypatch
+) -> None:
+    cell_path = _natural_fixture(tmp_path, monkeypatch)
+    relative = cell_path.relative_to(backend.REPO)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    plan, records = backend.build_backend_plan(relative)
+    assert plan["cell_id"] == "natural-opd-seed-7"
+    assert len(records) == 1
+
+
 def test_rejects_source_material_hash_drift(tmp_path, monkeypatch) -> None:
     cell_path = _natural_fixture(tmp_path, monkeypatch)
     cell = json.loads(cell_path.read_text())
@@ -338,6 +351,17 @@ def test_heldout_alias_scan_checks_values_not_json_keys() -> None:
         backend._history_alias_scan(record, ["secret-quest-alias"], record_id="record-1")
 
 
+def test_heldout_alias_scan_rejects_separator_variants() -> None:
+    record = {
+        "state": {"content": {"location": "ordinary"}},
+        "history": {"content": ["seek secret quest alias"]},
+    }
+    with pytest.raises(mt.ProtocolError, match="leaks held-out alias"):
+        backend._history_alias_scan(
+            record, ["secret-quest-alias"], record_id="record-1"
+        )
+
+
 @pytest.mark.parametrize("bad_label", [-2, 1000])
 def test_array_validation_rejects_invalid_label_token_ids(bad_label) -> None:
     supervision = {
@@ -368,6 +392,33 @@ def test_array_validation_rejects_heldout_token_sequence() -> None:
     with pytest.raises(mt.ProtocolError, match="held-out token sequence"):
         backend._validate_arrays(
             supervision,
+            objective="opd",
+            record_id="record-1",
+            tokenizer_vocab_size=1000,
+            forbidden_token_sequences=[[777, 778]],
+        )
+
+
+def test_array_validation_scans_labels_and_rejects_mismatched_targets() -> None:
+    label_leak = {
+        "input_ids": [10, 11, 12, 13],
+        "labels": [-100, 777, 778, 13],
+        "advantages": [0.0, 1.0, 1.0, 1.0],
+        "behavior_logprobs": [0.0, -0.2, -0.2, -0.1],
+        "step_weight": 1.0,
+    }
+    with pytest.raises(mt.ProtocolError, match="labels leak"):
+        backend._validate_arrays(
+            label_leak,
+            objective="opd",
+            record_id="record-1",
+            tokenizer_vocab_size=1000,
+            forbidden_token_sequences=[[777, 778]],
+        )
+    label_leak["labels"] = [-100, 12, 12, 13]
+    with pytest.raises(mt.ProtocolError, match="must equal"):
+        backend._validate_arrays(
+            label_leak,
             objective="opd",
             record_id="record-1",
             tokenizer_vocab_size=1000,

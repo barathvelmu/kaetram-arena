@@ -327,7 +327,7 @@
     "artifact_root": "UNRESOLVED_FOR_IMMUTABLE_ARTIFACT_ROOT",
     "backend_adapter": {
       "path": "scripts/opd/matched_training_backend.py",
-      "sha256": "02dedacb189f92dad99ccfa0d62f0a015dc03591dd009fea2957dd7ddd938952"
+      "sha256": "9cb93d619f2e88f31f3561eba919e8fb7d361ec01e619f9f71b8d6b7e87c9673"
     }
   }
 }

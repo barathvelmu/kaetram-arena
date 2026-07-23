@@ -20,6 +20,14 @@ class _FakeTokenizer:
         return self.decoded.get(tuple(token_ids), "ordinary training text")
 
 
+class _TinyRawTokenizer:
+    def get_vocab_size(self, *, with_added_tokens=True):
+        return 2
+
+    def decode(self, token_ids, *, skip_special_tokens=False):
+        return "".join({0: "A", 1: "B"}[token_id] for token_id in token_ids)
+
+
 def _sha_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -468,3 +476,14 @@ def test_array_validation_decodes_normalization_equivalent_token_leak() -> None:
             forbidden_token_sequences=[[4737, 517, 14615]],
             tokenizer=tokenizer,
         )
+
+
+def test_effective_tokenizer_decodes_registered_added_token_suffix() -> None:
+    tokenizer = backend._EffectiveTokenizer(
+        _TinyRawTokenizer(),
+        {0: "A", 1: "B", 2: "<extra-one>", 3: "<extra-two>"},
+    )
+    assert tokenizer.get_vocab_size(with_added_tokens=True) == 4
+    assert tokenizer.decode([0, 2, 1, 3]) == "A<extra-one>B<extra-two>"
+    with pytest.raises(mt.ProtocolError, match="absent"):
+        tokenizer.decode([4])

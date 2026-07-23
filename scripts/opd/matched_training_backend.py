@@ -259,6 +259,115 @@ def _history_alias_scan(record: dict[str, Any], aliases: list[str], *, record_id
         raise ProtocolError(f"source record {record_id} leaks held-out alias(es): {leaked}")
 
 
+class _EffectiveTokenizer:
+    def __init__(self, raw: Any, added_tokens: dict[int, str]):
+        self.raw = raw
+        self.raw_size = raw.get_vocab_size(with_added_tokens=True)
+        self.added_tokens = {
+            token_id: content
+            for token_id, content in added_tokens.items()
+            if token_id >= self.raw_size
+        }
+        expected_added = set(range(
+            self.raw_size,
+            max(self.added_tokens, default=self.raw_size - 1) + 1,
+        ))
+        if set(self.added_tokens) != expected_added:
+            raise ProtocolError(
+                "tokenizer_config added-token IDs must form a contiguous suffix"
+            )
+
+    def get_vocab_size(self, *, with_added_tokens: bool = True) -> int:
+        if not with_added_tokens or not self.added_tokens:
+            return self.raw_size
+        return max(self.added_tokens) + 1
+
+    def decode(self, token_ids: list[int], *, skip_special_tokens: bool = False) -> str:
+        if skip_special_tokens:
+            raise ProtocolError("held-out scanning must retain special tokens")
+        pieces: list[str] = []
+        raw_run: list[int] = []
+
+        def flush() -> None:
+            if raw_run:
+                pieces.append(self.raw.decode(raw_run, skip_special_tokens=False))
+                raw_run.clear()
+
+        for token_id in token_ids:
+            if token_id < self.raw_size:
+                raw_run.append(token_id)
+            elif token_id in self.added_tokens:
+                flush()
+                pieces.append(self.added_tokens[token_id])
+            else:
+                raise ProtocolError(
+                    f"token ID {token_id} is absent from the effective tokenizer"
+                )
+        flush()
+        return "".join(pieces)
+
+
+def _git_blob_sha1(path: Path) -> str:
+    payload = path.read_bytes()
+    return hashlib.sha1(
+        f"blob {len(payload)}\0".encode() + payload
+    ).hexdigest()
+
+
+def _verify_locked_tokenizer_runtime(
+    base_checkpoint_path: Path,
+    registration: Any,
+) -> None:
+    lock_path = (
+        REPO
+        / "research"
+        / "experiments"
+        / "provenance"
+        / "public-hf-snapshots.lock.json"
+    )
+    lock = _mapping(_load_json(lock_path, label="public snapshot lock"), label="public snapshot lock")
+    recorded_lock_sha = lock.get("lock_sha256")
+    unsigned = dict(lock)
+    unsigned.pop("lock_sha256", None)
+    if (
+        recorded_lock_sha != registration.snapshot_lock_sha256
+        or _sha256_json(unsigned) != recorded_lock_sha
+    ):
+        raise ProtocolError("public snapshot lock differs from the held-out registration")
+    snapshots = _mapping(lock.get("snapshots"), label="public snapshot lock.snapshots")
+    snapshot = _mapping(snapshots.get("base_2b"), label="public snapshot lock base_2b")
+    records = snapshot.get("files")
+    if not isinstance(records, list):
+        raise ProtocolError("base_2b snapshot lock files must be a list")
+    by_path = {
+        record.get("path"): record
+        for record in records
+        if isinstance(record, dict) and isinstance(record.get("path"), str)
+    }
+    runtime_paths = (
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "vocab.json",
+        "merges.txt",
+        "chat_template.jinja",
+    )
+    for relative in runtime_paths:
+        record = _mapping(by_path.get(relative), label=f"locked tokenizer file {relative}")
+        path = base_checkpoint_path / relative
+        if not path.is_file() or path.stat().st_size != record.get("size_bytes"):
+            raise ProtocolError(f"locked tokenizer runtime file differs: {relative}")
+        if "sha256" in record:
+            actual = _sha256(path)
+            expected = record.get("sha256")
+        elif "git_blob_sha1" in record:
+            actual = _git_blob_sha1(path)
+            expected = record.get("git_blob_sha1")
+        else:
+            raise ProtocolError(f"locked tokenizer file has no identity: {relative}")
+        if actual != expected:
+            raise ProtocolError(f"locked tokenizer runtime file differs: {relative}")
+
+
 def _load_verified_tokenizer(
     base_checkpoint_path: Path,
     registration: Any,
@@ -267,6 +376,7 @@ def _load_verified_tokenizer(
         raise ProtocolError(
             "base checkpoint material must be a directory containing tokenizer.json"
         )
+    _verify_locked_tokenizer_runtime(base_checkpoint_path, registration)
     tokenizer_path = base_checkpoint_path / "tokenizer.json"
     if (
         not tokenizer_path.is_file()
@@ -277,14 +387,35 @@ def _load_verified_tokenizer(
         )
     try:
         from tokenizers import Tokenizer
-        tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        raw_tokenizer = Tokenizer.from_file(str(tokenizer_path))
     except (ImportError, OSError, ValueError) as exc:
         raise ProtocolError(
             "verified held-out exclusion requires tokenizers and a loadable tokenizer.json"
         ) from exc
-    if tokenizer.get_vocab_size(with_added_tokens=True) > registration.tokenizer_vocab_size:
+    tokenizer_config = _mapping(
+        _load_json(
+            base_checkpoint_path / "tokenizer_config.json",
+            label="tokenizer_config.json",
+        ),
+        label="tokenizer_config.json",
+    )
+    raw_added = _mapping(
+        tokenizer_config.get("added_tokens_decoder"),
+        label="tokenizer_config.json added_tokens_decoder",
+    )
+    added_tokens: dict[int, str] = {}
+    for raw_id, raw_record in raw_added.items():
+        if not isinstance(raw_id, str) or not raw_id.isdigit():
+            raise ProtocolError("tokenizer_config added-token ID is invalid")
+        record = _mapping(raw_record, label=f"added token {raw_id}")
+        content = record.get("content")
+        if not isinstance(content, str) or not content:
+            raise ProtocolError(f"added token {raw_id} has no content")
+        added_tokens[int(raw_id)] = content
+    tokenizer = _EffectiveTokenizer(raw_tokenizer, added_tokens)
+    if tokenizer.get_vocab_size(with_added_tokens=True) != registration.tokenizer_vocab_size:
         raise ProtocolError(
-            "loaded tokenizer vocabulary exceeds the registered vocabulary bound"
+            "effective tokenizer vocabulary differs from the held-out registration"
         )
     return tokenizer
 

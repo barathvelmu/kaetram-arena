@@ -13,6 +13,7 @@ from scripts.opd.local_weight_pilot import (
     _validate_schedule,
     build_eval_command,
     build_eval_environment,
+    build_artifact_inventory,
     load_manifest,
 )
 
@@ -125,3 +126,21 @@ def test_eval_environment_pins_db_schema_and_recovery_off(tmp_path: Path) -> Non
     assert env["KAETRAM_MONGO_DB"] == "kaetram_devlopment"
     assert env["KAETRAM_TOOL_SCHEMA_SOURCE"] == "canonical"
     assert env[ENDPOINT_ENV] == "http://127.0.0.1:9801/v1"
+
+
+def test_cell_artifact_inventory_hashes_content_and_rejects_symlinks(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "nested" / "result.json").write_text('{"ok":true}\n')
+    first = build_artifact_inventory(tmp_path)
+    assert first["file_count"] == 1
+    assert first["files"][0]["path"] == "nested/result.json"
+
+    (tmp_path / "nested" / "result.json").write_text('{"ok":false}\n')
+    second = build_artifact_inventory(tmp_path)
+    assert second["tree_sha256"] != first["tree_sha256"]
+
+    (tmp_path / "link").symlink_to(tmp_path / "nested" / "result.json")
+    with pytest.raises(PilotError, match="symlink"):
+        build_artifact_inventory(tmp_path)

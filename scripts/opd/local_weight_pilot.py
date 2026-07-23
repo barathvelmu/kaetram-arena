@@ -285,6 +285,27 @@ def _write_json(path: Path, value: object) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def build_artifact_inventory(root: Path) -> dict:
+    """Hash every retained cell artifact without following mutable symlinks."""
+    records = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        if path.is_symlink():
+            raise PilotError(f"cell artifact is a symlink: {path.relative_to(root)}")
+        if not path.is_file() or path.name == "artifact-inventory.json":
+            continue
+        records.append({
+            "path": path.relative_to(root).as_posix(),
+            "size_bytes": path.stat().st_size,
+            "sha256": _sha256_file(path),
+        })
+    return {
+        "schema_version": "kaetram.local-weight-pilot-artifacts.v1",
+        "file_count": len(records),
+        "files": records,
+        "tree_sha256": sha256_json(records),
+    }
+
+
 def _preflight_endpoints(
     manifest: dict,
     mlx_python: Path,
@@ -574,6 +595,19 @@ def run_pilot(
             "error": error,
         }
         _write_json(cell_root / "cell-status.json", receipt)
+        try:
+            artifact_inventory_sha256 = _write_json(
+                cell_root / "artifact-inventory.json",
+                build_artifact_inventory(cell_root),
+            )
+        except PilotError as exc:
+            receipt["status"] = "invalid"
+            receipt["error"] = (
+                f"{receipt['error']}; {exc}" if receipt["error"] else str(exc)
+            )
+            artifact_inventory_sha256 = ""
+            _write_json(cell_root / "cell-status.json", receipt)
+        receipt["artifact_inventory_sha256"] = artifact_inventory_sha256
         inventory.append(receipt)
 
     completed = {

@@ -39,8 +39,10 @@ loopback endpoint ports, a non-Node-20 runtime, endpoint identity drift, or
 cross-arm tokenizer/render mismatches. It preflights all endpoints and seals
 `prelaunch.json` before the first outcome. Each cell retains its endpoint
 receipt, endpoint/evaluation logs, canonical-start and environment-RNG
-receipts, raw session evidence, result file, and validity status. Failed cells
-remain in `completed-inventory.json`; there are no outcome-based exclusions.
+receipts, raw session evidence, result file, and validity status. A per-cell
+artifact inventory hashes every retained file and is itself bound into the
+completed inventory. Symlinked evidence is rejected. Failed cells remain in
+`completed-inventory.json`; there are no outcome-based exclusions.
 
 The nominal model budget is 45 minutes. Local model loading, game startup, and
 in-flight generation can make wall time longer. The launcher uses no Modal,

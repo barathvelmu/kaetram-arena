@@ -46,6 +46,14 @@ Official sources:
 
 **System conclusion:** Harness affordances and model weights target different failure classes, but the historical runs do not identify their separate effects. The final 18/30 result is a weights-plus-interface result. The reported recovery-off 12/30-to-15/30 contrast lacks exact historical parity and is not a clean causal weights comparison.
 
+**New registered diagnostic:** The 18-cell, 30-minute local factorial completed
+with 18/18 launcher-valid cells and 1,266 rehashed files. Four cells advanced
+one quest stage, but none of 958 generations was malformed or
+recovery-eligible. The recovery intervention therefore never engaged. This is
+useful negative evidence and a reason to add a cheap trigger-incidence gate
+before any full recovery factorial; it does not satisfy the recovery
+identification gate.
+
 Do not frame the paper as the first MCP game agent, embodied learning, continual learning, autonomous skill learning, or world-model learning. Orak already uses MCP across twelve games, and the present system operates on symbolic state and typed actions with procedural walkthroughs.
 
 ## Current go/no-go gates

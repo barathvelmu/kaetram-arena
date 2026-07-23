@@ -20,6 +20,7 @@ def _audit(recovered: dict[str, int], malformed: int = 1) -> dict:
     return {
         "schema_version": "kaetram-recovery-audit-v1",
         "totals": {
+            "sessions": 1,
             "malformed_emissions": malformed,
             "recovered_calls": count,
             "recovered_execution_errors": 0,
@@ -261,6 +262,7 @@ def test_arm_summary_retains_replicate_values_and_descriptive_means() -> None:
         "rep03-base-rec-off",
     ]
     assert arm["replicates"] == [1, 2, 3]
+    assert arm["missing_replicates"] == []
     assert arm["values"]["malformed_emissions"] == [1, 2, 3]
     assert arm["means"]["malformed_emissions"] == 2
     assert arm["values"]["raw_structured_calls_per_minute"] == [1, 2, 3]

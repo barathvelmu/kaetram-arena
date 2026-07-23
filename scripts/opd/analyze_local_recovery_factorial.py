@@ -111,6 +111,7 @@ def _validate_recovery_accounting(
     recovered = audit.get("recovered_by_tool")
     if not isinstance(totals, dict) or not isinstance(recovered, dict):
         raise AnalysisError("recovery audit is malformed")
+    audited_sessions = totals.get("sessions")
     malformed = totals.get("malformed_emissions")
     recovered_total = totals.get("recovered_calls")
     recovered_errors = totals.get("recovered_execution_errors")
@@ -120,8 +121,11 @@ def _validate_recovery_accounting(
         recovered_total,
         recovered_errors,
         repeat_recoveries,
+        audited_sessions,
     )):
         raise AnalysisError("recovery audit totals are malformed")
+    if audited_sessions != len(session_logs):
+        raise AnalysisError("recovery audit session count is inconsistent")
     if recovered_errors > recovered_total:
         raise AnalysisError("recovery execution errors exceed recovered calls")
     if repeat_recoveries > recovered_total:
@@ -238,8 +242,12 @@ def _summarize(rows: list[dict]) -> dict:
             }
             result[key] = {
                 "n_valid": len(group),
+                "n_registered": 3,
                 "cell_ids": [row["cell_id"] for row in group],
                 "replicates": [row["replicate"] for row in group],
+                "missing_replicates": sorted(
+                    {1, 2, 3} - {row["replicate"] for row in group}
+                ),
                 "schedule_indices": [row["schedule_index"] for row in group],
                 "values": values,
                 "means": means,

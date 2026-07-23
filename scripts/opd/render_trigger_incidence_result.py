@@ -14,6 +14,7 @@ SNAPSHOT_LABELS = {
     "opd_r2_2b": "Round 2",
     "opd_r3_2b": "Round 3",
 }
+EXPECTED_SNAPSHOTS = tuple(SNAPSHOT_LABELS)
 CONDITION_COLUMNS = (
     ("python-docs_no-tools", "Python / none"),
     ("python-docs_native-tools", "Python / native"),
@@ -54,7 +55,9 @@ def _ordered_snapshots(summary: dict[str, Any]) -> list[str]:
         isinstance(item, str) and item for item in snapshots
     ):
         raise RenderError("analysis summary has invalid snapshot identities")
-    return sorted(snapshots, key=lambda item: (item not in SNAPSHOT_LABELS, item))
+    if set(snapshots) != set(EXPECTED_SNAPSHOTS):
+        raise RenderError("analysis summary does not contain the registered snapshots")
+    return list(EXPECTED_SNAPSHOTS)
 
 
 def _index_unique(
@@ -133,6 +136,20 @@ def render_tables(summary: dict[str, Any]) -> tuple[str, str]:
         len(snapshots) * len(CONTRAST_COLUMNS),
         "contrast",
     )
+    expected_cell_keys = {
+        (snapshot, condition_id)
+        for snapshot in snapshots
+        for condition_id, _label in CONDITION_COLUMNS
+    }
+    expected_contrast_keys = {
+        (snapshot, contrast_id)
+        for snapshot in snapshots
+        for contrast_id, _label in CONTRAST_COLUMNS
+    }
+    if set(cells) != expected_cell_keys:
+        raise RenderError("cell identities do not match the registered grid")
+    if set(contrasts) != expected_contrast_keys:
+        raise RenderError("contrast identities do not match the registered grid")
 
     markdown = [
         "### Recovery-opportunity incidence",
@@ -234,12 +251,25 @@ def main(argv: list[str] | None = None) -> int:
         raise RenderError("refusing to overwrite a rendered table")
     summary = _load_summary(args.summary)
     markdown, latex = render_tables(summary)
-    for path, content in (
+    outputs = (
         (args.markdown_out, markdown),
         (args.latex_out, latex),
-    ):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
+    )
+    created: list[Path] = []
+    try:
+        for path, content in outputs:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("x", encoding="utf-8") as handle:
+                handle.write(content)
+            created.append(path)
+    except FileExistsError as exc:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise RenderError("refusing to overwrite a rendered table") from exc
+    except Exception:
+        for path in created:
+            path.unlink(missing_ok=True)
+        raise
     return 0
 
 

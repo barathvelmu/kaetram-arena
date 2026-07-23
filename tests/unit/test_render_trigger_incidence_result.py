@@ -129,3 +129,19 @@ def test_duplicate_snapshot_is_rejected():
 
     with pytest.raises(renderer.RenderError, match="invalid snapshot"):
         renderer.render_tables(summary)
+
+
+def test_unregistered_cell_identity_is_rejected():
+    summary = copy.deepcopy(_summary())
+    summary["cells"][0]["condition_id"] = "invented-condition"
+
+    with pytest.raises(renderer.RenderError, match="cell identities"):
+        renderer.render_tables(summary)
+
+
+def test_unregistered_snapshot_is_rejected():
+    summary = copy.deepcopy(_summary())
+    summary["input_runs"][0]["snapshot"] = "invented-snapshot"
+
+    with pytest.raises(renderer.RenderError, match="registered snapshots"):
+        renderer.render_tables(summary)

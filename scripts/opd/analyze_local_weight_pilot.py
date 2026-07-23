@@ -124,10 +124,14 @@ def _validate_prelaunch(
     *,
     expected_schema: str = PILOT_PRELAUNCH_SCHEMA_VERSION,
     legacy_schema: str = LEGACY_PILOT_PRELAUNCH_SCHEMA_VERSION,
+    allow_legacy_v1: bool = False,
 ) -> dict:
     expected_cells = manifest["cells"]
+    accepted_schemas = {expected_schema}
+    if allow_legacy_v1:
+        accepted_schemas.add(legacy_schema)
     if (
-        prelaunch.get("schema_version") not in {expected_schema, legacy_schema}
+        prelaunch.get("schema_version") not in accepted_schemas
         or prelaunch.get("pilot_id") != manifest["pilot_id"]
         or prelaunch.get("claim_boundary") != manifest["claim_boundary"]
         or prelaunch.get("cells") != expected_cells
@@ -531,7 +535,12 @@ def summarize_rows(rows: list[dict]) -> dict:
     return summaries
 
 
-def analyze(root: Path, manifest_path: Path) -> dict:
+def analyze(
+    root: Path,
+    manifest_path: Path,
+    *,
+    allow_legacy_v1: bool = False,
+) -> dict:
     manifest, manifest_sha256 = load_manifest(manifest_path)
     prelaunch_path = root / "prelaunch.json"
     completed_path = root / "completed-inventory.json"
@@ -542,7 +551,11 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         or completed.get("manifest_sha256") != manifest_sha256
     ):
         raise AnalysisError("manifest digest differs across sealed ledgers")
-    preflight = _validate_prelaunch(manifest, prelaunch)
+    preflight = _validate_prelaunch(
+        manifest,
+        prelaunch,
+        allow_legacy_v1=allow_legacy_v1,
+    )
     if (
         completed.get("schema_version")
         != "kaetram.local-weight-pilot-inventory.v1"
@@ -782,9 +795,21 @@ def main(argv: list[str] | None = None) -> int:
         "--expected-bundle-index-sha256",
         help="Fail if the recomputed sealed-ledger root differs from this digest.",
     )
+    parser.add_argument(
+        "--allow-legacy-v1",
+        action="store_true",
+        help=(
+            "Explicitly analyze a pre-v2 bundle as legacy_v1_unattested; "
+            "never use this for a new launch."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
-        report = analyze(args.root.resolve(), args.manifest.resolve())
+        report = analyze(
+            args.root.resolve(),
+            args.manifest.resolve(),
+            allow_legacy_v1=args.allow_legacy_v1,
+        )
         if (
             args.expected_bundle_index_sha256 is not None
             and report["bundle_index_sha256"]

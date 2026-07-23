@@ -287,7 +287,13 @@ def test_legacy_v1_prelaunch_remains_explicitly_analyzable() -> None:
     for receipt in prelaunch["endpoint_receipts"].values():
         del receipt["attestation"]["snapshot_tree_sha256"]
         del receipt["attestation"]["snapshot_lock_sha256"]
-    validated = _validate_prelaunch(manifest, prelaunch)
+    with pytest.raises(AnalysisError, match="prelaunch contract differs"):
+        _validate_prelaunch(manifest, prelaunch)
+    validated = _validate_prelaunch(
+        manifest,
+        prelaunch,
+        allow_legacy_v1=True,
+    )
     assert validated["snapshot_tree_sha256"] is None
     assert validated["game_database_attestation"] is None
 

@@ -394,7 +394,12 @@ def _verify_completed_cell_artifacts(
     return inventory_sha, files_checked
 
 
-def analyze(root: Path, manifest_path: Path) -> dict:
+def analyze(
+    root: Path,
+    manifest_path: Path,
+    *,
+    allow_legacy_v1: bool = False,
+) -> dict:
     manifest, manifest_sha256 = load_manifest(manifest_path)
     if manifest.get("schema_version") != RECOVERY_FACTORIAL_SCHEMA_VERSION:
         raise AnalysisError("manifest is not the reviewed recovery factorial")
@@ -412,6 +417,7 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         prelaunch,
         expected_schema=RECOVERY_PRELAUNCH_SCHEMA_VERSION,
         legacy_schema=LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
+        allow_legacy_v1=allow_legacy_v1,
     )
     contract = manifest["artifact_contract"]
     if (
@@ -741,9 +747,21 @@ def main(argv: list[str] | None = None) -> int:
         "--expected-bundle-index-sha256",
         help="Fail if the sealed-ledger root differs from this digest.",
     )
+    parser.add_argument(
+        "--allow-legacy-v1",
+        action="store_true",
+        help=(
+            "Explicitly analyze a pre-v2 bundle as legacy_v1_unattested; "
+            "never use this for a new launch."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
-        report = analyze(args.root.resolve(), args.manifest.resolve())
+        report = analyze(
+            args.root.resolve(),
+            args.manifest.resolve(),
+            allow_legacy_v1=args.allow_legacy_v1,
+        )
         expected = args.expected_bundle_index_sha256
         if expected is not None and report["bundle_index_sha256"] != expected:
             raise AnalysisError("bundle-index digest differs from expected root")

@@ -15,6 +15,7 @@ from scripts.opd.trigger_incidence_probe import (
     _request_one,
     analyze,
     condition_messages,
+    decode_endpoint_health,
     load_design,
     sha256_file,
     sha256_json,
@@ -98,6 +99,16 @@ def test_request_records_recovery_opportunity_and_native_tools() -> None:
     assert all(record["recovery_opportunity"] for record in records)
     assert "tools" not in seen_payloads[0]
     assert len(seen_payloads[1]["tools"]) > 1
+
+
+def test_malformed_health_json_is_a_retained_probe_error() -> None:
+    response = httpx.Response(
+        200,
+        text="{not-json",
+        request=httpx.Request("GET", "http://127.0.0.1:9999/health"),
+    )
+    with pytest.raises(ProbeError, match="not valid JSON"):
+        decode_endpoint_health(response)
 
 
 def _registration(tmp_path: Path) -> Path:

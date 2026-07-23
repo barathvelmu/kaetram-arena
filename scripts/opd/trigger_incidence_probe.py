@@ -382,14 +382,21 @@ def _health_url(endpoint: str) -> str:
     return endpoint[:-3] + "/health" if endpoint.endswith("/v1") else endpoint + "/health"
 
 
-async def endpoint_health(endpoint: str) -> dict:
-    async with httpx.AsyncClient() as client:
-        response = await client.get(_health_url(endpoint), timeout=10)
-        response.raise_for_status()
+def decode_endpoint_health(response: httpx.Response) -> dict:
+    response.raise_for_status()
+    try:
         payload = response.json()
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ProbeError("endpoint health is not valid JSON") from exc
     if not isinstance(payload, dict) or payload.get("status") != "ok":
         raise ProbeError("endpoint health is not ok")
     return payload
+
+
+async def endpoint_health(endpoint: str) -> dict:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(_health_url(endpoint), timeout=10)
+    return decode_endpoint_health(response)
 
 
 def validate_endpoint_health(health: dict, registration: dict, snapshot: str) -> None:

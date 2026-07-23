@@ -15,6 +15,7 @@ from scripts.opd.local_weight_pilot import (
     build_eval_environment,
     build_artifact_inventory,
     load_manifest,
+    preserve_invoked_path,
 )
 
 
@@ -144,3 +145,14 @@ def test_cell_artifact_inventory_hashes_content_and_rejects_symlinks(
     (tmp_path / "link").symlink_to(tmp_path / "nested" / "result.json")
     with pytest.raises(PilotError, match="symlink"):
         build_artifact_inventory(tmp_path)
+
+
+def test_invoked_virtualenv_interpreter_symlink_is_not_resolved(
+    tmp_path: Path,
+) -> None:
+    real_python = tmp_path / "python-real"
+    real_python.write_text("")
+    venv_python = tmp_path / "venv-python"
+    venv_python.symlink_to(real_python)
+    assert preserve_invoked_path(venv_python) == venv_python
+    assert preserve_invoked_path(venv_python) != venv_python.resolve()

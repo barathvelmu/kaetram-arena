@@ -179,6 +179,66 @@ def build_backend_command(
     ]
 
 
+def normalize_mlx_tool_arguments(messages: object) -> None:
+    """Adapt Arena's Qwen history shape to MLX-LM's OpenAI wire contract.
+
+    Arena deliberately retains historical function arguments as mappings:
+    Qwen's model-visible chat template iterates those mappings directly, which
+    matches training.  MLX-LM's HTTP server first applies ``json.loads`` to
+    every historical argument value, so its wire representation must instead
+    be a JSON-object string.  MLX decodes the string before rendering, leaving
+    the model-visible mapping unchanged.
+    """
+    if not isinstance(messages, list):
+        return
+    for message_index, message in enumerate(messages):
+        if not isinstance(message, dict):
+            continue
+        tool_calls = message.get("tool_calls")
+        if tool_calls is None:
+            continue
+        if not isinstance(tool_calls, list):
+            continue
+        for call_index, tool_call in enumerate(tool_calls):
+            if not isinstance(tool_call, dict):
+                continue
+            function = tool_call.get("function")
+            if not isinstance(function, dict):
+                continue
+            path = (
+                f"messages[{message_index}].tool_calls[{call_index}]"
+                ".function.arguments"
+            )
+            arguments = function.get("arguments")
+            if isinstance(arguments, dict):
+                try:
+                    function["arguments"] = json.dumps(
+                        arguments,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise LocalEndpointError(
+                        f"{path} must be a JSON object or JSON-object string"
+                    ) from exc
+                continue
+            if isinstance(arguments, str) and arguments:
+                try:
+                    decoded = json.loads(arguments)
+                except json.JSONDecodeError as exc:
+                    raise LocalEndpointError(
+                        f"{path} must be a JSON object or JSON-object string"
+                    ) from exc
+                if isinstance(decoded, dict):
+                    # Preserve already-valid strings byte-for-byte. Re-encoding
+                    # would change prompt order/spacing or double-encode them.
+                    continue
+            raise LocalEndpointError(
+                f"{path} must be a JSON object or JSON-object string"
+            )
+
+
 def rewrite_chat_request(body: bytes, api_model: str) -> bytes:
     try:
         payload = json.loads(body)
@@ -190,6 +250,7 @@ def rewrite_chat_request(body: bytes, api_model: str) -> bytes:
         raise LocalEndpointError(
             f"request model must be the attested API model {api_model!r}"
         )
+    normalize_mlx_tool_arguments(payload.get("messages"))
     payload["model"] = "default_model"
     return json.dumps(payload, separators=(",", ":")).encode()
 

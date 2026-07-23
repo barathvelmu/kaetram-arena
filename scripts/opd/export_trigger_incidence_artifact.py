@@ -449,6 +449,14 @@ def export_bundle(
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+        from scripts.opd.verify_trigger_incidence_artifact import verify_bundle
+
+        verified_manifest = verify_bundle(
+            output_dir,
+            forbidden_fragments=forbidden_fragments,
+        )
+        if verified_manifest["tree_sha256"] != manifest["tree_sha256"]:
+            raise ExportError("final public-artifact verification disagrees")
         return manifest
     except Exception:
         shutil.rmtree(output_dir)

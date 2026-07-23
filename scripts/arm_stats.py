@@ -101,23 +101,35 @@ def _agent_dirs(raw_root: Path) -> dict[str, Path]:
 def collect_arm(arm: str, raw_root: Path) -> list[dict]:
     """Per (run, agent): {'run', 'agent', 'stages': {quest: max_stage}, 'total'}.
 
-    Missing run dirs are skipped loudly (a hardening arm may still be running).
+    An arm is all-or-nothing: any missing declared run/agent artifact
+    quarantines the entire arm so partial evidence cannot enter statistics.
     """
+    try:
+        require_agent_run_logs(
+            raw_root,
+            agents=AGENTS,
+            run_ids=ARMS[arm]["runs"],
+            analysis=f"arm_stats arm {arm}",
+        )
+    except MissingEvidenceError as exc:
+        print(f"  [warn] {arm}: incomplete evidence — arm quarantined: {exc}", file=sys.stderr)
+        return []
+
     ads = _agent_dirs(raw_root)
     rows = []
     for run_id in ARMS[arm]["runs"]:
         for an in AGENTS:
             agent_dir = ads.get(an)
             if agent_dir is None:
-                print(
-                    f"  [warn] {arm}: required directory {raw_root / an} not found — skipped",
-                    file=sys.stderr,
+                raise RuntimeError(
+                    f"artifact preflight passed but agent directory disappeared: {raw_root / an}"
                 )
-                continue
             rd = [r for r in list_runs(agent_dir) if r.name == run_id]
             if not rd:
-                print(f"  [warn] {arm}: {run_id}/{an} not found — skipped", file=sys.stderr)
-                continue
+                raise RuntimeError(
+                    "artifact preflight passed but run directory disappeared: "
+                    f"{run_id}/{an}"
+                )
             rv = parse_run_sessions(agent_dir, rd[0])
             prog = progression_for_quests(rv, quest_names=CORE3)
             stages = {q: (prog[q].max_stage_reached if prog.get(q) else 0) for q in CORE3}

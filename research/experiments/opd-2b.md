@@ -10,9 +10,9 @@ decomposition. Within the reported runs, every round-3 agent completed Foresting
 Desperation where the reported base agents completed only Foresting. Round 3 was reported to
 break the stage-2 wall while the harness recovery affordance was enabled; the retained evidence
 does not establish that recovery causally fixed the format defect. Rick's Roll stayed 0/4
-(over-determined: a displaced fishing tool gates link 1 before cooking is reached; a later live
-probe refuted the earlier cook-incompetence explanation and found four seeding, door, aggro,
-and navigation defects). The reported
+(over-determined: a displaced fishing tool gates link 1 before cooking is reached; later live
+probes identify additional seeding, door, aggro, and navigation blockers but do not isolate
+their effects). The reported
 round-2-weights-plus-recovery result (17/30) was also a single unmatched historical run; it is
 suggestive, not a controlled effect estimate.
 We label 18/30 a weights-plus-interface result and don't lean
@@ -632,11 +632,11 @@ malformed emissions and 405 markers use different units.
   dropped malformed call and canonicalize retained history, while the training rounds attempted
   weights-side changes. The unmatched 12/15/17/18 cells do not identify either main effect or an
   interaction.
-- **The Rick's cooking-null interpretation is refuted by a later live probe.** Both model sizes
-  formed or attempted the cook action when seeded appropriately. The observed 0/4 instead
-  exposed a respawn-dungeon station, door-gated position resets, seaside aggro, and an executor
-  that never crossed the required doors. No live Rick's stage completion was obtained, so this
-  diagnoses infrastructure/execution blockers rather than establishing transferred competence.
+- **A later Rick's probe weakens the cooking-null interpretation.** Both tested model sizes
+  formed or attempted the cook action when seeded. The probe also exposed a respawn-dungeon
+  station, door-gated position resets, seaside aggro, and failure to cross required doors.
+  No live stage completion was obtained, so these are alternative blockers rather than an
+  identified cause or evidence of transferred competence.
 
 **Framing:** the r3 18/30 is a **weights + harness recovery** arm — env-changed, not
 pure-weights like base/r1/r2 — so we label it as such. The recovery-off round-2 report is the
@@ -683,7 +683,7 @@ the yarn dev server at .env PORT=9001, both fixed 2026-07-11; dev server moved t
 grinder score (3) is suspect and E1 deserves a cheap rerun. Whether June arms also ran with the
 dev-server collision is an open protocol question to check before the paper freezes.
 
-### The ±seeding falsifier (2026-07-13): natural-only r2 lands at BASE level — seeding was the difference-maker in this observed pair (suggestive, not categorical)
+### The ±seeding observation (2026-07-13): natural-only r2 lands at the reported base score
 
 The matched ablation both reviews demanded: `2b-opd-r2-noseed` = round-2 retrained from the
 identical merged-r1 init, identical build code (counterfactual grading disabled via
@@ -698,11 +698,11 @@ stopped at the 6h boundary (+3 min; port-collision-free harness, e2-standard-4 i
 | **r2 natural-only (E3′)** | **12** | **1/3** | g5 (stage 2) / c3 (never accepted) / e4 (stage 1) |
 
 Readings:
-1. **Without the seeded slice, round-2 training bought ZERO stages over base** (12/30 = base =
-   r1) despite token-level KL movement indistinguishable from the seeded arm — the r1
-   style-without-competence outcome repeated at round 2. In this observed pair, the seeded
-   slice is the entire r2-over-base gain, and **KL movement predicts nothing about stages**
-   (the strongest version yet of the gate-measures-the-wrong-quantity theme).
+1. **The natural-only run scores no higher than the reported base run** (12/30 = base =
+   r1) despite a token-level KL summary close to the seeded arm's. In this one observed pair,
+   adding the seeded slice is associated with the 12→15 difference, while aggregate KL
+   movement does not track the observed stage totals. This is a hypothesis-generating
+   contrast, not an effect estimate.
 2. **Not categorical**: 3/3 vs 1/3 wall passage supports a reliability effect, not necessity
    (per the pre-registered branch reading); it sits near the base-family 1/6 background, each
    arm is one training run, and the two arms ran in different infrastructure eras. The
@@ -719,9 +719,9 @@ Readings:
    not yet evidence for WHY (teacher-selective distillation vs reset-conditioned
    self-imitation vs marginal teacher regularization — the Arm-C control discriminates).
 
-### Arm-C, the mechanism control (2026-07-14): uniform self-imitation MATCHES seeded OPD — the r2 competence lift is reset-conditioned self-imitation, not distillation
+### Arm-C, a candidate mechanism control (2026-07-14): uniform self-imitation matches the reported seeded-OPD score
 
-The decisive control from the Codex pass-3 design: `2b-opd-r2-uniform` = the EXACT r2 corpus
+The intended control from the Codex pass-3 design: `2b-opd-r2-uniform` uses the reported r2 corpus
 (seeded+natural, 7,024 records), same merged-r1 init, same IS-clipped trainer/steps/masks, with
 every nonzero advantage replaced by the pre-registered constant c=0.4306 (= corpus mean |adv|,
 matching initial update magnitude; manifest in `dataset/opd_2b/round2_uniform/`). Training
@@ -736,32 +736,32 @@ stopped at boundary:
 | E3′ noseed | natural only | teacher | +14.9% | 12 | 1/3 |
 | **Arm-C** | **seeded+natural** | **uniform (no teacher)** | **−1.1%** | **15 (5/5/5)** | **3/3** |
 
-Pre-registered outcome-table row 1 applies verbatim: **teacher grading was unnecessary for the
-r2 lift under this recipe.** With seeding held fixed, removing all teacher-direction changes
-nothing (15/30, 3/3, identical 5/5/5 profile); with teacher grading held fixed, removing the
-seeded slice removes the entire lift (15→12, 3/3→1/3). The active ingredient is the seeded
-rollouts themselves — the mechanism is **reset-conditioned self-imitation** (imitating the
-student's own frontier-state behavior), not teacher-selective distillation. Do NOT say
-"imitated only successes" — the corpus contains failures too, unfiltered.
+The uniform arm reproduces the single reported r2 score and clustered wall profile without
+teacher-directed advantages. The natural-only arm is lower in a separate run. Together these
+observations motivate a **reset-conditioned self-imitation hypothesis** (imitating the
+student's own frontier-state behavior), but they do not identify a mechanism: each checkpoint
+is represented by one training run, infrastructure eras differ, and the missing fully crossed
+factorial leaves teacher direction, rollout source, and state coverage incompletely isolated.
+The corpus also contains failures, so it is not success-only imitation.
 
-Corollaries: (a) the KL-gate irrelevance is now maximal — the arm with ZERO movement toward
-the teacher scored the same 15/30; (b) retro-explains r1 (self-imitation of natural rollouts
-had nothing new to imitate → style only) and coheres with A2′ (weak state-conditional
-advantage signal); (c) the paper's mechanism section recenters on self-imitation, with
-teacher-grading effects confined to style/prior shaping (r1's documented transfers) and the
-copy-prior defect; (d) missing 2×2 cell (natural+uniform) is predictably ≤12 and low-priority.
+Descriptively, the arm with a negative aggregate KL change still scores 15/30. This weakens
+KL change as a surrogate endpoint in these runs and motivates testing self-imitation directly.
+It does not retroactively explain r1, confine teacher effects to style, or license a prediction
+for the missing natural+uniform cell.
 
 **Deep-audit addenda (2026-07-15, confirmatory log analysis — four independent analyses):**
 
-*(v) Behavioral equivalence:* at the strategy level r2 and Arm-C are the SAME policy — tool-mix
-total-variation distance 0.083, BELOW the within-arm agent-to-agent noise floor (0.10–0.12);
+*(v) Behavioral similarity:* in these logged runs, r2 and Arm-C have similar strategy summaries:
+tool-mix total-variation distance 0.083, below the observed within-arm agent-to-agent range
+(0.10–0.12);
 wall-passage mechanism verbatim-identical (same blueberry-grind gate arithmetic templates,
 same bush rotation after empty gathers, same premature Herby visits, same stage-2 plateau);
 milestone clocks match within per-agent scatter (wall μ 4.54h vs 4.49h). At the EMISSION level
 they are cleanly different policies — error-category TV 0.615 vs ≤0.105 among the three
 teacher-graded arms (r1/r2/E3′ cluster as a family), validation errors 107 vs 1.8 per 1,000
 calls, dead tool-callish emissions 1,082 vs 1, hallucinated verbs 37 vs 2 — every difference
-score-irrelevant, and all of it the teacher-graded family's defect fingerprint.
+not associated with a score difference in this pair, and concentrated in the
+teacher-graded family's observed defect pattern.
 *(vi) Advantage anatomy (825 heldout records, 261k scored tokens):* 94% of |advantage| mass is
 generic prose suppression, 5% generic structure endorsement; action-identity tokens (verb
 names, argument values) carry ≈zero advantage (0.1–0.2% of mass; the gather verb-name at
@@ -770,13 +770,15 @@ difference-in-differences −0.011, bootstrap CI [−0.036,+0.015]); the seeded-
 coefficient is +0.014 (mild ENDORSEMENT of student behavior at wall states, not correction);
 state variables add ≤0.3pp R² over (verb, turn-position, length) surface covariates, and 99%+
 of advantage variance is within-record prose phrasing. Seeded and natural grading profiles are
-near-identical — shifting the state distribution did not change what the teacher graded.
+near-identical in this dataset; a replicated crossed study is needed to test whether state
+distribution changes teacher grading.
 
 Original addenda: (i) *Efficiency channel
-closed*: Arm-C matches r2 there too — time-to-Herb-stage-2 mean 4.48h vs r2's 4.53h,
-throughput 376 vs 367 turns/h. Teacher grading contributed nothing measurable at round 2 on
-stages, wall passage, speed, OR throughput. (ii) *Style panel* (full 6-arm comparison): no
-style dimension is attributable to teacher-pull — uniform matched the teacher's tempo exactly
+not separated in this pair*: Arm-C and r2 report time-to-Herb-stage-2 means of 4.48h and
+4.53h, with throughput 376 and 367 turns/h. No separation is observed on stages, wall passage,
+speed, or throughput, but one run per arm cannot establish equivalence. (ii) *Style panel*
+(full 6-arm comparison): the available summaries do not isolate a style dimension attributable
+to teacher pull — uniform matched the teacher's reported tempo
 (6.0) and landed CLOSER to the teacher than r2 on the signature overshoots (query_quest 11.0%
 vs 12.9% → teacher 8.7%; chars/turn 905 vs 1,116 → 864); the r2 "overshoot retreat" was a
 retrain-on-r1-rollouts effect, not teacher-pull. (iii) **The one clean grading-specific
@@ -784,7 +786,8 @@ signature is the defect**: all three teacher-graded arms carry the ~11% malforme
 (r1 11.5% / r2 10.7% / E3′ 11.6% of calls) while Arm-C on the SAME corpus sits at **0.2% on
 missing-required-field calls (12 vs 591) / 1.1% on n_malformed_emit (76 vs 685; metric labels
 corrected per the 2026-07-17 verification sweep)** — a ~9× gap either way; the malformation
-follows the gradient direction, not the data, closing the copy-prior causal loop at arm level. (iv) E3′ carries its own eat_food spam pathology (310/382
+is associated with the teacher-graded arms rather than this uniform arm; this is compatible
+with, but does not close, the copy-prior causal hypothesis. (iv) E3′ carries its own eat_food spam pathology (310/382
 calls malformed no-ops), which inflates its raw turn counts. Full evidence ledger with
 strength ratings, the against-side gaps (r1-uniform control never run; teacher-shaped init and
 seeded-rollout generator upstream of every capable arm; n=1 everywhere), and the
@@ -804,12 +807,12 @@ consequences, stated honestly:
    visitation grew); seeding's residual claim is RELIABILITY (6/6 vs 3/6) and totals (15,15 vs
    12,14), not a categorical wall gate. The n=1 noise band Codex warned about is now visibly
    loud; M4's replication is the decider on seeding's true magnitude.
-2. **Uniform BEAT teacher-graded on the identical natural corpus** (M3 14/30, 2/3 vs E3′
-   12/30, 1/3) — consistent with the defect tax: E3′ carried the ~11% malformed dialect +
-   eat_food spam; M3 is nearly clean (31 emissions). On natural corpora the teacher's gradient
-   nets NEGATIVE.
-3. Uniform-arm cleanliness replicates a fourth time (31 vs hundreds/thousands in every graded
-   arm).
+2. The uniform run is numerically higher than the teacher-graded run on the intended identical
+   natural corpus (M3 14/30, 2/3 vs E3′ 12/30, 1/3) and is much cleaner in the reported
+   malformed-emission count. One run per arm cannot establish a negative teacher-gradient
+   effect or attribute the difference to a defect tax.
+3. The low malformed count repeats the descriptive pattern seen in other uniform runs; it is
+   not an independent training replicate of a single arm.
 
 ### The mechanical account of round-2 training (2026-07-17): what the update actually reinforced, with corpus counts
 
@@ -826,34 +829,33 @@ behavior; report in session records). The operational meaning of "seeding traine
    three in the train split**, hostile-zone presence 2.1×. Honest negatives: bush rotation
    and gate-arithmetic reasoning are NOT seeded deltas (already r1-policy traits in both
    slices) — seeding placed existing skills at states where they connect to a viable action.
-3. **Why reinforcing failures didn't hurt**: ~40% of seeded gradient mass is failed-outcome
-   turns, but the "failures" are majority correct-policy-unlucky-dice (41% realized lily
+3. **Why failure records may remain useful**: ~40% of seeded gradient mass is failed-outcome
+   turns, and many “failures” are compatible with correct-policy unlucky dice (41% realized lily
    yield under the ~1/3-per-tick mechanic — empty-retry IS the optimal strategy); the ±30%
    trust region caps reinforcement of genuinely-bad modes that were already modal; failure
    and success exemplars occupy different states (premature turn-ins at 0–2 lilies, real
-   ones at ≥3) so likelihood-raising both teaches the correct conditional.
+   ones at ≥3). This corpus anatomy suggests a testable conditional-learning explanation; it
+   does not show what the trained policy learned.
 4. **The teacher's weighting was flat where it mattered**: per-token mean |adv| seeded/natural
    ratio **0.999** (bootstrap CI [0.949, 1.045]); r2 trained with uniformly ~5.6% less total
-   magnitude than Arm-C — the 15=15 tie cannot be an exposure artifact; sign structure and
-   per-verb weights slice-flat. Confirms weight-pattern inertness at every measurable level.
+   magnitude than Arm-C. The 15=15 observation is not explained by this scalar magnitude
+   difference, but sign structure and per-verb weights remain candidates for replicated study.
 5. **What natural corpora can/can't buy** (clean-r1 context): natural/base corpora contain
    ZERO passage exemplars and ≤1 successful lily gather, yet defect-free natural arms pass
    the wall 5/9 (M1 1/3, M3 2/3, clean-r1 2/3) — approach behavior + persistence passes a
-   stochastic wall sometimes. Seeded arms are 6/6. **Seeding converts stochastic passage
-   into dependable passage by making the closing sequence and the post-wall regime
-   high-likelihood rather than merely reachable** — and the stage-2 continuation (+ its
-   ~564k trained tokens) has no other corpus source.
+   stochastic wall sometimes. Seeded arms are 6/6. The observed pattern is consistent with
+   seeding increasing passage reliability by exposing the closing sequence and post-wall
+   regime; independent training replicates are required to estimate that effect.
 
-One-line summary for the paper: *seeding trained the model in precisely the sense that
-practice trains a player — it did not teach the moves; it arranged for the moves to be
-performed where they mattered, and the recorder was the loss function.*
+Working hypothesis: *milestone resets may help chiefly by placing the behavior policy where
+useful closing sequences can be recorded and imitated.* This is not paper-ready result text.
 
-### Clean-r1, the discriminating arm (2026-07-17): defect ELIMINATED by the context-parity fix; clean grading lands at parity-to-slightly-positive vs uniform
+### Clean-r1, a discriminating arm (2026-07-17): fewer defects and a small numerical edge
 
 `2b-opd-r1-clean` (eval run_20260716_215512): the r1 recipe with ONE repair — build/score
-contexts rendered with the frozen canonical `tools=` block (byte-parity with serving;
-current interface: `OPD_BUILD_TOOL_SCHEMA_SOURCE=canonical`). The original ad-hoc
-JSON snapshot is not a reusable contract and is deliberately not retained.
+contexts reportedly rendered with a `tools=` block. The ad-hoc JSON snapshot and
+legacy builder patch are not retained because they lacked an immutable build receipt;
+this historical arm therefore cannot establish exact train/serve parity.
 Same base init, same natural base-rollout corpus (5,575 records — parity contexts even
 recovered the original build's ~1% score-fails), same trainer. Result: **14/30 (4/5/5), wall
 2/3, malformed emissions 1 in 7,218 calls.**
@@ -865,60 +867,67 @@ recovered the original build's ~1% score-fails), same trainer. Result: **14/30 (
 | **clean-r1** | **graded, parity contexts** | **14** | **2/3** | **1** |
 
 Readouts:
-1. **The defect is eliminated at the training level by fixing OUR context bug** (1 vs 233
-   emissions, ~base floor). The Seam-1 exposure is now causally confirmed end-to-end:
-   same teacher, same corpus, same loss — only the gradient-time context changed.
+1. **The repaired-context run reports far fewer defect emissions** (1 vs 233, near the
+   reported base floor). Although teacher, corpus, and loss were intended to match, this is
+   one run in a different execution era and therefore supports, but does not causally confirm,
+   the Seam-1 exposure hypothesis.
 2. **Defect-free grading ≥ uniform** (14 vs 13, wall 2/3 vs 1/3) on the identical corpus —
-   the June-era "grades net negative on natural corpora" was entirely the self-inflicted
-   defect; clean grades show a small POSITIVE edge (within n=1 noise). Flagship wording
-   (final): *"under our defect-exposing configuration, teacher grades netted ≤0 stages vs
+   the earlier “grades net negative” interpretation is not stable to the configuration repair;
+   clean grades show a small positive numerical edge within n=1 noise. Bounded wording:
+   *"under our defect-exposing configuration, teacher-graded arms scored no higher than
    uniform twins; with the configuration repaired, grading performs at parity to slightly
    positive (+1 stage, +1 wall passage at n=1) — 'grades carry no value' is not supported,
-   'grades were never the primary competence channel' is."* The competence hierarchy stands:
-   corpus/state-coverage effects (12→15 seeded) ≫ grade-direction effects (±1).
-3. Natural-family wall rate is now 5/9 agent-passages across defect-free arms (M1 1/3, M3
-   2/3, clean-r1 2/3) vs seeded 6/6 — seeding's reliability edge persists but the natural
-   floor keeps rising as defect burden falls; M4 arbitrates the final magnitudes.
+   'grades were never the primary competence channel' remains a hypothesis."* The observed
+   between-run magnitudes motivate prioritizing corpus/state coverage, but do not establish a
+   hierarchy of causal effects.
+3. The pooled descriptive wall counts are 5/9 persona-runs across these natural-family arms
+   and 6/6 across the seeded arms. Personas within a checkpoint are clustered, so these are
+   not independent trials or a reliability-effect estimate.
 4. Protocol note: contexts are ~2.6K tokens longer under parity → slightly fewer turns fit
    per session; comparability with the June arms carries that caveat (M1 shares it not —
    M1 used the old contexts; the clean-r1-vs-M1 comparison is corpus-matched but not
    context-length-matched. The M4 clean-config replication resolves this cleanly.)
 
-### Defect-sensitivity audit of all claims (2026-07-17): none invalidated; the flagship claim must be config-scoped; the tax could have masked positive grade value
+### Maintainer defect-sensitivity retrospective (2026-07-17)
 
-Full claim-by-claim audit (all headline counts re-derived from raw logs — every one reproduced
-exactly). Verdicts:
+The maintainer reports re-deriving the following counts from raw logs. Those raw bundles and
+the exact analysis receipts are not packaged in this checkout, so the statements below are
+historical audit notes rather than independently verified verdicts.
 
-**Defect-independent (hold as-is):** size ladder; scaffold lift; r10 regression; r2's
+**Reported as less defect-sensitive:** size ladder; scaffold lift; r10 regression; r2's
 pure-weights wall passage (paid ~11% tax and still passed — conservative); r1 execution wins
 (measured on executed calls); KL-gate irrelevance (gates score fixed corpus text, masked spans
 excluded; dissociations run both directions); Rick's over-determination; cook/A2′ probes;
 speed de-confound; E4's 18/30 (**verified**: observe-delta scoring is server ground truth spam
 cannot inflate; all 17 stage transitions traced to executed calls).
 
-**Defect-taxed (config-scope the wording):**
+**Reported as defect-sensitive (configuration must be explicit):**
 - **"Grades never bought a stage" → "under our defect-exposing configuration, grades netted
   ≤0 stages vs uniform twins."** Per-pair tax accounting: pair-2's 2-stage gap (E3′ 12 vs M3
-  14) is MECHANISTICALLY the defect (E3′'s completionist emitted 3,503 malformed turns and
+  14) is associated with a large defect-count difference (E3′'s completionist reportedly
+  emitted 3,503 malformed turns and
   never accepted Herbalist — stood at Herby 3× with the panel open, accept param absent);
   pair-3 proxies disagree (throughput says clean-r2≈15; **r2+recovery=17 > Arm-C 15 is a real
-  defect-neutralized measurement pointing POSITIVE**). Defect-adjusted graded total ∈ [59,63]
+  recovery-enabled observation pointing positive**). A post-hoc defect-adjusted graded total
+  was estimated at [59,63]
   vs uniform 59–60 — **the sign can flip; "grades carry no competence value" was never
   established.** The clean-r1 arm (in flight) is the discriminating experiment.
-- Seeding reliability: observed 6/6 vs 3/6; defect-adjusted plausibly 6/6 vs ~4/6 (E3′'s miss
-  is defect-attributed) — a reliability edge, not a gate.
+- Seeding reliability: observed 6/6 vs 3/6 clustered persona-runs. A post-hoc
+  defect-adjusted count is not a valid effect estimate.
 - r1 style exhibit correction: query_quest's "2× behavioral overshoot" is ~⅔ defect retry
   loops (18.0% raw → **10.9% on defect-free calls**, teacher 8.7; after a dirty call the next
-  verb is query_quest 52% vs 16% after clean). interact_npc overshoot entirely defect (clean
-  = teacher exactly). chars/turn robust (1,195 clean vs 1,247). "Style transferred" survives;
+  verb is query_quest 52% vs 16% after clean). The interact_npc overshoot disappears after
+  excluding defect-marked calls. chars/turn is similar (1,195 clean vs 1,247).
+  “Style transferred” remains descriptive;
   that one exhibit doesn't as written.
 - 0.8B lane: reword to "under our defect-exposing configuration" — defect-transfer
   dose-response, not intrinsic-OPD-harm.
-- M2 premise STRENGTHENED: June r1-policy seeded rollouts were richer in success density
+- M2 observation: June r1-policy seeded rollouts were richer in reported success density
   (3/3 passages, 344 gathers) not attempt volume (base: 757 gathers, 1/3) — malformed-retry
-  inflation refuted as the source of r1's richer rollouts.
+  inflation alone does not explain the reported difference.
 
-**Invalidated: none.** Reword list (7 items) + minimal follow-ups (clean-r1 in flight;
+No causal claim is upgraded by this retrospective. Historical reword list (7 items) and
+suggested follow-ups (clean-r1 in flight;
 clean-r2 ~$10–30; Arm-C+recovery inertness check; M4 should use the clean config as default
 with one legacy-config control seed, else it replicates the tax, not the mechanism) — full
 audit in session records 2026-07-17.
@@ -963,45 +972,43 @@ gradient-time context):**
 | pp1.5 + canonical docs | 1.0% | 0.0% |
 | pp0 + canonical docs | **0.0%** | 1.0% |
 
-Two decisive facts: (1) in the gradient-time context, **even BASE leaks Python-call forms at
+Two probe observations: (1) in the tested gradient-time contexts, **the sampled base model
+emits Python-call forms at
 7–9% when our Python docs are present** (0–1% with canonical docs; presence penalty ≈ no
 effect) — reconciling with base's 0% in production logs, where the tools-block reminder was
-present: **the training/scoring context we built (no tools block + Python docs) is precisely
-the environment where the defect flourishes, and it differs from the serving context**;
+present. This makes the no-tools-block/Python-doc context a plausible exposure condition and
+documents a train/serve difference; it does not by itself estimate the condition's causal
+effect on training.
 (2) on the trained checkpoint, canonicalizing the docs collapses expression 5%→1%→0 — the
 doc literals dominate; kwarg-in-key appears only in r1 cells (training-acquired, never in
 base under any condition).
 
-**Final causal account:** the VULNERABILITY is the method's (dense teacher-forced reverse-KL
-distills the grader's copy-prior — a structural hazard, grader-general); the EXPOSURE was
-ours (Python doc literals as the prime + tools-block-free gradient contexts where even base
-misbehaves at 7–9%); the SURFACE FORMS were ours verbatim; the AMPLIFICATION was ours
-(silent parser laundering, abstaining masking, verbatim retraining); the penalty preset is a
-minor margin-tipper at most. Answer to "entirely caused by us": no single bug created it,
-but remove our three artifacts (doc literals, tools-block asymmetry, silent laundering) and
-this defect, in this form, very likely never happens. Fixes: docify the SERVED prompt;
+**Candidate causal account:** dense teacher-forced reverse-KL may expose a copy-prior
+vulnerability; Python doc literals and tools-block-free grading contexts are candidate
+exposures; the observed surface forms copy those literals; and silent parser laundering,
+abstention masking, and verbatim retraining could amplify them. Presence penalty appears
+secondary in this probe. These links require a registered crossed intervention before being
+claimed as causal. Engineering fixes remain warranted without that claim: docify the served prompt;
 render build/score contexts with tools= (or drop at serving for parity); keep recovery +
 loud errors permanent; pp=0 for structured serving per Qwen's own tables; permanent prefix
 tripwire.
 
-### M6, the r3-uniform arm (2026-07-16): 17/30, wall 3/3 — the 15→18 step was also corpus, not grades; and the defect's second channel appears
+### M6, the r3-uniform arm (2026-07-16): 17/30, wall 3/3 — a corpus-channel hypothesis
 
 `2b-opd-r3-uniform` (eval run_20260715_211431): the exact r3 corpus (r2-eval rollouts +
 full-ladder seeded, 8,856 records) with uniform advantages, merged-r2 init, 6h clean run.
-**17/30 (5/6/6), wall 3/3, two agents completed Herbalist 3/3** — vs r3+recovery 18 and
-r3-no-recovery 18. The r2→r3 stage gain reproduces within n=1 noise without counterfactual
-grading; the round-3 corpus (visitation), not the grading redesign, carried it.
+**17/30 (5/6/6), wall 3/3, two agents completed Herbalist 3/3** — vs the reported
+r3+recovery and r3-no-recovery scores of 18. This is consistent with a corpus/visitation
+channel, but does not identify it over grading or execution-era alternatives.
 
 **Defect refinement:** M6 logged 2,695 malformed emissions — the first heavily-affected
 uniform arm. Its corpus text is defect-RICH (r2-eval rollouts, 685 emissions + mutated forms)
-and its init (merged-r2) already carries the dialect; uniform imitation of contaminated data
-propagates the defect. So the defect has TWO channels: (1) the teacher's wrong-signed
-gradient CREATES it from clean corpora (r1: 0-malformed corpus → 233-emission policy;
-cross-grader-confirmed copy-prior), and (2) plain imitation PRESERVES it once the corpus is
-contaminated (M6). The four clean uniform arms all had clean-ish corpora; the pattern is
-corpus-and-gradient, not gradient-only.
+and its init (merged-r2) already carries the dialect. The result is compatible with plain
+imitation preserving contaminated forms. The broader pattern motivates two candidate
+channels—teacher-gradient induction and corpus-level preservation—but the existing runs do
+not isolate either one causally.
 
-### THE COMPLETE MATCHED-PAIR FAMILY (July 16) — the teacher's grades never bought a stage
+### The reported matched-pair family (July 16) — no replicated grade advantage established
 
 | corpus (init) | teacher-graded arm | uniform twin |
 |---|---|---|
@@ -1011,15 +1018,13 @@ corpus-and-gradient, not gradient-only.
 | r2-eval + full-ladder seeded (merged-r2) | r3-norec: **18**, wall 3/3, ~70% spam | M6: **17**, wall 3/3, mal 2,695 |
 | base seeded rollouts (base init) | — | M2: **12**, wall 0/3, mal 0 |
 
-Across four matched pairs: graded total 57, uniform total 59. **No teacher-graded arm beats
-its uniform twin by more than n=1 noise anywhere in the program; on natural corpora the
-grades net negative (defect tax).** Combined with M1 (discipline IS teacher-driven) and M2
-(the discipline is what made seeded rollouts imitable), the final claim: **dense teacher
-grading contributed execution discipline and defects to the weights, and its real service to
-competence was indirect — building the executor whose frontier rollouts became the
-curriculum. The grades never carried the game.**
+Across four one-run pairs, the reported totals are 57 for graded and 59 for uniform. This
+does not show a reproducible grade advantage, but summing heterogeneous, non-independent
+runs is not an effect estimate. The family motivates separate hypotheses about execution
+discipline, defect transmission, rollout quality, and frontier coverage; it does not establish
+that grades helped or failed to help competence.
 
-### M2, the teacher-free end-to-end arm (2026-07-16): 12/30, wall 0/3 — the shortcut fails; the teacher matters ONE ROUND UPSTREAM
+### M2, the teacher-free end-to-end arm (2026-07-16): 12/30, wall 0/3
 
 `2b-teacherfree` (eval run_20260715_151045): base init + BASE-generated seeded rollouts
 (collection run_20260715_002620, 480 sessions, wall passages 1/3) + uniform advantages —
@@ -1027,31 +1032,28 @@ zero teacher signal anywhere in the lineage. Result: **12/30 (4/4/4), wall 0/3, 
 — exactly base's profile; the seeded self-imitation recipe did NOT transfer the wall when the
 imitated rollouts came from base itself.
 
-**The refined mechanism (the program's final form, each step controlled):**
-1. r1 teacher-grading taught execution DISCIPLINE (M1: doesn't happen under uniform), zero
-   stages, plus the defect.
-2. The DISCIPLINED policy's seeded rollouts are rich (3/3 wall passages, June collection);
+**Working multi-stage hypothesis (not a controlled attribution):**
+1. r1 teacher grading may alter execution discipline; M1 is an intended but unreplicated
+   contrast and also differs in observed outcomes.
+2. The r1 policy's seeded rollouts report 3/3 wall passages in the June collection;
    BASE's seeded rollouts are poor (1/3 passages, July collection). Self-imitation of the
    rich corpus transfers the wall (Arm-C 15/30, 3/3); of the poor corpus, nothing (M2 12/30,
    0/3).
-3. The teacher's per-token grades at round 2 add nothing (Arm-C) and net negative on natural
-   corpora (M3 14 > E3′ 12 — the defect tax).
+3. The one-run Arm-C and M3 comparisons do not show a numerical benefit from per-token
+   grades, but they do not establish a null or negative effect.
 
-**Claim (final wording): the teacher's contribution is real but INDIRECT and one round
-removed — dense teacher grading built the executor whose frontier experiences were worth
-self-imitating; the grades themselves never carried the competence. Distillation acted as a
-curriculum-builder, not a knowledge channel.** This rescues the two-stage OPD program from
-"you never needed the teacher" (you did — for round 1's discipline) while preserving every
-negative result about the grades-as-competence-channel.
+Candidate explanation: teacher grading may first alter the behavior policy, whose later
+frontier experiences become useful self-imitation data. A fully crossed, replicated lineage
+study is required to distinguish that curriculum-builder story from direct grade effects,
+data-volume effects, and selection of better rollout trajectories.
 
 Confounds, stated: M2's corpus is smaller (3,872 vs Arm-C's 7,024 records / ~121 vs 220
 steps) and — the semantic variable — contains 1 wall passage vs the June seeded corpus's 3;
 generating-policy quality and passage count are entangled with data volume here. A
-passage-matched variant would disambiguate; the qualitative conclusion (base's seeded
-rollouts are poorer imitation material, and that poverty traces to execution discipline the
-teacher instilled) is supported by the collection-time passage rates independently of volume.
+passage-matched variant would disambiguate. The collection-time passage rates show the two
+corpora differ, but do not explain why.
 
-### M1, the r1-uniform control (2026-07-15): r1's execution discipline WAS teacher-driven — the attribution completes in three clean lines
+### M1, the r1-uniform control (2026-07-15): an execution-discipline contrast
 
 `2b-opd-r1-uniform` (eval run_20260715_030342): uniform advantages (pre-registered c=0.4873)
 on the exact round-1 corpus (5,564 base-rollout records), base init (== generator, as r1),
@@ -1061,20 +1063,15 @@ rollouts should be** — turns/session 8.7 (base 9.1, r1's teacher-exact 6.1), e
 r1 100), navigate errors 3.6% (partial: base 5.3, r1 1.2), stages 13/30 (≈base),
 **malformed emissions 0** (r1: 233 — every uniform arm is defect-free; every graded arm isn't).
 
-**This falsifies the STRONG claim ("teacher grading contributed nothing measurable anywhere")
-and completes the attribution with a control for each channel:**
-- **Execution style/discipline ← the teacher's gradient** (r1's tempo/nav/re-grounding/dialect
-  shifts do NOT reproduce under uniform; ledger gap A1 CLOSED, pro-teacher).
-- **Task competence ← seeded self-imitation** (Arm-C = r2 with zero teacher signal; E3′ shows
-  no competence without seeding even WITH the teacher).
-- **The malformed-call defect ← the teacher's gradient** (0 in all three uniform arms trained
-  so far vs 233/591/599-class counts in every graded arm).
+This one-run contrast contradicts the strongest blanket claim that teacher grading changes
+nothing measurable. It motivates, but does not complete, three attributions:
+- execution style/discipline may respond to teacher-directed gradients;
+- task competence may depend more strongly on frontier-state coverage;
+- malformed-call frequency may depend on gradient and corpus conditions.
 
-The paper's three-transfers framing now has a controlled attribution per transfer — and the
-decisive irony stands: the teacher taught the student how to move, look, and speak; it could
-not teach it what to do; and its signature contribution to the wire format was its own defect.
-Execution discipline was demonstrably NOT the competence carrier (r1 had all of it and +0
-stages; Arm-C had none of it and +3).
+Each attribution still requires independent training seeds and a fully crossed design. The
+current record cannot establish what the teacher “taught,” whether execution discipline
+mediates competence, or whether any channel is necessary.
 
 ### The five-arm decision-probe study (baseline_20260701; validated + adopted 2026-07-15)
 
@@ -1134,7 +1131,7 @@ Findings the table adds to the program:
    `<function=gather><parameter=resource_name>\nOak\n</` — corrupted close tag, argument lost,
    verb salvaged with empty input; the model KNOWS the action, the trained-in syntax drops it).
 
-### The 0.8B lane (runs July 1–5, audited July 14): natural-rollout OPD DAMAGES the smallest student — the defect transfer dominates at low capacity
+### The 0.8B lane (runs July 1–5, audited July 14): lower scores after natural-rollout OPD
 
 Three protocol-consistent 6h runs already existed on this VM (launched from the unmerged
 `feat/social-dashboard-0_8b` branch, but verified clean: standard 17-tool surface, no
@@ -1148,14 +1145,12 @@ built by the same round-agnostic pipeline, 4B teacher, natural rollouts, no seed
 | 0.8b-opd-r1 + recovery | run_20260705_093921 | **10** | 0/3 | recovery repairs most but NOT all — still below base |
 
 Readings (they slot into the campaign narrative almost perfectly):
-1. **Natural-rollout OPD does not improve 0.8B — it damages it.** Consistent with E3′ (natural
-   OPD at 2B = +0 stages) plus the copy-prior defect transfer, whose COST is
-   capacity-dependent: at 2B the weights push through 70% spam at full score (E4, 18/30); at
-   0.8B the induced defect collapses the run (3/30) and even the recovery affordance recovers
-   only 7 of the 10 lost stages. Purest instance of "OPD transfers execution defects" —
-   and at small capacity the defect outweighs everything else.
-2. **base-0.8B ≈ base-2B (13 vs 12)** extends the size-ladder saturation downward: on this
-   benchmark, capacity shows only between 2B→4B (12→17).
+1. The single natural-rollout OPD run is lower than the single base-0.8B run (3 vs 13), while
+   the recovery-enabled system run scores 10. This is compatible with defect sensitivity at
+   lower capacity, but checkpoint, execution, and infrastructure confounds prevent attributing
+   the difference to OPD or the defect.
+2. The reported base-0.8B and base-2B scores are 13 and 12. One run per size does not
+   establish size-ladder saturation.
 3. Caveats: n=1 per arm; runs predate the 2026-07-11 port-collision fix, so their grinder
    lanes (agent_0) carry the same 3-listener ambiguity caveat as E1 — the base run's wall
    pass came from its grinder; e2-standard-4-era supervisor issues unaudited for these runs;
@@ -1191,13 +1186,12 @@ positive) — the control FAILED the same way**. Two readings, both load-bearing
    gather-lily graded *below* craft-cook even at lily states). Reword the paper claim: Rick's
    cook null is over-determined (pole gate first; no successful cook rollouts in the seeded
    collections for reverse-KL to amplify) — not demonstrably "flat grades at cook states."
-2. **Each candidate's grade is nearly state-INVARIANT** (cook −0.417 vs −0.451, observe −0.126
+2. **Each candidate's grade is similar across these two sampled state sets** (cook −0.417 vs −0.451, observe −0.126
    vs −0.158 across conditions; per-state spread ≤~0.15 nats): at single-action granularity the
    dense per-token grade is dominated by candidate-intrinsic sequence probability (action-
    frequency prior + token surface), not by state-appropriateness. This extends the round-1
-   "advantages reward structure, not reasoning" reading and supports the mechanism story that
-   r2's competence transfer rode on **visitation change + amplification of the student's own
-   seeded successes**, not on state-conditional action knowledge in the teacher's grades.
+   “advantages reward structure, not reasoning” hypothesis. It does not identify the source
+   of the later stage-score difference.
 
 Caveats: candidates were bare tool calls (no reasoning prefix — state-conditioning may partly
 live in grading reasoning tokens); mean-logprob comparisons across heterogeneous candidates
@@ -1221,7 +1215,7 @@ tutoring anywhere (attack-rat tops lily states too), so the transfer-mechanism q
 remains open and the Arm-C uniform-advantage control remains the decider. Probe caveats
 carry over; n=30/30 states.
 
-### Live seeded Rick's-Roll probe (2026-07-17): "can't cook" is refuted; the Rick's null is 4 seeding/harness bugs, not cooking incompetence
+### Live seeded Rick's-Roll probe (2026-07-17): alternative execution blockers
 
 Direct behavioral test of the Rick's claim, prompted by the observation that the round-3
 Rick's seeds were never verified to place the agent where intended. Single base-2B agents
@@ -1229,14 +1223,13 @@ Rick's seeds were never verified to place the agent where intended. Single base-
 milestones (`seed_milestones.py`, branch `feat/ricks-roll-seeds`) and driven live through
 `play_qwen`; MongoDB quest/inventory read directly for ground truth.
 
-**Cooking capability is present — "can't cook" is a generative-non-occurrence artifact.** Seeded
-on a cooking station with 5 rawshrimp (`r4_cook`), base-2B emitted the exactly-correct
+In one seeded run, base-2B emitted the intended cook-call form. Seeded
+on a cooking station with 5 rawshrimp (`r4_cook`), it emitted
 `craft_item(cooking, cookedshrimp, 5)` and **attempted it 21 times in one run** (16 "Could not
-reach cooking station"). It does not lack the cook action; it is blocked upstream of the stove.
-Consistent with P-D (4B cooks 7/20 at the same seeded state) and the grading probe above.
+reach cooking station"). This rejects only the narrow claim that the model never samples the
+action form; it does not establish robust cooking competence or the cause of the full-run null.
 
-**The Rick's-Roll null is over-determined by four concrete seeding/harness bugs, all found live,
-none of them cooking capability:**
+The live probes identify four plausible seeding/execution blockers:
 1. **`r4_cook` station was inside the respawn dungeon.** The (323,892) cooking station is 5
    tiles from `SPAWN_POINT` (328,892); base-2B read the seed tile as "respawn dungeon" and
    warped to Mudwich before cooking. Fixed → overworld station (411,866).
@@ -1250,21 +1243,17 @@ none of them cooking capability:**
 3. **Rick's seaside is an L76-118 aggro wall** (13 darkwolf L118, 7 darkscorpion L101, 12
    darkskeleton L76, blackwizard aggro-range 6): a realistic-HP seed there would die on spawn
    anyway. Turn-in seeds now carry the conftest-R5 survival buffer (3039 HP / 15M Health-XP).
-4. **Model execution, not seeds:** base-2B warps to Mudwich from unrecognized seed tiles, and
+4. **Observed model execution:** base-2B warps to Mudwich from unrecognized seed tiles, and
    **neither base-2B nor the 4B ever steps on a door** — seeded 1 tile from the stage-2 quest
    door (`r6_door`, (260,230), position verified to STICK), across 4 runs (2B grinder /
    2B completionist / 4B) **zero door-targeted navigates** occurred; agents instead grind mobs,
    eat the quest `seaweedroll`, or wander to the fishing spot (stage-1 behavior at stage 2).
 
-**No live Rick's *stage* completion was obtained** — but the binding constraints are (2) gated-region
-seeding and (4) door/nav execution, which **hold for the 4B teacher too**, not cooking. Overworld
-seeds DO stick (r6_door (260,230) verified), so the seed mechanism is sound; the door-gated turn-in
-NPCs need the pre-door-cross approach and a door-crossing/anti-warp harness affordance (the same
-harness-affordance lever round 3 used for the format defect). This closes the loop the round-3
-narrative left open: **"0 cook transfer" is seeding + harness/model-execution, exactly as the
-2026-07-11 grading probe and P-D already implied — the "cook-incompetent teacher" framing below
-(lines ~12/51/601/652) is superseded.** Seed fixes landed in `seed_milestones.py`; caveat: n=1
-per cell, base-2B is a weak executor, and the pre-door Rick/Lena seeds are not yet built.
+**No live Rick's stage completion was obtained.** The probes show that gated-region seeding
+and door/navigation execution can block completion for both tested model sizes. They do not
+rank those blockers against cooking competence or establish the cause of the historical null.
+The seed fixes therefore improve experimental validity without upgrading a mechanism claim.
+The pre-door Rick/Lena seeds are not yet validated end to end.
 
 ### Costs (billing-verified, `modal billing report`)
 

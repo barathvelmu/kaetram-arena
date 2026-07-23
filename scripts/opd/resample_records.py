@@ -20,6 +20,21 @@ import random
 import tempfile
 from pathlib import Path
 
+try:
+    from .record_schema import (
+        OPD_TRAIN_RECORD_SCHEMA_SHA256,
+        OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        RecordSchemaError,
+        validate_opd_train_record,
+    )
+except ImportError:  # direct `python scripts/opd/...` execution
+    from record_schema import (  # type: ignore[no-redef]
+        OPD_TRAIN_RECORD_SCHEMA_SHA256,
+        OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        RecordSchemaError,
+        validate_opd_train_record,
+    )
+
 
 MANIFEST_SCHEMA_VERSION = "resampled-records-manifest-v2"
 
@@ -49,8 +64,10 @@ def _validate_lines(payload: bytes) -> list[bytes]:
             raise ArtifactBuildError(
                 f"invalid UTF-8 JSON at line {line_number}: {exc}"
             ) from exc
-        if not isinstance(value, dict):
-            raise ArtifactBuildError(f"record {line_number} is not a JSON object")
+        try:
+            validate_opd_train_record(value, line_number=line_number)
+        except RecordSchemaError as exc:
+            raise ArtifactBuildError(str(exc)) from exc
     return lines
 
 
@@ -103,6 +120,8 @@ def resample_records(
         "output": str(dst),
         "output_sha256": _sha256_bytes(output_payload),
         "script_sha256": _sha256(Path(__file__).resolve()),
+        "record_schema_version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        "record_schema_sha256": OPD_TRAIN_RECORD_SCHEMA_SHA256,
         "seed": seed,
         "target_records": target,
         "original_records": n_original,

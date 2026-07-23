@@ -10,16 +10,14 @@ not independent validation of the maintainer's July result narrative.
 
 - Rick's-Roll milestone and session-note corrections, including the third
   door-crossing lane.
-- Optional canonical-tool-schema rendering in the historical OPD data builder.
-  It resolves the repository's frozen model-visible schema and records its
-  known digest at startup; arbitrary JSON snapshots are rejected.
-- Strict parsing of data-build chunk and counterfactual flags.
 - Uniform-advantage and fixed-count resampling transformers. Both now validate
-  JSONL structure, reject invalid numerical/sequence geometry, refuse in-place
-  or accidental overwrite, write atomically, and emit byte-level source,
-  output, script, and parameter receipts.
+  the versioned canonical OPD training-record schema, reject invalid
+  numerical/sequence geometry, refuse in-place or accidental overwrite, write
+  atomically, and emit byte-level source, output, script, schema, and parameter
+  receipts.
 - Run-level arm statistics. Verification now takes an explicit artifact root
-  and fails closed when the required raw r10 session tree is absent.
+  and quarantines an entire arm when any declared run/agent artifact is absent;
+  the r10 reproduction remains a hard preflight gate.
 - Two diagnostic probe implementations are retained as historical utilities.
   They launch nothing and are documented for already-running local endpoints;
   their console output is not paper evidence unless captured in a separately
@@ -32,6 +30,10 @@ not independent validation of the maintainer's July result narrative.
 - The ad-hoc tool-definition snapshot. Its normalized digest differs from the
   repository's frozen model-visible schema, so accepting it would reintroduce
   train/serve prompt drift.
+- The historical OPD data-builder parity patch. It printed a schema choice but
+  had no immutable build receipt, tolerated missing/failed source parses, and
+  could resume into an output created under different controls. The fork's
+  versioned preparation/render contracts are the supported parity path.
 - Two post-hoc paper/program-state memos whose causal interpretations are not
   backed by reviewer-accessible run bundles in this checkout. The detailed
   historical experiment ledger remains explicitly caveated and is subordinate
@@ -53,6 +55,5 @@ corresponding immutable runtime receipts.
 The curated tree was syntax-checked and exercised with the repository's pinned
 unit environment. Tests cover missing-evidence failure, deterministic
 transformations and hashes, invalid/unaligned advantages, malformed JSONL,
-overwrite refusal, strict environment controls, and rejection of arbitrary
-tool-schema snapshots. No live endpoint, Modal command, GPU, or paid service
+overwrite refusal, and incomplete-arm quarantine. No live endpoint, Modal command, GPU, or paid service
 was used during the integration.

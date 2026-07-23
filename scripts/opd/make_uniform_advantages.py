@@ -22,6 +22,21 @@ import tempfile
 from pathlib import Path
 from typing import BinaryIO
 
+try:
+    from .record_schema import (
+        OPD_TRAIN_RECORD_SCHEMA_SHA256,
+        OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        RecordSchemaError,
+        validate_opd_train_record,
+    )
+except ImportError:  # direct `python scripts/opd/...` execution
+    from record_schema import (  # type: ignore[no-redef]
+        OPD_TRAIN_RECORD_SCHEMA_SHA256,
+        OPD_TRAIN_RECORD_SCHEMA_VERSION,
+        RecordSchemaError,
+        validate_opd_train_record,
+    )
+
 
 MANIFEST_SCHEMA_VERSION = "uniform-advantages-manifest-v2"
 
@@ -47,31 +62,10 @@ def _record(raw: bytes, *, line_number: int) -> dict:
         raise ArtifactBuildError(
             f"invalid UTF-8 JSON at line {line_number}: {exc}"
         ) from exc
-    if not isinstance(value, dict):
-        raise ArtifactBuildError(f"record {line_number} is not a JSON object")
-    advantages = value.get("advantages")
-    if not isinstance(advantages, list) or not advantages:
-        raise ArtifactBuildError(
-            f"record {line_number} has no nonempty advantages list"
-        )
-    for field in ("input_ids", "labels", "behavior_logprobs"):
-        aligned = value.get(field)
-        if aligned is not None and (
-            not isinstance(aligned, list) or len(aligned) != len(advantages)
-        ):
-            raise ArtifactBuildError(
-                f"record {line_number} field {field!r} is not aligned with advantages"
-            )
-    for index, advantage in enumerate(advantages):
-        if isinstance(advantage, bool) or not isinstance(advantage, (int, float)):
-            raise ArtifactBuildError(
-                f"record {line_number} advantage {index} is not numeric"
-            )
-        if not math.isfinite(float(advantage)):
-            raise ArtifactBuildError(
-                f"record {line_number} advantage {index} is not finite"
-            )
-    return value
+    try:
+        return validate_opd_train_record(value, line_number=line_number)
+    except RecordSchemaError as exc:
+        raise ArtifactBuildError(str(exc)) from exc
 
 
 def _temporary(parent: Path, stem: str) -> tuple[BinaryIO, Path]:
@@ -152,6 +146,8 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
             "output": str(dst),
             "output_sha256": output_digest.hexdigest(),
             "script_sha256": _sha256(Path(__file__).resolve()),
+            "record_schema_version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
+            "record_schema_sha256": OPD_TRAIN_RECORD_SCHEMA_SHA256,
             "c": c,
             "c_rule": "corpus mean |advantage| over nonzero tokens",
             "n_records": n_records,

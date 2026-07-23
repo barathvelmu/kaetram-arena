@@ -55,7 +55,6 @@ import httpx
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "scripts" / "opd"))
 sys.path.insert(0, str(REPO / "finetune"))
-sys.path.insert(0, str(REPO))
 
 from canonicalize import docify_system_prompt, is_malformed  # noqa: E402
 from opd_probe import reconstruct_session  # noqa: E402
@@ -63,10 +62,6 @@ from opd_round1 import turn_to_chat  # noqa: E402
 from opd_wall_probe import _frontier, _finished_from_payload  # noqa: E402
 from render import patch_qwen_chat_template  # noqa: E402
 from heldout_guard import assert_text_not_reserved  # noqa: E402
-from tool_surface import (  # noqa: E402
-    MODEL_VISIBLE_TOOL_DEFINITIONS,
-    MODEL_VISIBLE_TOOL_SCHEMA_SHA256,
-)
 
 STUDENT_EP = os.environ["TWOB_EP"].rstrip("/")
 TEACHER_EP = os.environ["FOURB_EP"].rstrip("/")
@@ -81,37 +76,9 @@ EARLY_WEIGHT = 1.5        # step_weight for the first third of each session
 # <parameter=accept_quest_offer=True>) — advantages on these spans are masked.
 MALFORMED_PARAM_RE = re.compile(r"<parameter=[^>\n]*=[^>\n]*>")
 PER_EP_CONCURRENCY = 6    # per-endpoint in-flight cap (server max_running_requests=8)
+CHUNK = 200               # states scored per submission wave
 SCORE_TIMEOUT = 240.0
 SCORE_RETRIES = 3
-
-
-def _positive_int_env(name: str, default: int) -> int:
-    raw = os.environ.get(name)
-    try:
-        value = default if raw is None else int(raw)
-    except ValueError as exc:
-        raise RuntimeError(f"{name} must be a positive integer, got {raw!r}") from exc
-    if value <= 0:
-        raise RuntimeError(f"{name} must be a positive integer, got {value}")
-    return value
-
-
-def _bool_env(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    normalized = raw.strip().casefold()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise RuntimeError(
-        f"{name} must be one of 1/0, true/false, yes/no, or on/off; got {raw!r}"
-    )
-
-
-CHUNK = _positive_int_env("OPD_BUILD_CHUNK", 200)
-NO_COUNTERFACTUAL = _bool_env("OPD_BUILD_NO_CF", False)
 
 
 def load_student_tokenizer():
@@ -218,35 +185,11 @@ def collect_action_states(run_ids):
     return states
 
 
-_TOOL_SCHEMA_SOURCE = os.environ.get("OPD_BUILD_TOOL_SCHEMA_SOURCE", "none")
-if os.environ.get("OPD_BUILD_TOOLS_JSON"):
-    raise RuntimeError(
-        "OPD_BUILD_TOOLS_JSON is unsafe and unsupported: arbitrary snapshots can "
-        "drift from the serving contract; set "
-        "OPD_BUILD_TOOL_SCHEMA_SOURCE=canonical instead"
-    )
-if _TOOL_SCHEMA_SOURCE == "canonical":
-    _BUILD_TOOLS = MODEL_VISIBLE_TOOL_DEFINITIONS
-    print(
-        "serving-context parity ON: rendering with "
-        f"{len(_BUILD_TOOLS)} canonical tool specs "
-        f"(sha256={MODEL_VISIBLE_TOOL_SCHEMA_SHA256})"
-    )
-elif _TOOL_SCHEMA_SOURCE == "none":
-    _BUILD_TOOLS = None
-else:
-    raise RuntimeError(
-        "OPD_BUILD_TOOL_SCHEMA_SOURCE must be 'none' or 'canonical', got "
-        f"{_TOOL_SCHEMA_SOURCE!r}"
-    )
-
-
 def _render(tok, msgs, emission):
     """Synchronous template render + encode — runs in a worker thread.
     ctx = the exact serving prompt; full = ctx + the raw emission, so the
     prefix property holds by construction (see _emission_text)."""
-    ctx_text = tok.apply_chat_template(
-        msgs, tools=_BUILD_TOOLS, tokenize=False, add_generation_prompt=True)
+    ctx_text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
     full_text = ctx_text + emission
     ctx_ids = tok.encode(ctx_text, add_special_tokens=False)
     return ctx_text, full_text, ctx_ids
@@ -282,11 +225,7 @@ async def build_record(client, tok, st, sem_s, sem_t):
     # advantage on the malformed tokens (median -1.21 nats, 86% of states)
     # instead of the +0.09 copy-prior endorsement. Student/behavior scoring
     # always uses the real context.
-    # OPD_BUILD_NO_CF=1 forces the round-2 recipe (abstention masking, no
-    # counterfactual grading) — required for arm parity in ablation builds
-    # whose comparison arm was built pre-round-3 (e.g. the ±seeding ablation
-    # against the round-2 corpus).
-    counterfactual = (not NO_COUNTERFACTUAL) and is_malformed(st["emission"])
+    counterfactual = is_malformed(st["emission"])
     if counterfactual:
         cf_msgs = [{**st["messages"][0],
                     "content": docify_system_prompt(st["messages"][0]["content"])}] \

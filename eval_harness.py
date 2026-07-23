@@ -38,6 +38,7 @@ from heldout_guard import (
     validate_eval_selection,
 )
 from inference_seed import validate_inference_seed
+from port_probe import is_tcp_port_open
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +104,35 @@ MONGO_COLLECTIONS = [
     "player_inventory", "player_bank", "player_quests",
     "player_achievements", "player_statistics", "player_abilities",
 ]
+
+
+def require_node20_binary() -> str:
+    """Resolve an explicit Node 20 executable without assuming nvm or a shell."""
+    node_binary = os.environ.get("KAETRAM_NODE_BINARY") or shutil.which("node")
+    if not node_binary:
+        raise RuntimeError(
+            "Node.js is required; put Node 20 on PATH or set KAETRAM_NODE_BINARY"
+        )
+
+    try:
+        result = subprocess.run(
+            [node_binary, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"could not execute Node.js at {node_binary}: {exc}") from exc
+
+    version = result.stdout.strip()
+    if result.returncode != 0 or not re.fullmatch(r"v20\.\d+\.\d+", version):
+        detail = version or result.stderr.strip() or f"exit {result.returncode}"
+        raise RuntimeError(
+            f"Kaetram requires Node 20, but {node_binary} reported {detail}"
+        )
+
+    return node_binary
 
 
 def verify_environment_rng_attestation(
@@ -947,8 +977,7 @@ def run_model_eval(
     # Uses direct node command (same as orchestrate.GameServer)
     _game_server_proc = None
     if server_port:
-        check_cmd = f"ss -tlnp 2>/dev/null | grep -q ':{server_port} '"
-        server_running = subprocess.run(check_cmd, shell=True).returncode == 0
+        server_running = is_tcp_port_open("127.0.0.1", server_port)
         rng_required = bool(
             provenance_meta
             and provenance_meta.get("environment_seed_mechanism")
@@ -960,14 +989,20 @@ def run_model_eval(
                 "its environment RNG cannot be attested for this cell"
             )
         if not server_running:
-            nvm_sh = os.path.expanduser("~/.nvm/nvm.sh")
             game_dir = Path(
                 os.environ.get("KAETRAM_GAME_DIR", "~/projects/Kaetram-Open")
             ).expanduser().resolve()
             server_dir = game_dir / "packages" / "server"
             if os.path.isdir(server_dir):
                 print(f"  Starting game server on port {server_port}...")
-                gs_cmd = f'source "{nvm_sh}" && nvm use 20 --silent && exec node --enable-source-maps dist/main.js --port {server_port}'
+                node_binary = require_node20_binary()
+                gs_cmd = [
+                    node_binary,
+                    "--enable-source-maps",
+                    "dist/main.js",
+                    "--port",
+                    str(server_port),
+                ]
                 game_env = {**os.environ, "ACCEPT_LICENSE": "true", "SKIP_DATABASE": "false"}
                 attestation_path = model_output_dir / "environment-rng.json"
                 if rng_required:
@@ -986,14 +1021,14 @@ def run_model_eval(
                     })
                 gs_log = open(f"/tmp/eval_gameserver_{server_port}.log", "w")
                 _game_server_proc = subprocess.Popen(
-                    ["bash", "-c", gs_cmd], cwd=server_dir,
+                    gs_cmd, cwd=server_dir,
                     stdout=gs_log, stderr=gs_log,
                     env=game_env,
                 )
                 gs_log.close()
                 # Wait for port
                 for _i in range(60):
-                    if subprocess.run(check_cmd, shell=True).returncode == 0:
+                    if is_tcp_port_open("127.0.0.1", server_port):
                         print(f"  Game server ready on port {server_port} ({_i+1}s)")
                         # Listening is not enough; give the world a few seconds to finish booting.
                         time.sleep(5)

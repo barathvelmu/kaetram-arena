@@ -86,6 +86,7 @@ class Cell:
     tokenizer_sha256: str
     render_contract_sha256: str
     username: str
+    prompt_agent_name: str
     server_port: int
     sandbox: str
     run_dir: str
@@ -545,6 +546,26 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
     username_prefix = _require(isolation, "username_prefix", str, "isolation")
     if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", username_prefix):
         raise ManifestError("isolation.username_prefix must be alphanumeric and start with a letter")
+    prompt_agent_names = _require(
+        isolation, "prompt_agent_names", dict, "isolation"
+    )
+    if set(prompt_agent_names) != set(REQUIRED_PERSONALITIES):
+        raise ManifestError(
+            "isolation.prompt_agent_names must define exactly the three "
+            "registered personality lanes"
+        )
+    for personality, prompt_agent_name in prompt_agent_names.items():
+        if not isinstance(prompt_agent_name, str) or not re.fullmatch(
+            r"[A-Za-z][A-Za-z0-9]{0,23}", prompt_agent_name
+        ):
+            raise ManifestError(
+                f"isolation.prompt_agent_names.{personality} must be "
+                "alphanumeric, start with a letter, and contain at most 24 characters"
+            )
+    if len(set(prompt_agent_names.values())) != len(REQUIRED_PERSONALITIES):
+        raise ManifestError(
+            "isolation.prompt_agent_names values must be unique by personality"
+        )
     port_start = isolation.get("server_port_start")
     if isinstance(port_start, bool) or not isinstance(port_start, int) or not 1024 <= port_start <= 65529:
         raise ManifestError("isolation.server_port_start must be between 1024 and 65529")
@@ -608,6 +629,7 @@ def build_plan(path: str | Path, *, environ: dict[str, str] | None = None) -> Ex
                             for item in model_provenance if item["weight"] == weight
                         ),
                         username=username,
+                        prompt_agent_name=prompt_agent_names[personality],
                         server_port=port_start + cell_index,
                         sandbox=str((sandbox_root / experiment_id / cell_id).resolve()),
                         run_dir=str((output_root / experiment_id / cell_id).resolve()),
@@ -746,6 +768,16 @@ def validate_factorial_plan(plan: ExperimentPlan) -> None:
         values = [getattr(c, attr) for c in plan.cells]
         if len(values) != len(set(values)):
             raise ManifestError(f"all cells must have isolated, unique {attr} values")
+    for personality in REQUIRED_PERSONALITIES:
+        names = {
+            cell.prompt_agent_name
+            for cell in plan.cells
+            if cell.personality == personality
+        }
+        if len(names) != 1:
+            raise ManifestError(
+                f"personality {personality} must have one stable prompt agent name"
+            )
 
 
 def cell_command(plan: ExperimentPlan, cell: Cell) -> list[str]:
@@ -766,6 +798,7 @@ def cell_command(plan: ExperimentPlan, cell: Cell) -> list[str]:
         "--output-dir", cell.run_dir,
         "--project-dir", plan.project_dir,
         "--username", cell.username,
+        "--prompt-agent-name", cell.prompt_agent_name,
         "--server-port", str(cell.server_port),
         "--sandbox", cell.sandbox,
         "--inference-seed", str(cell.inference_seed),
@@ -858,6 +891,7 @@ def validate_cell_result(plan: ExperimentPlan, cell: Cell) -> None:
         "include_game_knowledge": not plan.omit_game_knowledge,
         "held_out_quest": plan.held_out_quest,
         "inference_seed": cell.inference_seed,
+        "prompt_agent_name": cell.prompt_agent_name,
         "factorial_schedule_algorithm": plan.schedule_algorithm,
         "factorial_schedule_seed": plan.schedule_seed,
         "factorial_schedule_index": cell.schedule_index,

@@ -78,6 +78,7 @@ def _write_results(plan, *, omit_cell: str = "", alternate_sha_cell: str = "") -
                 "include_game_knowledge": not plan.omit_game_knowledge,
                 "held_out_quest": plan.held_out_quest,
                 "inference_seed": cell.inference_seed,
+                "prompt_agent_name": cell.prompt_agent_name,
                 "factorial_schedule_algorithm": plan.schedule_algorithm,
                 "factorial_schedule_seed": plan.schedule_seed,
                 "factorial_schedule_index": cell.schedule_index,

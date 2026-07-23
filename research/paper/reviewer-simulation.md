@@ -1,4 +1,84 @@
-# Adversarial reviewer simulation — updated July 19, 2026
+# Adversarial reviewer simulation — updated July 23, 2026
+
+## Pass 6 — sealed trigger result and seed audit, July 23
+
+**Verdict: 3/5 (borderline reject), confidence 4/5.**
+
+The new result is real and unusually well audited for a local diagnostic:
+
+- all 1,200 preregistered requests completed with zero failures and stable
+  checkpoint identities;
+- a second execution of the frozen analyzer reproduced every output byte for
+  byte;
+- an independently implemented auditor recomputed raw-response labels, all 12
+  cells, and all nine registered contrasts;
+- the complete identity-scrubbed raw bundle is checked in and verifies from a
+  clean checkout; and
+- the paper reports the post-outcome seed failure instead of treating 1,200
+  requests as 1,200 diverse observations.
+
+After collapsing deterministic seed replays, each cell contains 20 distinct
+state outputs. Native schema exposure increases content-only recoverable-call
+incidence by 30, 22.5, and 15 percentage points across Base, round 2, and round
+3. The sign pattern is directionally consistent across the first two
+checkpoints and mostly consistent in round 3. Documentation effects are mixed.
+This supports a bounded interface-contract finding: showing a model the tool
+schema can increase executable calls that land in text rather than the
+structured channel under the tested renderer.
+
+The finding does not repair the central method-paper gap:
+
+1. It measures fixed checkpoints at historical states, not independent
+   training seeds or canonical-start quest outcomes.
+2. All states come from one historical run and may be dependent.
+3. The five nominal seeds had no observable effect, so there is no stochastic
+   sampling uncertainty and the effective grid is much smaller than planned.
+4. The state-selection source transcripts remain private even though the
+   selected rendered states and every outcome are public.
+5. A tool-schema/parser mismatch is valuable diagnostic evidence but is not, by
+   itself, a novel state-visitation method result.
+
+The manuscript is now a credible, reproducible audit paper with one executed
+interface result, one failed manipulation check, and carefully bounded
+historical evidence. It is still not an outstanding top-venue method paper.
+The most important missing evidence remains matched natural-versus-targeted
+training with independent runs and held-out transfer. A narrower audit venue or
+TMLR-style case study is defensible sooner; a top conference remains a
+borderline proposition without the causal training matrix.
+
+## Pass 5 — recovered-evidence review, July 23
+
+**Interim verdict before the trigger-incidence result: 2–3/5 (reject to
+borderline), confidence 4/5.**
+
+The paper has moved beyond a protocol-only draft. All nine July scores now
+replay at their exact six-hour boundaries from 27 content-bound run directories.
+A clean analysis receipt, immediate input rehash, and record-clock alignment
+check close the earlier evidence-chain failures. A checked-in anonymous
+projection then reproduces the scores from 21,524 score-relevant observations
+in a fresh clone. The manuscript also discloses the repaired-render round-1
+sensitivity, the historical uniform constants and record/update counts, and
+the absence of run-level replication.
+
+These changes repair major reproducibility and selective-reporting concerns,
+but they do not create a causal method result:
+
+1. Every historical training cell remains one run with unattested checkpoint,
+   corpus, reset, render, and seed identity.
+2. The four graded/uniform rows are intended historical pairs, not verified
+   matches. The repaired-render sensitivity reverses the first direction while
+   changing another variable.
+3. The full historical transcripts remain private. Reviewers can replay the
+   projected score evidence but cannot independently repeat its extraction.
+4. No matched natural-versus-targeted training outcome, held-out transfer, or
+   strong executed curriculum baseline exists.
+5. The registered trigger study can strengthen the interface audit, but fixed
+   checkpoints and historical states cannot identify a training-method effect.
+
+The current draft is therefore a credible audited case study with useful
+negative controls, not yet an outstanding method paper. The decisive score
+change still requires either the central matched-training result or a stronger
+audit contribution whose executed findings stand on their own.
 
 ## Current verdict
 

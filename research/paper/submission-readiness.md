@@ -4,7 +4,7 @@
 
 **Do not submit the current manuscript to AAAI-27 or EACL 2027. Target NAACL 2027 through the October 12, 2026 ARR cycle. Keep ICLR 2027 only as a stretch option if its official call appears and the full experiment package is ready by early September.**
 
-AAAI-27 is not the remembered September deadline. Its abstract is due **July 21, 2026** and the full paper is due **July 28, 2026**, both AoE. The main track allows seven content pages. The historical technical report is fourteen pages, the central OPD result has one run per arm, and the public artifact cannot reproduce the reported statistics. A ten-day conversion would be a rushed lottery ticket, not a serious top-paper attempt.
+AAAI-27 is not the remembered September deadline. Its abstract is due **July 21, 2026** and the full paper is due **July 28, 2026**, both AoE. The main track allows seven content pages. The historical technical report is fourteen pages, the central OPD result has one run per arm, and several headline inputs remain private. The July mechanism scores now have a reviewer-replayable anonymous projection, but that does not repair the causal design. A ten-day conversion would be a rushed lottery ticket, not a serious top-paper attempt.
 
 NAACL 2027 confirms an October 12, 2026 ARR deadline and a June 1–5, 2027
 conference in San Francisco. Current ARR rules allow eight content pages for
@@ -16,6 +16,12 @@ Limitations are excluded from the content-page limit when placed correctly.
 Appendices are optional, must not carry the main argument, and remain
 double-column. The venue-specific NAACL call is not yet published, so recheck it
 and re-vendor the official template immediately before submission.
+As of July 23, the local ACL style and bibliography files are byte-identical to
+official `acl-org/acl-style-files` master commit
+`d5adc823ff0f80f98c80405ca0ab66c68e684409`; all 27 manuscript citation keys
+resolve. The Responsible NLP Checklist may be published with accepted papers,
+so the final answers must cite exact sections and disclose material AI
+assistance truthfully.
 
 ICLR 2027's call has not been published as of July 18. ICLR 2026 used September 19 for abstracts and September 24 for papers, so a similar late-September 2026 deadline is a planning estimate only. Do not represent it as confirmed.
 
@@ -36,7 +42,7 @@ Official sources:
 
 ## Working paper
 
-**Working title:** *Auditing a Candidate State-Visitation Bottleneck in On-Policy Distillation: An Agent Case Study and Confirmatory Protocol*
+**Working title:** *Auditing State-Visitation Bottlenecks in On-Policy Distillation: A Persistent Game-Agent Case Study*
 
 **Core question:** When a small agent never visits the states where its teacher is more capable, can changing the training-state distribution—without changing the reverse-KL objective—transfer long-horizon competence?
 
@@ -44,15 +50,44 @@ Official sources:
 
 **Secondary diagnostic:** Historical notes report positive teacher-over-student distillation advantage for one malformed continuation. Because both candidates were not scored in the same matched contexts and the probe artifact is absent, preference reversal and the broader teacher-forcing copy-prior mechanism remain unvalidated.
 
-**System conclusion:** Harness affordances and model weights target different failure classes, but the historical runs do not identify their separate effects. The final 18/30 result is a weights-plus-interface result. The reported recovery-off 12/30-to-15/30 contrast lacks exact historical parity and is not a clean causal weights comparison.
+**System conclusion:** Harness affordances and model weights target different
+failure classes, but the historical runs do not identify their separate
+effects. A recovered July run labelled round-3 with recovery disabled replays
+to 18/30, which is counterevidence to an interface-only explanation; missing
+checkpoint and launch attestations still prevent a pure-weights attribution.
+The recovery-off 12/30-to-15/30 contrast likewise lacks exact historical parity
+and is not a clean causal weights comparison.
+
+**Recovered mechanism controls:** All 27 agent/run directories from nine July
+arms are copy-verified and content-bound. A clean analysis receipt, immediate
+input rehash, and run-start clock-alignment check precede record-level replay,
+which reproduces
+their six-hour totals `[12,18,12,15,13,14,12,17,14]`. Four intended
+corpus/init-matched teacher-graded versus uniform pairs show no consistent
+graded advantage, while a repaired-render graded sensitivity reverses the
+nearest round-1 direction. This materially strengthens the corpus/visitation
+hypothesis but rules out a blanket “grades add no value” claim. One training
+run per cell and missing checkpoint/corpus/reset/render/seed receipts still
+block an effect estimate. A checked-in anonymous projection of 21,524
+score-relevant observations reproduces all nine totals from a clean checkout
+and binds rows to source-record/log hashes; full transcripts remain private, so
+the extraction itself is not independently repeatable.
 
 **New registered diagnostic:** The 18-cell, 30-minute local factorial completed
 with 18/18 launcher-valid cells and 1,266 rehashed files. Four cells advanced
 one quest stage, but none of 958 generations was malformed or
 recovery-eligible. The recovery intervention therefore never engaged. This is
-useful negative evidence and a reason to add a cheap trigger-incidence gate
-before any full recovery factorial; it does not satisfy the recovery
-identification gate.
+useful negative evidence, not a recovery effect. The registered follow-up then
+completed 1,200/1,200 local requests with zero failures. On the fixed
+20-state grid, native schema exposure increased content-only recoverable-call
+incidence by 30, 22.5, and 15 percentage points for Base, round 2, and round 3;
+documentation effects were mixed. A second audit found that the five nominal
+request seeds replayed the same semantic output in every state-condition group,
+so the paper collapses duplicates to 20 outputs per cell and makes no
+stochastic-uncertainty claim. The full identity-scrubbed raw bundle is checked
+in and passes producer, independent-outcome, and seed-diversity verification.
+This strengthens the interface audit but still does not satisfy the recovery or
+training-effect identification gates.
 
 Do not frame the paper as the first MCP game agent, embodied learning, continual learning, autonomous skill learning, or world-model learning. Orak already uses MCP across twelve games, and the present system operates on symbolic state and typed actions with procedural walkthroughs.
 
@@ -90,8 +125,10 @@ The authors must also retain full responsibility for the paper and follow the ch
 
 - Freeze the exact environment and inference contract.
 - Fix the evaluation save crash and full-schema parity tests.
-- Package the recovered r10 and OPD inputs into a licensed, reviewer-accessible,
-  content-addressed artifact; make analysis scripts fail loudly when it is absent.
+- Package the remaining recovered r10 and OPD inputs into a licensed,
+  reviewer-accessible, content-addressed artifact. The July score projection is
+  already checked in; seek a full-transcript release or independent extraction
+  audit if licensing and privacy permit.
 - Choose one primary endpoint and write the analysis plan before new runs.
 
 ### Weeks 2–3: replicate the key causal result

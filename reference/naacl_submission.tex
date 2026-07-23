@@ -9,8 +9,8 @@
 
 % Review manuscript built with the current official ACL review template.
 
-\title{Auditing a Candidate State-Visitation Bottleneck in On-Policy Distillation:\\
-An Agent Case Study and Confirmatory Protocol}
+\title{Auditing State-Visitation Bottlenecks in On-Policy Distillation:\\
+A Persistent Game-Agent Case Study}
 
 \author{Anonymous submission}
 
@@ -21,22 +21,22 @@ An Agent Case Study and Confirmatory Protocol}
 \maketitle
 
 \begin{abstract}
-On-policy distillation supervises student-visited states, potentially excluding
-persistent states where a teacher has an advantage. We audit this failure mode
-for a 2B agent using 17 tools in a persistent MMORPG. One reported
-natural-visitation run changes tool use and tempo but not a 12/30 quest score. A
-later round augments training with rollouts from a hand-selected intermediate
-player state and is followed by a reported canonical-start score of 15/30; all
-three clustered prompt variants pass a prior wall. This sequence is descriptive:
-rounds differ beyond state source, have one run per arm, and lack complete
-provenance. We specify a matched study that selects training-only states using
-frozen visitation, teacher advantage, validity, reachability, and recoverability;
-crosses player state with model-visible history; and compares targeted states
-with natural visitation, generic resets, successful prefixes, and turn-level
-guidance. A preregistered 18-cell diagnostic completes, but none of 958
-generations creates a recovery opportunity; the intervention never engages.
-The contribution is an audited case, failed manipulation check, and
-protocol---not an established method effect.
+On-policy distillation only supervises states a student visits, so it may miss
+precisely the states where a teacher is better. We audit this problem for a 2B
+agent using 17 tools in a persistent game. A natural-visitation training round
+changes behavior but leaves the quest score at 12/30; a later round adds
+intermediate-state rollouts and is followed by 15/30. We recover nine later
+mechanism arms and reproduce their six-hour scores from content-bound raw
+records. In four historically intended corpus-matched pairs, uniform
+self-imitation matches or exceeds teacher-graded training three times, while
+seeded corpora outperform natural-only and poor-corpus controls. These one-run
+comparisons motivate a visitation/corpus hypothesis but cannot estimate an
+effect. A preregistered recovery diagnostic yields no eligible defect in 958
+generations. A follow-up fixed-state grid finds recoverable content-only calls
+in 20--60\% of state outputs; native tool-schema exposure raises incidence by
+15--30 percentage points across three checkpoints. Because five nominal seeds
+replay identically, we collapse them. The contribution is an audited case and
+interface diagnosis, not an established training effect.
 \end{abstract}
 
 \section{Introduction}
@@ -72,6 +72,19 @@ initialization. This motivates testing whether training visitation matters, but
 it does not isolate state seeding from all
 round-to-round changes or estimate population-level uncertainty.
 
+A recovered July campaign adds controls that materially sharpen, but do not
+complete, this account. We copy-verify 19,005 files from nine mechanism-arm
+runs, bind each agent/run directory cryptographically, and replay observations
+only through its recorded six-hour boundary. Four historical pairs were labelled
+as retaining the same corpus and initialization while replacing teacher-derived
+token weights with a constant. The uniform arm matches or exceeds the graded
+score in three of four cells. A repaired-render graded sensitivity reverses the
+first pair numerically. A teacher-free arm trained from poorer base-policy
+rollouts returns to the base score. This pattern points away from a simple
+``better token weights'' explanation and toward which trajectories enter the
+corpus, but each cell is still one historical training run without a complete
+checkpoint or execution receipt.
+
 This working draft makes three bounded contributions:
 
 \begin{enumerate}
@@ -80,17 +93,17 @@ This working draft makes three bounded contributions:
   confirmatory protocol with controls capable of falsifying the proposed
   player-state intervention.
   \item We distinguish behavioral imitation from competence in the surviving
-  historical record: the reported post-distillation run moves measured tool mix
-  and tempo toward the teacher while the benchmark score remains fixed.
-  \item We report a preregistered local recovery diagnostic that completes all
-  18 cells yet produces zero eligible defects. This failed manipulation check
-  prevents an otherwise tempting recovery-effect claim and changes the next
-  experiment.
+  historical record, and recover four intended graded-versus-uniform pairs that
+  show no consistent score advantage from teacher-derived token weights.
+  \item We report two preregistered local diagnostics. An 18-cell recovery
+  factorial produces no eligible defect. A fixed-state follow-up shows that,
+  under the tested renderer, adding a native tool schema can increase
+  executable calls emitted into text rather than the structured channel.
 \end{enumerate}
 
 Separately, one targeted teacher-forcing probe motivates a copy-prior
-hypothesis at the tool boundary. It does not establish a within-context
-preference reversal and is not a headline contribution.
+hypothesis at the tool boundary (Appendix~\ref{app:copy-prior}). It does not
+establish a within-context preference reversal.
 
 The broader lesson is methodological. Model weights, visited states, and
 runtime affordances are different interventions. A credible agent-training
@@ -219,7 +232,7 @@ Natural OPD \quad $\vert$ \quad Targeted $(x,h)$ \quad $\vert$ \quad Controls\\
 Canonical starts;\\
 nested seeds}}
 \end{tabular}
-\caption{Causal geometry of the proposed matched study. Training arms run in
+\caption{Matched study design. Training arms run in
 parallel from common initialization; they do not form a sequential curriculum.
 Model-visible history is crossed explicitly because a database snapshot alone
 is not the policy state. The fixed-checkpoint weights-by-recovery factorial is a
@@ -343,19 +356,95 @@ The valid statement is deliberately narrow: \emph{a seeded-training round was
 followed by unanimous canonical-start wall passage in one run}. The present data do not
 show that seeding alone caused the improvement. The required causal experiment
 trains fresh students from the same checkpoint under identical budgets, seeds,
-and data construction, varying only whether the legally certified state mixture is
+and data construction, varying only whether the reachability-certified state mixture is
 included (Section~\ref{sec:confirmatory}).
+
+\subsection{Recovered controls narrow the mechanism}
+
+The July campaign was adaptive development designed after earlier outcomes;
+none of its arm comparisons is confirmatory. We recovered all 27 agent/run
+directories from nine later mechanism arms. A
+source-side checksum list covers 19,005 files; a second manifest hashes each
+directory; and the scorer rehashes those exact bytes under a clean,
+content-bound analysis receipt. Historical event timestamps omit an offset, so
+the replay admits UTC only after checking that all 27 monotonic event clocks
+begin 260--422 seconds after their separately recorded, offset-aware run starts. It
+includes an observation only when its record timestamp falls within that
+lane's recorded six-hour budget. The replay
+reproduces the documented totals for base+recovery (12), round-3 without
+recovery (18), round-2 natural-only (12), round-2 uniform (15), round-1 uniform
+(13), round-2 natural+uniform (14), teacher-free (12), round-3 uniform (17),
+and repaired-render round-1 (14). This establishes that the scores are present
+in the recovered logs. An anonymous reviewer artifact projects the 21,524
+score-relevant observations to quest names and stages, binds each projection
+to its source-record and source-log hashes, and regenerates the same totals
+from a clean checkout. It omits prompts, model actions, maps, inventory, and
+unrelated player state. The projection permits score replay but not an
+independent audit of the private extraction step. It
+does not establish the identity of the historical checkpoint, corpus, reset,
+render contract, or random seeds, which were not sealed at launch.
+
+\begin{table}[t]
+\caption{Recovered runs labelled as intended pairs in historical notes. Matching
+variables were not sealed. Each cell is one training run; parentheses give
+clustered wall passages out of three prompt variants.
+``Uniform'' replaces nonzero teacher-derived advantages with one positive
+constant. The totals are descriptive, not an effect estimate.}
+\label{tab:matched-controls}
+\centering
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+Reported corpus / init & Teacher-graded & Uniform \\
+\midrule
+Natural base / base & 12 (0/3) & 13 (1/3) \\
+Natural r1 / r1 & 12 (1/3) & 14 (2/3) \\
+Natural+seeded r1 / r1 & 15 (3/3) & 15 (3/3) \\
+Broader seeded / r2 & 18 (3/3) & 17 (3/3) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:matched-controls} includes every available graded/uniform pair
+that the historical notes label as sharing corpus and initialization; the
+pairing rule is post-hoc, and the audit verifies scores rather than treatment
+identity. Uniform training matches or exceeds the graded arm in three cells,
+so the family does not show a consistent score advantage from teacher-derived
+token weights. The reported controls set each nonzero advantage to the corpus
+mean absolute advantage before evaluation: constants
+0.487/0.429/0.431/0.362, with 5,564/7,024/7,024/8,856 records and
+174/220/220/277 update steps across the four uniform columns. These settings
+come from historical manifests and notes, not launch-time receipts.
+
+An important sensitivity is omitted from the intended-pair rows because it
+changes another variable: a repaired-render graded round-1 run scores 14
+(wall 2/3), whereas the old-render uniform round-1 arm scores 13 (1/3).
+The reversal means that ``teacher grades add no value'' is not stable to the
+render repair. The natural-only round-2 arm
+scores 12 while the corresponding seeded-corpus uniform arm scores 15. A
+teacher-free arm built instead from poorer base-policy seeded rollouts scores
+12 and crosses the wall in zero of three prompt variants. Thus ``seeding'' is
+not sufficient: which policy generated the visited trajectories, what those
+trajectories contain, and data volume remain entangled.
+
+The observations are compatible with a substantial corpus-mediated channel:
+reset-conditioned student trajectories may carry useful behavior without
+per-token teacher direction in this lineage. Teacher grading may still alter
+the behavior policy that later generates useful data, and the uniform pairs do not remove
+execution-era or artifact-lineage alternatives. Independent training
+replications under a fully crossed corpus-by-weighting design are required.
 
 \subsection{Weights and recovery are historically confounded}
 
-Round 3 combines broader state seeding with a runtime recovery affordance and
-scores 18/30. That number is not a pure-weights result. A separate unmatched run
-of round-2 weights with recovery reports 17/30. The run directories were
-recovered externally, but missing configuration parity, checkpoint/render
-attestation, reset receipts, and gameplay seeds prevent attribution of either
-score difference to the interface or weights. The reported recovery-off contrast is base 12/30 versus round 2
-15/30, one run per arm; exact checkpoint, render, seed, and artifact parity is
-unavailable, so even this contrast is not a clean causal weights comparison.
+The June round-3 run combines broader state seeding with a runtime recovery
+affordance and scores 18/30. A later recovered run labelled with the same
+round-3 weights and recovery disabled also replays to 18/30. A separate
+unmatched run of round-2 weights with recovery reports 17/30. The recovery-off
+run is important counterevidence to an interface-only explanation, but missing
+configuration parity, checkpoint/render attestation, reset receipts, and
+gameplay seeds still prevent a pure-weights attribution. The recovery-off
+contrast of base 12/30 versus round 2 at 15/30 has the same limitation.
 
 The recovery mechanism detects a dropped malformed call, reconstructs the
 executable call, rewrites the retained history into canonical form, executes the
@@ -366,7 +455,7 @@ the 405 count has not been independently regenerated. It therefore does not show
 that weights learned the format, that the model self-corrected, or that recovery
 generalizes to other defects.
 
-\subsection{Longer local cells expose progress, but not recovery}
+\subsection{A registered interface diagnostic finds dropped executable calls}
 
 The preregistered 30-minute diagnostic completed all 18 Base/R2/R3
 $\times$ recovery off/on cells; 1,266 sealed files rehashed without mismatch.
@@ -376,239 +465,153 @@ or eligible for recovery, and no recovered call occurred. Thus the recovery
 switch never applied its intervention: on/off differences are not recovery
 effects. Three seed blocks over fixed checkpoints also cannot establish
 superiority. Appendix~\ref{app:localpilot} reports this run and the preceding
-five-minute execution pilot. The failed manipulation check rules out spending
-the full factorial budget unchanged; natural trigger incidence must be shown
-first, and controlled defect injection is a separate conditional question.
+five-minute execution pilot.
 
-\section{A Teacher-Forcing Failure at the Interface}
+We next froze 20 historical decision states and crossed Python-like versus
+canonicalized documentation with omission versus inclusion of the complete
+native tool schema. Base, round 2, and round 3 each completed 400/400 local
+requests with stable checkpoint identity. The five nominal seeds produced the
+same semantic response within every state--condition group, so we collapse
+duplicates to one output: 20 state outputs per cell, with no stochastic-sample
+claim.
 
-Round 1 introduces a malformed parameter-key pattern that is absent in the
-base run. The emitted form places a Boolean value inside the parameter key, so
-the parser silently drops the intended argument. The training records contain
-the correct syntax, and historical notes report that the teacher favors the
-correct delimiter in clean base-policy contexts. After the malformed prefix is
-already present, the same notes report teacher log probability $-0.161$ (about
-85\% probability) for continuing the malformed form, versus $-0.253$ under the
-student. This is a positive teacher-over-student distillation advantage for one
-candidate. The reported correct-form observation uses a different state; without
-both canonical and malformed candidates scored in each matched context, the
-record does not establish a preference reversal.
-
-Thus teacher generation and teacher-forced grading are distinct objects, but the
-historical probe establishes only a candidate failure mode. A teacher that
-generates canonical syntax from a clean history may still assign a locally useful
-distillation signal to continuation of a student's defect after that defect enters
-the context. We call this a \emph{teacher-forcing copy-prior hypothesis}. The
-current record lacks the paired artifact needed to show that the teacher actively
-prefers the malformed candidate.
-
-This hypothesis relates to exposure bias \citep{bengio2015scheduled} and to
-failures of token-level teacher
-agreement on degraded prefixes. CCOPD already conditions a teacher on clean,
-canonical evidence to reduce self-anchored drift in a multi-turn student
-\citep{lin2026ccopd}; that broad clean-context intervention is not novel here.
-The narrower tool-syntax hypothesis gives a testable prediction:
-paired histories differing only in canonical versus malformed prior syntax
-should change teacher log-odds while holding state and candidate continuations
-fixed. Section~\ref{sec:confirmatory} turns that prediction into a multi-state,
-multi-defect experiment.
+Recovery-eligible content-only calls occur in 20--60\% of these outputs. Adding
+the native schema changes their incidence by $+30$, $+22.5$, and $+15$
+percentage points for Base, round 2, and round 3. The corresponding counts of
+states with positive/negative/zero paired effects are 9/0/11, 8/0/12, and
+5/1/14. Canonicalizing the prose documentation has mixed effects: 0, $-7.5$,
+and $+10$ points. Only one of 240 distinct outputs matches the registered
+malformed-syntax detector; the others contain an executable canonical function
+block in text but no structured tool call. Thus model-visible schema exposure
+does not guarantee parser alignment and can increase dropped, recoverable
+actions under this renderer. This is a fixed-grid interface result, not a
+recovery benefit or checkpoint ranking.
 
 \section{Confirmatory Study Design}
 \label{sec:confirmatory}
 
-Every matched-training arm below is prospective. The anonymous preparation
-artifact validates immutable record contracts and common optimization settings,
-but it does not contain verified trained-arm bundles or accelerator outcomes.
-Results will not be reported until every arm, analysis rule, and immutable run
-bundle passes the same fail-closed protocol.
+The confirmatory question is simple: do targeted persistent player states
+improve canonical-start performance beyond other ways of exposing a student to
+useful failures? Every arm below is prospective. The preparation artifact
+validates record contracts and common optimization settings, but no verified
+trained-arm outcome exists in this draft.
 
-Only the state-source family and player-state-by-history ablation determine the
-primary selector claim. The weights-by-recovery study, supervision-structure
-comparison, and copy-prior probe are separately reported secondary modules; they
-cannot rescue a failed primary contrast or inflate its arm family.
+\paragraph{What is held fixed.}
+Fresh students begin from the same checkpoint and use the same teacher,
+optimizer, action-token budget, teacher-scoring budget, tool interface, and
+training-seed schedule. Each trained checkpoint is evaluated across a frozen
+set of fresh game worlds that start from the ordinary initial player state.
+The primary endpoint is total \core{} stage gain across the three prompt
+variants; wall passage is secondary. A trained checkpoint, not an agent or
+conversation, is the independent unit. Replication is frozen by a prospective
+two-level power analysis rather than justified by the current launcher example.
 
-\paragraph{Primary endpoint and unit.}
-The method estimand is over independently initialized training
-seeds/checkpoints. Within each training seed, evaluation seeds are nested:
-each evaluation is a six-hour run from a fresh canonical-start world, with no
-intermediate player-state initialization and a registered gameplay-RNG seed.
-The preregistered endpoint aggregates total \core{} stage gain across the three
-clustered agents and then across the frozen evaluation-seed schedule. Quest-wall
-passage is secondary. The current five-training-seed launcher grid is an
-unpowered execution template, not a justified sample size; no method claim is
-permitted until a prospective two-level power analysis freezes both training
-and nested evaluation replication. All runs, confidence intervals, effect
-sizes, exclusions, and stopping rules must be reported.
+\paragraph{What is compared.}
+The primary arms are natural OPD, the targeted-state selector, random valid
+resets, progress-matched resets, TCOD teacher-success prefixes, Guided-OPD, and
+TRB. Visitation-only and teacher-advantage-only selectors diagnose which part of
+the rule matters. Corrected-interface SFT and SCoRe-style first-error prefixes
+provide supervision baselines \citep{lyu2025score}. The targeted method fails
+its main claim if the simpler reset controls or the strongest prefix/guidance
+baseline matches it within the frozen smallest effect of interest.
 
-\paragraph{State-source ablation.}
-The six specified primary training contracts are natural OPD, targeted persistent player states,
-random-valid player states, progress-matched player states, TCOD-B2F
-teacher-success prefixes, and Guided-OPD. Four prespecified mechanism/baseline
-arms---visitation-only selection, teacher-advantage-only selection,
-corrected-interface SFT, and SCoRe-style first-error prefixes---are analyzed
-separately rather than silently counted as extra primary arms. Match teacher,
-optimizer, action-token and teacher-scoring budgets,
-environment interactions, and training-seed schedule; evaluate every arm from
-the original canonical-start state. A matched Trust-Region Behavior Blending
-(TRB) arm is additionally required because it changes occupancy through a
-teacher-near behavior policy while retaining OPD; it is not yet implemented in
-the launcher. The method claim fails if random or progress-matched resets,
-TCOD-B2F, Guided-OPD, or TRB ties the targeted arm within the preregistered
-smallest effect of interest.
+\paragraph{State or visible history?}
+For each admitted player state, the study compares a minimal canonical
+observation, its authentic teacher prefix, and a matched reconstructed history.
+A Backplay condition moves the start backward along a verified trajectory.
+This separates the restored player state $x$ from information carried in the
+visible history $h$. The implementation does not restore the complete shared
+world---for example every NPC, mob, resource, or concurrent player---so it
+makes no full-world-state claim.
 
-Supervision structure is a separate axis. Structured Agent Distillation (SAD)
-uses distinct reasoning- and action-span objectives rather than the historical
-action-only head \citep{liu2026sad}. Before any method-outcome analysis, the
-study must add and freeze a separately reported natural-visitation comparator
-that holds trajectories and state source fixed while varying action-only versus
-SAD-style structured supervision. This arm is not yet registered or
-implemented; it will not be counted as another state-source arm or conflated
-with corrected-interface SFT.
+\paragraph{Secondary questions.}
+Structured supervision is tested separately from state source
+\citep{liu2026sad}. Fixed-checkpoint recovery comparisons preserve raw
+pre-rewrite emissions and distinguish malformed output, eligibility, harness
+rewrite, parser acceptance, environment execution, and state change. They
+cannot show learned self-correction or rescue a failed state-selector result.
+The copy-prior hypothesis is tested with paired canonical and malformed
+histories that hold state and candidate continuations fixed; teacher and student
+log-odds are then reported together. No outcome from these secondary modules is
+counted as extra evidence for the primary method.
 
-\paragraph{Player-state by history ablation.}
-For the same certified player state, compare (i) a direct snapshot with the
-minimal canonical observation history, (ii) replay of a teacher trajectory with
-its authentic prefix, and (iii) a direct snapshot with a matched reconstructed
-history. A fourth Backplay condition anneals starts backward along a witness
-trajectory. This distinguishes initialization of latent player state $x$ from
-information or error patterns carried in $h$, and tests whether a direct snapshot
-adds value beyond successful prefix replay. The present implementation does not
-restore a complete shared world (for example NPC, mob, resource, or
-concurrent-player state), so no full-world-state claim is made.
-
-\paragraph{Weights by recovery factorial.}
-Evaluate base, round-2, and round-3 weights with recovery both off and on.
-Preserve raw pre-rewrite emissions. These are conditional contrasts among three
-fixed checkpoint artifacts, not estimates of a training procedure. The
-registered full study uses 20 paired fresh-world replicate clusters, sums all
-three personality lanes before comparison, and freezes seven contrasts: round 2
-and round 3 versus base with recovery off; recovery on versus off for each
-checkpoint; and both checkpoint-by-recovery interactions. It controls
-familywise alpha at .05 across seven paired comparisons. The same simultaneous
-intervals classify effects against a frozen $\pm3$-stage threshold. Under the
-working normal-model assumption that paired differences have population mean
-and standard deviation three, 20 clusters give .911 model power for each
-contrast separately---not for all seven together. This is not evidence about
-their actual distribution or variability. The separate
-registered 18-cell local run is exploratory and cannot replace this design. Its
-complete bundle passed the internal fail-closed audit, but zero
-recovery-eligible emissions meant the intervention did not engage.
-Reporting separates six objects: raw malformed emissions, emissions eligible
-for correction, harness rewrites or retries, parser-accepted calls,
-environment-executed calls, and state-changing calls. Harness recovery for a
-fixed checkpoint is therefore not labeled model self-correction or a learned
-recovery policy. The exploratory analysis retains its frozen diagnostics; any
-additional trace analysis is explicitly post hoc.
-
-\paragraph{Generalization.}
-One quest is now frozen in an evaluation-only v2 registration that supersedes
-the original task-choice record before any held-out-quest outcome was inspected. The registration
-hash-binds all aliases, resolved-prompt leakage markers, the Base tokenizer
-snapshot, and text/token exclusions that every prospective registered training
-contract must enforce. No verified trained arm bundle yet exists. The
-no-walkthrough prompt omits game knowledge and is checked after all personality
-blocks are resolved. We will report reaching the bottleneck, crossing it
-conditional on arrival, and downstream completion; no held-out outcome is
-present in this draft. A second environment or model family remains necessary
-for any broad claim. Corrected-interface SFT and a SCoRe-style
-first-error-prefix condition are additional baselines under matched interaction
-and teacher-scoring budgets \citep{lyu2025score}.
-
-\paragraph{Copy-prior test.}
-Construct paired canonical/malformed histories across tools, states, defect
-types, and at least two teacher sizes or families. Score identical canonical
-and malformed continuations; report teacher and student log-odds with paired
-confidence intervals. Then intervene on grading context and test generation,
-rather than inferring generation from grader-side movement.
+\paragraph{Held-out evaluation.}
+One quest was frozen for evaluation before any held-out outcome was inspected.
+A no-walkthrough prompt removes supplied game knowledge. Results report
+arrival at the bottleneck, success conditional on arrival, and downstream
+completion. No held-out outcome is available yet, and a second environment or
+model family would still be required for a broad claim.
 
 \section{Related Work}
 
-GKD establishes on-policy distillation from student-generated sequences with
-teacher feedback \citep{agarwal2024gkd}; our work does not claim novelty for
-OPD itself. Rethinking OPD identifies teacher--student compatibility and
-genuinely new teacher capability at student-visited states as success conditions
-\citep{li2026rethinking}; our historical sequence does not validate a broader
-visitation principle. SAD changes the unit and weighting of supervision over reasoning
-and action spans \citep{liu2026sad}; our proposed intervention instead changes
-training-state occupancy while holding the loss fixed. OPCD distills contextual experience on student-generated
-trajectories, including in text games \citep{ye2026opcd}; On-Policy Expert
-Corrections switch from student to expert within a trajectory to address
-covariate shift \citep{lauffer2025oec}. TCOD directly studies temporal curricula and intermediate-state
-initialization for multi-turn OPD \citep{wang2026tcod}; broad novelty for seeded
-starts is therefore preempted. Guided-OPD changes live occupancy by mixing
-teacher and student turns \citep{li2026guidedopd}; ReOPD designs reliable prefix
-distributions offline \citep{liao2026reopd}; TRB anneals a teacher-near rollout
-policy inside a student-centered trust region \citep{plyusov2026trb}; and SCoRe
-localizes the first student error before short-horizon training
-\citep{lyu2025score}. TCOD, Guided-OPD, ReOPD, and TRB are concurrent preprints,
-so we treat them as relevant contemporaneous methods rather than refereed
-precedent. SOD and KAT study supervision on degraded prefixes
-\citep{zhong2026sod,xin2026kat}. SOD in particular treats post-tool-error
-high-divergence steps as increasingly unreliable and reweights them; our
-unvalidated hypothesis is narrower, predicting locally wrong-signed candidate
-preference. TrOPD likewise filters or changes the divergence direction outside
-a teacher-verifiable trust region and adds off-policy teacher-prefix guidance
-\citep{xing2026tropd}. Unmasking OPD motivates per-token, per-context diagnostics
-rather than aggregate-loss interpretation \citep{armandpour2026unmasking}.
-These methods make intermediate-state,
-student-failure, and state-centric novelty claims unavailable. DAgger formalizes
-iterative data collection under the learner's state distribution
-\citep{ross2011dagger}. A recent state-distribution analysis likewise argues
-that the source and locality of training states can matter as much as the loss
-\citep{nie2026states}. Reset-along-demonstration, Backplay,
-and Go-Explore show that restoring intermediate states can expose useful signal
-in hard-exploration reinforcement learning
-\citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. We use
-the same control point for on-policy language-model distillation in a
-persistent, typed environment, but the current study does not establish
-superiority over those curriculum families.
+GKD establishes on-policy distillation from student-generated sequences
+\citep{agarwal2024gkd}. Later analyses show that success depends on both
+teacher--student compatibility and whether the teacher has useful capability on
+states the student actually visits \citep{li2026rethinking}. SAD changes which
+reasoning and action spans receive supervision \citep{liu2026sad}, while OPCD
+and on-policy expert corrections change the feedback or actor within a student
+trajectory \citep{ye2026opcd,lauffer2025oec}. Our proposed intervention instead
+changes where a student rollout begins while keeping the distillation loss
+fixed.
 
-The proposed state selector uses quest stage, inventory, position, and repeated
-teacher--student success gaps during training. This is privileged information and
-must be costed and evaluated for held-out transfer. Privileged Information
-Distillation and its on-policy self-distillation variant already study action-only
-transfer from privileged agent signals \citep{penaloza2026pid}. SERL separately
-shows that the source and insertion point of environmental feedback matter in
-multi-turn agents \citep{li2026serl}; neither privilege nor feedback selection is
-novel here.
+The closest work also changes the training-state distribution. TCOD starts from
+teacher-success prefixes; Guided-OPD mixes teacher and student turns; ReOPD
+selects reliable prefixes; TRB anneals a teacher-near rollout policy; and SCoRe
+trains from the first student error
+\citep{wang2026tcod,li2026guidedopd,liao2026reopd,plyusov2026trb,lyu2025score}.
+These methods rule out a broad novelty claim for intermediate starts. The
+remaining question is narrower: does a frozen selector over low-visitation,
+teacher-competent \emph{persistent player states} add value beyond successful
+prefixes, turn-level guidance, and generic resets? Crossing each player state
+with its model-visible history tests whether any gain comes from restored world
+state or simply from information in the prefix. That comparison is prospective
+in this draft.
 
-Game-agent benchmarks already cover long-horizon language and vision agents.
-BALROG emphasizes knowing--doing gaps across games \citep{paglieri2025balrog},
-while Orak uses MCP across twelve games and releases gameplay fine-tuning data
-\citep{park2025orak}. Orak emphasizes breadth through modular evaluation across
-genres, agent/input ablations, data quality, generalization, latency, and a
-public artifact. Our intended contribution is narrower depth in one persistent
-game: causal isolation of player state, visible history, weights, and runtime
-interface. MCP and game play are therefore infrastructure here, not novelty
-claims. GITM uses LLM-generated plans, text memory, and structured
-actions in open-world Minecraft \citep{zhu2023gitm}. Voyager and AgentTrek use
-curricula, reusable skills, or guided
-replay to obtain long-horizon behavior
-\citep{wang2023voyager,zheng2025agenttrek}. Our narrower question is whether a
-frozen selector over low-occupancy, teacher-competent persistent player states
-adds value beyond natural OPD, successful-prefix replay, turn-level guidance,
-and matched generic resets.
+Intermediate resets have long been used to expose sparse learning signal in
+reinforcement learning, including reset-along-demonstration, Backplay, and
+Go-Explore
+\citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}.
+DAgger supplies the complementary lesson that imitation data must cover states
+induced by the learner \citep{ross2011dagger}. We apply these ideas to a
+language-model agent with typed tools, but our historical runs do not establish
+that the proposed selector outperforms these curriculum families.
 
-Learned tool-error recovery is also distinct from the present runtime
-factorial. Fission-GRPO converts execution errors into on-policy corrective
-training instances and evaluates learned multi-turn recovery
-\citep{zhang2026fission}. Here the recovery-on arm rewrites or retries a fixed
-checkpoint's malformed emission in the harness; it cannot establish that the
-model learned to diagnose or repair its own error.
+The recovered uniform controls also connect to self-imitation and
+demonstration selection. Self-Imitation Learning reinforces an agent's own
+previously successful decisions \citep{oh2018selfimitation}; offline imitation
+work likewise shows that resultant states and trajectory quality can be useful
+criteria for selecting among heterogeneous demonstrations
+\citep{yue2024diverse}. Our controls are cruder: they retain all reported
+records, including failures, and replace token weights with a constant. They
+therefore motivate a corpus-quality question rather than instantiate either
+method.
 
-Supervised imitation can compound errors under distribution shift
-\citep{ross2011dagger}, and knowledge distillation does not guarantee functional
-agreement between teacher and student \citep{stanton2021kd}. The r10
-cross-vocabulary SFT regression in our development record is motivating
-evidence, but its raw artifact bundle is incomplete and it is not a primary
-result of this submission draft.
+BALROG and Orak evaluate game agents broadly across environments and interfaces
+\citep{paglieri2025balrog,park2025orak}; GITM, Voyager, and AgentTrek study
+planning, skills, curricula, or guided replay in open worlds
+\citep{zhu2023gitm,wang2023voyager,zheng2025agenttrek}. Our evidence is deeper
+but much narrower: one persistent game, one model family, and supplied quest
+guidance. The game and MCP-style tool interface are infrastructure, not novelty.
+Likewise, Fission-GRPO learns from execution errors
+\citep{zhang2026fission}; our recovery switch is a runtime rewrite for a fixed
+checkpoint and cannot be described as learned self-correction.
 
 \section{Conclusion}
 
 The audited case motivates a concrete hypothesis: low-occupancy player states
-may hide useful teacher competence from natural OPD. Historical runs motivate
-but do not establish our selector. Matched resets, strong OPD baselines,
-replication, and held-out transfer must decide whether it survives.
+may hide useful trajectories from natural OPD. Recovered controls show that
+uniform self-imitation matches several reported teacher-graded scores when it
+uses a rich corpus, while poorer seeded data does not; repaired-render graded
+training also numerically exceeds its nearest uniform sensitivity. This narrows
+the story from direct score transfer to corpus generation and visitation; it
+does not establish our selector. Matched resets, strong
+OPD baselines, replication, and held-out transfer must decide whether it
+survives.
+
+The local diagnostics add a separate lesson. A model-visible tool schema can
+change whether an executable action arrives through the structured channel or
+as dropped text. Training weights, rendered interface, parser, and recovery
+must therefore be attested as separate interventions.
 
 \label{acl:main-content-end}
 \section*{Limitations}
@@ -618,9 +621,15 @@ a population claim, and three prompt variants are not independent seeds. The
 state-seeded round also differs from the preceding round in initialization and
 data. The environment is a single game with procedural walkthroughs, the
 teacher and student are from one model family, and stage counts are coarse. Some
-development analyses depend on logs whose raw inputs are not yet packaged. The
-paper must not be submitted as confirmatory until the study design above is run
-and a clean clone regenerates every main table.
+development analyses depend on logs whose raw inputs are not publicly packaged.
+The recovered July scores are content-bound and deterministically regenerated,
+and their score-relevant projection is included for clean-clone replay. The
+full historical transcripts remain private, so reviewers cannot independently
+repeat the projection from raw logs. The launches also lack exact checkpoint,
+training-corpus, reset, render, and RNG
+attestations. This is therefore an audited case study and protocol, not a
+completed causal method study. A clean clone must also regenerate every main
+table before submission.
 
 Direct database construction is environment-specific and may not transfer to
 systems without restorable state. The historical failure state was selected
@@ -631,6 +640,10 @@ their outcomes cannot enter the confirmatory estimate. Teacher competence at the
 of trajectories, not estimated precisely.
 The syntax probe covers one defect family and should not be generalized to all
 teacher-forced grading.
+In the trigger-incidence grid, all five nominal request seeds produced the same
+semantic response within each state--condition group. We therefore report 20
+collapsed state outputs per cell and no stochastic sampling uncertainty. The
+states come from one historical run and may be temporally dependent.
 
 \section*{Ethical Considerations}
 
@@ -726,14 +739,49 @@ malformed or recovery-eligible emission. Recovery was therefore not a realized
 treatment in any pair. The table is descriptive across three fixed seed blocks;
 it is not a checkpoint ranking.
 
+\input{../research/results/local-trigger-incidence-v1/paper-table-public.tex}
+
+The follow-up completed all 1,200 scheduled requests with zero failures. A
+byte-identical independent rerun reproduced the sealed summary, cells,
+contrasts, and artifact index. A second auditor recomputed all labels and
+contrasts from the public raw rows. Post-outcome seed-diversity auditing found
+one semantic response in every five-seed state--condition group, so
+Table~\ref{tab:trigger-incidence} reports the 20 distinct state outputs per
+cell. Its percentages and registered paired contrasts are numerically
+unchanged by collapsing duplicates.
+
+\section{A Copy-Prior Hypothesis at the Grading Interface}
+\label{app:copy-prior}
+
+Round 1 introduces a malformed parameter-key pattern that is absent in the
+base run. Historical notes report teacher log probability $-0.161$ for
+continuing one malformed candidate after the defect is already in context,
+versus $-0.253$ under the student. This is a positive teacher-over-student
+distillation advantage for one candidate, not a matched preference reversal:
+the reported correct-form observation uses a different state.
+
+We call the resulting possibility a \emph{teacher-forcing copy-prior
+hypothesis}. A teacher that generates canonical syntax from a clean history may
+still reinforce a student's local defect once that defect enters the grading
+context. The idea relates to exposure bias \citep{bengio2015scheduled}, while
+CCOPD already uses clean canonical evidence to reduce self-anchored drift
+\citep{lin2026ccopd}. A valid test must score canonical and malformed
+continuations in paired histories while holding state and candidates fixed.
+
 \section{Claim-to-Evidence Boundary}
 
 \begin{description}
 \item[Round-1 behavior.] Descriptive, one run: measured behavior changed while score did not.
 \item[State-seeded round.] Unreplicated: the seeded-training round was followed by canonical-start wall passage in one run.
+\item[Recovered controls.] Record-level replay reproduces all nine July
+protocol-boundary scores. Four intended graded/uniform pairs show no consistent
+graded advantage, but one historical training run per cell and incomplete
+launch provenance preclude an effect estimate.
 \item[Targeted selector.] Protocol only: no candidate-state bundle, trained checkpoint, or outcome is currently available.
 \item[12 to 15.] Reported recovery-off historical contrast; not an effect estimate or clean weights comparison, and exact parity remains unavailable.
-\item[18/30.] Weights-plus-interface system result only.
+\item[18/30.] A recovered run labelled round-3 with recovery off also reaches
+18/30; checkpoint identity and launch parity remain unattested, so this is not
+a pure-weights effect estimate.
 \item[Copy prior.] Positive teacher-over-student advantage for one malformed
 continuation in a targeted historical probe; no matched preference reversal.
 \item[Recovery.] Historical notes report no repeat marker after correction in
@@ -746,10 +794,19 @@ claim and cannot enter the confirmatory estimate.
 advanced one stage, but zero of 958 generations was recovery-eligible. The
 recovery manipulation did not engage; on/off differences are not recovery
 effects.
-\item[Historical bundles.] The recovered external inventory binds the headline
-R10 and OPD agent-run directories and reproduces the R10 statistics, but it is
-not a public reviewer artifact and does not attest the executed reset command,
-game revision, or OPD training inputs.
+\item[Trigger incidence.] All 1,200 registered requests completed. After
+collapsing five semantically identical seed replays per state--condition, adding
+the native schema increases content-only recoverable-call incidence by
+15--30 points across the three fixed checkpoints. This is an interface result
+on 20 historical states per cell, not training superiority or recovery benefit.
+\item[Historical bundles.] The recovered external inventories bind the headline
+R10, OPD, and July mechanism agent-run directories, reproduce the R10
+statistics, and regenerate the nine July scores. A checked-in anonymous
+projection permits exact replay of those July scores and binds its rows to
+source records and logs. The full raw bundles are not a public reviewer
+artifact, so extraction cannot be independently repeated; neither artifact
+attests the executed reset command, game revision, checkpoint identity, or OPD
+training inputs.
 \item[Cross-task transfer.] Unsupported; no claim.
 \end{description}
 
@@ -764,10 +821,16 @@ must point to source runs and transformations. A clean-clone command must verify
 hashes and regenerate every table and figure without network-dependent mutable
 inputs.
 
-The current artifact does not yet meet this bar. An internal recovery hashes 60
-selected directories (18,812 files) and regenerates the R10 statistics, but it
-is not in the reviewer artifact and cannot attest the historical reset command,
-game revision, OPD training inputs, or render contract. One historical lane
+The current artifact does not yet meet this bar. One internal recovery hashes 60
+selected directories (18,812 files) and regenerates the R10 statistics. A
+second binds 27 July agent/run directories (19,005 source files) and
+deterministically regenerates nine six-hour mechanism-arm scores. An anonymous
+projection of 21,524 successful observations is checked in with its own
+manifest and clean-clone scorer; it is sufficient to regenerate the July
+scores but not to repeat the private raw-to-projection extraction. The full raw
+bundles are not in the reviewer artifact, and no recovery can attest the
+historical reset command, game revision, checkpoint identity, OPD training
+inputs, or render contract. One historical lane
 also reset a different database from its game servers, so its results are
 quarantined. The headline R10 and OPD values came from a separate,
 database-aligned orchestrator and all 36 recovered first states match the
@@ -781,6 +844,14 @@ inventories. Anonymous CSVs and a public table derivative are checked in, while
 the complete report, receipt, and raw bundles remain local. This establishes
 internal local execution and table generation, not independent reproduction,
 training, or confirmatory evidence.
+
+The trigger-incidence release is stronger: its identity-scrubbed public bundle
+contains all 1,200 raw response rows, the frozen state design, endpoint
+attestations, and sealed analysis. A clean verifier, a separately implemented
+outcome auditor, and a seed-diversity audit reproduce its fixed-grid result.
+The source historical transcripts used to select states remain outside the
+release, and the observed deterministic seed replay reduces each cell to 20
+distinct outputs.
 
 Future local launches fail closed on the effective database, mode, configuration,
 and complete model snapshot. Those protections do not retroactively promote
@@ -814,8 +885,6 @@ levels must be set from independent pilot variance or a conservative frozen
 grid. If variance is unknown, use blinded re-estimation with a fixed maximum
 size. Primary tests are two-sided unless direction and stopping are
 preregistered. Report every run and exclusion, raw and standardized primary
-effects, and design-matched uncertainty. Any inferential secondary family needs
-its own prespecified multiplicity rule; otherwise it remains descriptive. Small
-wall-passage counts remain descriptive.
+effects, and design-matched uncertainty.
 
 \end{document}

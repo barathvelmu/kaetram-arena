@@ -529,7 +529,9 @@ drops a malformed call, `play_qwen` recovers the executable call (`canonicalize.
 99.5% coverage on real specimens), **rewrites history to a clean canonical assistant turn**
 (severing the in-context copy prior at its source), executes it, and returns a loud `[format]`
 correction note. In the reported rerun (`run_20260613_112422`), recovery was enabled and
-paralysis was not reported (reported 3.3% recovery rate; source logs are not packaged).
+paralysis was not reported (reported 3.3% recovery rate).
+The rewritten run bundle has since been recovered and content-bound, but the
+pre-rewrite emissions needed to regenerate recovery eligibility were not retained.
 This temporal/runtime association does not establish a causal cure because raw pre-rewrite
 emissions and an independently regenerated recovery count are unavailable.
 
@@ -887,9 +889,12 @@ Readouts:
 
 ### Maintainer defect-sensitivity retrospective (2026-07-17)
 
-The maintainer reports re-deriving the following counts from raw logs. Those raw bundles and
-the exact analysis receipts are not packaged in this checkout, so the statements below are
-historical audit notes rather than independently verified verdicts.
+The relevant July raw bundles have since been recovered and content-bound, and their
+six-hour Core-3 scores deterministically replay after exact input, clock, and
+analysis-code verification in `research/audits/july-mechanism-results.json`.
+The exact scripts and receipts for the
+additional defect counts below are not preserved, so those diagnostics remain historical
+audit notes rather than independently verified verdicts.
 
 **Reported as less defect-sensitive:** size ladder; scaffold lift; r10 regression; r2's
 pure-weights wall passage (paid ~11% tax and still passed — conservative); r1 execution wins

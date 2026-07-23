@@ -55,3 +55,24 @@ The workflow is deliberately two-stage:
 2. After the registration/code revision is clean and merged, run one
    hash-attested local checkpoint at a time and analyze only when all 1,200
    scheduled requests are present.
+
+## Outcome update
+
+All 1,200 requests completed with zero failures and stable checkpoint identity.
+The sealed analysis was reproduced byte for byte, and a separately implemented
+auditor recomputed all response labels, cells, and registered contrasts from
+the checked-in raw rows.
+
+Native-schema exposure changed recoverable content-only call incidence by +30,
++22.5, and +15 percentage points for Base, round 2, and round 3. Canonical
+documentation changed it by 0, -7.5, and +10 points. These are descriptive
+effects on the frozen state grid.
+
+A post-outcome seed-diversity audit found one semantic response in every
+five-seed state-condition group. The request seed had no observable effect
+under this serving path. Duplicate responses are therefore collapsed to 20
+state outputs per cell; cell rates and state-level contrasts are unchanged, but
+there is no stochastic sampling uncertainty.
+
+Public result:
+[`../results/local-trigger-incidence-v1/README.md`](../results/local-trigger-incidence-v1/README.md).

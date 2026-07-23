@@ -1,10 +1,10 @@
-# Venue and submission guide — July 18, 2026
+# Venue and submission guide — verified July 23, 2026
 
 ## Decision
 
 Target **NAACL 2027 through the October 12, 2026 ACL Rolling Review cycle**. Use the current official ACL review template and select **LLM Agents** as the primary area, with **Machine Learning for NLP** secondary.
 
-This is the best realistic path because it gives the project time to run the missing causal and transfer experiments and because ARR explicitly welcomes NLP engineering experiments, analysis, reproduction studies, and negative findings. The NAACL 2027 venue-specific call is not published yet, so recheck it before submission.
+This is the best realistic path because it gives the project time to run the missing causal and transfer experiments and because ARR explicitly welcomes NLP engineering experiments, analysis, reproduction studies, and negative findings. The official NAACL 2027 site is live, but its venue-specific call still says to stay tuned for details, so recheck it before submission.
 
 ICLR 2027 remains a stretch option only if its official call appears and the entire confirmatory package is frozen by early September. Do not use ICLR 2026 dates or style as though they were 2027 rules.
 
@@ -19,6 +19,11 @@ AAAI-27 and EACL 2027 are no-go: their deadlines arrive before the required expe
 - No simultaneous archival review.
 - All authors must complete registration and any assigned reviewing.
 - Material LLM writing, coding, literature-search, or idea assistance must be disclosed in the Responsible NLP Checklist during review. Review PDFs must not contain acknowledgments; add the detailed acknowledgment only to the final version.
+- The Responsible NLP Checklist may be published with an accepted paper; every answer needs a specific section reference or justification rather than blanket yes/no responses.
+
+Template integrity check on July 23: local `acl.sty` and `acl_natbib.bst`
+are byte-identical to official `acl-org/acl-style-files` master commit
+`d5adc823ff0f80f98c80405ca0ab66c68e684409`.
 
 Official sources:
 

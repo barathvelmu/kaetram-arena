@@ -111,12 +111,20 @@ hash, and runtime version into `render_contract_sha256`. The confirmatory
 manifest rejects weight arms whose tokenizer or render-contract digests
 differ.
 
-Install the isolated runtime and verify a previously downloaded snapshot:
+Create and verify the isolated runtime with the fail-closed bootstrap, then
+verify a previously downloaded snapshot:
 
 ```bash
-python3.12 -m venv .venv-mlx
-.venv-mlx/bin/pip install -r requirements/local-mlx.lock
-.venv-mlx/bin/python scripts/local_mlx_endpoint.py \
+python3.12 scripts/bootstrap_local_mlx.py bootstrap \
+  --venv .venv-local-mlx-factorial
+MLX_ENV="$PWD/.venv-local-mlx-factorial"
+MLX_ISO=(
+  "$MLX_ENV/bin/python" -I -S -B -X
+  "pycache_prefix=$MLX_ENV/.kaetram-disabled-pycache"
+  "$PWD/scripts/isolated_python_entry.py"
+  --repo-root "$PWD" --environment-root "$MLX_ENV"
+)
+"${MLX_ISO[@]}" --script "$PWD/scripts/local_mlx_endpoint.py" -- \
   --snapshot base_2b --api-model 2b-base \
   --snapshots-root /path/to/kaetram-model-snapshots \
   --port 8081 --backend-port 8082 --verify-only

@@ -72,7 +72,9 @@ def _render_contract(tmp_path: Path) -> dict:
 
 def test_identity_is_derived_only_from_locked_artifacts(tmp_path: Path) -> None:
     render_contract = _render_contract(tmp_path)
-    identity = build_identity(_lock(), "base_2b", "2b-base", render_contract)
+    identity = build_identity(
+        _lock(), "base_2b", "2b-base", render_contract, "e" * 64
+    )
     assert identity.deployment_id == (
         f"local-mlx-lm-{PINNED_MLX_LM_VERSION}-base_2b-"
         + "a" * 12
@@ -95,6 +97,12 @@ def test_identity_is_derived_only_from_locked_artifacts(tmp_path: Path) -> None:
     assert identity.health_payload()["attestation"]["snapshot_tree_sha256"] == (
         identity.snapshot_tree_sha256
     )
+    assert (
+        identity.health_payload()["attestation"][
+            "runtime_environment_receipt_sha256"
+        ]
+        == "e" * 64
+    )
 
 
 def test_identity_rejects_scientific_alias_drift(tmp_path: Path) -> None:
@@ -104,6 +112,20 @@ def test_identity_rejects_scientific_alias_drift(tmp_path: Path) -> None:
             "base_2b",
             "wrong-name",
             _render_contract(tmp_path),
+            "e" * 64,
+        )
+
+
+def test_identity_rejects_missing_runtime_environment_receipt(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LocalEndpointError, match="runtime environment receipt"):
+        build_identity(
+            _lock(),
+            "base_2b",
+            "2b-base",
+            _render_contract(tmp_path),
+            "",
         )
 
 
@@ -313,7 +335,10 @@ def test_backend_command_is_pinned_to_local_snapshot(tmp_path: Path) -> None:
         8082,
         "patched-template",
     )
-    assert command[:4] == ["/venv/bin/python", "-m", "mlx_lm", "server"]
+    assert command[0] == "/venv/bin/python"
+    assert command[1:4] == ["-I", "-S", "-B"]
+    assert command[command.index("--module") + 1] == "mlx_lm"
+    assert command[command.index("--") + 1] == "server"
     assert command[command.index("--model") + 1] == str(tmp_path / "base_2b")
     assert command[command.index("--host") + 1] == "127.0.0.1"
     assert command[command.index("--port") + 1] == "8082"

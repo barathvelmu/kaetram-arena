@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Create or verify the pinned, local-only Kaetram unit-test environment.
+"""Create or verify the pinned zero-cost Apple-silicon MLX environment.
 
-The script never removes or reuses an environment. Bootstrap accepts only a
-new, direct child of the repository named ``.venv-unit-tests*``. Check accepts
-only an environment carrying the marker written by bootstrap at the current
-clean Git commit and current lock-file digest.
+The environment is deliberately separate from the evaluation/launcher
+environment. Bootstrap accepts only a new direct child of the repository
+named ``.venv-local-mlx*``; it never removes or reuses an environment. Check
+accepts only an environment carrying the marker written for the current clean
+Git commit, dependency lock, Python runtime, and supported platform.
 """
 from __future__ import annotations
 
@@ -29,10 +30,12 @@ from installed_environment_identity import (  # noqa: E402
 from isolated_python_entry import isolated_python_command  # noqa: E402
 
 
-LOCK_PATH = REPO_ROOT / "requirements" / "unit-tests.lock"
-MARKER_NAME = ".kaetram-unit-test-environment.json"
+LOCK_PATH = REPO_ROOT / "requirements" / "local-mlx.lock"
+MARKER_NAME = ".kaetram-local-mlx-environment.json"
 PYTHON_SERIES = (3, 12)
 PIP_VERSION = "26.1.2"
+SUPPORTED_PLATFORM = "darwin"
+SUPPORTED_MACHINE = "arm64"
 PACKAGE_RE = re.compile(r"^([A-Za-z0-9_.-]+)==([^\s]+)$")
 
 
@@ -83,9 +86,9 @@ def safe_venv_path(raw_path: str | Path) -> Path:
         raise BootstrapError(f"refusing symlink environment path: {candidate}")
     target = candidate.resolve()
     root = REPO_ROOT.resolve()
-    if target.parent != root or not target.name.startswith(".venv-unit-tests"):
+    if target.parent != root or not target.name.startswith(".venv-local-mlx"):
         raise BootstrapError(
-            "--venv must be a direct repository child named .venv-unit-tests*"
+            "--venv must be a direct repository child named .venv-local-mlx*"
         )
     if target == root or target == Path("/") or target == Path.home().resolve():
         raise BootstrapError(f"refusing unsafe environment path: {target}")
@@ -139,19 +142,33 @@ def venv_python(target: Path) -> Path:
     raise BootstrapError(f"managed environment has no Python interpreter: {target}")
 
 
-def python_version(interpreter: str | Path) -> str:
-    result = _run(
-        [
-            str(interpreter),
-            "-I",
-            "-S",
-            "-B",
-            "-c",
-            "import platform; print(platform.python_version())",
-        ],
-        capture=True,
+def runtime_identity(interpreter: str | Path) -> dict[str, object]:
+    program = (
+        "import json, platform, sys;"
+        "print(json.dumps({'python_version': platform.python_version(),"
+        "'sys_platform': sys.platform, 'machine': platform.machine().lower()}))"
     )
-    version = result.stdout.strip()
+    result = _run(
+        [str(interpreter), "-I", "-S", "-B", "-c", program], capture=True
+    )
+    try:
+        identity = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise BootstrapError("could not inspect selected Python runtime") from exc
+    if not isinstance(identity, dict):
+        raise BootstrapError("selected Python runtime returned invalid identity")
+    return identity
+
+
+def require_supported_runtime(interpreter: str | Path) -> dict[str, str]:
+    identity = runtime_identity(interpreter)
+    version = identity.get("python_version")
+    actual_platform = identity.get("sys_platform")
+    actual_machine = identity.get("machine")
+    if not all(
+        isinstance(value, str) for value in (version, actual_platform, actual_machine)
+    ):
+        raise BootstrapError("selected Python runtime returned invalid identity fields")
     try:
         series = tuple(int(part) for part in version.split(".")[:2])
     except ValueError as exc:
@@ -160,11 +177,21 @@ def python_version(interpreter: str | Path) -> str:
         raise BootstrapError(
             f"Python {PYTHON_SERIES[0]}.{PYTHON_SERIES[1]} is required; found {version}"
         )
-    return version
+    if (actual_platform, actual_machine) != (SUPPORTED_PLATFORM, SUPPORTED_MACHINE):
+        raise BootstrapError(
+            "the pinned MLX runtime supports only Apple silicon "
+            f"({SUPPORTED_PLATFORM}/{SUPPORTED_MACHINE}); found "
+            f"{actual_platform}/{actual_machine}"
+        )
+    return {
+        "python_version": version,
+        "sys_platform": actual_platform,
+        "machine": actual_machine,
+    }
 
 
 def installed_environment_identity() -> dict[str, object]:
-    python_version(sys.executable)
+    require_supported_runtime(sys.executable)
     try:
         runtime_paths = [
             Path(item)
@@ -214,14 +241,17 @@ def managed_environment_identity(interpreter: str | Path) -> dict[str, object]:
 
 def marker_payload(commit: str, target: Path) -> dict[str, object]:
     interpreter = venv_python(target)
+    identity = require_supported_runtime(interpreter)
     content_identity = managed_environment_identity(interpreter)
     return {
-        "schema_version": "kaetram.local-unit-tests.v3",
+        "schema_version": "kaetram.local-mlx-environment.v3",
         "git_commit": commit,
         "lock_sha256": lock_sha256(),
-        "python_version": python_version(interpreter),
+        "python_version": identity["python_version"],
         "python_executable_sha256": _sha256_file(interpreter.resolve()),
         "pip_version": PIP_VERSION,
+        "sys_platform": identity["sys_platform"],
+        "machine": identity["machine"],
         "installed_distribution_count": content_identity["distribution_count"],
         "installed_file_count": content_identity["file_count"],
         "installed_tree_sha256": content_identity["tree_sha256"],
@@ -259,7 +289,7 @@ def verified_environment_receipt(target: Path, commit: str) -> dict[str, object]
     marker = json.loads(marker_bytes)
     record = {
         "schema_version": "kaetram.pinned-python-environment-receipt.v1",
-        "environment_kind": "local_eval",
+        "environment_kind": "local_mlx",
         "marker_sha256": _sha256_json(marker),
         "marker": marker,
     }
@@ -279,47 +309,35 @@ def verified_current_environment_receipt() -> dict[str, object]:
 
 def run_checks(target: Path, commit: str) -> None:
     verify_marker(target, commit)
-    interpreter = venv_python(target)
     _run(
         isolated_python_command(
-            interpreter,
+            venv_python(target),
             repo_root=REPO_ROOT,
             environment_root=target,
             script=Path(__file__).resolve(),
             target_args=("_verify",),
         )
     )
-    _run(
-        isolated_python_command(
-            interpreter,
-            repo_root=REPO_ROOT,
-            environment_root=target,
-            module="pytest",
-            target_args=("-q", "tests/unit"),
-        )
-    )
-    verify_marker(target, commit)
-    print("Pinned local unit-test environment and full unit suite verified.")
+    print("Pinned zero-cost Apple-silicon MLX environment verified.")
 
 
 def bootstrap(target: Path, selected_python: str) -> None:
     commit = require_clean_checkout()
     if target.exists() or target.is_symlink():
         raise BootstrapError(
-            f"refusing to reuse existing path: {target}; choose a new .venv-unit-tests* name"
+            f"refusing to reuse existing path: {target}; choose a new .venv-local-mlx* name"
         )
     interpreter = shutil.which(selected_python)
     if not interpreter or not Path(interpreter).is_file():
         raise BootstrapError(f"Python interpreter not found: {selected_python}")
-    python_version(interpreter)
+    require_supported_runtime(interpreter)
     parse_lock()
     _run([str(interpreter), "-m", "venv", str(target)])
     managed_python = venv_python(target)
     _run([
         str(managed_python), "-m", "pip", "install", "--isolated",
         "--disable-pip-version-check", "--index-url", "https://pypi.org/simple",
-        "--only-binary=:all:",
-        f"pip=={PIP_VERSION}",
+        "--only-binary=:all:", f"pip=={PIP_VERSION}",
     ])
     _run([
         str(managed_python), "-m", "pip", "install", "--isolated",
@@ -338,12 +356,12 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name in ("bootstrap", "check"):
         command = subparsers.add_parser(name)
-        command.add_argument("--venv", default=".venv-unit-tests")
+        command.add_argument("--venv", default=".venv-local-mlx")
         if name == "bootstrap":
             command.add_argument(
                 "--python",
-                default=os.environ.get("KAETRAM_UNIT_TEST_PYTHON", "python3.12"),
-                help="Python 3.12 interpreter used to create the new environment",
+                default=os.environ.get("KAETRAM_MLX_PYTHON", "python3.12"),
+                help="Apple-silicon Python 3.12 used to create the new environment",
             )
     subparsers.add_parser("_verify", help=argparse.SUPPRESS)
     subparsers.add_parser("_identity", help=argparse.SUPPRESS)

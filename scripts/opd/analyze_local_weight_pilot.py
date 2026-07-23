@@ -22,7 +22,10 @@ from eval_harness import (  # noqa: E402
 from run_manifest import sha256_json  # noqa: E402
 from scripts.opd.canonicalize import is_malformed, recover_tool_calls  # noqa: E402
 from scripts.opd.local_weight_pilot import (  # noqa: E402
+    INTERMEDIATE_PILOT_PRELAUNCH_SCHEMA_VERSION,
     LEGACY_PILOT_PRELAUNCH_SCHEMA_VERSION,
+    MONGO_IMAGE_ID,
+    MONGO_IMAGE_REPO_DIGEST,
     PILOT_PRELAUNCH_SCHEMA_VERSION,
     load_manifest,
 )
@@ -70,6 +73,189 @@ def _load_json(path: Path) -> dict:
     if not isinstance(value, dict):
         raise AnalysisError(f"artifact is not a JSON object: {path}")
     return value
+
+
+def _validate_self_hashed_receipt(
+    receipt: object, schema_version: str, *, label: str
+) -> dict:
+    if not isinstance(receipt, dict):
+        raise AnalysisError(f"invalid {label} receipt")
+    unsigned = dict(receipt)
+    digest = unsigned.pop("receipt_sha256", None)
+    if (
+        receipt.get("schema_version") != schema_version
+        or not isinstance(digest, str)
+        or not SHA256_RE.fullmatch(digest)
+        or digest != sha256_json(unsigned)
+    ):
+        raise AnalysisError(f"invalid {label} receipt")
+    return receipt
+
+
+def _validate_python_environment_receipt(
+    receipt: object,
+    *,
+    kind: str,
+    marker_schema: str,
+    source_git_commit: str,
+) -> dict:
+    value = _validate_self_hashed_receipt(
+        receipt,
+        "kaetram.pinned-python-environment-receipt.v1",
+        label=f"{kind} Python environment",
+    )
+    marker = value.get("marker")
+    if not isinstance(marker, dict):
+        raise AnalysisError(f"invalid {kind} Python environment marker")
+    expected_marker_fields = {
+        "schema_version",
+        "git_commit",
+        "lock_sha256",
+        "python_version",
+        "python_executable_sha256",
+        "pip_version",
+        "installed_distribution_count",
+        "installed_file_count",
+        "installed_tree_sha256",
+        "runtime_search_path_count",
+        "runtime_tree_sha256",
+    }
+    if kind == "local_mlx":
+        expected_marker_fields |= {"sys_platform", "machine"}
+    if (
+        value.get("environment_kind") != kind
+        or set(value)
+        != {
+            "schema_version",
+            "environment_kind",
+            "marker_sha256",
+            "marker",
+            "receipt_sha256",
+        }
+        or set(marker) != expected_marker_fields
+        or marker.get("schema_version") != marker_schema
+        or marker.get("git_commit") != source_git_commit
+        or marker.get("pip_version") != "26.1.2"
+        or not isinstance(marker.get("python_version"), str)
+        or not marker["python_version"].startswith("3.12.")
+        or not isinstance(marker.get("installed_distribution_count"), int)
+        or marker["installed_distribution_count"] < 1
+        or not isinstance(marker.get("installed_file_count"), int)
+        or marker["installed_file_count"] < 1
+        or not isinstance(marker.get("runtime_search_path_count"), int)
+        or marker["runtime_search_path_count"] < 1
+        or any(
+            not isinstance(marker.get(field), str)
+            or not SHA256_RE.fullmatch(marker[field])
+            for field in (
+                "lock_sha256",
+                "python_executable_sha256",
+                "installed_tree_sha256",
+                "runtime_tree_sha256",
+            )
+        )
+        or value.get("marker_sha256") != sha256_json(marker)
+        or (
+            kind == "local_mlx"
+            and (
+                marker.get("sys_platform") != "darwin"
+                or marker.get("machine") != "arm64"
+            )
+        )
+    ):
+        raise AnalysisError(f"invalid {kind} Python environment marker")
+    return value
+
+
+def _validate_runtime_receipts(prelaunch: dict, manifest: dict) -> dict:
+    runtime = prelaunch.get("runtime")
+    if not isinstance(runtime, dict) or set(runtime) != {
+        "eval_python",
+        "mlx_python",
+        "node_binary",
+        "node_version",
+        "eval_environment",
+        "mlx_environment",
+        "playwright",
+        "mongodb",
+    }:
+        raise AnalysisError("invalid prelaunch runtime receipt set")
+    if (
+        not all(
+            isinstance(runtime.get(field), str) and runtime[field]
+            for field in ("eval_python", "mlx_python", "node_binary")
+        )
+        or not isinstance(runtime.get("node_version"), str)
+        or not runtime["node_version"].startswith("v20.")
+    ):
+        raise AnalysisError("invalid prelaunch executable identity")
+    eval_environment = _validate_python_environment_receipt(
+        runtime["eval_environment"],
+        kind="local_eval",
+        marker_schema="kaetram.local-unit-tests.v3",
+        source_git_commit=prelaunch["source_git_commit"],
+    )
+    mlx_environment = _validate_python_environment_receipt(
+        runtime["mlx_environment"],
+        kind="local_mlx",
+        marker_schema="kaetram.local-mlx-environment.v3",
+        source_git_commit=prelaunch["source_git_commit"],
+    )
+    playwright = _validate_self_hashed_receipt(
+        runtime["playwright"],
+        "kaetram.playwright-runtime-receipt.v1",
+        label="Playwright",
+    )
+    if (
+        set(playwright)
+        != {
+            "schema_version",
+            "browser_name",
+            "browser_version",
+            "executable_sha256",
+            "receipt_sha256",
+        }
+        or playwright.get("browser_name") != "chromium"
+        or not isinstance(playwright.get("browser_version"), str)
+        or not playwright["browser_version"]
+        or not isinstance(playwright.get("executable_sha256"), str)
+        or not SHA256_RE.fullmatch(playwright["executable_sha256"])
+    ):
+        raise AnalysisError("invalid Playwright receipt")
+    mongodb = _validate_self_hashed_receipt(
+        runtime["mongodb"],
+        "kaetram.mongodb-runtime-receipt.v1",
+        label="MongoDB",
+    )
+    if (
+        set(mongodb)
+        != {
+            "schema_version",
+            "container_name",
+            "database",
+            "host",
+            "port",
+            "image_id",
+            "image_repo_digest",
+            "docker_client_version",
+            "receipt_sha256",
+        }
+        or mongodb.get("container_name") != "kaetram-mongo"
+        or mongodb.get("database") != manifest["protocol"]["mongo_database"]
+        or mongodb.get("host") != "127.0.0.1"
+        or mongodb.get("port") != 27017
+        or mongodb.get("image_id") != MONGO_IMAGE_ID
+        or mongodb.get("image_repo_digest") != MONGO_IMAGE_REPO_DIGEST
+        or not isinstance(mongodb.get("docker_client_version"), str)
+        or not mongodb["docker_client_version"]
+    ):
+        raise AnalysisError("invalid MongoDB receipt")
+    return {
+        "eval_environment": eval_environment,
+        "mlx_environment": mlx_environment,
+        "playwright": playwright,
+        "mongodb": mongodb,
+    }
 
 
 def _verify_artifacts(cell_root: Path, expected_inventory_sha256: str) -> int:
@@ -123,13 +309,14 @@ def _validate_prelaunch(
     prelaunch: dict,
     *,
     expected_schema: str = PILOT_PRELAUNCH_SCHEMA_VERSION,
+    intermediate_schema: str = INTERMEDIATE_PILOT_PRELAUNCH_SCHEMA_VERSION,
     legacy_schema: str = LEGACY_PILOT_PRELAUNCH_SCHEMA_VERSION,
     allow_legacy_v1: bool = False,
 ) -> dict:
     expected_cells = manifest["cells"]
     accepted_schemas = {expected_schema}
     if allow_legacy_v1:
-        accepted_schemas.add(legacy_schema)
+        accepted_schemas.update({intermediate_schema, legacy_schema})
     if (
         prelaunch.get("schema_version") not in accepted_schemas
         or prelaunch.get("pilot_id") != manifest["pilot_id"]
@@ -146,7 +333,12 @@ def _validate_prelaunch(
     checkpoints = {}
     snapshot_trees = {}
     snapshot_locks = set()
-    require_extended_identity = prelaunch["schema_version"] == expected_schema
+    endpoint_runtime_receipts = set()
+    require_runtime_identity = prelaunch["schema_version"] == expected_schema
+    require_extended_identity = prelaunch["schema_version"] in {
+        expected_schema,
+        intermediate_schema,
+    }
     extended_snapshot_identity = require_extended_identity or any(
         isinstance(receipt, dict)
         and isinstance(receipt.get("attestation"), dict)
@@ -184,6 +376,18 @@ def _validate_prelaunch(
                     raise AnalysisError(f"{snapshot}: invalid {field}")
             snapshot_trees[snapshot] = attestation["snapshot_tree_sha256"]
             snapshot_locks.add(attestation["snapshot_lock_sha256"])
+        if require_runtime_identity:
+            runtime_receipt = attestation.get(
+                "runtime_environment_receipt_sha256"
+            )
+            if (
+                not isinstance(runtime_receipt, str)
+                or not SHA256_RE.fullmatch(runtime_receipt)
+            ):
+                raise AnalysisError(
+                    f"{snapshot}: invalid runtime_environment_receipt_sha256"
+                )
+            endpoint_runtime_receipts.add(runtime_receipt)
     if len(tokenizers) != 1 or len(renders) != 1 or len(chat_templates) != 1:
         raise AnalysisError("prelaunch endpoints do not share one renderer")
     if extended_snapshot_identity and len(snapshot_locks) != 1:
@@ -203,7 +407,7 @@ def _validate_prelaunch(
         raise AnalysisError("invalid prelaunch source commit")
     database = prelaunch.get("game_database_attestation")
     if require_extended_identity and database is None:
-        raise AnalysisError("v2 prelaunch lacks a game-database attestation")
+        raise AnalysisError("attested prelaunch lacks a game-database attestation")
     if database is not None:
         unsigned_database = dict(database) if isinstance(database, dict) else {}
         database_sha = unsigned_database.pop("attestation_sha256", None)
@@ -271,11 +475,24 @@ def _validate_prelaunch(
             or database_sha != sha256_json(unsigned_database)
         ):
             raise AnalysisError("invalid prelaunch game-database attestation")
+    runtime_receipts = (
+        _validate_runtime_receipts(prelaunch, manifest)
+        if require_runtime_identity
+        else None
+    )
+    if require_runtime_identity and endpoint_runtime_receipts != {
+        runtime_receipts["mlx_environment"]["receipt_sha256"]
+    }:
+        raise AnalysisError("endpoint and prelaunch MLX environment receipts differ")
     return {
         "provenance_tier": (
-            "prospective_v2_attested"
-            if require_extended_identity
-            else "legacy_v1_unattested"
+            "prospective_v3_runtime_attested"
+            if require_runtime_identity
+            else (
+                "prospective_v2_attested"
+                if require_extended_identity
+                else "legacy_v1_unattested"
+            )
         ),
         "tokenizer_sha256": next(iter(tokenizers)),
         "render_contract_sha256": next(iter(renders)),
@@ -294,6 +511,7 @@ def _validate_prelaunch(
             if isinstance(database, dict)
             else None
         ),
+        "runtime_receipts": runtime_receipts,
     }
 
 
@@ -321,6 +539,10 @@ def _validate_cell_attestation(
             "snapshot_tree_sha256": preflight["snapshot_tree_sha256"][snapshot],
             "snapshot_lock_sha256": preflight["snapshot_lock_sha256"],
         })
+    if preflight.get("runtime_receipts") is not None:
+        expected["runtime_environment_receipt_sha256"] = preflight[
+            "runtime_receipts"
+        ]["mlx_environment"]["receipt_sha256"]
     mismatches = {
         key: {"expected": value, "actual": attestation.get(key)}
         for key, value in expected.items()

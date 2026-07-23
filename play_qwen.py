@@ -48,6 +48,10 @@ from tool_surface import (
     MODEL_VISIBLE_TOOL_NAMES,
     validate_live_tool_compatibility,
 )
+from scripts.isolated_python_entry import (
+    isolated_contract_active,
+    isolated_python_command,
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts" / "opd"))
 from canonicalize import recover_tool_calls  # noqa: E402
@@ -73,7 +77,12 @@ def resolve_mcp_python() -> str:
     active interpreter is the safe default. Operators may explicitly select a
     different executable when they intentionally maintain split runtimes.
     """
+    environment = Path(sys.executable).absolute().parent.parent
     override = os.environ.get("KAETRAM_MCP_PYTHON", "").strip()
+    if isolated_contract_active(environment) and override:
+        raise RuntimeError(
+            "KAETRAM_MCP_PYTHON is forbidden inside the isolated eval contract"
+        )
     candidate = Path(override).expanduser() if override else Path(sys.executable)
     if not candidate.is_file() or not os.access(candidate, os.X_OK):
         source = "KAETRAM_MCP_PYTHON" if override else "sys.executable"
@@ -85,6 +94,22 @@ def resolve_mcp_python() -> str:
     # discover ``pyvenv.cfg``; resolving a venv's ``bin/python`` to the base
     # interpreter silently drops the venv and its installed MCP dependencies.
     return os.path.abspath(candidate)
+
+
+def build_mcp_server_command(
+    venv_python: str,
+    server_script: str,
+) -> list[str]:
+    """Preserve the reviewed Python contract in the MCP tool subprocess."""
+    environment = Path(venv_python).absolute().parent.parent
+    if isolated_contract_active(environment):
+        return isolated_python_command(
+            venv_python,
+            repo_root=Path(server_script).absolute().parent,
+            environment_root=environment,
+            script=Path(server_script),
+        )
+    return [venv_python, server_script]
 
 
 # ---------------------------------------------------------------------------
@@ -106,9 +131,12 @@ class MCPClient:
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client
 
+        command = build_mcp_server_command(
+            self.venv_python, self.server_script
+        )
         params = StdioServerParameters(
-            command=self.venv_python,
-            args=[self.server_script],
+            command=command[0],
+            args=command[1:],
             env=self.env,
         )
         self._transport = stdio_client(params)

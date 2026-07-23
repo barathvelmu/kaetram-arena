@@ -1,6 +1,7 @@
 .venv
 .venv/
 .venv-unit-tests*/
+.venv-local-mlx*/
 
 # Screenshots and session state (generated at runtime)
 state/*.png

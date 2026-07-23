@@ -55,6 +55,9 @@ def test_eval_harness_propagates_seed_and_provenance_to_play_qwen(
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("eval_harness.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "eval_harness.isolated_contract_active", lambda _environment: True
+    )
     provenance = {
         "factorial_schedule_algorithm": "sha256-rank-v1",
         "factorial_schedule_seed": 20260718,
@@ -82,6 +85,10 @@ def test_eval_harness_propagates_seed_and_provenance_to_play_qwen(
         run_provenance=provenance,
     )
     assert captured["cmd"][captured["cmd"].index("--inference-seed") + 1] == "11001"
+    assert captured["cmd"][1:4] == ["-I", "-S", "-B"]
+    assert captured["cmd"][
+        captured["cmd"].index("--script") + 1
+    ] == str(REPO / "play_qwen.py")
     meta = json.loads((run_dir / "harness_meta_template.json").read_text())
     assert meta["inference_seed"] == 11001
     assert all(meta[key] == value for key, value in provenance.items())

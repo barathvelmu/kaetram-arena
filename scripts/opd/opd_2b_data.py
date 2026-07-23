@@ -98,6 +98,7 @@ BUILD_SOURCE_PATHS = (
     "heldout_guard.py",
     "port_probe.py",
     "run_manifest.py",
+    "scripts/isolated_python_entry.py",
     "tool_surface.py",
     "scripts/opd/opd_2b_data.py",
     "scripts/opd/opd_data_manifest.py",
@@ -203,6 +204,7 @@ def _load_frozen_local_dependencies(snapshot_root: Path) -> None:
         "record_schema",
         "render",
         "run_manifest",
+        "scripts.isolated_python_entry",
         "tool_surface",
     }
     preloaded = sorted(local_module_names & set(sys.modules))

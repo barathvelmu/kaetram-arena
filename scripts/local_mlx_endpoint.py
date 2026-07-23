@@ -20,6 +20,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -42,6 +43,12 @@ from scripts.fetch_hf_snapshot import (  # noqa: E402
     fetch_snapshot,
     load_lock,
     locked_snapshot_tree_sha256,
+)
+from scripts import bootstrap_local_mlx  # noqa: E402
+from scripts.isolated_python_entry import (  # noqa: E402
+    IsolationError,
+    isolated_python_command,
+    prepare_import_path,
 )
 from tool_surface import MODEL_VISIBLE_TOOL_DEFINITIONS  # noqa: E402
 
@@ -100,6 +107,7 @@ class EndpointIdentity:
     chat_template_sha256: str
     tokenizer_source_revision: str
     fix_mistral_regex: bool
+    runtime_environment_receipt_sha256: str
 
     def health_payload(self) -> dict:
         return {
@@ -115,6 +123,9 @@ class EndpointIdentity:
                 "chat_template_sha256": self.chat_template_sha256,
                 "tokenizer_source_revision": self.tokenizer_source_revision,
                 "fix_mistral_regex": self.fix_mistral_regex,
+                "runtime_environment_receipt_sha256": (
+                    self.runtime_environment_receipt_sha256
+                ),
             },
         }
 
@@ -234,6 +245,7 @@ def build_identity(
     snapshot_name: str,
     api_model: str,
     render_contract: dict,
+    runtime_environment_receipt_sha256: str,
 ) -> EndpointIdentity:
     if snapshot_name not in SUPPORTED_MODELS:
         raise LocalEndpointError(f"unsupported local evaluation snapshot: {snapshot_name}")
@@ -242,6 +254,8 @@ def build_identity(
         raise LocalEndpointError(
             f"{snapshot_name} must use reviewed API model {expected_api_model!r}"
         )
+    if re.fullmatch(r"[0-9a-f]{64}", runtime_environment_receipt_sha256) is None:
+        raise LocalEndpointError("invalid MLX runtime environment receipt identity")
     snapshot = lock["snapshots"][snapshot_name]
     top_level_weights = [
         record
@@ -276,6 +290,7 @@ def build_identity(
         chat_template_sha256=render_contract["chat_template_sha256"],
         tokenizer_source_revision=render_contract["tokenizer_revision"],
         fix_mistral_regex=render_contract["fix_mistral_regex"],
+        runtime_environment_receipt_sha256=runtime_environment_receipt_sha256,
     )
 
 
@@ -411,10 +426,13 @@ def build_backend_command(
     patched_chat_template: str,
 ) -> list[str]:
     require_loopback(host)
-    return [
+    environment = Path(python).absolute().parent.parent
+    return isolated_python_command(
         python,
-        "-m",
-        "mlx_lm",
+        repo_root=REPO,
+        environment_root=environment,
+        module="mlx_lm",
+        target_args=(
         "server",
         "--model",
         str(model_dir),
@@ -430,7 +448,8 @@ def build_backend_command(
         '{"enable_thinking":true}',
         "--log-level",
         "INFO",
-    ]
+        ),
+    )
 
 
 def normalize_mlx_tool_arguments(messages: object) -> None:
@@ -674,9 +693,25 @@ def main(argv: list[str] | None = None) -> int:
     server = None
     runtime_view_context = None
     try:
+        try:
+            prepare_import_path(
+                REPO, Path(sys.executable).absolute().parent.parent
+            )
+        except IsolationError as exc:
+            raise LocalEndpointError(
+                f"endpoint requires the isolated Python contract: {exc}"
+            ) from exc
         require_loopback(args.host)
         require_loopback(args.backend_host)
         require_mlx_runtime()
+        try:
+            runtime_environment_receipt = (
+                bootstrap_local_mlx.verified_current_environment_receipt()
+            )
+        except bootstrap_local_mlx.BootstrapError as exc:
+            raise LocalEndpointError(
+                f"pinned MLX environment verification failed: {exc}"
+            ) from exc
         lock = load_lock(args.lock)
         model_dir = (args.snapshots_root / args.snapshot).resolve()
         canonical_tokenizer_dir = (
@@ -713,7 +748,11 @@ def main(argv: list[str] | None = None) -> int:
             effective_renderer,
         )
         identity = build_identity(
-            lock, args.snapshot, args.api_model, render_contract
+            lock,
+            args.snapshot,
+            args.api_model,
+            render_contract,
+            str(runtime_environment_receipt["receipt_sha256"]),
         )
         if args.verify_only:
             fetch_snapshot(model_snapshot, model_dir, verify_only=True)

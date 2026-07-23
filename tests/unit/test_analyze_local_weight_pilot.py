@@ -220,8 +220,60 @@ def _extended_prelaunch_fixture() -> tuple[dict, dict]:
         "snapshot_lock_sha256": "6" * 64,
         "fix_mistral_regex": False,
     }
+    def python_receipt(kind: str, marker_schema: str, tree: str) -> dict:
+        marker = {
+            "schema_version": marker_schema,
+            "git_commit": "a" * 40,
+            "lock_sha256": "a" * 64,
+            "python_version": "3.12.12",
+            "python_executable_sha256": "b" * 64,
+            "pip_version": "26.1.2",
+            "installed_distribution_count": 10,
+            "installed_file_count": 100,
+            "installed_tree_sha256": tree * 64,
+            "runtime_search_path_count": 3,
+            "runtime_tree_sha256": ("e" if kind == "local_eval" else "f") * 64,
+        }
+        if kind == "local_mlx":
+            marker.update({"sys_platform": "darwin", "machine": "arm64"})
+        record = {
+            "schema_version": "kaetram.pinned-python-environment-receipt.v1",
+            "environment_kind": kind,
+            "marker_sha256": sha256_json(marker),
+            "marker": marker,
+        }
+        return {**record, "receipt_sha256": sha256_json(record)}
+
+    eval_environment = python_receipt(
+        "local_eval", "kaetram.local-unit-tests.v3", "c"
+    )
+    mlx_environment = python_receipt(
+        "local_mlx", "kaetram.local-mlx-environment.v3", "d"
+    )
+    playwright = {
+        "schema_version": "kaetram.playwright-runtime-receipt.v1",
+        "browser_name": "chromium",
+        "browser_version": "149.0.7827.55",
+        "executable_sha256": "e" * 64,
+    }
+    playwright["receipt_sha256"] = sha256_json(playwright)
+    mongodb = {
+        "schema_version": "kaetram.mongodb-runtime-receipt.v1",
+        "container_name": "kaetram-mongo",
+        "database": "kaetram_eval",
+        "host": "127.0.0.1",
+        "port": 27017,
+        "image_id": (
+            "sha256:b3b6a0771f6a4c269cc1fe1fd59e84e9c7f1601f0e273571004158e0ba8c5705"
+        ),
+        "image_repo_digest": (
+            "mongo@sha256:9bdaeb6dac6e7e762e84e2f84103d1f9bb078fa1ba6bde8bb9d2274f655ad173"
+        ),
+        "docker_client_version": "29.2.1",
+    }
+    mongodb["receipt_sha256"] = sha256_json(mongodb)
     prelaunch = {
-        "schema_version": "kaetram.local-weight-pilot-prelaunch.v2",
+        "schema_version": "kaetram.local-weight-pilot-prelaunch.v3",
         "pilot_id": manifest["pilot_id"],
         "claim_boundary": manifest["claim_boundary"],
         "source_git_commit": "a" * 40,
@@ -240,11 +292,24 @@ def _extended_prelaunch_fixture() -> tuple[dict, dict]:
                     "api_model": model["api_model"],
                     "checkpoint_sha256": ("8" if name == "base" else "9") * 64,
                     "snapshot_tree_sha256": ("c" if name == "base" else "d") * 64,
+                    "runtime_environment_receipt_sha256": mlx_environment[
+                        "receipt_sha256"
+                    ],
                 },
             }
             for name, model in manifest["models"].items()
         },
         "cells": manifest["cells"],
+        "runtime": {
+            "eval_python": "/repo/.venv-unit-tests/bin/python",
+            "mlx_python": "/repo/.venv-local-mlx/bin/python",
+            "node_binary": "/path/to/node20",
+            "node_version": "v20.20.2",
+            "eval_environment": eval_environment,
+            "mlx_environment": mlx_environment,
+            "playwright": playwright,
+            "mongodb": mongodb,
+        },
     }
     return manifest, prelaunch
 
@@ -275,7 +340,7 @@ def test_prelaunch_validator_rejects_partial_snapshot_identity() -> None:
         _validate_prelaunch(manifest, prelaunch)
 
 
-def test_v2_prelaunch_cannot_downgrade_by_deleting_new_attestations() -> None:
+def test_v3_prelaunch_cannot_downgrade_by_deleting_new_attestations() -> None:
     manifest, prelaunch = _extended_prelaunch_fixture()
     del prelaunch["game_database_attestation"]
     for receipt in prelaunch["endpoint_receipts"].values():
@@ -283,6 +348,35 @@ def test_v2_prelaunch_cannot_downgrade_by_deleting_new_attestations() -> None:
         del receipt["attestation"]["snapshot_lock_sha256"]
     with pytest.raises(AnalysisError, match="invalid snapshot_tree_sha256"):
         _validate_prelaunch(manifest, prelaunch)
+
+
+def test_v3_prelaunch_cannot_delete_or_swap_runtime_receipts() -> None:
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    del prelaunch["runtime"]["mlx_environment"]
+    with pytest.raises(AnalysisError, match="runtime receipt"):
+        _validate_prelaunch(manifest, prelaunch)
+
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    prelaunch["runtime"]["mlx_environment"]["marker"]["installed_tree_sha256"] = (
+        "f" * 64
+    )
+    with pytest.raises(AnalysisError, match="Python environment"):
+        _validate_prelaunch(manifest, prelaunch)
+
+
+def test_intermediate_v2_requires_explicit_legacy_admission() -> None:
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    prelaunch["schema_version"] = "kaetram.local-weight-pilot-prelaunch.v2"
+    del prelaunch["runtime"]
+    for receipt in prelaunch["endpoint_receipts"].values():
+        del receipt["attestation"]["runtime_environment_receipt_sha256"]
+    with pytest.raises(AnalysisError, match="prelaunch contract differs"):
+        _validate_prelaunch(manifest, prelaunch)
+    validated = _validate_prelaunch(
+        manifest, prelaunch, allow_legacy_v1=True
+    )
+    assert validated["provenance_tier"] == "prospective_v2_attested"
+    assert validated["runtime_receipts"] is None
 
 
 def test_legacy_v1_prelaunch_remains_explicitly_analyzable() -> None:

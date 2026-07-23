@@ -13,6 +13,7 @@ import json
 import os
 import re
 import signal
+import shutil
 import socket
 import subprocess
 import sys
@@ -40,14 +41,25 @@ from play_qwen import (  # noqa: E402
     _FORMAT_NOTE,
 )
 from scripts.local_mlx_endpoint import SUPPORTED_MODELS  # noqa: E402
+from scripts import bootstrap_local_mlx, bootstrap_unit_tests  # noqa: E402
+from scripts.isolated_python_entry import (  # noqa: E402
+    isolated_contract_active,
+    isolated_python_command,
+)
 
 
 SCHEMA_VERSION = "kaetram.local-weight-pilot.v1"
 RECOVERY_FACTORIAL_SCHEMA_VERSION = "kaetram.local-weight-recovery-factorial.v1"
-PILOT_PRELAUNCH_SCHEMA_VERSION = "kaetram.local-weight-pilot-prelaunch.v2"
+PILOT_PRELAUNCH_SCHEMA_VERSION = "kaetram.local-weight-pilot-prelaunch.v3"
+INTERMEDIATE_PILOT_PRELAUNCH_SCHEMA_VERSION = (
+    "kaetram.local-weight-pilot-prelaunch.v2"
+)
 LEGACY_PILOT_PRELAUNCH_SCHEMA_VERSION = "kaetram.local-weight-pilot-prelaunch.v1"
 PILOT_INVENTORY_SCHEMA_VERSION = "kaetram.local-weight-pilot-inventory.v1"
 RECOVERY_PRELAUNCH_SCHEMA_VERSION = (
+    "kaetram.local-weight-recovery-factorial-prelaunch.v3"
+)
+INTERMEDIATE_RECOVERY_PRELAUNCH_SCHEMA_VERSION = (
     "kaetram.local-weight-recovery-factorial-prelaunch.v2"
 )
 LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION = (
@@ -64,10 +76,47 @@ ENDPOINT_HOST = "127.0.0.1"
 ENDPOINT_PORT = 9801
 BACKEND_PORT = 9802
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+MONGO_CONTAINER = "kaetram-mongo"
+MONGO_IMAGE_REPO_DIGEST = (
+    "mongo@sha256:9bdaeb6dac6e7e762e84e2f84103d1f9bb078fa1ba6bde8bb9d2274f655ad173"
+)
+MONGO_IMAGE_ID = (
+    "sha256:b3b6a0771f6a4c269cc1fe1fd59e84e9c7f1601f0e273571004158e0ba8c5705"
+)
 
 
 class PilotError(RuntimeError):
     """Raised when the exploratory pilot cannot preserve its contract."""
+
+
+def clean_python_environment(base: dict[str, str]) -> dict[str, str]:
+    """Remove ambient controls over Python startup and import resolution."""
+    return {
+        key: value
+        for key, value in base.items()
+        if not key.upper().startswith("PYTHON")
+    }
+
+
+def require_isolated_execution() -> None:
+    """Require the reviewed wrapper before any result-bearing launch."""
+    environment = Path(sys.executable).absolute().parent.parent
+    if not isolated_contract_active(environment):
+        raise PilotError(
+            "launch must run through scripts/isolated_python_entry.py "
+            "with the pinned evaluation environment"
+        )
+    unexpected = {
+        key
+        for key in os.environ
+        if key.upper().startswith("PYTHON")
+        and key not in {"PYTHONNOUSERSITE", "PYTHONDONTWRITEBYTECODE"}
+    }
+    if unexpected:
+        raise PilotError(
+            "isolated launch retained ambient Python controls: "
+            + ", ".join(sorted(unexpected))
+        )
 
 
 def _sha256_file(path: Path) -> str:
@@ -76,6 +125,177 @@ def _sha256_file(path: Path) -> str:
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _run_checked(command: list[str], label: str) -> subprocess.CompletedProcess[str]:
+    try:
+        result = subprocess.run(
+            command,
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        raise PilotError(f"{label} is unavailable") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise PilotError(
+            f"{label} failed with exit {result.returncode}"
+            + (f": {detail}" if detail else "")
+        )
+    return result
+
+
+def attest_playwright_runtime() -> dict:
+    """Launch the pinned local browser once and bind its executable bytes."""
+    result = _run_checked(
+        isolated_python_command(
+            sys.executable,
+            repo_root=REPO,
+            environment_root=Path(sys.executable).absolute().parent.parent,
+            script=REPO / "scripts/attest_playwright_runtime.py",
+        ),
+        "pinned Playwright Chromium preflight",
+    )
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise PilotError("Playwright Chromium returned invalid identity") from exc
+    executable = Path(str(payload.get("executable_path", "")))
+    if (
+        payload.get("browser_name") != "chromium"
+        or not isinstance(payload.get("browser_version"), str)
+        or not payload["browser_version"]
+        or not executable.is_file()
+        or executable.is_symlink()
+    ):
+        raise PilotError("Playwright Chromium identity is incomplete")
+    record = {
+        "schema_version": "kaetram.playwright-runtime-receipt.v1",
+        "browser_name": "chromium",
+        "browser_version": payload["browser_version"],
+        "executable_sha256": _sha256_file(executable),
+    }
+    return {**record, "receipt_sha256": sha256_json(record)}
+
+
+def attest_mongodb_runtime(expected_database: str) -> dict:
+    """Require the pinned loopback-only Mongo container before model startup."""
+    docker = shutil.which("docker")
+    if not docker:
+        raise PilotError("Docker is required for the local MongoDB lane")
+    inspect = _run_checked(
+        [docker, "inspect", MONGO_CONTAINER], "local MongoDB container inspection"
+    )
+    try:
+        payload = json.loads(inspect.stdout)
+    except json.JSONDecodeError as exc:
+        raise PilotError("Docker returned invalid MongoDB inspection JSON") from exc
+    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+        raise PilotError("Docker returned an ambiguous MongoDB container identity")
+    container = payload[0]
+    image_id = container.get("Image")
+    state = container.get("State")
+    network = container.get("NetworkSettings")
+    all_ports = network.get("Ports") if isinstance(network, dict) else None
+    ports = all_ports.get("27017/tcp") if isinstance(all_ports, dict) else None
+    if (
+        image_id != MONGO_IMAGE_ID
+        or not isinstance(state, dict)
+        or state.get("Running") is not True
+        or ports != [{"HostIp": "127.0.0.1", "HostPort": "27017"}]
+    ):
+        raise PilotError(
+            "local MongoDB must use the pinned image and expose only "
+            "127.0.0.1:27017"
+        )
+    image = _run_checked(
+        [docker, "image", "inspect", image_id], "local MongoDB image inspection"
+    )
+    try:
+        image_payload = json.loads(image.stdout)
+    except json.JSONDecodeError as exc:
+        raise PilotError("Docker returned invalid MongoDB image JSON") from exc
+    if (
+        not isinstance(image_payload, list)
+        or len(image_payload) != 1
+        or not isinstance(image_payload[0], dict)
+        or not isinstance(image_payload[0].get("RepoDigests"), list)
+        or MONGO_IMAGE_REPO_DIGEST not in image_payload[0]["RepoDigests"]
+    ):
+        raise PilotError("local MongoDB image does not match the pinned repository digest")
+    ping = _run_checked(
+        [
+            docker,
+            "exec",
+            MONGO_CONTAINER,
+            "mongosh",
+            expected_database,
+            "--quiet",
+            "--eval",
+            "db.runCommand({ping:1}).ok",
+        ],
+        "local MongoDB ping",
+    )
+    if ping.stdout.strip() != "1":
+        raise PilotError("local MongoDB ping did not return 1")
+    docker_version = _run_checked(
+        [docker, "version", "--format", "{{.Client.Version}}"],
+        "Docker client version",
+    ).stdout.strip()
+    if not docker_version:
+        raise PilotError("Docker client version is empty")
+    record = {
+        "schema_version": "kaetram.mongodb-runtime-receipt.v1",
+        "container_name": MONGO_CONTAINER,
+        "database": expected_database,
+        "host": "127.0.0.1",
+        "port": 27017,
+        "image_id": MONGO_IMAGE_ID,
+        "image_repo_digest": MONGO_IMAGE_REPO_DIGEST,
+        "docker_client_version": docker_version,
+    }
+    return {**record, "receipt_sha256": sha256_json(record)}
+
+
+def verify_python_environment_receipts(
+    source_revision: str,
+    mlx_python: Path,
+) -> tuple[dict, dict]:
+    """Verify both managed environments and return path-independent receipts."""
+    try:
+        eval_target = bootstrap_unit_tests.safe_venv_path(
+            Path(sys.executable).absolute().parent.parent
+        )
+        expected_eval_python = bootstrap_unit_tests.venv_python(eval_target).absolute()
+        invoked_mlx_python = preserve_invoked_path(mlx_python).absolute()
+        mlx_target = bootstrap_local_mlx.safe_venv_path(
+            invoked_mlx_python.parent.parent
+        )
+        expected_mlx_python = bootstrap_local_mlx.venv_python(mlx_target).absolute()
+        if Path(sys.executable).absolute() != expected_eval_python:
+            raise PilotError(
+                "launcher interpreter is not exactly the managed evaluation Python"
+            )
+        if invoked_mlx_python != expected_mlx_python:
+            raise PilotError(
+                "MLX interpreter is not exactly the managed MLX Python"
+            )
+        eval_receipt = bootstrap_unit_tests.verified_environment_receipt(
+            eval_target,
+            source_revision,
+        )
+        mlx_receipt = bootstrap_local_mlx.verified_environment_receipt(
+            mlx_target,
+            source_revision,
+        )
+    except (
+        bootstrap_unit_tests.BootstrapError,
+        bootstrap_local_mlx.BootstrapError,
+    ) as exc:
+        raise PilotError(f"pinned Python environment verification failed: {exc}") from exc
+    return eval_receipt, mlx_receipt
 
 
 def preserve_invoked_path(path: Path) -> Path:
@@ -457,18 +677,24 @@ def _start_endpoint(
     if _port_open(ENDPOINT_PORT) or _port_open(BACKEND_PORT):
         raise PilotError("pilot endpoint ports are already in use")
     command = [
-        str(mlx_python),
-        str(REPO / "scripts/local_mlx_endpoint.py"),
-        "--snapshot",
-        snapshot,
-        "--api-model",
-        api_model,
-        "--snapshots-root",
-        str(snapshots_root),
-        "--port",
-        str(ENDPOINT_PORT),
-        "--backend-port",
-        str(BACKEND_PORT),
+        *isolated_python_command(
+            mlx_python,
+            repo_root=REPO,
+            environment_root=mlx_python.absolute().parent.parent,
+            script=REPO / "scripts/local_mlx_endpoint.py",
+            target_args=(
+                "--snapshot",
+                snapshot,
+                "--api-model",
+                api_model,
+                "--snapshots-root",
+                str(snapshots_root),
+                "--port",
+                str(ENDPOINT_PORT),
+                "--backend-port",
+                str(BACKEND_PORT),
+            ),
+        ),
     ]
     handle = log_path.open("w")
     try:
@@ -478,6 +704,7 @@ def _start_endpoint(
             stdout=handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            env=clean_python_environment(dict(os.environ)),
         )
     finally:
         handle.close()
@@ -539,6 +766,7 @@ def _preflight_endpoints(
     mlx_python: Path,
     snapshots_root: Path,
     output_root: Path,
+    mlx_environment_receipt_sha256: str,
 ) -> dict[str, dict]:
     receipts: dict[str, dict] = {}
     for snapshot in WEIGHTS:
@@ -572,6 +800,12 @@ def _preflight_endpoints(
         for item in render_digests
     ):
         raise PilotError("preflight endpoints do not share one render contract")
+    if any(
+        receipt["attestation"].get("runtime_environment_receipt_sha256")
+        != mlx_environment_receipt_sha256
+        for receipt in receipts.values()
+    ):
+        raise PilotError("preflight endpoint MLX environment identity mismatch")
     if manifest["schema_version"] == RECOVERY_FACTORIAL_SCHEMA_VERSION:
         contract = manifest["artifact_contract"]
         for snapshot, receipt in receipts.items():
@@ -634,9 +868,12 @@ def build_eval_command(
 ) -> list[str]:
     protocol = manifest["protocol"]
     attestation = endpoint_attestation["attestation"]
-    return [
+    return isolated_python_command(
         sys.executable,
-        str(REPO / "eval_harness.py"),
+        repo_root=REPO,
+        environment_root=Path(sys.executable).absolute().parent.parent,
+        script=REPO / "eval_harness.py",
+        target_args=(
         "--models-env",
         f"{cell['cell_id']}={ENDPOINT_ENV}",
         "--episodes",
@@ -706,7 +943,8 @@ def build_eval_command(
         game_attestation["entrypointSha256"],
         "--environment-seed-reason",
         protocol["environment_seed_reason"],
-    ]
+        ),
+    )
 
 
 def build_eval_environment(
@@ -718,12 +956,13 @@ def build_eval_environment(
     node_binary: Path,
 ) -> dict[str, str]:
     """Pin DB/schema/recovery lanes instead of inheriting ambient test state."""
-    env = dict(base)
+    env = clean_python_environment(base)
     env[ENDPOINT_ENV] = f"http://{ENDPOINT_HOST}:{ENDPOINT_PORT}/v1"
     env["KAETRAM_GAME_DIR"] = str(game_dir)
     env["KAETRAM_NODE_BINARY"] = str(node_binary)
     env["KAETRAM_MONGO_DB"] = manifest["protocol"]["mongo_database"]
     env["KAETRAM_TOOL_SCHEMA_SOURCE"] = manifest["protocol"]["tool_schema_source"]
+    env.pop("KAETRAM_MCP_PYTHON", None)
     if _cell_recovery(manifest, cell):
         env["KAETRAM_TOOL_RECOVERY"] = "1"
     else:
@@ -847,10 +1086,37 @@ def run_pilot(
     if not node_version.startswith("v20."):
         raise PilotError(f"Node 20 is required; found {node_version!r}")
 
+    (
+        eval_environment_receipt,
+        mlx_environment_receipt,
+    ) = verify_python_environment_receipts(source_revision, mlx_python)
+    playwright_runtime_receipt = attest_playwright_runtime()
+    mongodb_runtime_receipt = attest_mongodb_runtime(
+        manifest["protocol"]["mongo_database"]
+    )
+
     output_root.mkdir(parents=True)
     endpoint_receipts = _preflight_endpoints(
-        manifest, mlx_python, snapshots_root, output_root
+        manifest,
+        mlx_python,
+        snapshots_root,
+        output_root,
+        str(mlx_environment_receipt["receipt_sha256"]),
     )
+    refreshed_eval, refreshed_mlx = verify_python_environment_receipts(
+        source_revision, mlx_python
+    )
+    refreshed_playwright = attest_playwright_runtime()
+    refreshed_mongodb = attest_mongodb_runtime(
+        manifest["protocol"]["mongo_database"]
+    )
+    if (
+        refreshed_eval != eval_environment_receipt
+        or refreshed_mlx != mlx_environment_receipt
+        or refreshed_playwright != playwright_runtime_receipt
+        or refreshed_mongodb != mongodb_runtime_receipt
+    ):
+        raise PilotError("local runtime identity drifted during model preflight")
     prelaunch_schema, inventory_schema = _ledger_schema_versions(manifest)
     prelaunch = {
         "schema_version": prelaunch_schema,
@@ -870,6 +1136,10 @@ def run_pilot(
             "mlx_python": str(mlx_python),
             "node_binary": str(node_binary),
             "node_version": node_version,
+            "eval_environment": eval_environment_receipt,
+            "mlx_environment": mlx_environment_receipt,
+            "playwright": playwright_runtime_receipt,
+            "mongodb": mongodb_runtime_receipt,
         },
     }
     _write_json(output_root / "prelaunch.json", prelaunch)
@@ -884,6 +1154,18 @@ def run_pilot(
         error = ""
         effective_recovery = None
         try:
+            current_eval, current_mlx = verify_python_environment_receipts(
+                source_revision, mlx_python
+            )
+            if (
+                current_eval != eval_environment_receipt
+                or current_mlx != mlx_environment_receipt
+                or attest_playwright_runtime() != playwright_runtime_receipt
+                or attest_mongodb_runtime(
+                    manifest["protocol"]["mongo_database"]
+                ) != mongodb_runtime_receipt
+            ):
+                raise PilotError("local runtime identity drifted after prelaunch")
             process, health = _start_endpoint(
                 snapshot=cell["snapshot"],
                 api_model=manifest["models"][cell["snapshot"]]["api_model"],
@@ -1021,6 +1303,7 @@ def main(argv: list[str] | None = None) -> int:
                 "nothing_launched": True,
             }, indent=2, sort_keys=True))
             return 0
+        require_isolated_execution()
         required = {
             "--output-root": args.output_root,
             "--snapshots-root": args.snapshots_root,

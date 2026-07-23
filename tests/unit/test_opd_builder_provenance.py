@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -281,6 +282,40 @@ with tempfile.TemporaryDirectory() as directory:
         timeout=30,
         check=False,
     )
+    assert result.returncode == 0, result.stderr
+
+
+def test_main_rejects_frozen_root_environment_bypass() -> None:
+    repo = Path(__file__).parents[2]
+    program = """
+import asyncio
+import tempfile
+from pathlib import Path
+from scripts.opd import opd_2b_data as builder
+
+try:
+    asyncio.run(builder.main())
+except RuntimeError as exc:
+    assert "not executing from the attested frozen builder" in str(exc)
+else:
+    raise AssertionError("live imported builder accepted a separate frozen root")
+"""
+    with tempfile.TemporaryDirectory() as directory:
+        result = subprocess.run(
+            [sys.executable, "-c", program],
+            cwd=repo,
+            env={
+                **os.environ,
+                "TWOB_EP": "http://127.0.0.1:8101/v1",
+                "FOURB_EP": "http://127.0.0.1:8102/v1",
+                "KAETRAM_OPD_SOURCE_REPO": str(repo),
+                "KAETRAM_OPD_FROZEN_BUILD_ROOT": directory,
+            },
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
     assert result.returncode == 0, result.stderr
 
 

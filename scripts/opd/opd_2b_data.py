@@ -64,9 +64,13 @@ import httpx
 
 SOURCE_REPO_ENV = "KAETRAM_OPD_SOURCE_REPO"
 FROZEN_BUILD_ROOT_ENV = "KAETRAM_OPD_FROZEN_BUILD_ROOT"
-REPO = Path(
-    os.environ.get(SOURCE_REPO_ENV, Path(__file__).resolve().parents[2])
-).resolve()
+_FROZEN_BUILD_ROOT = os.environ.get(FROZEN_BUILD_ROOT_ENV, "")
+if _FROZEN_BUILD_ROOT:
+    if not os.environ.get(SOURCE_REPO_ENV):
+        raise RuntimeError("frozen OPD builder is missing its source-repository root")
+    REPO = Path(os.environ[SOURCE_REPO_ENV]).resolve()
+else:
+    REPO = Path(__file__).resolve().parents[2]
 # This list is deliberately available without importing any local module. Main
 # snapshots it first, then imports every local dependency from that immutable
 # copy. receipt_chain.py carries the same closed inventory and checks equality
@@ -776,6 +780,21 @@ def _publish_create_only(temporary: Path, destination: Path) -> None:
 
 
 async def main():
+    frozen_root = os.environ.get(FROZEN_BUILD_ROOT_ENV, "")
+    if not frozen_root:
+        raise RuntimeError(
+            "OPD builder must run through its frozen entrypoint; execute this "
+            "file as a script instead of importing main()"
+        )
+    snapshot_root = Path(frozen_root).resolve()
+    expected_builder = (
+        snapshot_root / "scripts" / "opd" / "opd_2b_data.py"
+    ).resolve()
+    if Path(__file__).resolve() != expected_builder:
+        raise RuntimeError(
+            "OPD main() is not executing from the attested frozen builder"
+        )
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-ids", nargs="+", default=["run_20260610_140358"])
     ap.add_argument("--out-dir", default="dataset/opd_2b/round2")
@@ -790,13 +809,6 @@ async def main():
         help="immutable local tokenizer snapshot containing tokenizer.json",
     )
     args = ap.parse_args()
-    frozen_root = os.environ.get(FROZEN_BUILD_ROOT_ENV, "")
-    if not frozen_root:
-        raise RuntimeError(
-            "OPD builder must run through its frozen entrypoint; execute this "
-            "file as a script instead of importing main()"
-        )
-    snapshot_root = Path(frozen_root).resolve()
     # The launcher copied every local input before this interpreter loaded the
     # builder. This process executes that copied builder and imports all other
     # local code only from the same tree.

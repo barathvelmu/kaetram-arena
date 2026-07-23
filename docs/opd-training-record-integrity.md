@@ -82,6 +82,23 @@ Historical v1/v2 receipts and post-hoc identity receipts are intentionally not
 accepted. A prospective trainable corpus must be freshly built under this
 chain.
 
+## Training handoff
+
+Treat `records.jsonl` and its adjacent `records.manifest.json` as one
+inseparable bundle. The builder prints both paths and the two mandatory trainer
+arguments:
+
+```text
+--records-path <bundle>/records.jsonl
+--records-manifest-path <bundle>/records.manifest.json
+```
+
+Do not upload, copy, or mount the records alone. A handoff is incomplete until
+both files arrive byte-for-byte; the trainer then validates the recursive
+receipt chain before loading model weights. The builder deliberately does not
+print a cloud-volume upload command, so following its default next step cannot
+silently omit the authoritative receipt or initiate paid infrastructure.
+
 ## Zero-spend probes
 
 `cook_grade_probe.py` and `defect_origin_probe.py` accept loopback endpoints by

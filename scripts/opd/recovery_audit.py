@@ -14,9 +14,31 @@ from collections import Counter
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "scripts" / "log_analysis"))
 
+from canonicalize import is_malformed  # noqa: E402
 from parse import parse_session_auto  # noqa: E402
+
+
+def _raw_malformed_emissions(path: Path) -> int | None:
+    """Count modern raw endpoint emissions, or return None for legacy logs."""
+    saw_raw_emission = False
+    malformed = 0
+    for raw in path.read_text(errors="replace").splitlines():
+        if not raw.strip():
+            continue
+        try:
+            record = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if record.get("type") != "raw_model_emission":
+            continue
+        saw_raw_emission = True
+        content = record.get("content", "")
+        if isinstance(content, str) and is_malformed(content):
+            malformed += 1
+    return malformed if saw_raw_emission else None
 
 
 def audit_logs(log_paths: list[Path], relapse_window: int = 5) -> dict:
@@ -27,6 +49,7 @@ def audit_logs(log_paths: list[Path], relapse_window: int = 5) -> dict:
 
     for path in sorted(log_paths):
         view = parse_session_auto(path)
+        raw_malformed = _raw_malformed_emissions(path)
         recovered = [
             call for call in view.tool_calls
             if isinstance(call.result_raw, str)
@@ -51,7 +74,16 @@ def audit_logs(log_paths: list[Path], relapse_window: int = 5) -> dict:
 
         row = {
             "log": str(path),
-            "malformed_emissions": view.n_malformed_emit,
+            "malformed_emissions": (
+                raw_malformed
+                if raw_malformed is not None
+                else view.n_malformed_emit
+            ),
+            "malformed_emission_source": (
+                "raw_model_emission"
+                if raw_malformed is not None
+                else "assistant_text_legacy"
+            ),
             "recovered_calls": len(recovered),
             "recovered_execution_errors": sum(call.is_error for call in recovered),
             "repeat_recoveries_within_window": repeated,

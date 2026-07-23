@@ -105,3 +105,35 @@ completion, that OPD caused an effect, or that any result generalizes.
 
 The complete machine-readable registration is
 [`local-weight-recovery-30m.json`](local-weight-recovery-30m.json).
+
+## Post-launch analyzer hardening record
+
+On July 23, 2026, before a `completed-inventory.json` or any cross-arm result
+existed, the offline analyzer was tightened to implement the reporting contract
+above more literally. The change makes every arm retain its three
+replicate-ordered values and descriptive means, independently reconciles the
+raw malformed-emission count with the recovery-log audit, and rejects
+impossible recovery-error or repeat-recovery totals. Pooled-denominator call
+emission rates are labeled separately from arithmetic means of the three cell
+rates. Every completed cell receipt, including an invalid receipt, must bind a
+successfully rehashed artifact inventory or the complete analysis fails closed.
+The completed-ledger receipt must also exactly match the hashed
+`cell-status.json`, preventing a later ledger edit from relabeling a
+launcher-valid cell as an excluded invalid cell.
+
+At that point only the first cell had sealed. Its artifact inventory and raw
+malformed/recovery counts had been checked, but no quest outcome, recovery-on
+cell, within-weight pair, arm contrast, or complete factorial report had been
+inspected. The schedule, diagnostics, estimands, exclusion rule, and claim
+boundary were not changed.
+
+The recovery-on mate of the first cell sealed at 05:02:20 EDT. The first
+auditor-requested provenance patch was committed 29 seconds later, before that
+cell's results or pair difference were inspected and while no complete
+factorial ledger existed. A later code audit—after the two cells' integrity and
+raw-call counts were checked, but before a recovery-on quest outcome, pair
+difference, arm contrast, or complete ledger was inspected—required exact
+agreement between the completed receipt and hashed `cell-status.json`. These
+patches only made exclusions and identities auditable and repaired a
+production-row field-name mismatch; they did not change a diagnostic or
+analysis rule.

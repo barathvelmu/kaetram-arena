@@ -110,6 +110,8 @@ def resample_records(
         raise ArtifactBuildError(f"output directory does not exist: {dst.parent}")
     if target <= 0:
         raise ArtifactBuildError("target must be positive")
+    script_path = Path(__file__).resolve()
+    script_sha256 = _sha256(script_path)
 
     source_payload = src.read_bytes()
     source_manifest_path = src.with_suffix(".manifest.json")
@@ -143,6 +145,8 @@ def resample_records(
     sampled_index_payload = json.dumps(
         sampled_indices, separators=(",", ":")
     ).encode("ascii")
+    if _sha256(script_path) != script_sha256:
+        raise ArtifactBuildError("transformer source changed during the build")
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "source": str(src),
@@ -151,7 +155,7 @@ def resample_records(
         "parent_manifest_sha256": canonical_sha256(source_manifest),
         "output": str(dst),
         "output_sha256": _sha256_bytes(output_payload),
-        "script_sha256": _sha256(Path(__file__).resolve()),
+        "script_sha256": script_sha256,
         "record_schema_version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
         "record_schema_sha256": OPD_TRAIN_RECORD_SCHEMA_SHA256,
         "record_schema_validator_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,

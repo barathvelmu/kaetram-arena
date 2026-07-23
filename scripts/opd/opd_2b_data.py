@@ -149,11 +149,19 @@ def _snapshot_source_logs(run_ids: list[str]) -> list[dict]:
             raise RuntimeError(f"declared run has no source logs: {run_id}")
         for path in logs:
             resolved = path.resolve()
+            meta = resolved.with_suffix(".meta.json")
+            if not meta.is_file():
+                raise RuntimeError(
+                    f"source log has no adjacent session metadata: {meta}"
+                )
             inventory.append({
                 "run_id": run_id,
                 "path": resolved.relative_to(REPO).as_posix(),
                 "sha256": sha256_path(resolved),
                 "size_bytes": resolved.stat().st_size,
+                "meta_path": meta.relative_to(REPO).as_posix(),
+                "meta_sha256": sha256_path(meta),
+                "meta_size_bytes": meta.stat().st_size,
             })
     inventory.sort(key=lambda item: item["path"])
     if len({item["path"] for item in inventory}) != len(inventory):
@@ -170,6 +178,36 @@ def _verify_source_snapshot(inventory: list[dict]) -> None:
             or sha256_path(path) != item["sha256"]
         ):
             raise RuntimeError(f"source log changed during the build: {item['path']}")
+        meta = REPO / item["meta_path"]
+        if (
+            not meta.is_file()
+            or meta.stat().st_size != item["meta_size_bytes"]
+            or sha256_path(meta) != item["meta_sha256"]
+        ):
+            raise RuntimeError(
+                f"source metadata changed during the build: {item['meta_path']}"
+            )
+
+
+def _snapshot_build_sources() -> dict[str, str]:
+    snapshot: dict[str, str] = {}
+    for relative in BUILD_SOURCE_PATHS:
+        path = REPO / relative
+        if not path.is_file():
+            raise RuntimeError(f"material build input is missing: {relative}")
+        snapshot[relative] = sha256_path(path)
+    return snapshot
+
+
+def _verify_build_source_snapshot(snapshot: dict[str, str]) -> None:
+    if set(snapshot) != set(BUILD_SOURCE_PATHS):
+        raise RuntimeError("material build-input snapshot is incomplete")
+    for relative, expected in snapshot.items():
+        path = REPO / relative
+        if not path.is_file() or sha256_path(path) != expected:
+            raise RuntimeError(
+                f"material build input changed during the build: {relative}"
+            )
 
 
 def _directory_digest(root: Path) -> str:
@@ -492,6 +530,9 @@ async def main():
         help="immutable local tokenizer snapshot containing tokenizer.json",
     )
     args = ap.parse_args()
+    # Freeze every local input before session reconstruction, rendering, or
+    # tokenization. The same bytes are re-checked immediately before sealing.
+    build_sources = _snapshot_build_sources()
     for name in ("student_artifact_sha256", "teacher_artifact_sha256"):
         value = getattr(args, name)
         if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
@@ -627,13 +668,15 @@ async def main():
         )
     if ending_student != student_attestation or ending_teacher != teacher_attestation:
         raise RuntimeError("scoring endpoint identity changed during the build")
+    _verify_build_source_snapshot(build_sources)
+    if (
+        sha256_path(tokenizer_file) != tokenizer_sha256
+        or _directory_digest(tokenizer_path) != tokenizer_snapshot_sha256
+    ):
+        raise RuntimeError("tokenizer snapshot changed during the build")
     # Root receipts are emitted only here, from the two files opened with
     # exclusive mode by this invocation. There is intentionally no reusable
     # post-hoc attestor that could relabel arbitrary existing records.
-    build_sources = {
-        relative: sha256_path(REPO / relative)
-        for relative in BUILD_SOURCE_PATHS
-    }
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "builder": BUILDER_RELATIVE_PATH,

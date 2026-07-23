@@ -21,6 +21,7 @@ def _source_log(root: Path, run_id: str, content: str = "session") -> Path:
     )
     path.parent.mkdir(parents=True)
     path.write_text(content)
+    path.with_suffix(".meta.json").write_text('{"persona":"test"}\n')
     return path
 
 
@@ -32,15 +33,32 @@ def test_source_inventory_is_complete_and_detects_mutation(
     source = _source_log(tmp_path, "run_a")
     inventory = builder._snapshot_source_logs(["run_a"])
     assert inventory[0]["run_id"] == "run_a"
+    assert inventory[0]["meta_path"].endswith("session_1.meta.json")
     builder._verify_source_snapshot(inventory)
 
     source.write_text("changed")
     with pytest.raises(RuntimeError, match="changed during"):
         builder._verify_source_snapshot(inventory)
+    source.write_text("session")
+    inventory = builder._snapshot_source_logs(["run_a"])
+    source.with_suffix(".meta.json").write_text('{"persona":"changed"}\n')
+    with pytest.raises(RuntimeError, match="metadata changed during"):
+        builder._verify_source_snapshot(inventory)
     with pytest.raises(RuntimeError, match="no source logs"):
         builder._snapshot_source_logs(["missing"])
     with pytest.raises(RuntimeError, match="unique"):
         builder._snapshot_source_logs(["run_a", "run_a"])
+
+
+def test_source_inventory_requires_adjacent_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(builder, "REPO", tmp_path)
+    source = _source_log(tmp_path, "run_a")
+    source.with_suffix(".meta.json").unlink()
+    with pytest.raises(RuntimeError, match="no adjacent session metadata"):
+        builder._snapshot_source_logs(["run_a"])
 
 
 def test_declared_parse_failure_is_not_silently_skipped(
@@ -121,3 +139,29 @@ def test_no_generic_root_attestor_is_exposed() -> None:
     source = Path(builder.__file__).read_text()
     assert "open(rec_path, \"x\")" in source
     assert "There is intentionally no reusable" in source
+
+
+def test_material_build_inputs_snapshot_and_detect_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(builder, "REPO", tmp_path)
+    monkeypatch.setattr(builder, "BUILD_SOURCE_PATHS", ("one.py", "prompt.md"))
+    (tmp_path / "one.py").write_text("one\n")
+    (tmp_path / "prompt.md").write_text("prompt\n")
+    snapshot = builder._snapshot_build_sources()
+    builder._verify_build_source_snapshot(snapshot)
+    (tmp_path / "prompt.md").write_text("changed\n")
+    with pytest.raises(RuntimeError, match="material build input changed"):
+        builder._verify_build_source_snapshot(snapshot)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["finetune/serve_modal_4b.py", "finetune/serve_modal_2b_opd.py"],
+)
+def test_scoring_servers_expose_endpoint_identity(relative: str) -> None:
+    source = (Path(__file__).parents[2] / relative).read_text()
+    assert ".add_local_python_source(\"endpoint_identity\")" in source
+    assert "endpoint_attestation(" in source
+    assert '"attestation": attestation' in source

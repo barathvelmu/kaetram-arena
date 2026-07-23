@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path, PurePosixPath
 
 try:
@@ -32,9 +33,15 @@ SUPPORTED_MANIFESTS = {
     RESAMPLE_MANIFEST_SCHEMA_VERSION,
 }
 BUILD_SOURCE_PATHS = (
+    "bootstrap.py",
+    "canonical_start.py",
+    "eval_harness.py",
+    "inference_seed.py",
     "finetune/render.py",
     "scripts/opd/canonicalize.py",
     "heldout_guard.py",
+    "port_probe.py",
+    "run_manifest.py",
     "scripts/opd/opd_2b_data.py",
     "scripts/opd/opd_data_manifest.py",
     "scripts/opd/opd_probe.py",
@@ -42,6 +49,12 @@ BUILD_SOURCE_PATHS = (
     "scripts/opd/opd_wall_probe.py",
     "scripts/opd/record_schema.py",
     "scripts/opd/receipt_chain.py",
+    "scripts/log_analysis/parse.py",
+    "prompts/game_knowledge.md",
+    "prompts/personalities/completionist.md",
+    "prompts/personalities/explorer_tinkerer.md",
+    "prompts/personalities/grinder.md",
+    "prompts/system.md",
 )
 SCRIPT_PATHS = {
     MANIFEST_SCHEMA_VERSION: BUILDER_RELATIVE_PATH,
@@ -124,6 +137,19 @@ def _verify_attestation(value: object, label: str) -> None:
     )
 
 
+def receipt_chain_contains(receipt: object, schema_version: str) -> bool:
+    """Return whether an embedded ancestry contains ``schema_version``."""
+    current = receipt
+    depth = 0
+    while isinstance(current, dict):
+        if current.get("schema_version") == schema_version:
+            return True
+        current = current.get("parent_manifest")
+        depth += 1
+        _require(depth <= 32, "receipt chain is unreasonably deep")
+    return False
+
+
 def _verify_root(receipt: dict, repo_root: Path) -> None:
     _require(
         receipt.get("builder") == BUILDER_RELATIVE_PATH,
@@ -132,6 +158,7 @@ def _verify_root(receipt: dict, repo_root: Path) -> None:
     inventory = receipt.get("source_logs")
     _require(isinstance(inventory, list) and bool(inventory), "source_logs are empty")
     paths: list[str] = []
+    meta_paths: list[str] = []
     run_ids: set[str] = set()
     for item in inventory:
         _require(isinstance(item, dict), "source log entry is not an object")
@@ -150,9 +177,27 @@ def _verify_root(receipt: dict, repo_root: Path) -> None:
             and item["size_bytes"] >= 0,
             "source log entry is invalid",
         )
+        _require(
+            isinstance(item.get("meta_path"), str)
+            and bool(item["meta_path"])
+            and PurePosixPath(item["meta_path"])
+            == PurePosixPath(path).with_suffix(".meta.json")
+            and not PurePosixPath(item["meta_path"]).is_absolute()
+            and ".." not in PurePosixPath(item["meta_path"]).parts
+            and is_digest(item.get("meta_sha256"))
+            and isinstance(item.get("meta_size_bytes"), int)
+            and not isinstance(item.get("meta_size_bytes"), bool)
+            and item["meta_size_bytes"] >= 0,
+            "source meta entry is invalid",
+        )
         paths.append(path)
+        meta_paths.append(item["meta_path"])
         run_ids.add(run_id)
     _require(paths == sorted(paths) and len(paths) == len(set(paths)), "source logs not unique/sorted")
+    _require(
+        len(meta_paths) == len(set(meta_paths)),
+        "source metadata paths are not unique",
+    )
     declared_runs = receipt.get("source_runs")
     _require(
         isinstance(declared_runs, list)
@@ -276,4 +321,43 @@ def validate_receipt_chain(
             expected_output_sha256=source_sha,
             repo_root=repo_root,
         )
+        if schema == UNIFORM_MANIFEST_SCHEMA_VERSION:
+            _require(
+                receipt.get("control") == "uniform-clipped-self-imitation"
+                and isinstance(receipt.get("c"), (int, float))
+                and not isinstance(receipt.get("c"), bool)
+                and math.isfinite(float(receipt["c"]))
+                and float(receipt["c"]) > 0
+                and receipt.get("c_rule")
+                == "corpus mean |advantage| over nonzero tokens"
+                and isinstance(receipt.get("n_records"), int)
+                and receipt["n_records"] > 0
+                and isinstance(receipt.get("n_nonzero_tokens"), int)
+                and receipt["n_nonzero_tokens"] > 0
+                and isinstance(receipt.get("n_zero_tokens_kept"), int)
+                and receipt["n_zero_tokens_kept"] >= 0,
+                "uniform transformation parameters are invalid",
+            )
+            _require(
+                not receipt_chain_contains(parent, UNIFORM_MANIFEST_SCHEMA_VERSION),
+                "multiple uniform transformations are not supported",
+            )
+        else:
+            original = receipt.get("original_records")
+            resampled = receipt.get("resampled_records")
+            target = receipt.get("target_records")
+            _require(
+                isinstance(original, int)
+                and original > 0
+                and isinstance(resampled, int)
+                and resampled > 0
+                and isinstance(target, int)
+                and target == original + resampled
+                and isinstance(receipt.get("seed"), int)
+                and not isinstance(receipt.get("seed"), bool)
+                and is_digest(receipt.get("sampled_indices_sha256"))
+                and receipt.get("sampling")
+                == "uniform-with-replacement-after-originals",
+                "resample transformation parameters are invalid",
+            )
     return receipt

@@ -53,6 +53,9 @@ def _write_root_receipt(path: Path) -> Path:
         "path": "dataset/raw/agent_test/runs/run_1/session_1.log",
         "sha256": "c" * 64,
         "size_bytes": 1,
+        "meta_path": "dataset/raw/agent_test/runs/run_1/session_1.meta.json",
+        "meta_sha256": "9" * 64,
+        "meta_size_bytes": 1,
     }]
     tokenizer_sha = "d" * 64
     attestation = lambda label: {
@@ -407,6 +410,58 @@ def test_transformers_require_and_preserve_a_recursive_parent_chain(
         load_verified_training_records(
             resampled, resampled.with_suffix(".manifest.json")
         )
+
+
+def test_trainer_rejects_plausible_tamper_in_intermediate_uniform_receipt(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.jsonl"
+    uniform = tmp_path / "uniform.jsonl"
+    resampled = tmp_path / "resampled.jsonl"
+    _write_jsonl(source, [_record(0, [-1.0]), _record(1, [3.0])])
+    build_uniform_advantages(source, uniform)
+    resample_records(uniform, resampled, target=4, seed=7)
+
+    receipt_path = resampled.with_suffix(".manifest.json")
+    receipt = json.loads(receipt_path.read_text())
+    receipt["parent_manifest"]["c"] = 1.25
+    receipt["parent_manifest_sha256"] = canonical_sha256(receipt["parent_manifest"])
+    receipt_path.write_text(json.dumps(receipt))
+    with pytest.raises(
+        TrainingRecordBundleError,
+        match="nonzero advantage different from c",
+    ):
+        load_verified_training_records(resampled, receipt_path)
+
+
+def test_trainer_rejects_tampered_resample_recipe(tmp_path: Path) -> None:
+    source = tmp_path / "source.jsonl"
+    output = tmp_path / "resampled.jsonl"
+    _write_jsonl(source, [_record(0, [1.0]), _record(1, [2.0])])
+    resample_records(source, output, target=4, seed=7)
+
+    receipt_path = output.with_suffix(".manifest.json")
+    receipt = json.loads(receipt_path.read_text())
+    receipt["seed"] = 8
+    receipt_path.write_text(json.dumps(receipt))
+    with pytest.raises(
+        TrainingRecordBundleError,
+        match="sampled-index digest mismatch",
+    ):
+        load_verified_training_records(output, receipt_path)
+
+
+def test_transformer_rejects_second_uniform_anywhere_in_chain(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.jsonl"
+    uniform = tmp_path / "uniform.jsonl"
+    resampled = tmp_path / "resampled.jsonl"
+    _write_jsonl(source, [_record(0, [1.0]), _record(1, [3.0])])
+    build_uniform_advantages(source, uniform)
+    resample_records(uniform, resampled, target=3, seed=7)
+    with pytest.raises(UniformBuildError, match="multiple uniform"):
+        build_uniform_advantages(resampled, tmp_path / "uniform-again.jsonl")
 
 
 def test_transformer_rejects_source_without_builder_receipt(tmp_path: Path) -> None:

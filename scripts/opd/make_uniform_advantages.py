@@ -29,6 +29,7 @@ try:
         UNIFORM_MANIFEST_SCHEMA_VERSION,
         ReceiptChainError,
         canonical_sha256,
+        receipt_chain_contains,
         validate_receipt_chain,
     )
     from .record_schema import (
@@ -43,6 +44,7 @@ except ImportError:  # direct `python scripts/opd/...` execution
         UNIFORM_MANIFEST_SCHEMA_VERSION,
         ReceiptChainError,
         canonical_sha256,
+        receipt_chain_contains,
         validate_receipt_chain,
     )
     from record_schema import (  # type: ignore[no-redef]
@@ -110,6 +112,8 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
         )
     if not dst.parent.is_dir():
         raise ArtifactBuildError(f"output directory does not exist: {dst.parent}")
+    script_path = Path(__file__).resolve()
+    script_sha256 = _sha256(script_path)
     source_manifest_path = src.with_suffix(".manifest.json")
     if not source_manifest_path.is_file():
         raise ArtifactBuildError(
@@ -124,6 +128,10 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
             expected_output_sha256=source_sha256,
             repo_root=Path(__file__).resolve().parents[2],
         )
+        if receipt_chain_contains(source_manifest, MANIFEST_SCHEMA_VERSION):
+            raise ReceiptChainError(
+                "multiple uniform transformations are not supported"
+            )
     except (OSError, json.JSONDecodeError, ReceiptChainError) as exc:
         raise ArtifactBuildError(f"invalid source provenance chain: {exc}") from exc
     total_abs = 0.0
@@ -167,6 +175,8 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
             os.fsync(output_handle.fileno())
         if source_digest_second_pass.hexdigest() != source_sha256:
             raise ArtifactBuildError("source changed between validation and rewrite")
+        if _sha256(script_path) != script_sha256:
+            raise ArtifactBuildError("transformer source changed during the build")
 
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
@@ -177,7 +187,7 @@ def build_uniform_advantages(src: Path, dst: Path) -> dict:
             "parent_manifest_sha256": canonical_sha256(source_manifest),
             "output": str(dst),
             "output_sha256": output_digest.hexdigest(),
-            "script_sha256": _sha256(Path(__file__).resolve()),
+            "script_sha256": script_sha256,
             "record_schema_version": OPD_TRAIN_RECORD_SCHEMA_VERSION,
             "record_schema_sha256": OPD_TRAIN_RECORD_SCHEMA_SHA256,
             "record_schema_validator_sha256": OPD_TRAIN_RECORD_VALIDATOR_SHA256,

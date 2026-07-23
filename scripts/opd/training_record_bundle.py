@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import random
 from pathlib import Path
 
 from . import make_uniform_advantages, opd_data_manifest, resample_records
@@ -132,6 +133,23 @@ def _verify_resample(manifest: dict, records: list[dict]) -> None:
         _digest(manifest.get("sampled_indices_sha256")),
         "resample sampled_indices_sha256 is invalid",
     )
+    rng = random.Random(manifest["seed"])
+    sampled_indices = [
+        rng.randrange(original) for _ in range(resampled)
+    ]
+    sampled_payload = json.dumps(
+        sampled_indices, separators=(",", ":")
+    ).encode("ascii")
+    _require(
+        hashlib.sha256(sampled_payload).hexdigest()
+        == manifest["sampled_indices_sha256"],
+        "resample sampled-index digest mismatch",
+    )
+    expected_tail = [records[index] for index in sampled_indices]
+    _require(
+        records[original:] == expected_tail,
+        "resample records do not match the declared deterministic sample",
+    )
 
 
 def _verify_generated(manifest: dict, records: list[dict]) -> None:
@@ -139,6 +157,37 @@ def _verify_generated(manifest: dict, records: list[dict]) -> None:
         manifest.get("n_records") == len(records),
         "generated-record n_records mismatch",
     )
+
+
+def _verify_semantic_chain(manifest: dict, records: list[dict]) -> None:
+    """Verify every transform against the exact records it claims to emit.
+
+    Resampling retains its complete parent corpus as an ordered prefix, so the
+    parent can be checked recursively without trusting path fields or requiring
+    a separately mounted ancestor file.
+    """
+    schema = manifest["schema_version"]
+    if schema == opd_data_manifest.MANIFEST_SCHEMA_VERSION:
+        _verify_generated(manifest, records)
+        return
+    if schema == make_uniform_advantages.MANIFEST_SCHEMA_VERSION:
+        _verify_uniform(manifest, records)
+        parent = manifest["parent_manifest"]
+        _require(
+            parent["schema_version"]
+            != make_uniform_advantages.MANIFEST_SCHEMA_VERSION,
+            "multiple uniform transformations are not supported",
+        )
+        # A uniform transform preserves count/order but overwrites nonzero
+        # advantages. All non-uniform ancestors remain replayable from the
+        # preserved order/equality relationships; rejecting a second uniform
+        # prevents one rewrite from erasing the other's evidence.
+        _verify_semantic_chain(parent, records)
+        return
+
+    _verify_resample(manifest, records)
+    original = manifest["original_records"]
+    _verify_semantic_chain(manifest["parent_manifest"], records[:original])
 
 
 def load_verified_training_records(
@@ -175,10 +224,5 @@ def load_verified_training_records(
         raise TrainingRecordBundleError(str(exc)) from exc
 
     loaded = _load_records(records)
-    if schema == opd_data_manifest.MANIFEST_SCHEMA_VERSION:
-        _verify_generated(manifest, loaded)
-    elif schema == make_uniform_advantages.MANIFEST_SCHEMA_VERSION:
-        _verify_uniform(manifest, loaded)
-    else:
-        _verify_resample(manifest, loaded)
+    _verify_semantic_chain(manifest, loaded)
     return loaded

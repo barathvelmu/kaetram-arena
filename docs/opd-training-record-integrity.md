@@ -28,19 +28,21 @@ binds:
 - transformation-specific parameters and record/token counts; and
 - the recursively embedded parent receipt for every derived corpus.
 
-Before reading a source log, the base corpus builder requires every declared run
-to resolve to at least one log and snapshots every log's bytes. Parse failures,
-empty sessions, or a run with no usable action state abort the build. The same
-inventory is re-hashed before sealing, so the receipt cannot bind end-of-build
-bytes different from those consumed.
+Before session reconstruction, the base corpus builder requires every declared
+run to resolve to at least one log and snapshots each log together with its
+adjacent session `.meta.json`. Parse failures, empty sessions, missing metadata,
+or a run with no usable action state abort the build. It also snapshots the
+bootstrap, parser, evaluator, renderer, prompt assets, held-out guard, and OPD
+sources that materially participate in reconstruction. All of those bytes are
+re-hashed before sealing, so the receipt cannot bind end-of-build bytes
+different from those consumed.
 
 Both scoring endpoints must expose complete `/health` identity attestations.
 Their deployment and checkpoint identities must match the requested artifacts,
-their tokenizer hashes must match each other and the local immutable
-`tokenizer.json`, and their attestations are checked again after scoring. The
-receipt also hashes every local renderer/parser/guard/schema source file that
-materially participates in the build, the held-out bytes, and all material
-parameters.
+their tokenizer hashes must match each other and the local tokenizer snapshot.
+The complete local tokenizer directory and both endpoint attestations are
+checked again after scoring. The receipt also binds the held-out bytes and all
+material parameters.
 
 The base builder refuses to resume into any pre-existing output: a partial
 build must be retained separately and a fresh sealed build started. Root
@@ -55,6 +57,13 @@ a JSONL file without its matching receipt, editing any link, or training with a
 newer validator against an old receipt is an error. Paths are informational so
 a byte-identical bundle can be staged at a different mount point; content
 hashes are authoritative.
+
+At training time, semantics are replayed through the full transform chain.
+Every resample must retain its parent as the exact prefix and append the exact
+fixed-seed sample; every uniform-control receipt must match the advantages and
+token counts in the preserved records. Repeated uniform transforms are rejected
+because a later rewrite would erase the evidence needed to replay the earlier
+one.
 
 Historical v1/v2 receipts and post-hoc identity receipts are intentionally not
 accepted. A prospective trainable corpus must be freshly built under this

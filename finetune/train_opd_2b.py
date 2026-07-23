@@ -84,6 +84,13 @@ train_image = (
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
     })
     .add_local_python_source("render")
+    .add_local_python_source("bootstrap")
+    .add_local_python_source("canonical_start")
+    .add_local_python_source("eval_harness")
+    .add_local_python_source("inference_seed")
+    .add_local_python_source("port_probe")
+    .add_local_python_source("run_manifest")
+    .add_local_python_source("scripts.log_analysis.parse")
     .add_local_python_source("scripts.opd.guided_opd_contract")
     .add_local_python_source("scripts.opd.guided_opd_schedule")
     .add_local_python_source("scripts.opd.canonicalize")
@@ -98,6 +105,20 @@ train_image = (
     .add_local_python_source("scripts.opd.make_uniform_advantages")
     .add_local_python_source("scripts.opd.resample_records")
     .add_local_python_source("scripts.opd.training_record_bundle")
+    .add_local_file("prompts/system.md", "/root/prompts/system.md")
+    .add_local_file("prompts/game_knowledge.md", "/root/prompts/game_knowledge.md")
+    .add_local_file(
+        "prompts/personalities/completionist.md",
+        "/root/prompts/personalities/completionist.md",
+    )
+    .add_local_file(
+        "prompts/personalities/explorer_tinkerer.md",
+        "/root/prompts/personalities/explorer_tinkerer.md",
+    )
+    .add_local_file(
+        "prompts/personalities/grinder.md",
+        "/root/prompts/personalities/grinder.md",
+    )
 )
 
 # Round-parametrized via the CLI (see main); these are the round-2 defaults.

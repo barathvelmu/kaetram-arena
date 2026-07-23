@@ -152,7 +152,7 @@
       "target_power": 0.8,
       "confirmatory_replicates": 20,
       "power_analysis_artifact": "research/experiments/opd-2b-factorial-power-v1.json",
-      "power_analysis_sha256": "214eec0c2a2bd75e1a543d2115edc22ca6d5847603e2829e58915007a11c8de7"
+      "power_analysis_sha256": "4fe271132daae446bd65c1329e4000d3a052f7bbe1832ab281212776aedd1448"
     }
   },
   "isolation": {

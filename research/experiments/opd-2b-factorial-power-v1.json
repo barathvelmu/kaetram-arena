@@ -29,6 +29,7 @@
   "standardized_effect": 1.0,
   "standardized_effect_definition": "delta_over_sigma_D=population_mean(paired cluster differences)/population_SD(paired cluster differences)",
   "per_estimand_two_sided_alpha": 0.0071428571428571435,
+  "calculation_absolute_tolerance": 5e-15,
   "calculation": {
     "engine": "scipy==1.18.0",
     "distribution": "scipy.stats.nct",

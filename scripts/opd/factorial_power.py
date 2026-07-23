@@ -105,10 +105,42 @@ def validate_power_record(record: dict[str, Any]) -> dict[str, Any]:
         raise
     except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
         raise PowerContractError(f"power-record numeric definition is invalid: {exc}") from exc
-    if record.get("calculation") != expected:
+    tolerance = record.get("calculation_absolute_tolerance")
+    if tolerance != 5e-15:
+        raise PowerContractError("power-record calculation tolerance drifted")
+    actual = record.get("calculation")
+    if not isinstance(actual, dict):
+        raise PowerContractError("power-record calculation must be an object")
+    exact_keys = (
+        "engine",
+        "distribution",
+        "minimum_replicates_at_target_power",
+    )
+    numeric_keys = (
+        "power_at_16",
+        "power_at_17",
+        "power_at_20",
+        "critical_t_at_20",
+    )
+    exact_drift = any(actual.get(key) != expected[key] for key in exact_keys)
+    numeric_drift = False
+    for key in numeric_keys:
+        value = actual.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            numeric_drift = True
+            break
+        if not math.isclose(
+            float(value),
+            float(expected[key]),
+            rel_tol=0.0,
+            abs_tol=tolerance,
+        ):
+            numeric_drift = True
+            break
+    if set(actual) != set(expected) or exact_drift or numeric_drift:
         raise PowerContractError(
             f"power-record calculation drifted: expected={expected}, "
-            f"actual={record.get('calculation')}"
+            f"actual={actual}"
         )
     return expected
 

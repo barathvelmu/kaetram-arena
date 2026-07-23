@@ -42,6 +42,11 @@ def test_power_record_rejects_alpha_or_calculation_drift() -> None:
         validate_power_record(record)
 
     record = json.loads(POWER_RECORD.read_text())
+    record["calculation_absolute_tolerance"] = 1e-3
+    with pytest.raises(PowerContractError, match="tolerance drifted"):
+        validate_power_record(record)
+
+    record = json.loads(POWER_RECORD.read_text())
     record["power_model"] = "unspecified"
     with pytest.raises(PowerContractError, match="working model drifted"):
         validate_power_record(record)

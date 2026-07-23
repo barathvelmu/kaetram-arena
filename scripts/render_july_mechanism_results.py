@@ -35,10 +35,10 @@ EVIDENCE_SCHEMA = "kaetram-historical-run-digests-v1"
 CLAIM_GROUP = "opd_july_mechanism"
 ANALYSIS_FILES = (
     Path("run_manifest.py"),
-    Path("scripts/artifact_requirements.py"),
     Path("scripts/arm_stats.py"),
     Path("scripts/audit_historical_artifacts.py"),
     Path("scripts/capture_analysis_provenance.py"),
+    Path("scripts/log_analysis/artifact_requirements.py"),
     Path("scripts/log_analysis/parse.py"),
     Path("scripts/render_july_mechanism_results.py"),
 )

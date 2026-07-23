@@ -78,10 +78,10 @@ python3 scripts/manifest_historical_runs.py \
 
 python3 scripts/capture_analysis_provenance.py \
   --implementation-file run_manifest.py \
-  --implementation-file scripts/artifact_requirements.py \
   --implementation-file scripts/arm_stats.py \
   --implementation-file scripts/audit_historical_artifacts.py \
   --implementation-file scripts/capture_analysis_provenance.py \
+  --implementation-file scripts/log_analysis/artifact_requirements.py \
   --implementation-file scripts/log_analysis/parse.py \
   --implementation-file scripts/render_july_mechanism_results.py \
   --out research/audits/july-mechanism-analysis-provenance.json

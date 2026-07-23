@@ -4,7 +4,7 @@
 
 **Do not submit the current manuscript to AAAI-27 or EACL 2027. Target NAACL 2027 through the October 12, 2026 ARR cycle. Keep ICLR 2027 only as a stretch option if its official call appears and the full experiment package is ready by early September.**
 
-AAAI-27 is not the remembered September deadline. Its abstract is due **July 21, 2026** and the full paper is due **July 28, 2026**, both AoE. The main track allows seven content pages. The historical technical report is fourteen pages, the central OPD result has one run per arm, and the public artifact cannot reproduce the reported statistics. A ten-day conversion would be a rushed lottery ticket, not a serious top-paper attempt.
+AAAI-27 is not the remembered September deadline. Its abstract is due **July 21, 2026** and the full paper is due **July 28, 2026**, both AoE. The main track allows seven content pages. The historical technical report is fourteen pages, the central OPD result has one run per arm, and several headline inputs remain private. The July mechanism scores now have a reviewer-replayable anonymous projection, but that does not repair the causal design. A ten-day conversion would be a rushed lottery ticket, not a serious top-paper attempt.
 
 NAACL 2027 confirms an October 12, 2026 ARR deadline and a June 1–5, 2027
 conference in San Francisco. Current ARR rules allow eight content pages for
@@ -68,7 +68,10 @@ graded advantage, while a repaired-render graded sensitivity reverses the
 nearest round-1 direction. This materially strengthens the corpus/visitation
 hypothesis but rules out a blanket “grades add no value” claim. One training
 run per cell and missing checkpoint/corpus/reset/render/seed receipts still
-block an effect estimate.
+block an effect estimate. A checked-in anonymous projection of 21,524
+score-relevant observations reproduces all nine totals from a clean checkout
+and binds rows to source-record/log hashes; full transcripts remain private, so
+the extraction itself is not independently repeatable.
 
 **New registered diagnostic:** The 18-cell, 30-minute local factorial completed
 with 18/18 launcher-valid cells and 1,266 rehashed files. Four cells advanced
@@ -114,8 +117,10 @@ The authors must also retain full responsibility for the paper and follow the ch
 
 - Freeze the exact environment and inference contract.
 - Fix the evaluation save crash and full-schema parity tests.
-- Package the recovered r10 and OPD inputs into a licensed, reviewer-accessible,
-  content-addressed artifact; make analysis scripts fail loudly when it is absent.
+- Package the remaining recovered r10 and OPD inputs into a licensed,
+  reviewer-accessible, content-addressed artifact. The July score projection is
+  already checked in; seek a full-transcript release or independent extraction
+  audit if licensing and privacy permit.
 - Choose one primary endpoint and write the analysis plan before new runs.
 
 ### Weeks 2–3: replicate the key causal result

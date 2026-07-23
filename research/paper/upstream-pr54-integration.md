@@ -35,8 +35,8 @@ not independent validation of the maintainer's July result narrative.
   could resume into an output created under different controls. The fork's
   versioned preparation/render contracts are the supported parity path.
 - Two post-hoc paper/program-state memos whose causal interpretations are not
-  backed by complete launch attestations or reviewer-accessible raw bundles in
-  this checkout. The detailed
+  backed by complete launch attestations. A reviewer-accessible score projection
+  is now checked in, but the full raw bundles remain private. The detailed
   historical experiment ledger remains explicitly caveated and is subordinate
   to `claims-evidence-matrix.md` and `submission-readiness.md`.
 
@@ -47,6 +47,10 @@ content-bound, and replayed at their record-level six-hour boundaries; the nine
 scores are reproduced by a clean-code, exact-input, clock-validated receipt in
 `research/audits/july-mechanism-results.json`. Exact checkpoint/configuration
 receipts, database/reset snapshots, render contracts, and seeds remain absent.
+The anonymous `research/artifacts/july-score-replay-v1/` derivative independently
+replays the nine scores and binds its 21,524 projected observations to source
+records and logs. It does not expose the full transcripts or independently
+verify their extraction.
 Nothing in this recovery upgrades E3′, E4, Arm-C, Rick's-Roll, or clean-r1 into
 a causal paper result. In particular, the earlier database-lane question is still
 resolved by evidence, not recollection: a maintainer states the headline runs

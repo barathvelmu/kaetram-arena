@@ -57,6 +57,7 @@ The durable loop is VM cron + the wrapper. The wrapper first runs the staleness 
 - [reviewer-handoff.md](paper/reviewer-handoff.md) — Central handoff for collaborators: PR order, current truth, experiment launch gates, work packages, and review checklist
 - [gargantua-review-2026-07-19.md](paper/gargantua-review-2026-07-19.md) — Exhaustive red-team ledger across code correctness, historical provenance, statistics, novelty, paper structure, venue fit, release gates, and falsification criteria
 - [upstream-pr54-integration.md](paper/upstream-pr54-integration.md) — Curated import audit for the maintainer's July mechanism campaign: accepted code, excluded claims/deployment pieces, zero-spend boundary, and verification.
+- [July score-replay artifact](artifacts/july-score-replay-v1/README.md) — Anonymous reviewer-facing projection of 21,524 score-relevant observations. A clean-clone verifier regenerates all nine July mechanism scores and checks source-record/log bindings; complete transcripts and historical launch attestations remain unavailable.
 - [contribution.md](paper/contribution.md) — Paper 1: What's novel, framing, outline, key ablations needed
 - [VARIABLES.md](paper/VARIABLES.md) — Design-variables catalog (KAE-49): every knob reviewers can question, grouped by layer
 - [submission-readiness.md](paper/submission-readiness.md) — July 18 go/no-go decision, venue calendar, critical path, and submission policy

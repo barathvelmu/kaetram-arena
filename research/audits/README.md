@@ -100,3 +100,24 @@ are create-or-identical-only and reject output paths that overlap their inputs.
 This reproduces historical descriptive scores. It does not reconstruct the
 checkpoint, training corpus, reset, game revision, render contract, or random
 seeds used by the original launches.
+
+### Anonymous July score replay
+
+`research/artifacts/july-score-replay-v1/` is the reviewer-facing derivative.
+It contains 21,524 successful score-relevant observations projected to quest
+names and stages, plus source-record and source-log hashes. It excludes prompts,
+model actions, maps, inventory, endpoint addresses, filesystem paths, and
+unrelated player state. Verify the committed artifact from a clean checkout:
+
+```bash
+python3.12 scripts/score_july_public_artifact.py \
+  --artifact-dir research/artifacts/july-score-replay-v1
+```
+
+The verifier checks every file and row binding, reconstructs the inclusive
+six-hour cutoffs, and requires the nine expected arm scores. The artifact
+manifest is
+`26f0f7f8e22757b1af1e90af93e9baf71969b32e7bb77e847a6c5b54ddb5818d`.
+This supports independent score replay. Because the complete historical
+transcripts remain private, it does not let a reviewer independently repeat the
+raw-to-projection extraction or recover missing launch attestations.

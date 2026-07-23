@@ -369,14 +369,19 @@ source-side checksum list covers 19,005 files; a second manifest hashes each
 directory; and the scorer rehashes those exact bytes under a clean,
 content-bound analysis receipt. Historical event timestamps omit an offset, so
 the replay admits UTC only after checking that all 27 monotonic event clocks
-begin 260--422 seconds after their independently offset-aware run starts. It
+begin 260--422 seconds after their separately recorded, offset-aware run starts. It
 includes an observation only when its record timestamp falls within that
 lane's recorded six-hour budget. The replay
 reproduces the documented totals for base+recovery (12), round-3 without
 recovery (18), round-2 natural-only (12), round-2 uniform (15), round-1 uniform
 (13), round-2 natural+uniform (14), teacher-free (12), round-3 uniform (17),
 and repaired-render round-1 (14). This establishes that the scores are present
-in the recovered logs. It
+in the recovered logs. An anonymous reviewer artifact projects the 21,524
+score-relevant observations to quest names and stages, binds each projection
+to its source-record and source-log hashes, and regenerates the same totals
+from a clean checkout. It omits prompts, model actions, maps, inventory, and
+unrelated player state. The projection permits score replay but not an
+independent audit of the private extraction step. It
 does not establish the identity of the historical checkpoint, corpus, reset,
 render contract, or random seeds, which were not sealed at launch.
 
@@ -629,7 +634,10 @@ data. The environment is a single game with procedural walkthroughs, the
 teacher and student are from one model family, and stage counts are coarse. Some
 development analyses depend on logs whose raw inputs are not publicly packaged.
 The recovered July scores are content-bound and deterministically regenerated,
-but the launches lack exact checkpoint, training-corpus, reset, render, and RNG
+and their score-relevant projection is included for clean-clone replay. The
+full historical transcripts remain private, so reviewers cannot independently
+repeat the projection from raw logs. The launches also lack exact checkpoint,
+training-corpus, reset, render, and RNG
 attestations. This is therefore an audited case study and protocol, not a
 completed causal method study. A clean clone must also regenerate every main
 table before submission.
@@ -766,9 +774,12 @@ recovery manipulation did not engage; on/off differences are not recovery
 effects.
 \item[Historical bundles.] The recovered external inventories bind the headline
 R10, OPD, and July mechanism agent-run directories, reproduce the R10
-statistics, and regenerate the nine July scores. The raw bundles are not a
-public reviewer artifact and do not attest the executed reset command, game
-revision, checkpoint identity, or OPD training inputs.
+statistics, and regenerate the nine July scores. A checked-in anonymous
+projection permits exact replay of those July scores and binds its rows to
+source records and logs. The full raw bundles are not a public reviewer
+artifact, so extraction cannot be independently repeated; neither artifact
+attests the executed reset command, game revision, checkpoint identity, or OPD
+training inputs.
 \item[Cross-task transfer.] Unsupported; no claim.
 \end{description}
 
@@ -786,8 +797,11 @@ inputs.
 The current artifact does not yet meet this bar. One internal recovery hashes 60
 selected directories (18,812 files) and regenerates the R10 statistics. A
 second binds 27 July agent/run directories (19,005 source files) and
-deterministically regenerates nine six-hour mechanism-arm scores. The raw
-bundles are not in the reviewer artifact, and neither recovery can attest the
+deterministically regenerates nine six-hour mechanism-arm scores. An anonymous
+projection of 21,524 successful observations is checked in with its own
+manifest and clean-clone scorer; it is sufficient to regenerate the July
+scores but not to repeat the private raw-to-projection extraction. The full raw
+bundles are not in the reviewer artifact, and no recovery can attest the
 historical reset command, game revision, checkpoint identity, OPD training
 inputs, or render contract. One historical lane
 also reset a different database from its game servers, so its results are

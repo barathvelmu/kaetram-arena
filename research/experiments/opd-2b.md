@@ -15,7 +15,7 @@ before cooking is reached, with the cook-incompetent teacher a wall behind it). 
 round-2-weights-plus-recovery result (17/30) was also a single unmatched historical run; it is
 suggestive, not a controlled effect estimate.
 We label 18/30 a weights-plus-interface result and don't lean
-on nominally edging the 4B teacher (18 vs 17, with a recovery fix the teacher lacked). Supersedes
+on nominally edging the 4B teacher (18 vs 17, with a recovery affordance the teacher lacked). Supersedes
 the 9B
 instantiation of the OPD plan in [r11-direction.md](r11-direction.md) ("Where r11 sits");
 companion to [r11-probing.md](r11-probing.md) (the 9B feasibility probes) and
@@ -461,7 +461,8 @@ keeping state-grounding — the compression comes in round 3.
    but a NEW dominant form appeared: Python-call syntax inside the function tag —
    `<function=gather("Oak")>` — 0 (base) → 79 (r1) → **599 (r2)**; plus corrupted closing
    tags (`</number>`, `</script>`). Masking removes reinforcement but supplies no
-   correction (the predicted limit); **the cure is the harness-side lever** that round 3 adds.
+   correction (the predicted limit); round 3 adds a harness-side recovery lever, whose separate
+   effect remains unidentified in the historical record.
 2. **Total failure rate** base 8.6% / r1 16.9% / r2 16.7%: the OPD models carry a
    *schema/validation* failure class (~0.1% base → ~11%) that the malformed calls produce and
    that roughly doubles their total failure rate, while the *game-state* error class improved

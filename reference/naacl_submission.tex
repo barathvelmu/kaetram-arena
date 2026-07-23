@@ -533,9 +533,9 @@ checkpoint; and both checkpoint-by-recovery interactions. It controls
 familywise alpha at .05 by a two-sided Bonferroni allocation. The 20-cluster
 record targets 80\% power only under its prospective assumption of a
 three-stage minimum relevant paired difference and paired-difference standard
-deviation at most three; it is not an empirical variance estimate. The
-separate 18-cell local run is exploratory execution evidence and cannot replace
-this design.
+deviation at most three; it is not an empirical variance estimate. The separate
+registered 18-cell local run is exploratory and cannot replace this design; no
+outcome enters the paper until its complete bundle passes the fail-closed audit.
 
 \paragraph{Generalization.}
 Hold out at least one quest from candidate discovery, state selection, and
@@ -742,11 +742,13 @@ hashes and regenerate every table and figure without network-dependent mutable
 inputs.
 
 The current development artifact does not yet meet this bar. A read-only
-external recovery now contains the headline R10 and OPD run directories, bound
-to an inventory whose 19,728 listed files rehash successfully; the R10
-statistics regenerate from those paths. That recovery is not checked into this
-repository, publicly released, or sufficient to attest the historical reset
-command, full game revision, OPD training inputs, or exact render contract.
+external recovery now contains the headline R10 and OPD run directories and is
+bound to the SHA-256 digest of an external inventory. The checked-in run-digest
+audit independently hashes 60 selected directories totaling 18,812 files, and
+the R10 statistics regenerate from those paths. That recovery is not checked
+into this repository, publicly released, or sufficient to attest the
+historical reset command, full game revision, OPD training inputs, or exact
+render contract.
 From April 25 through PR~\#37's July 22 merge, the dedicated
 \texttt{run-eval.sh} lane on main reset a different database from its game
 servers (a fixed branch existed from July 18). The headline R10 and June OPD

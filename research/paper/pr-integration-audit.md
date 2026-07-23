@@ -110,10 +110,11 @@ The April 25 database split affects the dedicated `run-eval.sh` lane. Headline
 r10 and June OPD paths used the separate database-aligned orchestrator and are
 not implicated by this specific mismatch. The conservative main-branch exposure
 window ends at PR #37's July 22 merge; July 18 is the first fixed branch commit.
-Recovered external run directories are now bound to an immutable inventory, all
-19,728 listed files rehash successfully, and the r10 analyses rerun from those
-paths. They remain unreleased, and neither the historical reset command nor the
-exact game revision is attested.
+Recovered external run directories are now bound to the SHA-256 digest of an
+external inventory. The checked-in run-digest audit independently hashes 60
+selected directories totaling 18,812 files, and the r10 analyses rerun from
+those paths. They remain unreleased, and neither the historical reset command
+nor the exact game revision is attested.
 
 ## Audit checks performed
 

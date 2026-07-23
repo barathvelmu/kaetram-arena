@@ -504,7 +504,7 @@ the stalled Herbalist stage 2 — and aimed at 10/10. It produced the program's 
    replaced round-2 abstention). Train from merged r2, 277 steps. **Gate PASS** (rKL to
    teacher 0.3558→0.3330 = +6.4%, every verb improved; 0 degeneration).
 
-### The two-attempt story: counterfactual grading alone REGRESSED; harness recovery fixed it
+### The two-attempt story: counterfactual grading regressed; recovery-enabled rerun
 
 The first 6h eval (`run_20260613_105318`) was **stopped at 35 min**: counterfactual grading did
 NOT suppress the malformed *emission* — it regressed it. 2/3 agents were paralyzed (57% / 76%
@@ -514,12 +514,15 @@ loop. **Key lesson: grader-endorsement-suppression (flip-probe-verified) did not
 student-emission-suppression after training.** The defect lives in the policy's generation, and
 a grading-context fix doesn't reach it.
 
-The fix was a **harness affordance** (`KAETRAM_TOOL_RECOVERY`, env-gated): when the server
+The intended runtime intervention was a **harness affordance** (`KAETRAM_TOOL_RECOVERY`,
+env-gated): when the server
 drops a malformed call, `play_qwen` recovers the executable call (`canonicalize.recover_tool_calls`,
 99.5% coverage on real specimens), **rewrites history to a clean canonical assistant turn**
 (severing the in-context copy prior at its source), executes it, and returns a loud `[format]`
-correction note. The rerun (`run_20260613_112422`) with recovery on solved the paralysis
-at runtime (reported 3.3% recovery rate; source logs are not packaged).
+correction note. In the reported rerun (`run_20260613_112422`), recovery was enabled and
+paralysis was not reported (reported 3.3% recovery rate; source logs are not packaged).
+This temporal/runtime association does not establish a causal cure because raw pre-rewrite
+emissions and an independently regenerated recovery count are unavailable.
 
 ### Results: 18/30, and the Herbalist stage-2 wall broke
 
@@ -663,8 +666,8 @@ SFT lane $53) — so total Modal spend across the June 6–14 OPD work window wa
    can't grade what it can't do.
 2. **Two cheap harness fixes the logs demand**: auto-re-equip/surface the fishing pole (link-1
    gate), and a session note that carries route-progress for un-accepted target quests.
-3. **Promote tool-recovery to a permanent affordance** (it is that load-bearing), tracking the
-   pure-weights defect rate separately.
+3. **Retain tool recovery as a separately measured runtime arm** pending the matched factorial,
+   tracking the pure-weights defect rate separately.
 
 *Counter provenance: the historical notes report 405 recovery markers (`[format]` results);
 `n_malformed_emit` (335) is a lower bound — the harness rewrites assistant content to canonical

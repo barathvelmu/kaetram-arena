@@ -35,7 +35,7 @@ def test_direct_dependencies_are_exactly_pinned_in_complete_lock() -> None:
 
 def test_complete_lock_has_only_exact_unique_pins() -> None:
     lock = bootstrap_unit_tests.parse_lock()
-    assert len(lock) == 50
+    assert len(lock) == 55
     assert lock["pytest"] == "9.1.1"
     assert lock["mcp"] == "1.28.1"
     assert lock["openai"] == "2.46.0"

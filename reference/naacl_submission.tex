@@ -46,7 +46,11 @@ training-only player states are selected by frozen student-visitation, teacher-
 advantage, validity, and recoverability criteria. Random-valid, progress-matched,
 teacher-success-prefix, natural-OPD, and guided-OPD controls separate targeted
 coverage from generic resets and prefix curricula. We present a falsifiable
-protocol and audited failure analysis, not an established method effect.
+protocol and audited failure analysis, not an established method effect. A
+prospective nine-cell, five-minute local pilot exercises the matched
+tokenizer/render and seed-attested environment path. All 42 emitted structured
+calls use canonical names and JSON-object arguments, but 64 of 106 generations
+emit no structured call and no cell advances a quest.
 \end{abstract}
 
 \section{Introduction}
@@ -222,6 +226,14 @@ split into 7,024 training and 825 held-out records. Because round 2 also changes
 the initialization and data batch, round 1 versus round 2 is not a clean
 state-augmented-versus-natural-only training ablation.
 
+Separately, before observing outcomes we registered a local feasibility pilot
+using no paid endpoint and crossing Base, round-2, and round-3 public weight snapshots
+with three paired inference/environment seeds. Each cell uses one completionist
+prompt identity, recovery off, a canonical tool schema, the same locked
+tokenizer and patched render contract, and one five-minute canonical-start
+episode. This pilot tests execution and action throughput only; it is not the
+six-hour weights-by-recovery factorial and cannot establish policy superiority.
+
 \begin{table*}[t]
 \caption{Observed development runs and the claims they permit. Scores are
 descriptive because there is one run per arm. Recovery is a runtime interface
@@ -250,15 +262,16 @@ format analyses; rewritten history is not an authoritative defect counter.
 
 \section{Exploratory Results}
 
-\subsection{Natural-visitation OPD transfers behavior, not score}
+\subsection{Behavior changes without score change in the reported
+natural-visitation round}
 
 Round 1 leaves \core{} unchanged at 12/30 and every agent reaches the same 4/10
 stage profile as base. Nevertheless, several behavioral measurements move
 toward the 4B teacher (Table~\ref{tab:behavior}). The average number of turns per
 session exactly matches the teacher, observation and navigation shares approach
 the teacher, and query frequency overshoots it. The result is consistent with
-mode-seeking behavioral imitation, while showing that agreement on frequently
-visited states is insufficient for this quest wall.
+mode-seeking behavioral imitation and with the hypothesis that agreement on
+frequently visited states can be insufficient for this quest wall.
 
 \begin{table}[t]
 \caption{Behavior changes in the first OPD round. Percentages are shares of
@@ -330,6 +343,42 @@ rewritten sessions with exactly one recovery marker and no later marker. Because
 the source logs and raw pre-rewrite emissions are absent, that count is not
 independently auditable and does not show that weights learned the format, that
 the model self-corrected, or that recovery generalizes to other defects.
+
+\subsection{Prospective pilot executes all cells, not the task}
+
+All nine preregistered local cells completed with exact canonical-start
+projections and seed-bound environment-RNG receipts. Across 106 raw endpoint
+generations, 42 emitted one structured call and 64 emitted none
+(Table~\ref{tab:localpilot}). Every emitted call had a canonical tool name and
+JSON-object arguments; the retained stderr logs contain no logged
+\texttt{API error:} line,
+and every final session records duration exhaustion. Rehashing the 261 files in
+the sealed per-cell inventories found no mismatch. Mean structured calls per observed minute were
+0.968 for Base, 0.736 for round 2, and 0.872 for round 3. The per-cell counts
+overlap substantially, and with only three short cells per snapshot we perform
+no superiority test. No cell advanced a quest or a \core{} stage. Thus the
+pilot provides a narrow operational observation: the matched local
+stack executed the registered paired cells and retained internally hash-checked
+evidence; five minutes is too short to support an informative task-level estimate.
+
+\begin{table}[t]
+\caption{Preregistered local feasibility pilot. Each snapshot has three paired,
+five-minute cells. Calls/min uses observed wall time, including the final
+in-flight generation. No-call counts include thinking-only generations. These
+are descriptive diagnostics, not policy-effect estimates.}
+\label{tab:localpilot}
+\centering
+\small
+\begin{tabular}{lccc}
+\toprule
+Weights & Calls/cell & Calls/min & No-call sum \\
+\midrule
+Base & 5, 6, 5 & 0.968 & 21 \\
+Round 2 & 1, 5, 6 & 0.736 & 22 \\
+Round 3 & 5, 4, 5 & 0.872 & 21 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{A Teacher-Forcing Failure at the Interface}
 
@@ -501,7 +550,10 @@ reported policies had not passed. That sequence
 does not establish the proposed selector. Random and progress-matched resets,
 TCOD-B2F, Guided-OPD, replication, and held-out transfer decide whether the
 narrow method survives. A malformed-prefix probe separately motivates, but does
-not yet establish, a wrong-signed teacher-feedback mechanism at the tool boundary.
+not yet establish, a wrong-signed teacher-feedback mechanism at the tool
+boundary. A prospective local pilot executed all registered cells with internally
+hash-checked evidence, but its short horizon produces no quest progress and no
+policy-quality claim.
 
 \section*{Limitations}
 
@@ -517,7 +569,9 @@ and a clean clone regenerates every main table.
 Direct database construction is environment-specific and may not transfer to
 systems without restorable state. The historical failure state was selected
 retrospectively, so selection bias is possible; the prospective selector has no
-outcome yet. Teacher competence at the target state is observed in a small number
+outcome yet. The local pilot has only three five-minute cells per snapshot; it
+was designed for feasibility, not power, and its outcomes cannot enter the
+confirmatory estimate. Teacher competence at the target state is observed in a small number
 of trajectories, not estimated precisely.
 The syntax probe covers one defect family and should not be generalized to all
 teacher-forced grading.
@@ -587,6 +641,9 @@ the target resource. Evaluation never loads this state.
 continuation in a targeted historical probe; no matched preference reversal.
 \item[Recovery.] Historical notes report no repeat marker after correction in
 rewritten sessions; source logs and raw relapse are unavailable.
+\item[Local pilot.] Nine short paired cells executed through the matched local
+stack with internally hash-checked artifacts; they provide no model-superiority or quest-performance
+claim and cannot enter the confirmatory estimate.
 \item[Cross-task transfer.] Unsupported; no claim.
 \end{description}
 
@@ -608,12 +665,14 @@ from its game servers. The headline r10 and June OPD values used a separate
 database-aligned orchestrator and are not implicated by that specific mismatch,
 but their raw bundles are also absent. Full dependency installation has
 now been demonstrated for the prospective CPU unit suite in a fresh clone, but
-not for training, live game execution, checkpoints, or paper-table regeneration.
-The prospective launcher can seed inference. A draft game-side patch centralizes
-gameplay randomness and publishes a strict startup attestation, and the launcher
-verifies a distinct registered environment seed for each replicate. That patch
-is not yet merged, deployed, or verified in a live run, so confirmatory launch
-remains fail-closed. A draft isolated-service reachability checker executes
+not for training or paper-table regeneration. A separate local pilot has now
+executed nine matched hash-identified public-weight cells against a recorded
+game-fork commit, using one common Base tokenizer and patched render contract,
+registered inference/environment seeds, exact canonical-start projections, and
+261 rehashed files in sealed per-cell inventories. This records prospective
+local game/model execution, not training, the
+full confirmatory factorial, historical results, or clean-clone table
+regeneration. Confirmatory launch remains fail-closed. A draft isolated-service reachability checker executes
 hash-pinned MCP transitions and persistent player-state comparisons, but it has
 not yet produced a certificate in a live game/Mongo lane. A draft matched-training launcher
 freezes 50 core arm--seed cells plus 20 separately reported state--history

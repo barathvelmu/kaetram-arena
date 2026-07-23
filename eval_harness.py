@@ -39,6 +39,12 @@ from heldout_guard import (
 )
 from inference_seed import validate_inference_seed
 from port_probe import is_tcp_port_open
+from canonical_start import (
+    initial_state_projection,
+    seed_canonical_player,
+    state_mismatches,
+)
+from run_manifest import sha256_json
 
 
 # ---------------------------------------------------------------------------
@@ -482,12 +488,12 @@ def parse_log(log_path: Path) -> list[dict]:
                             "args": blk.get("input", {}) or {},
                             "id": blk.get("id", ""),
                         })
-                # Multiple `assistant` records for one logical turn (one block
-                # each) are collapsed by the extractor only via tool_calls
-                # presence. Emit one entry per record so per-block thinking/
-                # text records still count as turns; aggregate tool_use blocks.
-                # The extractor increments assistant_turns per record and reads
-                # tool_calls (one tool-call → one assistant record).
+                # A thinking-only block is not a second logical model turn.
+                # play_qwen emits thinking and tool-use blocks as sibling
+                # records with the same turn number, so counting the empty
+                # thinking record halves an otherwise perfect parse rate.
+                if not texts and not tool_calls:
+                    continue
                 entry = {"role": "assistant", "content": " ".join(texts)}
                 if tool_calls:
                     entry["tool_calls"] = tool_calls
@@ -509,6 +515,66 @@ def parse_log(log_path: Path) -> list[dict]:
                     })
             # Drop type=="system"/"result" — not consumed by metrics.
     return entries
+
+
+def validate_eval_session_terminals(session_logs: list[Path]) -> list[dict]:
+    """Require a complete, non-error warm-session termination chain.
+
+    ``play_qwen`` intentionally returns process exit code zero after some
+    model-API failures, so the subprocess return code alone cannot establish a
+    valid episode.  Every session log must contain exactly one terminal record.
+    Intermediate sessions may end only for context rollover, and the final
+    session must prove that the declared wall-clock budget was exhausted.
+    """
+    if not session_logs:
+        raise RuntimeError("episode produced no session logs")
+
+    terminals: list[dict] = []
+    for log_path in session_logs:
+        records: list[dict] = []
+        with open(log_path) as f:
+            for raw in f:
+                raw = raw.strip()
+                if not raw or not raw.startswith("{"):
+                    continue
+                try:
+                    record = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if (
+                    record.get("type") == "result"
+                    and record.get("subtype") == "session_end"
+                ):
+                    records.append(record)
+        if len(records) != 1:
+            raise RuntimeError(
+                f"{log_path.name}: expected exactly one session_end record, "
+                f"found {len(records)}"
+            )
+        terminal = records[0]
+        reason = terminal.get("terminal_reason") or terminal.get("result")
+        if terminal.get("is_error") is not False:
+            raise RuntimeError(
+                f"{log_path.name}: session ended in error ({reason or 'unknown'})"
+            )
+        terminals.append(terminal)
+
+    for index, terminal in enumerate(terminals[:-1]):
+        reason = terminal.get("terminal_reason") or terminal.get("result")
+        if reason != "context_overflow":
+            raise RuntimeError(
+                f"{session_logs[index].name}: intermediate session ended with "
+                f"{reason!r}, expected 'context_overflow'"
+            )
+
+    final = terminals[-1]
+    final_reason = final.get("terminal_reason") or final.get("result")
+    if final_reason != "duration_exhausted":
+        raise RuntimeError(
+            f"{session_logs[-1].name}: final session ended with "
+            f"{final_reason!r}, expected 'duration_exhausted'"
+        )
+    return terminals
 
 
 
@@ -536,6 +602,24 @@ def _parse_tool_json(content: str) -> dict | None:
         return json.loads(json_str)
     except (json.JSONDecodeError, ValueError):
         return None
+
+
+def validate_canonical_first_observation(entries: list[dict]) -> dict:
+    """Require the first environment result to prove the canonical start."""
+    tool_entries = [entry for entry in entries if entry.get("role") == "tool"]
+    if not tool_entries:
+        raise RuntimeError("episode produced no environment tool result")
+    content = tool_entries[0].get("content", "")
+    if not isinstance(content, str) or not content.startswith("observe: "):
+        raise RuntimeError("first environment tool result was not observe")
+    payload = _parse_tool_json(content)
+    if not isinstance(payload, dict):
+        raise RuntimeError("first observe result was not valid JSON")
+    projection = initial_state_projection(payload)
+    mismatches = state_mismatches(projection)
+    if mismatches:
+        raise RuntimeError(f"first observe did not match canonical start: {mismatches}")
+    return projection
 
 
 def _read_player_db_snapshot(username: str) -> dict | None:
@@ -1086,11 +1170,24 @@ def run_model_eval(
     for ep_num in range(resume_from + 1, n_episodes + 1):
         print(f"\n--- Episode {ep_num}/{n_episodes} ---")
 
-        # 1. Reset player data
+        episode_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = Path(sandbox) / "logs" / f"run_{episode_ts}_ep{ep_num:03d}"
+        run_dir.mkdir(parents=True, exist_ok=False)
+
+        # 1. Reset and create the exact canonical benchmark player. Relying on
+        # client-side fallback registration is not reproducible: some client
+        # builds do not surface invalid-login text, leaving the account absent.
         print(f"  Resetting MongoDB for {username}...")
         require_player_db_reset(username)
+        canonical_receipt = seed_canonical_player(username, db_name=MONGO_DB)
+        canonical_receipt["receipt_sha256"] = sha256_json(canonical_receipt)
+        (run_dir / "canonical_start.json").write_text(
+            json.dumps(canonical_receipt, indent=2, sort_keys=True) + "\n"
+        )
         db_before = _read_player_db_snapshot(username)
         qa_before = _read_quest_achievement_snapshot(username)
+        if db_before is None or qa_before is None:
+            raise RuntimeError("canonical start could not be read back from MongoDB")
 
         # Clear sandbox state (keep mcp_server.log for dashboard).
         # Sandbox /state holds the live game-state JSON + .session_counter
@@ -1105,9 +1202,6 @@ def run_model_eval(
         # Inside that process, sessions roll on context_overflow — Mongo state
         # carries the character forward across rollovers. We aggregate metrics
         # over all session_*.log files in the per-episode run dir.
-        episode_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        run_dir = Path(sandbox) / "logs" / f"run_{episode_ts}_ep{ep_num:03d}"
-
         run_info = run_episode(
             project_dir=project_dir,
             endpoint=endpoint,
@@ -1164,6 +1258,39 @@ def run_model_eval(
             print("  Aborting remaining episodes after zero-turn failure to avoid contaminating the run")
             break
 
+        invalid_reason = ""
+        initial_projection: dict = {}
+        if last_returncode != 0:
+            invalid_reason = f"agent harness exited with code {last_returncode}"
+        else:
+            try:
+                validate_eval_session_terminals(session_logs)
+                initial_projection = validate_canonical_first_observation(
+                    all_log_entries
+                )
+            except RuntimeError as exc:
+                invalid_reason = str(exc)
+        if invalid_reason:
+            print(f"  Invalid episode: {invalid_reason}")
+            episodes.append({
+                "episode": ep_num,
+                "status": "invalid_environment",
+                "reason": invalid_reason,
+                "duration_seconds": total_duration,
+                "returncode": last_returncode,
+                "sub_sessions": sub_session,
+            })
+            _save_results(
+                results_path, model_name, endpoint_ref, scenario, episodes,
+                include_game_knowledge=include_game_knowledge,
+                held_out_registration=held_out_registration,
+                inference_seed=inference_seed,
+                duration_seconds_budget=duration_seconds,
+                provenance_meta=provenance_meta,
+            )
+            print("  Aborting remaining episodes after invalid environment evidence")
+            break
+
         # Save combined log to eval output directory
         dest_log = model_output_dir / f"episode_{ep_num:03d}.jsonl"
         with open(dest_log, "w") as f:
@@ -1180,6 +1307,7 @@ def run_model_eval(
             "player_metrics_after": db_after,
             "quest_achievement_before": qa_before,
             "quest_achievement_after": qa_after,
+            "canonical_first_observation": initial_projection,
         }, indent=2, sort_keys=True) + "\n")
         metrics = compute_episode_metrics(
             all_log_entries,

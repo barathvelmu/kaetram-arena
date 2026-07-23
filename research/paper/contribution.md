@@ -1,6 +1,11 @@
 # Paper 1: Contribution & Framing
 
-Working notes for Paper 1 of the two-paper roadmap. This is a historical thinking document, not paper-ready prose. The July 18, 2026 submission audit in [submission-readiness.md](submission-readiness.md), [claims-evidence-matrix.md](claims-evidence-matrix.md), and [literature-positioning.md](literature-positioning.md) supersedes any conflicting framing below.
+Working notes for Paper 1 of the two-paper roadmap. This is a historical
+thinking document, not paper-ready prose. The July 18 submission audit in
+[submission-readiness.md](submission-readiness.md),
+[claims-evidence-matrix.md](claims-evidence-matrix.md), and
+[literature-positioning.md](literature-positioning.md) supersedes both the
+May-era framing below and the July 10 campaign notes wherever they conflict.
 
 **Context:** This is Paper 1 (Kaetram distillation). Paper 2 (RuneScape adversarial multi-agent) is in [paper2-runescape-vision.md](paper2-runescape-vision.md). The two papers are fully independent — do not conflate them. Paper 1 evaluates a distillation hypothesis and its infrastructure; it does not yet prove a method effect. Paper 2 is the agent safety contribution.
 

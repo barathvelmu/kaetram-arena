@@ -14,9 +14,10 @@ path can't be used across sizes.
 Load discipline (the first run wedged both endpoints): the serve classes take
 @modal.concurrent(max_inputs=16); this client holds at most PER_EP_CONCURRENCY
 in flight per endpoint, renders in a worker thread so the event loop keeps
-servicing responses, submits in chunks, and appends results incrementally so a
-crash/stall resumes instead of restarting (states already in the output files
-are skipped by (session, turn_idx)).
+servicing responses, and submits in chunks. Provenance-sealed builds are
+create-only: a crash leaves an explicitly partial artifact that must be moved
+aside before a fresh build. The builder never attaches a new receipt to
+pre-existing records.
 
 Emits pre-tokenized training records for finetune/train_opd_2b.py:
     input_ids          = ctx_ids + target_ids
@@ -35,7 +36,9 @@ Usage (round 2 — student EP is the r1 endpoint):
   TWOB_EP=https://patnir411--kaetram-qwen-2b-opd-inference-serve.modal.run/v1 \
   FOURB_EP=https://.../v1 \
     python3 scripts/opd/opd_2b_data.py --run-ids run_20260610_140358 <seeded_run> \
-      --out-dir dataset/opd_2b/round2
+      --out-dir dataset/opd_2b/round2 \
+      --student-artifact-id qwen-2b-r1 --student-artifact-sha256 <64-hex> \
+      --teacher-artifact-id qwen-4b --teacher-artifact-sha256 <64-hex>
   modal volume put kaetram-model-vol dataset/opd_2b/round2/records.jsonl \
       /opd_2b/round2/records.jsonl --force
 """
@@ -62,6 +65,7 @@ from opd_round1 import turn_to_chat  # noqa: E402
 from opd_wall_probe import _frontier, _finished_from_payload  # noqa: E402
 from render import patch_qwen_chat_template  # noqa: E402
 from heldout_guard import assert_text_not_reserved  # noqa: E402
+from opd_data_manifest import create_opd_data_manifest  # noqa: E402
 
 STUDENT_EP = os.environ["TWOB_EP"].rstrip("/")
 TEACHER_EP = os.environ["FOURB_EP"].rstrip("/")
@@ -115,13 +119,20 @@ def _emission_text(turn):
     return content + "<|im_end|>\n"
 
 
+def _source_logs(run_ids):
+    logs = []
+    for run in run_ids:
+        logs.extend(sorted((REPO / "dataset" / "raw").glob(
+            f"agent_*/runs/{run}/session_*.log"
+        )))
+    return logs
+
+
 def collect_action_states(run_ids):
     """Per-turn (messages, emission, verb, frontier, session, turn_idx, n_turns,
     holdout) over the rollout logs. messages = [system, bootstrap, ...tail...]
     (context only); emission = the raw action continuation."""
-    logs = []
-    for run in run_ids:
-        logs.extend(sorted((REPO / "dataset" / "raw").glob(f"agent_*/runs/{run}/session_*.log")))
+    logs = _source_logs(run_ids)
     states = []
     n_no_emission = 0
     for log_i, lp in enumerate(logs):
@@ -322,18 +333,6 @@ async def build_record(client, tok, st, sem_s, sem_t):
     return rec, "ok_cf" if counterfactual else "ok"
 
 
-def _done_keys(path):
-    keys = set()
-    if path.exists():
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    r = json.loads(line)
-                    keys.add((r["session"], r["turn_idx"]))
-    return keys
-
-
 def _print_diagnostic(diag):
     print("\n## Pre-train reverse-KL diagnostic  (mean logp_2B - logp_4B, per action token)")
     print("   positive => the 2B is over-confident where the 4B disagrees (OPD suppresses);")
@@ -360,7 +359,21 @@ async def main():
     ap.add_argument("--run-ids", nargs="+", default=["run_20260610_140358"])
     ap.add_argument("--out-dir", default="dataset/opd_2b/round2")
     ap.add_argument("--limit", type=int, default=0, help="cap states (0 = all; for smoke tests)")
+    ap.add_argument("--student-artifact-id", required=True)
+    ap.add_argument("--student-artifact-sha256", required=True)
+    ap.add_argument("--teacher-artifact-id", required=True)
+    ap.add_argument("--teacher-artifact-sha256", required=True)
     args = ap.parse_args()
+    for name in ("student_artifact_sha256", "teacher_artifact_sha256"):
+        value = getattr(args, name)
+        if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
+            ap.error(f"--{name.replace('_', '-')} must be a lowercase SHA-256")
+    for name in ("student_artifact_id", "teacher_artifact_id"):
+        value = getattr(args, name)
+        if not value.strip() or "://" in value or any(char.isspace() for char in value):
+            ap.error(
+                f"--{name.replace('_', '-')} must be a non-URL artifact identifier"
+            )
 
     tok = load_student_tokenizer()
     states = collect_action_states(args.run_ids)
@@ -371,12 +384,15 @@ async def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     rec_path = out_dir / "records.jsonl"
     hold_path = out_dir / "heldout.jsonl"
+    manifest_path = out_dir / "records.manifest.json"
 
-    done = _done_keys(rec_path) | _done_keys(hold_path)
-    if done:
-        before = len(states)
-        states = [s for s in states if (s["session"], s["turn_idx"]) not in done]
-        print(f"resume: {len(done)} already scored, {before - len(states)} skipped")
+    existing = [path for path in (rec_path, hold_path, manifest_path) if path.exists()]
+    if existing:
+        rendered = ", ".join(str(path) for path in existing)
+        sys.exit(
+            "FATAL: provenance-sealed builds are create-only; move the partial or "
+            f"completed artifacts before retrying: {rendered}"
+        )
 
     n_hold = sum(1 for s in states if s["holdout"])
     print(f"action states to score: {len(states)} ({n_hold} held out at session level) "
@@ -405,7 +421,7 @@ async def main():
                          f"(student={'ok' if warm_s else 'FAIL'} @ {STUDENT_EP}, "
                          f"teacher={'ok' if warm_t else 'FAIL'} @ {TEACHER_EP}) — "
                          f"endpoint down or URL wrong; not starting the build.")
-        with open(rec_path, "a") as rf, open(hold_path, "a") as hf:
+        with open(rec_path, "x") as rf, open(hold_path, "x") as hf:
             for i in range(0, len(states), CHUNK):
                 chunk = states[i:i + CHUNK]
                 results = await asyncio.gather(
@@ -434,6 +450,31 @@ async def main():
         print(f"malformed-param spans masked: {n_masked_spans} spans / "
               f"{n_masked_tokens} tokens ({n_masked_tokens/n_action_tokens*100:.2f}% of action tokens)")
     _print_diagnostic(diag)
+    manifest = create_opd_data_manifest(
+        records_path=rec_path,
+        heldout_path=hold_path,
+        manifest_path=manifest_path,
+        source_logs=_source_logs(args.run_ids),
+        source_root=REPO,
+        run_ids=args.run_ids,
+        builder_path=Path(__file__),
+        parameters={
+            "student_tokenizer_id": STUDENT_TOKENIZER_ID,
+            "student_artifact_id": args.student_artifact_id,
+            "student_artifact_sha256": args.student_artifact_sha256,
+            "teacher_artifact_id": args.teacher_artifact_id,
+            "teacher_artifact_sha256": args.teacher_artifact_sha256,
+            "max_history_messages": MAX_HIST_MSGS,
+            "max_sequence_tokens": MAX_SEQ,
+            "kl_coefficient": KL_COEF,
+            "holdout_every": HOLDOUT_EVERY,
+            "early_weight": EARLY_WEIGHT,
+            "malformed_parameter_pattern": MALFORMED_PARAM_RE.pattern,
+            "counterfactual_grading": True,
+            "limit": args.limit,
+        },
+    )
+    print(f"sealed build receipt: {manifest_path} ({manifest['output_sha256']})")
     vol_dst = f"/opd_2b/{out_dir.name}/records.jsonl"
     print(f"\nNext: modal volume put kaetram-model-vol {rec_path.relative_to(REPO)} "
           f"{vol_dst} --force")

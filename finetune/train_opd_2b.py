@@ -87,7 +87,8 @@ train_image = (
     .add_local_python_source("scripts.opd.guided_opd_contract")
     .add_local_python_source("scripts.opd.guided_opd_schedule")
     .add_local_python_source("scripts.opd.record_schema")
-    .add_local_python_source("scripts.opd.attest_training_records")
+    .add_local_python_source("scripts.opd.opd_2b_data")
+    .add_local_python_source("scripts.opd.opd_data_manifest")
     .add_local_python_source("scripts.opd.make_uniform_advantages")
     .add_local_python_source("scripts.opd.resample_records")
     .add_local_python_source("scripts.opd.training_record_bundle")
@@ -118,7 +119,6 @@ with train_image.imports():
 
 
 def _load_records(path, backend_plan_path="", records_manifest_path=""):
-    import json
     if backend_plan_path:
         from scripts.opd.guided_opd_contract import load_guided_training_bundle
         load_guided_training_bundle(path, backend_plan_path)
@@ -127,14 +127,8 @@ def _load_records(path, backend_plan_path="", records_manifest_path=""):
             "trainer does not implement live mixed actor turns with reverse KL on student "
             "turns and forward KL on teacher turns"
         )
-    recs = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                recs.append(json.loads(line))
-    if not all(isinstance(record, dict) for record in recs):
-        raise RuntimeError("OPD records must be JSON objects")
+    from scripts.opd.training_record_bundle import load_verified_training_records
+    recs = load_verified_training_records(path, records_manifest_path)
 
     def has_guided_marker(record):
         semantics = record.get("semantics")
@@ -151,8 +145,7 @@ def _load_records(path, backend_plan_path="", records_manifest_path=""):
             "Guided-OPD records require --backend-plan-path for fail-closed "
             "schema, provenance, role-schedule, and mixed-trajectory validation"
         )
-    from scripts.opd.training_record_bundle import load_verified_training_records
-    return load_verified_training_records(path, records_manifest_path)
+    return recs
 
 
 def _opd_collator(features):

@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from scripts.opd.attest_training_records import attest_training_records
 from scripts.opd.make_uniform_advantages import (
     ArtifactBuildError as UniformBuildError,
 )
@@ -19,6 +18,7 @@ from scripts.opd.training_record_bundle import (
     TrainingRecordBundleError,
     load_verified_training_records,
 )
+from scripts.opd.opd_data_manifest import create_opd_data_manifest
 
 
 def _sha256(path: Path) -> str:
@@ -268,11 +268,51 @@ def test_trainer_bundle_rejects_missing_receipt_and_byte_tamper(tmp_path: Path) 
         load_verified_training_records(output, manifest_path)
 
 
-def test_identity_receipt_supports_canonical_untransformed_records(
+def test_builder_receipt_supports_canonical_untransformed_records(
     tmp_path: Path,
 ) -> None:
     records = tmp_path / "records.jsonl"
+    heldout = tmp_path / "heldout.jsonl"
     receipt = tmp_path / "records.manifest.json"
+    source_log = tmp_path / "session_1.log"
+    source_log.write_text("source session\n")
     _write_jsonl(records, [_record(0, [1.0]), _record(1, [-2.0])])
-    attest_training_records(records, receipt)
+    _write_jsonl(heldout, [{"context_text": "x", "full_text": "xy"}])
+    create_opd_data_manifest(
+        records_path=records,
+        heldout_path=heldout,
+        manifest_path=receipt,
+        source_logs=[source_log],
+        source_root=tmp_path,
+        run_ids=["run_1"],
+        builder_path=Path(__file__).parents[2] / "scripts/opd/opd_2b_data.py",
+        parameters={
+            "student_tokenizer_id": "Qwen/Qwen3.5-2B",
+            "student_artifact_id": "student",
+            "student_artifact_sha256": "a" * 64,
+            "teacher_artifact_id": "teacher",
+            "teacher_artifact_sha256": "b" * 64,
+            "max_history_messages": 28,
+            "max_sequence_tokens": 16384,
+            "kl_coefficient": 1.0,
+            "holdout_every": 10,
+            "early_weight": 1.5,
+            "malformed_parameter_pattern": r"<parameter=[^>\n]*=[^>\n]*>",
+            "counterfactual_grading": True,
+            "limit": 0,
+        },
+    )
     assert len(load_verified_training_records(records, receipt)) == 2
+
+
+def test_generic_posthoc_identity_receipts_are_not_supported(tmp_path: Path) -> None:
+    records = tmp_path / "records.jsonl"
+    receipt = tmp_path / "records.manifest.json"
+    _write_jsonl(records, [_record(0, [1.0])])
+    receipt.write_text(json.dumps({
+        "schema_version": "opd-training-records-manifest-v1",
+        "source_sha256": "a" * 64,
+        "output_sha256": _sha256(records),
+    }))
+    with pytest.raises(TrainingRecordBundleError, match="unsupported"):
+        load_verified_training_records(records, receipt)

@@ -265,5 +265,5 @@ def test_legacy_trainer_compiles_and_explicitly_blocks_guided_objective(tmp_path
         "advantages": [0.0],
         "behavior_logprobs": [-0.1],
     }) + "\n")
-    with pytest.raises(RuntimeError, match="require --backend-plan-path"):
+    with pytest.raises(ValueError, match="records-manifest-path is required"):
         namespace["_load_records"](records_path)

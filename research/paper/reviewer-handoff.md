@@ -21,7 +21,7 @@ Review and merge in this order:
    - Makes resets and DB-authoritative metrics use the same `kaetram_eval` database as both eval game servers.
    - Fails closed if a player reset cannot be confirmed.
 3. [PR #38 — fail closed on incomplete paired evaluations](https://github.com/patnir411/kaetram-arena/pull/38)
-   - Preserves real child exit codes, validates both result artifacts, and moves `dataset/eval/latest` only after both arms are complete.
+   - Preserves real child exit codes, validates both result artifacts, and atomically updates the regular-file `dataset/eval/latest-run.txt` pointer only after both arms are complete.
 4. [PR #40 — freeze and enforce the tool render contract](https://github.com/patnir411/kaetram-arena/pull/40)
    - Freezes the complete 17-tool schema, adds a live MCP signature handshake, versions native versus historical rendering, and makes fresh unversioned checkpoints fail closed.
    - Does not retrofit r10 or the published 2B/OPD endpoints.

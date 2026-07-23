@@ -74,6 +74,7 @@ from scripts.opd.analyze_local_weight_pilot import (  # noqa: E402
     _verify_artifacts,
 )
 from scripts.opd.local_weight_pilot import (  # noqa: E402
+    INTERMEDIATE_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
     LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
     RECOVERY_FACTORIAL_SCHEMA_VERSION,
     RECOVERY_INVENTORY_SCHEMA_VERSION,
@@ -1181,6 +1182,7 @@ def _load_validated_envelope(
         manifest,
         prelaunch,
         expected_schema=RECOVERY_PRELAUNCH_SCHEMA_VERSION,
+        intermediate_schema=INTERMEDIATE_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
         legacy_schema=LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
         allow_legacy_v1=allow_legacy_v1,
     )

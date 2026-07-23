@@ -42,6 +42,7 @@ BUILD_SOURCE_PATHS = (
     "heldout_guard.py",
     "port_probe.py",
     "run_manifest.py",
+    "scripts/isolated_python_entry.py",
     "tool_surface.py",
     "scripts/opd/opd_2b_data.py",
     "scripts/opd/opd_data_manifest.py",

@@ -47,6 +47,10 @@ from canonical_start import (
     state_mismatches,
 )
 from run_manifest import sha256_json
+from scripts.isolated_python_entry import (
+    isolated_contract_active,
+    isolated_python_command,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +121,24 @@ MONGO_COLLECTIONS = [
     "player_inventory", "player_bank", "player_quests",
     "player_achievements", "player_statistics", "player_abilities",
 ]
+
+
+def build_python_child_command(
+    project_dir: str | Path,
+    script: str | Path,
+    arguments: list[str],
+) -> list[str]:
+    """Preserve the reviewed Python contract across nested eval processes."""
+    environment = Path(sys.executable).absolute().parent.parent
+    if isolated_contract_active(environment):
+        return isolated_python_command(
+            sys.executable,
+            repo_root=Path(project_dir),
+            environment_root=environment,
+            script=Path(script),
+            target_args=arguments,
+        )
+    return [sys.executable, str(script), *arguments]
 
 
 def normalize_server_port(value: str | int) -> int:
@@ -534,16 +556,19 @@ def run_episode(
         **(run_provenance or {}),
     }))
 
-    cmd = [
-        sys.executable, os.path.join(project_dir, "play_qwen.py"),
-        "--model", model_api_name,
-        "--sandbox", sandbox,
-        "--run-dir", str(run_dir),
-        "--harness-meta", str(harness_meta_path),
-        "--max-duration-seconds", str(duration_seconds),
-        "--system-prompt", system_prompt_file,
-        "--project-dir", project_dir,
-    ]
+    cmd = build_python_child_command(
+        project_dir,
+        os.path.join(project_dir, "play_qwen.py"),
+        [
+            "--model", model_api_name,
+            "--sandbox", sandbox,
+            "--run-dir", str(run_dir),
+            "--harness-meta", str(harness_meta_path),
+            "--max-duration-seconds", str(duration_seconds),
+            "--system-prompt", system_prompt_file,
+            "--project-dir", project_dir,
+        ],
+    )
     if endpoint_env:
         cmd.extend(["--endpoint-env", endpoint_env])
     else:
@@ -607,14 +632,16 @@ def start_eval_watchdog(
         return None, None
 
     log_path = Path("/tmp") / f"eval_watchdog_{output_dir.name or 'eval'}.log"
-    cmd = [
-        sys.executable,
-        str(script_path),
-        "--run-dir", str(output_dir),
-        "--episodes", str(episodes),
-        "--interval", str(interval),
-        "--stale-seconds", str(stale_seconds),
-    ]
+    cmd = build_python_child_command(
+        project_dir,
+        script_path,
+        [
+            "--run-dir", str(output_dir),
+            "--episodes", str(episodes),
+            "--interval", str(interval),
+            "--stale-seconds", str(stale_seconds),
+        ],
+    )
     if kill_on_failure:
         cmd.append("--kill-on-failure")
     for model_name, model_cfg in models.items():
@@ -2124,15 +2151,18 @@ Examples:
         for model_name, model_cfg in models.items():
             log_path = f"/tmp/eval_{model_name}.log"
             log_f = open(log_path, "w")
-            cmd = [
-                sys.executable, __file__,
-                "--episodes", str(args.episodes),
-                "--scenario", args.scenario,
-                "--output-dir", str(args.output_dir),
-                "--project-dir", args.project_dir,
-                "--username", model_cfg["username"],
-                "--server-port", model_cfg["server_port"],
-            ]
+            cmd = build_python_child_command(
+                args.project_dir,
+                __file__,
+                [
+                    "--episodes", str(args.episodes),
+                    "--scenario", args.scenario,
+                    "--output-dir", str(args.output_dir),
+                    "--project-dir", args.project_dir,
+                    "--username", model_cfg["username"],
+                    "--server-port", model_cfg["server_port"],
+                ],
+            )
             if args.duration_seconds:
                 cmd.extend(["--duration-seconds", str(args.duration_seconds)])
             if args.protocol_id:

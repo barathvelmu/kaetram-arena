@@ -5,9 +5,11 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from run_manifest import sha256_json
 from scripts.opd.local_weight_pilot import (
     ENDPOINT_ENV,
     PILOT_INVENTORY_SCHEMA_VERSION,
@@ -16,10 +18,14 @@ from scripts.opd.local_weight_pilot import (
     RECOVERY_PRELAUNCH_SCHEMA_VERSION,
     PilotError,
     _ledger_schema_versions,
+    _preflight_endpoints,
     _validate_schedule,
+    attest_mongodb_runtime,
+    attest_playwright_runtime,
     build_eval_command,
     build_eval_environment,
     build_artifact_inventory,
+    clean_python_environment,
     load_manifest,
     preserve_invoked_path,
     validate_effective_recovery,
@@ -114,6 +120,8 @@ def test_recovery_factorial_uses_distinct_sealed_ledger_schemas() -> None:
         RECOVERY_PRELAUNCH_SCHEMA_VERSION,
         RECOVERY_INVENTORY_SCHEMA_VERSION,
     )
+    assert PILOT_PRELAUNCH_SCHEMA_VERSION.endswith(".v3")
+    assert RECOVERY_PRELAUNCH_SCHEMA_VERSION.endswith(".v3")
 
 
 def test_recovery_factorial_dry_run_reports_nine_nominal_hours() -> None:
@@ -197,6 +205,9 @@ def test_eval_command_uses_endpoint_environment_and_complete_provenance(
         game_database_attestation={"attestation_sha256": "9" * 64},
     )
     rendered = " ".join(command)
+    assert command[0] == sys.executable
+    assert command[1:4] == ["-I", "-S", "-B"]
+    assert command[command.index("--script") + 1] == str(REPO / "eval_harness.py")
     assert f"{cell['cell_id']}={ENDPOINT_ENV}" in rendered
     assert "http://" not in rendered
     assert "--prompt-agent-name EvalCompletionist" in rendered
@@ -216,6 +227,9 @@ def test_eval_environment_pins_db_schema_and_recovery_off(tmp_path: Path) -> Non
             "KAETRAM_TOOL_RECOVERY": "1",
             "KAETRAM_MONGO_DB": "ambient_test_lane",
             "KAETRAM_TOOL_SCHEMA_SOURCE": "live",
+            "PYTHONPATH": "/tmp/injected",
+            "PythonHome": "/tmp/also-injected",
+            "KAETRAM_MCP_PYTHON": "/tmp/alternate-python",
         },
         manifest=manifest,
         cell=manifest["cells"][0],
@@ -226,6 +240,17 @@ def test_eval_environment_pins_db_schema_and_recovery_off(tmp_path: Path) -> Non
     assert env["KAETRAM_MONGO_DB"] == "kaetram_devlopment"
     assert env["KAETRAM_TOOL_SCHEMA_SOURCE"] == "canonical"
     assert env[ENDPOINT_ENV] == "http://127.0.0.1:9801/v1"
+    assert "PYTHONPATH" not in env
+    assert "PythonHome" not in env
+    assert "KAETRAM_MCP_PYTHON" not in env
+
+
+def test_python_environment_cleanup_is_case_insensitive() -> None:
+    assert clean_python_environment({
+        "PATH": "/bin",
+        "PYTHONPATH": "/tmp/a",
+        "pythonstartup": "/tmp/b",
+    }) == {"PATH": "/bin"}
 
 
 def test_recovery_factorial_environment_and_command_bind_effective_lane(
@@ -350,3 +375,94 @@ def test_invoked_virtualenv_interpreter_symlink_is_not_resolved(
     venv_python.symlink_to(real_python)
     assert preserve_invoked_path(venv_python) == venv_python
     assert preserve_invoked_path(venv_python) != venv_python.resolve()
+
+
+def test_playwright_preflight_launches_and_hashes_browser(
+    tmp_path: Path, monkeypatch
+) -> None:
+    executable = tmp_path / "chromium"
+    executable.write_bytes(b"browser")
+    monkeypatch.setattr(
+        "scripts.opd.local_weight_pilot._run_checked",
+        lambda _command, _label: SimpleNamespace(
+            stdout=json.dumps({
+                "browser_name": "chromium",
+                "browser_version": "149.0.7827.55",
+                "executable_path": str(executable),
+            })
+        ),
+    )
+    receipt = attest_playwright_runtime()
+    assert receipt["browser_name"] == "chromium"
+    assert len(receipt["executable_sha256"]) == 64
+    unsigned = dict(receipt)
+    assert unsigned.pop("receipt_sha256") == sha256_json(unsigned)
+
+
+def test_mongodb_preflight_pins_image_loopback_and_ping(monkeypatch) -> None:
+    from scripts.opd import local_weight_pilot as pilot
+
+    monkeypatch.setattr(pilot.shutil, "which", lambda _name: "/usr/bin/docker")
+
+    def fake_run(command: list[str], _label: str) -> SimpleNamespace:
+        if command[1:3] == ["inspect", "kaetram-mongo"]:
+            return SimpleNamespace(stdout=json.dumps([{
+                "Image": pilot.MONGO_IMAGE_ID,
+                "State": {"Running": True},
+                "NetworkSettings": {
+                    "Ports": {
+                        "27017/tcp": [{
+                            "HostIp": "127.0.0.1",
+                            "HostPort": "27017",
+                        }],
+                    },
+                },
+            }]))
+        if command[1:3] == ["image", "inspect"]:
+            return SimpleNamespace(stdout=json.dumps([{
+                "RepoDigests": [pilot.MONGO_IMAGE_REPO_DIGEST],
+            }]))
+        if command[1] == "exec":
+            return SimpleNamespace(stdout="1\n")
+        if command[1] == "version":
+            return SimpleNamespace(stdout="29.2.1\n")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(pilot, "_run_checked", fake_run)
+    receipt = attest_mongodb_runtime("kaetram_devlopment")
+    assert receipt["image_id"] == pilot.MONGO_IMAGE_ID
+    assert receipt["host"] == "127.0.0.1"
+    assert receipt["database"] == "kaetram_devlopment"
+
+
+def test_endpoint_preflight_binds_mlx_environment_receipt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from scripts.opd import local_weight_pilot as pilot
+
+    manifest, _ = load_manifest(MANIFEST)
+    expected_runtime = "a" * 64
+
+    def fake_start(**kwargs) -> tuple[object, dict]:
+        snapshot = kwargs["snapshot"]
+        return object(), {
+            "status": "ok",
+            "attestation": {
+                "tokenizer_sha256": "b" * 64,
+                "render_contract_sha256": "c" * 64,
+                "runtime_environment_receipt_sha256": (
+                    expected_runtime if snapshot != "opd_r3_2b" else "d" * 64
+                ),
+            },
+        }
+
+    monkeypatch.setattr(pilot, "_start_endpoint", fake_start)
+    monkeypatch.setattr(pilot, "_stop_process", lambda _process: None)
+    with pytest.raises(PilotError, match="MLX environment identity mismatch"):
+        _preflight_endpoints(
+            manifest,
+            tmp_path / "python",
+            tmp_path / "snapshots",
+            tmp_path,
+            expected_runtime,
+        )

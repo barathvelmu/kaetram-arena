@@ -337,6 +337,33 @@ def test_tokenizer_directory_is_consumed_from_an_exact_snapshot(
     assert builder._directory_digest(frozen) == expected
 
 
+def test_training_handoff_keeps_records_and_manifest_together(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(builder, "REPO", tmp_path)
+    bundle = tmp_path / "dataset" / "round2"
+    records = bundle / "records.jsonl"
+    manifest = bundle / "records.manifest.json"
+    text = builder._training_handoff_text(records, manifest)
+    assert "records:  dataset/round2/records.jsonl" in text
+    assert "manifest: dataset/round2/records.manifest.json" in text
+    assert "--records-path <staged-bundle>/records.jsonl" in text
+    assert (
+        "--records-manifest-path <staged-bundle>/records.manifest.json"
+        in text
+    )
+    assert "modal" not in text.casefold()
+
+    external = tmp_path.parent / "external-opd-handoff"
+    external_text = builder._training_handoff_text(
+        external / "records.jsonl",
+        external / "records.manifest.json",
+    )
+    assert f"records:  {external / 'records.jsonl'}" in external_text
+    assert f"manifest: {external / 'records.manifest.json'}" in external_text
+
+
 @pytest.mark.parametrize(
     "relative",
     ["finetune/serve_modal_4b.py", "finetune/serve_modal_2b_opd.py"],

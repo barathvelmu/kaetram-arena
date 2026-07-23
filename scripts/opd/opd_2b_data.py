@@ -40,8 +40,8 @@ Usage (round 2 — student EP is the r1 endpoint):
       --student-artifact-id qwen-2b-r1 --student-artifact-sha256 <64-hex> \
       --teacher-artifact-id qwen-4b --teacher-artifact-sha256 <64-hex> \
       --tokenizer-path /immutable/qwen-tokenizer
-  modal volume put kaetram-model-vol dataset/opd_2b/round2/records.jsonl \
-      /opd_2b/round2/records.jsonl --force
+  # Keep the emitted records and records.manifest.json together. The trainer
+  # requires both --records-path and --records-manifest-path.
 """
 from __future__ import annotations
 
@@ -146,6 +146,27 @@ def canonical_sha256(value: object) -> str:
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def _training_handoff_text(records_path: Path, manifest_path: Path) -> str:
+    def display(path: Path) -> str:
+        resolved = path.resolve()
+        try:
+            return resolved.relative_to(REPO.resolve()).as_posix()
+        except ValueError:
+            return str(resolved)
+
+    records = display(records_path)
+    manifest = display(manifest_path)
+    return "\n".join([
+        "",
+        "Next: stage this inseparable training-record bundle:",
+        f"  records:  {records}",
+        f"  manifest: {manifest}",
+        "Trainer arguments after staging (replace <staged-bundle>; both mandatory):",
+        "  --records-path <staged-bundle>/records.jsonl",
+        "  --records-manifest-path <staged-bundle>/records.manifest.json",
+    ])
 
 
 def is_digest(value: object) -> bool:
@@ -1074,9 +1095,7 @@ async def main():
         if temporary is not None:
             temporary.unlink(missing_ok=True)
     print(f"sealed build receipt: {manifest_path} ({manifest['output_sha256']})")
-    vol_dst = f"/opd_2b/{out_dir.name}/records.jsonl"
-    print(f"\nNext: modal volume put kaetram-model-vol {rec_path.relative_to(REPO)} "
-          f"{vol_dst} --force")
+    print(_training_handoff_text(rec_path, manifest_path))
 
 
 def _launch_frozen_entrypoint() -> int:

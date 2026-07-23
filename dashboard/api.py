@@ -784,15 +784,62 @@ class APIMixin:
         """Return live status from running eval sandboxes (/tmp/kaetram_eval_*)."""
         import glob as _glob
 
-        # TTL fast-path: while the cache is fresh, skip the fingerprint glob
-        # entirely. The eval tab polls every 2 s; the fingerprint involved a
-        # glob + per-file getmtime that ran on every request. After TTL we
-        # still build the fingerprint to detect on-disk changes faster than
-        # waiting for the next TTL window.
+        # Validate the promoted run before either cache path. Pointer promotion,
+        # pointer corruption, and watchdog changes must invalidate the cache
+        # even when the live sandbox logs have not changed.
+        eval_root = os.path.join(DATASET_DIR, "eval")
+        pointer_path = os.path.join(eval_root, "latest-run.txt")
+        try:
+            latest_eval_dir = resolve_latest_eval_dir(eval_root)
+        except LatestEvalPointerError as exc:
+            logger.error("Invalid latest evaluation pointer: %s", exc)
+            latest_eval_dir = None
+            completed_results_allowed = False
+            latest_pointer_status = "invalid"
+            latest_pointer_error = str(exc)
+        else:
+            completed_results_allowed = True
+            latest_pointer_status = (
+                "promoted" if latest_eval_dir is not None else "legacy"
+            )
+            latest_pointer_error = ""
+        completed_eval_dir = (
+            os.fspath(latest_eval_dir) if latest_eval_dir is not None else eval_root
+        )
+
+        def file_identity(path):
+            try:
+                item = os.stat(path, follow_symlinks=False)
+            except OSError:
+                return None
+            return (
+                item.st_dev,
+                item.st_ino,
+                item.st_mode,
+                item.st_size,
+                item.st_mtime_ns,
+                item.st_ctime_ns,
+            )
+
+        status_path = os.path.join(completed_eval_dir, "watchdog_status.json")
+        alert_path = os.path.join(completed_eval_dir, "watchdog_alert.txt")
+        eval_fingerprint = (
+            latest_pointer_status,
+            latest_pointer_error,
+            completed_eval_dir,
+            file_identity(pointer_path),
+            file_identity(status_path) if completed_results_allowed else None,
+            file_identity(alert_path) if completed_results_allowed else None,
+        )
+
+        # The eval tab polls every 2 s. A fresh cache may skip the sandbox-log
+        # scan only when the validated run/watchdog fingerprint is unchanged.
         now = time.time()
         if (
             APIMixin._eval_live_cache["data"] is not None
             and now - APIMixin._eval_live_cache["computed_at"] < EVAL_LIVE_CACHE_TTL
+            and APIMixin._eval_live_cache.get("eval_fingerprint")
+            == eval_fingerprint
         ):
             return self._send_json(APIMixin._eval_live_cache["data"])
 
@@ -807,23 +854,12 @@ class APIMixin:
         if (
             APIMixin._eval_live_cache["data"] is not None
             and APIMixin._eval_live_cache["fingerprint"] == fingerprint
+            and APIMixin._eval_live_cache.get("eval_fingerprint")
+            == eval_fingerprint
         ):
             # Disk unchanged — extend the cache window.
             APIMixin._eval_live_cache["computed_at"] = now
             return self._send_json(APIMixin._eval_live_cache["data"])
-
-        eval_root = os.path.join(DATASET_DIR, "eval")
-        try:
-            latest_eval_dir = resolve_latest_eval_dir(eval_root)
-        except LatestEvalPointerError as exc:
-            logger.error("Invalid latest evaluation pointer: %s", exc)
-            latest_eval_dir = None
-            completed_results_allowed = False
-        else:
-            completed_results_allowed = True
-        completed_eval_dir = (
-            os.fspath(latest_eval_dir) if latest_eval_dir is not None else eval_root
-        )
 
         models = {}
         for sandbox_dir in sorted(_glob.glob("/tmp/kaetram_eval_*")):
@@ -900,8 +936,6 @@ class APIMixin:
 
         watchdog = None
         watchdog_alert = ""
-        status_path = os.path.join(completed_eval_dir, "watchdog_status.json")
-        alert_path = os.path.join(completed_eval_dir, "watchdog_alert.txt")
         if completed_results_allowed and os.path.isfile(status_path):
             try:
                 with open(status_path) as f:
@@ -920,10 +954,13 @@ class APIMixin:
             "eval_running": any(m["active"] for m in models.values()),
             "watchdog": watchdog,
             "watchdog_alert": watchdog_alert,
+            "latest_pointer_status": latest_pointer_status,
+            "latest_pointer_error": latest_pointer_error,
         }
         APIMixin._eval_live_cache = {
             "data": payload,
             "computed_at": now,
             "fingerprint": fingerprint,
+            "eval_fingerprint": eval_fingerprint,
         }
         self._send_json(payload)

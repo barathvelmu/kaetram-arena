@@ -174,6 +174,7 @@ def test_live_dashboard_reads_watchdog_from_promoted_run(
         "data": None,
         "computed_at": 0,
         "fingerprint": None,
+        "eval_fingerprint": None,
     }
 
     probe = _APIProbe()
@@ -184,3 +185,48 @@ def test_live_dashboard_reads_watchdog_from_promoted_run(
         "models": {},
     }
     assert probe.payload["watchdog_alert"] == "test alert"
+    assert probe.payload["latest_pointer_status"] == "promoted"
+
+
+def test_live_dashboard_cache_tracks_pointer_and_watchdog_transitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dataset_dir = tmp_path / "dataset"
+    eval_dir = dataset_dir / "eval"
+    first_run = eval_dir / "runs" / "first"
+    second_run = eval_dir / "runs" / "second"
+    first_run.mkdir(parents=True)
+    second_run.mkdir()
+    (first_run / "watchdog_status.json").write_text('{"run":"first"}')
+    (first_run / "watchdog_alert.txt").write_text("first alert\n")
+    (second_run / "watchdog_status.json").write_text('{"run":"second"}')
+    (second_run / "watchdog_alert.txt").write_text("second alert\n")
+    promote_latest_eval_run(eval_dir, first_run)
+    monkeypatch.setattr(dashboard_api, "DATASET_DIR", os.fspath(dataset_dir))
+    monkeypatch.setattr(dashboard_api.glob, "glob", lambda pattern: [])
+    dashboard_api.APIMixin._eval_live_cache = {
+        "data": None,
+        "computed_at": 0,
+        "fingerprint": None,
+        "eval_fingerprint": None,
+    }
+    probe = _APIProbe()
+
+    probe.send_eval_live()
+    assert probe.payload["watchdog"] == {"run": "first"}
+
+    promote_latest_eval_run(eval_dir, second_run)
+    probe.send_eval_live()
+    assert probe.payload["watchdog"] == {"run": "second"}
+    assert probe.payload["watchdog_alert"] == "second alert"
+
+    (second_run / "watchdog_alert.txt").write_text("updated alert content\n")
+    probe.send_eval_live()
+    assert probe.payload["watchdog_alert"] == "updated alert content"
+
+    (eval_dir / "latest-run.txt").write_text("../outside\n")
+    probe.send_eval_live()
+    assert probe.payload["watchdog"] is None
+    assert probe.payload["watchdog_alert"] == ""
+    assert probe.payload["latest_pointer_status"] == "invalid"
+    assert "direct runs/<run-tag>" in probe.payload["latest_pointer_error"]

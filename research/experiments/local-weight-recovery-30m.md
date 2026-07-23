@@ -153,9 +153,12 @@ This is post-launch filesystem evidence, not a preregistered server-side
 attestation. The current bundle therefore remains exploratory and cannot be
 promoted to confirmatory evidence on that basis. A subsequent launcher revision
 must fail before any cell unless the dotenv-resolved game database equals the
-harness database, hash every contributing dotenv file in the prelaunch ledger,
+harness database on the registered loopback host and port, reject ambient
+dotenv controls, hash every contributing dotenv file in the prelaunch ledger,
 recheck those hashes after game startup, and carry the attestation into result
 metadata. The same revision must reject unlocked files, directories, and
-symlinks in model snapshot roots and attest the complete locked snapshot tree.
+symlinks in model snapshot roots, construct runtime views only from locked
+paths, reverify after model startup, and attest the complete locked snapshot
+tree.
 The revision containing this audit implements those gates for future launches;
 it does not retroactively upgrade this already-running bundle.

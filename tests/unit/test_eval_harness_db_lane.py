@@ -80,9 +80,15 @@ def test_game_database_attestation_binds_effective_dotenv_lane(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".env.defaults").write_text(
+        "MONGODB_HOST='127.0.0.1'\n"
+        "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_devlopment'\n"
     )
-    (tmp_path / ".env").write_text("MONGODB_DATABASE='kaetram_eval'\n")
+    (tmp_path / ".env").write_text(
+        "MONGODB_HOST='127.0.0.1'\n"
+        "MONGODB_PORT=27017\n"
+        "MONGODB_DATABASE='kaetram_eval'\n"
+    )
 
     record = eval_harness.attest_game_database_configuration(
         tmp_path, "kaetram_eval", environ={}
@@ -101,9 +107,15 @@ def test_game_database_attestation_rejects_lane_mismatch_and_node_override(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".env.defaults").write_text(
+        "MONGODB_HOST='127.0.0.1'\n"
+        "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_devlopment'\n"
     )
-    (tmp_path / ".env").write_text("MONGODB_DATABASE='kaetram_eval'\n")
+    (tmp_path / ".env").write_text(
+        "MONGODB_HOST='127.0.0.1'\n"
+        "MONGODB_PORT=27017\n"
+        "MONGODB_DATABASE='kaetram_eval'\n"
+    )
     with pytest.raises(RuntimeError, match="differs from harness"):
         eval_harness.attest_game_database_configuration(
             tmp_path, "other_lane", environ={}
@@ -120,6 +132,8 @@ def test_game_database_attestation_rejects_ambiguous_or_untracked_inputs(
     tmp_path: Path,
 ) -> None:
     (tmp_path / ".env.defaults").write_text(
+        "MONGODB_HOST='127.0.0.1'\n"
+        "MONGODB_PORT=27017\n"
         "MONGODB_DATABASE='kaetram_devlopment'\n"
     )
     (tmp_path / ".env").write_text(
@@ -140,4 +154,35 @@ def test_game_database_attestation_rejects_ambiguous_or_untracked_inputs(
     with pytest.raises(RuntimeError, match="requires regular"):
         eval_harness.attest_game_database_configuration(
             tmp_path, "kaetram_devlopment", environ={}
+        )
+
+
+@pytest.mark.parametrize(
+    "environ",
+    [
+        {
+            "DOTENV_CONFIG_INCLUDE_PROCESS_ENV": "true",
+            "MONGODB_DATABASE": "wrong_lane",
+        },
+        {"DOTENV_CONFIG_PATH": "/tmp/untracked.env"},
+        {"MONGODB_DATABASE": "wrong_lane"},
+    ],
+)
+def test_game_database_attestation_rejects_ambient_dotenv_overrides(
+    tmp_path: Path,
+    environ: dict[str, str],
+) -> None:
+    (tmp_path / ".env.defaults").write_text(
+        "MONGODB_HOST='127.0.0.1'\n"
+        "MONGODB_PORT=27017\n"
+        "MONGODB_DATABASE='kaetram_devlopment'\n"
+    )
+    (tmp_path / ".env").write_text(
+        "MONGODB_HOST='127.0.0.1'\n"
+        "MONGODB_PORT=27017\n"
+        "MONGODB_DATABASE='kaetram_eval'\n"
+    )
+    with pytest.raises(RuntimeError, match="ambient"):
+        eval_harness.attest_game_database_configuration(
+            tmp_path, "kaetram_eval", environ=environ
         )

@@ -199,6 +199,8 @@ def _extended_prelaunch_fixture() -> tuple[dict, dict]:
         "schema": "kaetram-game-database-attestation/v1",
         "expected_database": "kaetram_eval",
         "effective_database": "kaetram_eval",
+        "effective_host": "127.0.0.1",
+        "effective_port": 27017,
         "node_env": "",
         "config_files": [
             {"path": ".env.defaults", "sha256": "1" * 64},
@@ -214,7 +216,7 @@ def _extended_prelaunch_fixture() -> tuple[dict, dict]:
         "fix_mistral_regex": False,
     }
     prelaunch = {
-        "schema_version": "kaetram.local-weight-pilot-prelaunch.v1",
+        "schema_version": "kaetram.local-weight-pilot-prelaunch.v2",
         "pilot_id": manifest["pilot_id"],
         "claim_boundary": manifest["claim_boundary"],
         "source_git_commit": "a" * 40,
@@ -265,6 +267,39 @@ def test_prelaunch_validator_rejects_partial_snapshot_identity() -> None:
         "snapshot_tree_sha256"
     ]
     with pytest.raises(AnalysisError, match="invalid snapshot_tree_sha256"):
+        _validate_prelaunch(manifest, prelaunch)
+
+
+def test_v2_prelaunch_cannot_downgrade_by_deleting_new_attestations() -> None:
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    del prelaunch["game_database_attestation"]
+    for receipt in prelaunch["endpoint_receipts"].values():
+        del receipt["attestation"]["snapshot_tree_sha256"]
+        del receipt["attestation"]["snapshot_lock_sha256"]
+    with pytest.raises(AnalysisError, match="invalid snapshot_tree_sha256"):
+        _validate_prelaunch(manifest, prelaunch)
+
+
+def test_legacy_v1_prelaunch_remains_explicitly_analyzable() -> None:
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    prelaunch["schema_version"] = "kaetram.local-weight-pilot-prelaunch.v1"
+    del prelaunch["game_database_attestation"]
+    for receipt in prelaunch["endpoint_receipts"].values():
+        del receipt["attestation"]["snapshot_tree_sha256"]
+        del receipt["attestation"]["snapshot_lock_sha256"]
+    validated = _validate_prelaunch(manifest, prelaunch)
+    assert validated["snapshot_tree_sha256"] is None
+    assert validated["game_database_attestation"] is None
+
+
+def test_v2_prelaunch_rejects_self_hashed_malformed_database_shape() -> None:
+    manifest, prelaunch = _extended_prelaunch_fixture()
+    database = prelaunch["game_database_attestation"]
+    database["config_files"] = "not-a-list"
+    unsigned = dict(database)
+    unsigned.pop("attestation_sha256")
+    database["attestation_sha256"] = sha256_json(unsigned)
+    with pytest.raises(AnalysisError, match="game-database attestation"):
         _validate_prelaunch(manifest, prelaunch)
 
 

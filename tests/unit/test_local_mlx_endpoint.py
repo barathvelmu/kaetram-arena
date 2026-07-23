@@ -128,12 +128,24 @@ def test_runtime_view_uses_canonical_tokenizer_without_mutating_sources(
     )
     (canonical_dir / "chat_template.jinja").write_text("unpatched")
     (canonical_dir / "merges.txt").write_text("merges")
+    (model_dir / "unlocked.bin").write_bytes(b"must-not-enter-runtime")
 
     build_runtime_view(
         model_dir,
         canonical_dir,
         runtime_dir,
         "patched-template",
+        model_snapshot={"files": [
+            {"path": "config.json"},
+            {"path": "model.safetensors"},
+            {"path": "tokenizer.json"},
+        ]},
+        canonical_tokenizer_snapshot={"files": [
+            {"path": "tokenizer.json"},
+            {"path": "tokenizer_config.json"},
+            {"path": "chat_template.jinja"},
+            {"path": "merges.txt"},
+        ]},
     )
 
     assert (runtime_dir / "config.json").read_text() == '{"arm":"r2"}'
@@ -144,6 +156,7 @@ def test_runtime_view_uses_canonical_tokenizer_without_mutating_sources(
     assert runtime_config["chat_template"] == "patched-template"
     assert runtime_config["fix_mistral_regex"] is False
     assert (runtime_dir / "chat_template.jinja").read_text() == "patched-template"
+    assert not (runtime_dir / "unlocked.bin").exists()
     assert json.loads((canonical_dir / "tokenizer_config.json").read_text()) == (
         original_config
     )

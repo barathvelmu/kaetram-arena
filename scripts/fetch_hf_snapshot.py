@@ -135,7 +135,7 @@ def locked_snapshot_tree_sha256(snapshot: dict) -> str:
 
 
 def _verify_snapshot_closure(snapshot: dict, destination: Path) -> None:
-    """Reject any runtime path that is not represented by the signed lock."""
+    """Reject runtime paths absent from the content-addressed checked-in lock."""
     expected_files = {record["path"] for record in snapshot["files"]}
     expected_dirs: set[str] = set()
     for relative in expected_files:

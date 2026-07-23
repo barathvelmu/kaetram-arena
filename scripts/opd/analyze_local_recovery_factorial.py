@@ -30,6 +30,7 @@ from scripts.opd.analyze_local_weight_pilot import (  # noqa: E402
     _verify_artifacts,
 )
 from scripts.opd.local_weight_pilot import (  # noqa: E402
+    LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
     RECOVERY_FACTORIAL_SCHEMA_VERSION,
     RECOVERY_INVENTORY_SCHEMA_VERSION,
     RECOVERY_PRELAUNCH_SCHEMA_VERSION,
@@ -410,6 +411,7 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         manifest,
         prelaunch,
         expected_schema=RECOVERY_PRELAUNCH_SCHEMA_VERSION,
+        legacy_schema=LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION,
     )
     contract = manifest["artifact_contract"]
     if (
@@ -678,6 +680,7 @@ def analyze(root: Path, manifest_path: Path) -> dict:
         "pilot_id": manifest["pilot_id"],
         "claim_boundary": manifest["claim_boundary"],
         "manifest_sha256": manifest_sha256,
+        "provenance_tier": preflight["provenance_tier"],
         "bundle_index": index_record,
         "bundle_index_sha256": sha256_json(index_record),
         "valid_cells": len(rows),

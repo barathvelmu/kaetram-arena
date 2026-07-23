@@ -44,9 +44,13 @@ from scripts.local_mlx_endpoint import SUPPORTED_MODELS  # noqa: E402
 
 SCHEMA_VERSION = "kaetram.local-weight-pilot.v1"
 RECOVERY_FACTORIAL_SCHEMA_VERSION = "kaetram.local-weight-recovery-factorial.v1"
-PILOT_PRELAUNCH_SCHEMA_VERSION = "kaetram.local-weight-pilot-prelaunch.v1"
+PILOT_PRELAUNCH_SCHEMA_VERSION = "kaetram.local-weight-pilot-prelaunch.v2"
+LEGACY_PILOT_PRELAUNCH_SCHEMA_VERSION = "kaetram.local-weight-pilot-prelaunch.v1"
 PILOT_INVENTORY_SCHEMA_VERSION = "kaetram.local-weight-pilot-inventory.v1"
 RECOVERY_PRELAUNCH_SCHEMA_VERSION = (
+    "kaetram.local-weight-recovery-factorial-prelaunch.v2"
+)
+LEGACY_RECOVERY_PRELAUNCH_SCHEMA_VERSION = (
     "kaetram.local-weight-recovery-factorial-prelaunch.v1"
 )
 RECOVERY_INVENTORY_SCHEMA_VERSION = (

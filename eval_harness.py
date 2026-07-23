@@ -106,6 +106,8 @@ MONGO_DB = os.environ.get("KAETRAM_MONGO_DB", "kaetram_devlopment")
 ENVIRONMENT_RNG_MECHANISM = "kaetram-environment-rng-attestation/v2"
 ENVIRONMENT_RNG_ALGORITHM = "mulberry32-sha256-v1"
 GAME_DATABASE_ATTESTATION_SCHEMA = "kaetram-game-database-attestation/v1"
+GAME_MONGO_HOST = "127.0.0.1"
+GAME_MONGO_PORT = 27017
 MONGO_COLLECTIONS = [
     "player_info", "player_skills", "player_equipment",
     "player_inventory", "player_bank", "player_quests",
@@ -189,35 +191,43 @@ def _sha256_path(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _database_from_env_file(path: Path) -> str | None:
-    """Read one conservative MONGODB_DATABASE assignment from a dotenv file."""
-    matches: list[str] = []
+def _mongo_connection_from_env_file(path: Path) -> dict[str, str]:
+    """Read conservative Mongo connection assignments from a dotenv file."""
+    matches: dict[str, list[str]] = {
+        "MONGODB_HOST": [],
+        "MONGODB_PORT": [],
+        "MONGODB_DATABASE": [],
+    }
     for line_number, raw_line in enumerate(
         path.read_text(encoding="utf-8").splitlines(), start=1
     ):
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        match = re.fullmatch(r"MONGODB_DATABASE\s*=\s*(.*)", stripped)
+        match = re.fullmatch(
+            r"(MONGODB_HOST|MONGODB_PORT|MONGODB_DATABASE)\s*=\s*(.*)",
+            stripped,
+        )
         if not match:
             continue
-        raw_value = match.group(1).strip()
+        key, raw_value = match.group(1), match.group(2).strip()
         value_match = re.fullmatch(
-            r"(?:'(?P<single>[A-Za-z0-9_-]+)'|"
-            r'"(?P<double>[A-Za-z0-9_-]+)"|'
-            r"(?P<plain>[A-Za-z0-9_-]+))",
+            r"(?:'(?P<single>[A-Za-z0-9_.:-]+)'|"
+            r'"(?P<double>[A-Za-z0-9_.:-]+)"|'
+            r"(?P<plain>[A-Za-z0-9_.:-]+))",
             raw_value,
         )
         if not value_match:
             raise RuntimeError(
                 f"{path}:{line_number}: ambiguous or unsafe "
-                "MONGODB_DATABASE value"
+                f"{key} value"
             )
         value = next(value for value in value_match.groupdict().values() if value)
-        matches.append(value)
-    if len(matches) > 1:
-        raise RuntimeError(f"{path}: duplicate MONGODB_DATABASE assignments")
-    return matches[0] if matches else None
+        matches[key].append(value)
+    duplicates = sorted(key for key, values in matches.items() if len(values) > 1)
+    if duplicates:
+        raise RuntimeError(f"{path}: duplicate MongoDB assignments: {duplicates}")
+    return {key: values[0] for key, values in matches.items() if values}
 
 
 def attest_game_database_configuration(
@@ -238,6 +248,19 @@ def attest_game_database_configuration(
         )
 
     active_environ = os.environ if environ is None else environ
+    dotenv_controls = sorted(
+        key for key in active_environ if key.startswith("DOTENV_CONFIG_")
+    )
+    if dotenv_controls:
+        raise RuntimeError(
+            "refusing ambient dotenv-extended controls that can change game "
+            f"configuration semantics: {dotenv_controls}"
+        )
+    if "MONGODB_DATABASE" in active_environ:
+        raise RuntimeError(
+            "refusing ambient MONGODB_DATABASE; the game database must come "
+            "only from the hash-attested dotenv files"
+        )
     node_env = active_environ.get("NODE_ENV", "")
     if node_env and not re.fullmatch(r"[A-Za-z0-9_-]+", node_env):
         raise RuntimeError(f"unsafe NODE_ENV value {node_env!r}")
@@ -248,28 +271,37 @@ def attest_game_database_configuration(
             raise RuntimeError(f"refusing non-regular environment file {node_env_path}")
         config_paths.append(node_env_path)
 
-    effective_database = None
+    effective: dict[str, str] = {}
     files = []
     for path in config_paths:
         if path.is_symlink():
             raise RuntimeError(f"refusing symlinked environment file {path}")
-        configured = _database_from_env_file(path)
-        if configured is not None:
-            effective_database = configured
+        effective.update(_mongo_connection_from_env_file(path))
         files.append({
             "path": path.relative_to(game_dir).as_posix(),
             "sha256": _sha256_path(path),
         })
-    if effective_database != expected_database:
+    effective_database = effective.get("MONGODB_DATABASE")
+    effective_host = effective.get("MONGODB_HOST")
+    effective_port = effective.get("MONGODB_PORT")
+    if (
+        effective_database != expected_database
+        or effective_host != GAME_MONGO_HOST
+        or effective_port != str(GAME_MONGO_PORT)
+    ):
         raise RuntimeError(
-            "game server database differs from harness database: "
-            f"game={effective_database!r}, harness={expected_database!r}"
+            "game server MongoDB target differs from harness attested local "
+            f"lane: game=({effective_host!r}, {effective_port!r}, "
+            f"{effective_database!r}), harness=({GAME_MONGO_HOST!r}, "
+            f"{GAME_MONGO_PORT!r}, {expected_database!r})"
         )
 
     record = {
         "schema": GAME_DATABASE_ATTESTATION_SCHEMA,
         "expected_database": expected_database,
         "effective_database": effective_database,
+        "effective_host": effective_host,
+        "effective_port": int(effective_port),
         "node_env": node_env,
         "config_files": files,
     }

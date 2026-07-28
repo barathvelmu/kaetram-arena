@@ -1,0 +1,167 @@
+% Publication figures. Numerical macros come from the evidence-bound
+% figure-data.tex file generated from released analyses.
+\definecolor{routeblue}{HTML}{2B6CB0}
+\definecolor{routeorange}{HTML}{DD6B20}
+\definecolor{routegreen}{HTML}{2F855A}
+\definecolor{routered}{HTML}{C53030}
+\definecolor{routegray}{HTML}{718096}
+\definecolor{routeink}{HTML}{2D3748}
+
+\newcommand{\AuditOverviewFigure}{%
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize,
+  line/.style={-{Latex[length=2mm]},semithick,draw=routeink},
+  box/.style={draw=routeink,rounded corners=2pt,align=center,minimum height=8mm,fill=white},
+  stage/.style={draw=routegray!65,rounded corners=2pt,align=center,minimum width=2.55cm,
+                minimum height=1.05cm,fill=routegray!5},
+]
+  \node[font=\sffamily\bfseries\small,anchor=west] at (-0.3,1.72)
+    {(a) One response, two routes to an action};
+  \node[box,minimum width=2.3cm] (model) at (0.8,0) {model response};
+  \node[box,minimum width=2.6cm,fill=routeblue!8] (structured) at (4.0,0.65)
+    {structured tool field};
+  \node[box,minimum width=2.6cm,fill=routeorange!10] (content) at (4.0,-0.65)
+    {ordinary content};
+  \node[box,minimum width=2.3cm] (schema) at (7.1,0.65) {schema check};
+  \node[box,minimum width=2.3cm] (parser) at (7.1,-0.65) {recovery parser};
+  \node[box,minimum width=2.35cm,fill=routegreen!10] (candidate) at (10.2,0)
+    {candidate action};
+  \node[box,minimum width=2.65cm] (executor) at (13.4,0)
+    {executor $\rightarrow$ environment};
+  \draw[line] (model.east) -- (structured.west);
+  \draw[line] (model.east) -- (content.west);
+  \draw[line] (structured) -- (schema);
+  \draw[line] (content) -- (parser);
+  \draw[line] (schema.east) -- (candidate.west);
+  \draw[line] (parser.east) -- (candidate.west);
+  \draw[line] (candidate) -- (executor);
+  \draw[routered,dashed,rounded corners=3pt,thick]
+    (2.45,-1.18) rectangle (11.55,1.18);
+  \node[routered,fill=white,inner sep=1.5pt,anchor=south] at (7.0,1.15)
+    {interface study: where recoverable calls are routed};
+  \node[routeorange,align=center,anchor=north] at (4.0,-1.05)
+    {a valid-looking call can be stranded here};
+
+  \node[font=\sffamily\bfseries\small,anchor=west] at (-0.3,-2.05)
+    {(b) The audit advances only after each failure is localized};
+  \node[stage] (s1) at (0.95,-3.05) {historical scores\\\textbf{confounded}};
+  \node[stage] (s2) at (4.05,-3.05) {recovery test\\\textbf{\RecoveryEligibleGenerations{} / \RecoveryRawGenerations{} eligible}};
+  \node[stage] (s3) at (7.15,-3.05) {V1 seed audit\\\textbf{\VOneDiverseSeedGroups{} / \VOneSeedGroups{} diverse}};
+  \node[stage,fill=routeblue!8] (s4) at (10.25,-3.05) {two fixed panels\\\textbf{2,400/2,400 complete}};
+  \node[stage,fill=routegreen!9] (s5) at (13.35,-3.05) {fresh route check\\\textbf{\RoutingVThreeFullPass{} / \RoutingVThreeProtocolValid{} pass}};
+  \draw[line] (s1) -- (s2);
+  \draw[line] (s2) -- (s3);
+  \draw[line] (s3) -- (s4);
+  \draw[line] (s4) -- (s5);
+\end{tikzpicture}%
+}
+
+\newcommand{\PrimaryResultsFigure}{%
+\begin{tikzpicture}[font=\sffamily\scriptsize]
+  \begin{axis}[
+    name=primary,
+    width=7.4cm,height=4.35cm,
+    title style={font=\sffamily\bfseries\small,align=center,yshift=3.2ex},
+    title={(a) Registered primary\\content-only recoverable calls},
+    xmin=0,xmax=40,xtick={0,10,20,30,40},
+    xlabel={schema-present $-$ schema-absent (pp)},
+    ytick={1,2,3},yticklabels={Round 3,Round 2,Base},
+    grid=major,grid style={routegray!18},axis line style={routegray!65},
+    tick label style={font=\sffamily\scriptsize},label style={font=\sffamily\scriptsize},
+    legend style={draw=none,font=\sffamily\scriptsize,at={(0.5,1.02)},anchor=south,legend columns=2},
+  ]
+    \addplot+[only marks,mark=*,mark size=2.4pt,color=routeblue,nodes near coords,
+              point meta=x,every node near coord/.append style={font=\sffamily\tiny,anchor=south west}]
+      coordinates {(\VTwoRoundThreeEffect,1) (\VTwoRoundTwoEffect,2) (\VTwoBaseEffect,3)};
+    \addlegendentry{V2 panel}
+    \addplot+[only marks,mark=square*,mark size=2.2pt,color=routeorange,nodes near coords,
+              point meta=x,every node near coord/.append style={font=\sffamily\tiny,anchor=north east}]
+      coordinates {(\VThreeRoundThreeEffect,1) (\VThreeRoundTwoEffect,2) (\VThreeBaseEffect,3)};
+    \addlegendentry{V3 panel}
+  \end{axis}
+
+  \begin{axis}[
+    at={(8.1cm,0)},anchor=south west,
+    width=7.4cm,height=4.35cm,
+    title style={font=\sffamily\bfseries\small,align=center,yshift=3.2ex},
+    title={(b) Post-hoc valid candidate\\through either route},
+    xmin=0,xmax=40,xtick={0,10,20,30,40},
+    xlabel={schema-present $-$ schema-absent (pp)},
+    ytick={1,2,3},yticklabels={Round 3,Round 2,Base},
+    grid=major,grid style={routegray!18},axis line style={routegray!65},
+    tick label style={font=\sffamily\scriptsize},label style={font=\sffamily\scriptsize},
+    legend style={draw=none,font=\sffamily\scriptsize,at={(0.5,1.02)},anchor=south,legend columns=2},
+  ]
+    \addplot+[only marks,mark=*,mark size=2.4pt,color=routeblue,nodes near coords,
+              point meta=x,every node near coord/.append style={font=\sffamily\tiny,anchor=south west}]
+      coordinates {(\VTwoRoundThreeValidAnyEffect,1) (\VTwoRoundTwoValidAnyEffect,2) (\VTwoBaseValidAnyEffect,3)};
+    \addlegendentry{V2 panel}
+    \addplot+[only marks,mark=square*,mark size=2.2pt,color=routeorange,nodes near coords,
+              point meta=x,every node near coord/.append style={font=\sffamily\tiny,anchor=north east}]
+      coordinates {(\VThreeRoundThreeValidAnyEffect,1) (\VThreeRoundTwoValidAnyEffect,2) (\VThreeBaseValidAnyEffect,3)};
+    \addlegendentry{V3 panel}
+  \end{axis}
+
+  \begin{axis}[
+    at={(0,-5.15cm)},anchor=north west,
+    width=15.5cm,height=5.0cm,
+    title style={font=\sffamily\bfseries\small},
+    title={(c) Direction of the registered schema effect across the 20 fixed states},
+    xbar stacked,xmin=0,xmax=20,xtick={0,5,10,15,20},
+    xlabel={number of finite-grid states},
+    ytick={1,2,3,4,5,6},
+    yticklabels={V3 / Round 3,V3 / Round 2,V3 / Base,V2 / Round 3,V2 / Round 2,V2 / Base},
+    bar width=7pt,
+    axis line style={routegray!65},grid=major,grid style={routegray!18},
+    tick label style={font=\sffamily\scriptsize},label style={font=\sffamily\scriptsize},
+    legend style={draw=none,font=\sffamily\scriptsize,at={(0.5,-0.23)},anchor=north,legend columns=3},
+  ]
+    \addplot+[fill=routeblue,draw=white] coordinates {
+      (\VThreeRoundThreePositive,1) (\VThreeRoundTwoPositive,2) (\VThreeBasePositive,3)
+      (\VTwoRoundThreePositive,4) (\VTwoRoundTwoPositive,5) (\VTwoBasePositive,6)};
+    \addlegendentry{positive}
+    \addplot+[fill=routegray!45,draw=white] coordinates {
+      (\VThreeRoundThreeZero,1) (\VThreeRoundTwoZero,2) (\VThreeBaseZero,3)
+      (\VTwoRoundThreeZero,4) (\VTwoRoundTwoZero,5) (\VTwoBaseZero,6)};
+    \addlegendentry{zero}
+    \addplot+[fill=routeorange,draw=white] coordinates {
+      (\VThreeRoundThreeNegative,1) (\VThreeRoundTwoNegative,2) (\VThreeBaseNegative,3)
+      (\VTwoRoundThreeNegative,4) (\VTwoRoundTwoNegative,5) (\VTwoBaseNegative,6)};
+    \addlegendentry{negative}
+  \end{axis}
+\end{tikzpicture}%
+}
+
+\newcommand{\MeasurementRepairFigure}{%
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize,
+  line/.style={-{Latex[length=2mm]},semithick,draw=routeink},
+  cell/.style={draw=routegray!60,rounded corners=2pt,align=center,minimum height=8mm},
+  good/.style={cell,fill=routegreen!10,draw=routegreen!70},
+  bad/.style={cell,fill=routered!8,draw=routered!65},
+]
+  \node[font=\sffamily\bfseries\small,anchor=west] at (0,1.05)
+    {(a) Preserve the failed frozen measure};
+  \node[cell,minimum width=3.0cm] (v2) at (1.6,0) {V2 / original predicates};
+  \node[good,minimum width=2.6cm] (v2p) at (5.0,0) {protocol valid\\\textbf{\RoutingVTwoProtocolValid/9}};
+  \node[bad,minimum width=2.6cm] (v2f) at (8.1,0) {full predicate\\\textbf{\RoutingVTwoFullPass/9}};
+  \draw[line] (v2) -- (v2p); \draw[line] (v2p) -- (v2f);
+  \node[bad,minimum width=3.7cm] (d1) at (11.9,0.48) {equipment key differed by projection};
+  \node[bad,minimum width=3.7cm] (d2) at (11.9,-0.48) {passive HP broke exact equality};
+  \draw[line,routered] (v2f.east) -- (d1.west);
+  \draw[line,routered] (v2f.east) -- (d2.west);
+
+  \draw[line,very thick] (7.4,-0.8) -- node[right,align=left] {freeze semantic predicates;\\collect a fresh run} (7.4,-1.85);
+  \node[font=\sffamily\bfseries\small,anchor=west] at (0,-1.65)
+    {(b) Apply the amendment prospectively};
+  \node[cell,minimum width=3.0cm] at (1.6,-2.75) {V3 / fresh run};
+  \node[cell,minimum width=3.3cm] at (5.15,-2.75) {structured route};
+  \node[good,minimum width=2.5cm] at (8.35,-2.75) {effects \textbf{3/3}\\full \textbf{3/3}};
+  \node[cell,minimum width=3.3cm] at (5.15,-3.70) {recovery on};
+  \node[good,minimum width=2.5cm] at (8.35,-3.70) {effects \textbf{3/3}\\full \textbf{3/3}};
+  \node[cell,minimum width=3.3cm] at (5.15,-4.65) {recovery off};
+  \node[good,minimum width=2.5cm] at (8.35,-4.65) {no effect \textbf{3/3}\\full \textbf{3/3}};
+  \node[align=left,anchor=west,text=routeink] at (10.0,-3.70)
+    {three author-fixed calls\\one fixture and build\\technical repeats, not independent samples};
+\end{tikzpicture}%
+}

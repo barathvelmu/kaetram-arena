@@ -30,6 +30,7 @@ if [[ ! -f "$source_dir/main.tex" ]]; then
 fi
 
 mkdir -p "$build_dir" "$(dirname "$output_pdf")"
+python3 "$repo_root/scripts/opd/render_tmlr_figures.py" --check
 python3 "$repo_root/scripts/build_tmlr_review_roots.py" \
   --output "$build_dir/review-roots.tex"
 export TEXINPUTS="$build_dir:${TEXINPUTS:-}"

@@ -21,6 +21,7 @@ for command_name in latexmk pdfinfo; do
 done
 
 mkdir -p "$build_dir" "$(dirname "$output_pdf")"
+python3 "$repo_root/scripts/opd/render_tmlr_figures.py" --check
 (
   cd "$source_dir"
   latexmk \

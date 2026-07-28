@@ -8,6 +8,8 @@ This directory contains the anonymous TMLR review manuscript.
   assets from the pinned TMLR template checkout.
 - `TEMPLATE_LICENSE`: upstream template license.
 - `TEMPLATE_PROVENANCE.md`: pinned upstream revision and exact asset hashes.
+- `figures.tex`: vector-native paper figures.
+- `figure-data.tex`: generated numerical macros bound to released analyses.
 
 The V2 and V3 result tables are generated from their sealed analyses and
 consumed directly from:
@@ -15,6 +17,14 @@ consumed directly from:
 ```text
 ../../research/results/local-trigger-incidence-v2/paper-table-public.tex
 ../../research/results/local-trigger-incidence-v3/paper-table-public.tex
+```
+
+Regenerate the numerical figure layer after any evidence update, then verify
+that it is fresh:
+
+```bash
+python3 scripts/opd/render_tmlr_figures.py
+python3 scripts/opd/render_tmlr_figures.py --check
 ```
 
 Build and audit from the repository root with:

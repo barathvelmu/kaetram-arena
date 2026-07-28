@@ -15,6 +15,10 @@
 \usepackage{xcolor}
 \usepackage{float}
 \usepackage{needspace}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\pgfplotsset{compat=1.18}
 \usepackage{hyperref}
 \usepackage{url}
 \ifdefined\ARXIVVERSION
@@ -47,6 +51,8 @@ and retain full responsibility for the work.}}
 \newcommand{\opd}{\textsc{opd}}
 \newcommand{\core}{\textsc{Core-3}}
 \newcommand{\pp}{\,pp}
+\input{figure-data.tex}
+\input{figures.tex}
 
 \begin{document}
 \maketitle
@@ -116,6 +122,16 @@ upgrading the first study. Finally, we repeated the unchanged grid on a
 different retained state panel and followed three frozen calls across the next
 execution boundary with a prospectively repaired measure.
 
+\begin{figure}[t]
+\centering
+\AuditOverviewFigure
+\caption{The audit separates response routing from downstream execution and
+advances only after each failed check is localized. A recoverable call in
+ordinary content is not visible to an executor that reads only the structured
+field. Numbers are regenerated from the released public summaries.}
+\label{fig:routing}
+\end{figure}
+
 Our contributions are:
 
 \begin{enumerate}
@@ -168,27 +184,6 @@ an environment transition. The registered ``native schema'' treatment means
 that a hash-bound 17-tool schema is supplied through the model endpoint's
 native \texttt{tools} field. It is not claimed to be byte-identical to every
 historical production schema.
-
-\begin{figure}[H]
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{lcc}
-\toprule
-Response route & Measured routing boundary & Downstream boundary \\
-\midrule
-Structured field & schema check $\rightarrow$ candidate action &
-execution / environment \\
-Ordinary content & recovery parser $\rightarrow$ candidate action &
-execution / environment \\
-\bottomrule
-\end{tabular}
-\caption{Two response routes converge on a candidate action. The interface studies measure
-whether a candidate is stranded in ordinary content rather than delivered in
-the structured field; execution, environment acceptance, state change, and
-task utility are outside its primary outcome.}
-\label{fig:routing}
-\end{figure}
 
 For example, a response may contain a canonical function block naming
 \texttt{navigate} with valid JSON-like arguments, while its structured
@@ -394,13 +389,19 @@ across seeds in 126 of 240 groups. V2 therefore supplies non-identical
 within-state responses rather than deterministic replay; it does not make them
 independent draws from a deployment population.
 
-% The generated result uses table* for compatibility with the ACL working
-% draft. TMLR is single-column, so keep the unchanged generated table at this
-% exact narrative location rather than allowing it to float ahead of Methods.
-\begingroup
-\renewenvironment{table*}[1][]{\begin{table}[H]}{\end{table}}
-\input{../../research/results/local-trigger-incidence-v2/paper-table-public.tex}
-\endgroup
+\begin{figure}[t]
+\centering
+\PrimaryResultsFigure
+\caption{Native-schema contrasts on both complete finite grids. Panels (a)
+and (c) show the registered primary outcome: a parser-recoverable call stranded
+in ordinary content. Panel (b) is explicitly post-hoc and asks whether either
+route contains a schema-valid candidate. Points are whole-grid rate differences;
+the stacked bars count the 20 paired state effects and are not population
+uncertainty intervals. V3 is a different retained panel under the same project
+lineage, not an independent replication. Exact cell tables appear in
+Appendix~\ref{app:exact-grids}.}
+\label{fig:interface-results}
+\end{figure}
 
 Native schema exposure increased the registered primary outcome by 23 points at
 Base, 13 at round 2, and 10 at round 3. All three effects were strictly
@@ -423,11 +424,9 @@ replication.
 
 The unchanged V2 protocol then scheduled another 1,200 local requests. All
 succeeded, every state--condition group contained five distinct normalized
-payloads, and 103/240 groups varied in the primary outcome. The generated table
-below is rendered only after a separately implemented public artifact auditor
-accepts the complete raw artifact.
-
-\input{../../research/results/local-trigger-incidence-v3/paper-table-public.tex}
+payloads, and 103/240 groups varied in the primary outcome. Figure~\ref{fig:interface-results}
+shows both complete panels; the exact generated tables are rendered only after
+separately implemented public artifact auditors accept their raw artifacts.
 
 Native schema exposure increased content-only recoverable-call incidence by
 13 points at Base, 5.5 at round 2, and 9 at round 3. All three contrasts were
@@ -510,27 +509,16 @@ the absence of the three registered action-specific effects. Applied only to a
 fresh run, V3 was protocol-valid and passed the full predicate in all 9/9
 technical trials.
 
-\begin{table}[H]
-\caption{Model-free multi-action routing diagnostic. Counts are technical
-trials out of three per arm, not independent samples. V2 remains failed under
-its original predicates; V3 is a fresh post-amendment run.}
-\label{tab:execution-check}
+\begin{figure}[H]
 \centering
-\small
-\begin{tabular}{>{\raggedright\arraybackslash}p{0.20\linewidth}
-                >{\raggedright\arraybackslash}p{0.29\linewidth}
-                >{\raggedright\arraybackslash}p{0.19\linewidth}
-                >{\raggedright\arraybackslash}p{0.20\linewidth}}
-\toprule
-Study / arm & Registered action effects & Protocol valid & Full predicate \\
-\midrule
-V2 / all arms & Measurement defects found post hoc & 9/9 & 0/9 \\
-V3 / structured & Equip, eat, warp: 3/3 each & 3/3 & 3/3 \\
-V3 / recovery on & Equip, eat, warp: 3/3 each & 3/3 & 3/3 \\
-V3 / recovery off & No registered effect: 3/3 & 3/3 & 3/3 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\MeasurementRepairFigure
+\caption{The model-free routing diagnostic preserves V2's failed frozen
+measure, localizes two representation-sensitive defects, and applies the
+amendment only to a fresh V3 run. Counts are technical trials out of three per
+arm, not independent samples. The disabled control's success means absence of
+the three registered action-specific effects.}
+\label{fig:execution-check}
+\end{figure}
 
 These technical repeats share one fixture and build and are not independent
 samples. V3 supplies preliminary within-build evidence that three frozen calls
@@ -723,6 +711,23 @@ and validate downstream execution separately.
 \bibliographystyle{tmlr}
 
 \appendix
+
+\section{Exact Finite-Grid Results}
+\label{app:exact-grids}
+
+Figure~\ref{fig:interface-results} is the reader-facing summary. The following
+tables are generated directly from the sealed analyses and retain the exact
+checkpoint-level rates, paired state signs, and seed-heterogeneity counts used
+in the manuscript.
+
+% The V2 generator emits table* for compatibility with the ACL working draft.
+% TMLR is single-column, so locally map it to an ordinary non-floating table.
+\begingroup
+\renewenvironment{table*}[1][]{\begin{table}[H]}{\end{table}}
+\input{../../research/results/local-trigger-incidence-v2/paper-table-public.tex}
+\endgroup
+
+\input{../../research/results/local-trigger-incidence-v3/paper-table-public.tex}
 
 \section{Prospective State-Visitation Hypothesis}
 \label{app:opd}

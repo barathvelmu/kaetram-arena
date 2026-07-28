@@ -45,6 +45,8 @@ def main() -> int:
         "tmlr.sty": SOURCE / "tmlr.sty",
         "tmlr.bst": SOURCE / "tmlr.bst",
         "fancyhdr.sty": SOURCE / "fancyhdr.sty",
+        "figure-data.tex": SOURCE / "figure-data.tex",
+        "figures.tex": SOURCE / "figures.tex",
         "v2-paper-table-public.tex": V2_TABLE,
         "v3-paper-table-public.tex": V3_TABLE,
     }

@@ -56,6 +56,13 @@ session must close and settle before any reset or seed. The complete registered
 pre-state must match before the candidate is allowed to run. Diagnostic
 `observe` calls are counted separately from candidate calls.
 
+The nine username and treatment/reconnect session templates are frozen in the
+registration. The create-only prelaunch seal resolves them with a unique
+6--12-character lowercase alphanumeric run ID, so a new run cannot silently
+reuse a prior run's identities. The future launcher must additionally prove
+that every resolved username is absent before create-only seeding and record
+the database-assigned player identity; this remains a live-readiness blocker.
+
 Each trial retains the router decision, schema verdict, candidate count, MCP
 delivery status, protocol result, tool-reported error, raw result hash,
 immediate observation, five-second delayed

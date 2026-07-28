@@ -54,7 +54,7 @@ PROHIBITED_CLAIMS = [
     "faithful execution of archived V2 states",
     "generalization across tools, states, models, renderers, or environments",
 ]
-SOURCE_PATHS = (
+DESIGN_SOURCE_PATHS = (
     "canonical_start.py",
     "mcp_server/js/observe.js",
     "mcp_server/tools/navigation.py",
@@ -62,12 +62,19 @@ SOURCE_PATHS = (
     "play_qwen.py",
     "scripts/opd/execution_evidence.py",
     "scripts/opd/live_routing_diagnostic.py",
+    "scripts/opd/live_routing_prelaunch.py",
     "scripts/opd/response_router.py",
     "state_extractor.js",
     "tests/e2e/helpers/mcp_client.py",
     "tests/e2e/helpers/seed.py",
     "tool_surface.py",
 )
+LIVE_READY_ADDITIONAL_SOURCE_PATHS = (
+    "scripts/opd/live_routing_analyzer.py",
+    "scripts/opd/live_routing_launcher.py",
+    "scripts/opd/live_routing_result_verify.py",
+)
+SOURCE_PATHS = DESIGN_SOURCE_PATHS
 MEASUREMENT_STAGES = [
     "router decision",
     "frozen-schema verdict",
@@ -83,8 +90,53 @@ MEASUREMENT_STAGES = [
 ]
 
 
+class RegistrationError(ValueError):
+    pass
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise RegistrationError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_constant(value: str) -> None:
+    raise RegistrationError(f"non-finite JSON constant: {value}")
+
+
+def load_registration_strict(path: Path) -> dict[str, Any]:
+    try:
+        registration = json.loads(
+            path.read_bytes(),
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_constant,
+        )
+    except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        raise RegistrationError(f"registration unreadable: {exc}") from exc
+    if not isinstance(registration, dict):
+        raise RegistrationError("registration root must be an object")
+    return registration
+
+
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _json_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without Python's bool/int equality ambiguity."""
+
+    return _canonical_json(left) == _canonical_json(right)
+
+
+def _has_exact_keys(value: Any, expected: set[str]) -> bool:
+    return isinstance(value, dict) and set(value) == expected
+
+
+def _object(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _sha256_text(value: str) -> str:
@@ -99,22 +151,82 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def expected_trial_identities(
+    arms: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    arm_map = {arm.get("arm"): arm for arm in arms if isinstance(arm, dict)}
+    trials: list[dict[str, Any]] = []
+    schedule_index = 0
+    for repeat, order in enumerate(SCHEDULE, start=1):
+        for position, arm_name in enumerate(order, start=1):
+            schedule_index += 1
+            arm = arm_map.get(arm_name, {})
+            trials.append(
+                {
+                    "schedule_index": schedule_index,
+                    "repeat": repeat,
+                    "position_within_repeat": position,
+                    "pair_id": f"repeat-{repeat:02d}",
+                    "arm": arm_name,
+                    "trial_id": f"llrd-v1-t{schedule_index:02d}",
+                    "username_template": f"lr_{{run_id}}_{schedule_index:02d}",
+                    "treatment_session_id_template": (
+                        f"llrd-{{run_id}}-t{schedule_index:02d}-treatment"
+                    ),
+                    "reconnect_session_id_template": (
+                        f"llrd-{{run_id}}-t{schedule_index:02d}-reconnect"
+                    ),
+                    "route": arm.get("route"),
+                    "recovery": arm.get("recovery"),
+                    "expected_candidate_invocations": arm.get(
+                        "expected_candidate_invocations"
+                    ),
+                }
+            )
+    return trials
+
+
 def validate_registration(
     registration: dict[str, Any],
     *,
     repo_root: Path | None = None,
+    expected_status: str = STATUS,
 ) -> list[str]:
     """Return every design/source mismatch; this does not authorize a live run."""
 
     errors: list[str] = []
+    expected_root_keys = {
+        "schema_version",
+        "study_id",
+        "status",
+        "claim_boundary",
+        "zero_cost_contract",
+        "source_contract",
+        "live_contract",
+        "state_fixture",
+        "candidate",
+        "arms",
+        "schedule",
+        "trial_identities",
+        "measurement",
+        "failure_policy",
+        "reporting",
+        "verdict_algorithm",
+    }
+    if set(registration) != expected_root_keys:
+        errors.append("registration top-level key set drift")
     if registration.get("schema_version") != SCHEMA_VERSION:
         errors.append("schema_version drift")
     if registration.get("study_id") != STUDY_ID:
         errors.append("study_id drift")
-    if registration.get("status") != STATUS:
-        errors.append("design scaffolding status drift")
+    if registration.get("status") != expected_status:
+        errors.append(f"registration status drift: expected {expected_status}")
 
-    boundary = registration.get("claim_boundary", {})
+    boundary = _object(registration.get("claim_boundary"))
+    if not _has_exact_keys(
+        boundary, {"confirmatory", "permitted_claim", "prohibited_claims"}
+    ):
+        errors.append("claim boundary key set drift")
     if boundary.get("confirmatory") is not False:
         errors.append("diagnostic must remain explicitly non-confirmatory")
     if boundary.get("permitted_claim") != PERMITTED_CLAIM:
@@ -122,7 +234,7 @@ def validate_registration(
     if boundary.get("prohibited_claims") != PROHIBITED_CLAIMS:
         errors.append("prohibited claim boundary drift")
 
-    zero_cost = registration.get("zero_cost_contract", {})
+    zero_cost = _object(registration.get("zero_cost_contract"))
     expected_zero_cost = {
         "model_calls": 0,
         "remote_endpoints": "forbidden",
@@ -132,10 +244,22 @@ def validate_registration(
         "mongo_port": 27017,
         "mongo_database": "kaetram_e2e",
     }
-    if zero_cost != expected_zero_cost:
+    if not _json_equal(zero_cost, expected_zero_cost):
         errors.append("zero-cost or isolated-lane contract drift")
 
-    candidate = registration.get("candidate", {})
+    candidate = _object(registration.get("candidate"))
+    if not _has_exact_keys(
+        candidate,
+        {
+            "name",
+            "arguments",
+            "canonical_json",
+            "sha256",
+            "content_envelope",
+            "content_envelope_sha256",
+        },
+    ):
+        errors.append("candidate key set drift")
     call = {"name": candidate.get("name"), "arguments": candidate.get("arguments")}
     canonical = _canonical_json(call)
     if candidate.get("canonical_json") != canonical:
@@ -192,7 +316,7 @@ def validate_registration(
             ),
         },
     ]
-    if registration.get("arms") != expected_arms:
+    if not _json_equal(registration.get("arms"), expected_arms):
         errors.append("arm semantics drift")
 
     schedule = registration.get("schedule")
@@ -200,20 +324,62 @@ def validate_registration(
         {"repeat": index, "arm_order": list(order)}
         for index, order in enumerate(SCHEDULE, start=1)
     ]
-    if schedule != expected_schedule:
+    if not _json_equal(schedule, expected_schedule):
         errors.append("balanced schedule drift")
+    identities = registration.get("trial_identities")
+    expected_identities = expected_trial_identities(expected_arms)
+    if not _json_equal(identities, expected_identities):
+        errors.append("trial identity plan drift")
+    elif any(
+        len({row[key] for row in identities}) != 9
+        for key in (
+            "trial_id",
+            "username_template",
+            "treatment_session_id_template",
+            "reconnect_session_id_template",
+        )
+    ):
+        errors.append("trial identity uniqueness drift")
+    elif len(
+        {
+            row[key]
+            for row in identities
+            for key in (
+                "treatment_session_id_template",
+                "reconnect_session_id_template",
+            )
+        }
+    ) != 18:
+        errors.append("treatment/reconnect session identity overlap")
 
-    fixture = registration.get("state_fixture", {})
+    fixture = _object(registration.get("state_fixture"))
+    if not _has_exact_keys(fixture, {"source", "expected", "precondition"}):
+        errors.append("state fixture key set drift")
     if fixture.get("source") != "canonical_start.CANONICAL_INITIAL_STATE":
         errors.append("canonical state fixture source drift")
-    if fixture.get("expected") != CANONICAL_INITIAL_STATE:
+    if not _json_equal(fixture.get("expected"), CANONICAL_INITIAL_STATE):
         errors.append("canonical state fixture drift")
     if fixture.get("precondition") != (
         "Every arm must match the complete registered projection before "
         "treatment or the candidate is not invoked."
     ):
         errors.append("canonical precondition drift")
-    live = registration.get("live_contract", {})
+    live = _object(registration.get("live_contract"))
+    if not _has_exact_keys(
+        live,
+        {
+            "game_revision",
+            "game_bundle_sha256",
+            "tool_schema_sha256",
+            "cold_mcp_session_per_trial",
+            "cold_browser_session_per_trial",
+            "fresh_unique_player_per_trial",
+            "unique_username_count",
+            "mongo_database_explicit_every_operation",
+            "runtime_receipts_required",
+        },
+    ):
+        errors.append("live contract key set drift")
     if live.get("game_revision") != "7a3d722e8e200ca44fd959099386b42a5fbe0cb5":
         errors.append("game revision drift")
     if live.get("game_bundle_sha256") != (
@@ -235,27 +401,38 @@ def validate_registration(
     if live.get("mongo_database_explicit_every_operation") != "kaetram_e2e":
         errors.append("every database operation must explicitly bind the e2e lane")
 
-    measurement = registration.get("measurement", {})
-    if measurement.get("candidate_retry_count") != 0:
+    measurement = _object(registration.get("measurement"))
+    if not _has_exact_keys(
+        measurement,
+        {
+            "candidate_retry_count",
+            "delayed_observation_seconds",
+            "mudwich_success_region",
+            "warp_application_acceptance",
+            "stages",
+        },
+    ):
+        errors.append("measurement key set drift")
+    if not _json_equal(measurement.get("candidate_retry_count"), 0):
         errors.append("candidate retry count must remain zero")
-    if measurement.get("delayed_observation_seconds") != 5:
+    if not _json_equal(measurement.get("delayed_observation_seconds"), 5):
         errors.append("delayed observation interval drift")
-    if measurement.get("mudwich_success_region") != {
+    if not _json_equal(measurement.get("mudwich_success_region"), {
         "x_min": 180,
         "x_max": 200,
         "y_min": 150,
         "y_max": 170,
-    }:
+    }):
         errors.append("Mudwich success predicate drift")
-    if measurement.get("warp_application_acceptance") != {
+    if not _json_equal(measurement.get("warp_application_acceptance"), {
         "protocol_success": True,
         "tool_reported_error": None,
         "result_json_required": {"warping": True, "warp_id": 0},
-    }:
+    }):
         errors.append("warp application-acceptance predicate drift")
     if measurement.get("stages") != MEASUREMENT_STAGES:
         errors.append("measurement stages drift")
-    if registration.get("verdict_algorithm") != {
+    if not _json_equal(registration.get("verdict_algorithm"), {
         "valid_trial": (
             "trial identity, isolation, and precondition match; every applicable "
             "stage has a complete receipt; delivery is not unknown; router, "
@@ -278,7 +455,7 @@ def validate_registration(
             "is invalid, release every trial receipt but withhold only the "
             "paired aggregate"
         ),
-    }:
+    }):
         errors.append("verdict algorithm drift")
     expected_failure = {
         "outcome_based_exclusions": "forbidden",
@@ -291,12 +468,25 @@ def validate_registration(
             "and all three repeats are valid."
         ),
     }
-    if registration.get("failure_policy") != expected_failure:
+    if not _json_equal(registration.get("failure_policy"), expected_failure):
         errors.append("failure policy drift")
-    reporting = registration.get("reporting", {})
-    if reporting.get("scheduled_trials") != 9:
+    reporting = _object(registration.get("reporting"))
+    if not _has_exact_keys(
+        reporting,
+        {
+            "scheduled_trials",
+            "technical_repeats",
+            "independent_sample_claim",
+            "p_values",
+            "confidence_intervals",
+            "equivalence_language",
+            "raw_and_hashed_receipts_required",
+        },
+    ):
+        errors.append("reporting key set drift")
+    if not _json_equal(reporting.get("scheduled_trials"), 9):
         errors.append("scheduled trial count drift")
-    if reporting.get("technical_repeats") != 3:
+    if not _json_equal(reporting.get("technical_repeats"), 3):
         errors.append("technical repeat count drift")
     if reporting.get("independent_sample_claim") is not False:
         errors.append("technical repeats cannot be called independent samples")
@@ -306,13 +496,20 @@ def validate_registration(
     if reporting.get("raw_and_hashed_receipts_required") is not True:
         errors.append("raw and hashed receipts must remain required")
 
-    source = registration.get("source_contract", {})
+    source = _object(registration.get("source_contract"))
+    if not _has_exact_keys(
+        source, {"source_commit", "clean_worktree_required", "files"}
+    ):
+        errors.append("source contract key set drift")
     if source.get("source_commit") != "sealed_in_create_only_prelaunch_receipt":
         errors.append("source commit prelaunch seal contract drift")
     if source.get("clean_worktree_required") is not True:
         errors.append("clean-worktree launch gate disabled")
     files = source.get("files")
-    if not isinstance(files, dict) or set(files) != set(SOURCE_PATHS):
+    required_source_paths = set(DESIGN_SOURCE_PATHS)
+    if expected_status == "registered_before_live_execution":
+        required_source_paths.update(LIVE_READY_ADDITIONAL_SOURCE_PATHS)
+    if not isinstance(files, dict) or set(files) != required_source_paths:
         errors.append("source file contract key set drift")
     elif repo_root is not None:
             for relative, expected in sorted(files.items()):
@@ -334,9 +531,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--verify-source", action="store_true")
     args = parser.parse_args(argv)
     try:
-        registration = json.loads(args.registration.read_text())
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"registration unreadable: {exc}", file=sys.stderr)
+        registration = load_registration_strict(args.registration)
+    except RegistrationError as exc:
+        print(str(exc), file=sys.stderr)
         return 1
     errors = validate_registration(
         registration,

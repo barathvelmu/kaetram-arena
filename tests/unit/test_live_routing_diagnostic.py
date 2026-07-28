@@ -4,7 +4,14 @@ import copy
 import json
 from pathlib import Path
 
-from scripts.opd.live_routing_diagnostic import REPO_ROOT, validate_registration
+import pytest
+
+from scripts.opd.live_routing_diagnostic import (
+    REPO_ROOT,
+    RegistrationError,
+    load_registration_strict,
+    validate_registration,
+)
 
 
 REGISTRATION = (
@@ -40,6 +47,13 @@ def test_arm_and_schedule_drift_fails_closed() -> None:
     assert "balanced schedule drift" in errors
 
 
+def test_trial_identity_or_session_reuse_fails_closed() -> None:
+    registration = _load()
+    registration["trial_identities"][1]["username_template"] = "lr_{run_id}_01"
+    errors = validate_registration(registration)
+    assert "trial identity plan drift" in errors
+
+
 def test_zero_cost_and_claim_boundaries_cannot_be_relaxed() -> None:
     registration = _load()
     registration["zero_cost_contract"]["remote_endpoints"] = "allowed"
@@ -49,6 +63,19 @@ def test_zero_cost_and_claim_boundaries_cannot_be_relaxed() -> None:
     assert "zero-cost or isolated-lane contract drift" in errors
     assert "diagnostic must remain explicitly non-confirmatory" in errors
     assert "prohibited claim boundary drift" in errors
+
+
+def test_unknown_fields_and_json_type_confusion_fail_closed() -> None:
+    registration = _load()
+    registration["posthoc_override"] = True
+    registration["measurement"]["new_threshold"] = 0
+    registration["live_contract"]["optional_invalidity_rule"] = "exclude"
+    registration["zero_cost_contract"]["model_calls"] = False
+    errors = validate_registration(registration)
+    assert "registration top-level key set drift" in errors
+    assert "measurement key set drift" in errors
+    assert "live contract key set drift" in errors
+    assert "zero-cost or isolated-lane contract drift" in errors
 
 
 def test_source_file_tampering_is_detected(tmp_path: Path) -> None:
@@ -96,6 +123,9 @@ def test_design_is_explicitly_not_live_ready_and_seals_validator_source() -> Non
     assert "scripts/opd/live_routing_diagnostic.py" in (
         registration["source_contract"]["files"]
     )
+    assert "scripts/opd/live_routing_prelaunch.py" in (
+        registration["source_contract"]["files"]
+    )
 
 
 def test_measurement_fixture_and_source_key_set_cannot_drift() -> None:
@@ -107,3 +137,16 @@ def test_measurement_fixture_and_source_key_set_cannot_drift() -> None:
     assert "measurement stages drift" in errors
     assert "canonical state fixture source drift" in errors
     assert "source file contract key set drift" in errors
+
+
+def test_registration_loader_rejects_duplicate_and_non_finite_json(
+    tmp_path: Path,
+) -> None:
+    duplicate = tmp_path / "duplicate.json"
+    duplicate.write_text('{"status":"a","status":"b"}\n')
+    with pytest.raises(RegistrationError, match="duplicate JSON key"):
+        load_registration_strict(duplicate)
+    non_finite = tmp_path / "non-finite.json"
+    non_finite.write_text('{"threshold":Infinity}\n')
+    with pytest.raises(RegistrationError, match="non-finite JSON constant"):
+        load_registration_strict(non_finite)

@@ -50,4 +50,24 @@ manifest, registration, and analysis hashes—and the anonymous outcome-preservi
 projection—are recorded in
 [`public-summary.json`](public-summary.json). The projection omits usernames,
 session and trial identifiers, process identities, database object identifiers,
-absolute paths, raw database text, and service names.
+absolute paths, raw database text, and service names. It is generated rather
+than hand-maintained: the builder first runs the unchanged private-package
+verifier, rederives every released count from all nine raw-backed receipts,
+scans the result for forbidden identity/path/service fields, and writes
+create-only canonical JSON with a payload self-hash.
+
+With `PYTHON` set to the exact Python 3.12 interpreter created by the pinned
+bootstrap, rebuild to a new path or verify the checked-in projection:
+
+```bash
+PYTHON=/path/to/pinned-python3.12
+PRIVATE_RESULT=/path/to/kaetram-live-routing-multi-action-v2/result
+
+"$PYTHON" scripts/opd/live_routing_multi_action_public_summary_v2.py build \
+  --result-root "$PRIVATE_RESULT" --repo-root "$PWD" \
+  --summary /tmp/public-summary.json
+
+"$PYTHON" scripts/opd/live_routing_multi_action_public_summary_v2.py verify \
+  --result-root "$PRIVATE_RESULT" --repo-root "$PWD" \
+  --summary research/results/local-live-routing-multi-action-v2/public-summary.json
+```

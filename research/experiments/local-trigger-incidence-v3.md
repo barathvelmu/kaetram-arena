@@ -114,8 +114,22 @@ python scripts/opd/verify_trigger_incidence_result_v3.py \
 It verifies all hashes and bindings, independently reclassifies the raw model
 responses, and recomputes cells, contrasts, seed heterogeneity, and the
 directional criterion. The strict V2 public exporter is not V3-compatible;
-do not present a V2 export as a V3 artifact. A later public V3 export must
-preserve this result-verification closure.
+do not present a V2 export as a V3 artifact. Save the verifier's JSON output as
+an immutable receipt, then pass it to
+`scripts/opd/export_trigger_incidence_artifact_v3.py` together with the three
+run directories, three seed-gate directories, analysis directory, anonymous
+runtime marker, and local endpoint verification record. The exporter refuses
+partial checkpoint membership and publishes only after
+`audit_trigger_incidence_artifact_v3.py` independently accepts the staged
+bundle. The public auditor recomputes the 1,200-request analysis from raw
+responses, enforces both path and rendered-message separation from V2, and
+checks the extended snapshot tree, snapshot lock, runtime environment,
+renderer, sampling, tokenizer revision, and deterministic deployment identity.
+
+The receipt must be produced in a clean checkout at the execution commit. The
+later exporter may run from a hardened code commit because it validates the
+saved receipt and every embedded execution binding rather than rewriting the
+historical provenance.
 
 ## Claim boundary
 

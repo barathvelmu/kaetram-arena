@@ -35,6 +35,12 @@ Official sources:
 - Every listed author must have an active OpenReview profile, know about the
   submission, meet the venue's contribution criteria, and accept responsibility
   for the final work.
+- TMLR permits LLMs as assistive tools but requires an explicit first-page
+  disclosure and leaves full responsibility with the human authors. The current
+  title footnote satisfies that disclosure format; the authors must still
+  personally verify every claim, result, and citation.
+- TMLR applies an annual authorship-quota budget. Every author must have enough
+  remaining budget in OpenReview before the submission can be entered.
 - A concrete broader-impact statement is required when the work poses a
   significant risk of harm. This manuscript includes a bounded broader-impact
   paragraph even though the experiments use an isolated game and no human data.
@@ -53,6 +59,7 @@ Official sources:
 | Anonymous supplement | Pending final rebuild | Builder is fail-closed and now includes both trigger panels plus a hash-free multi-action summary. |
 | Claim/evidence audit | Pending final pass | Re-run after V3 numbers and final PDF are fixed. |
 | Author list and consent | Human gate | Determine qualifying authors, order, OpenReview profiles, and explicit consent before submission. |
+| TMLR authorship budget | Human gate | Check each author's remaining annual submission budget in OpenReview. |
 | Parallel-submission check | Human gate | Confirm the work is not under review at another archival venue on submission day. |
 
 ## Certification boundary

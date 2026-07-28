@@ -1,0 +1,85 @@
+{
+  "schema_version": "kaetram.trigger-appropriateness-audit-registration.v1",
+  "study_id": "local-trigger-appropriateness-audit-v1",
+  "status": "posthoc_design_only_unlabeled",
+  "source": {
+    "artifact": "research/artifacts/local-trigger-incidence-v2",
+    "trust_root": "research/results/local-trigger-incidence-v2/artifact-trust-root.json"
+  },
+  "unit": "Each unique tuple of outcome-unseen state, schema-valid candidate tool name, and canonical JSON arguments. Repeated emissions are one judging item and remain separate occurrences only in the sealed analysis key.",
+  "candidate_policy": {
+    "structured": "Retain exactly one frozen-schema-valid structured call.",
+    "recovered_content": "Retain only a call promoted by the fail-closed response router: one explicit closed envelope, one recovered call, and frozen-schema-valid arguments.",
+    "excluded": "No-candidate, schema-invalid, ambiguous, quarantined, and multiple-call responses are not judging items."
+  },
+  "primary_subset": {
+    "selection": "A unique state-call tuple is primary exactly when the identical call was emitted for that state by every registered source group.",
+    "expected_unique_items": 25,
+    "outcome_blind": true
+  },
+  "complete_census": {
+    "expected_unique_items": 123,
+    "expected_valid_occurrences": 590
+  },
+  "blinding": {
+    "judge_visible": [
+      "deterministic pseudonymous item identifier",
+      "reasoning-free pre-call context",
+      "exact candidate tool name and arguments"
+    ],
+    "sealed_until_labels_complete": [
+      "source state identifier",
+      "source group",
+      "interface condition",
+      "response route",
+      "sample index",
+      "seed",
+      "occurrence multiplicity",
+      "primary-subset membership"
+    ],
+    "reasoning_policy": "Remove every assistant free-text message from the judging context. Retain system and user instructions plus named tool results, with the historical agent pseudonym and source-session ordinals redacted.",
+    "ordering": "Sort judging packets by deterministic pseudonymous identifier."
+  },
+  "rubric": {
+    "precondition_support": [
+      "supported",
+      "contradicted",
+      "unobservable"
+    ],
+    "strategic_appropriateness": [
+      "appropriate",
+      "plausible",
+      "inappropriate",
+      "unassessable"
+    ],
+    "definitions": {
+      "supported": "The retained context directly supports every state-dependent precondition needed by the candidate.",
+      "contradicted": "The retained context directly contradicts at least one required precondition.",
+      "unobservable": "The retained context neither supports nor contradicts all required preconditions.",
+      "appropriate": "The candidate is a reasonable next action for the stated objective and visible risk.",
+      "plausible": "The candidate could reasonably help, but the context supports a material alternative or leaves strategic ambiguity.",
+      "inappropriate": "The candidate clearly conflicts with the stated objective, visible state, or visible risk.",
+      "unassessable": "The retained context is insufficient to judge strategic appropriateness."
+    }
+  },
+  "human_label_gate": {
+    "independent_reviewers": 2,
+    "reviewer_identity": "named humans who did not generate the candidate outputs",
+    "independence": "Reviewer A and Reviewer B must label every item without seeing each other's labels or the sealed analysis key.",
+    "adjudication": "After both complete label files are hash-sealed, a third human adjudicator resolves every disagreement without changing agreements.",
+    "release": "No aggregate, primary-subset analysis, or scientific result may be produced until both complete independent label sets and the complete adjudication record verify.",
+    "missingness": "Any missing, duplicate, out-of-vocabulary, or unadjudicated item blocks all aggregate reporting."
+  },
+  "claim_boundary": {
+    "permitted_after_gate": "A descriptive, post-hoc human judgment of context-grounded preconditions and strategic appropriateness on this fixed finite panel.",
+    "prohibited": [
+      "historical execution success",
+      "downstream utility",
+      "causal recovery benefit",
+      "training-method superiority",
+      "population generalization",
+      "independent checkpoint replication"
+    ],
+    "current": "This registration and any generated unlabeled packet bundle contain no result."
+  }
+}

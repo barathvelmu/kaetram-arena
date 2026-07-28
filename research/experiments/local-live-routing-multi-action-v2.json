@@ -1,0 +1,226 @@
+{
+  "schema_version": "kaetram.live-routing-multi-action-registration.v2",
+  "study_id": "local-live-routing-multi-action-v2",
+  "status": "registered_before_live_execution",
+  "claim_boundary": {
+    "confirmatory": false,
+    "permitted_claim": "Preliminary within-build evidence that three frozen state-changing calls can be routed and applied sequentially under one local fixture; routing validity and gameplay application are reported separately.",
+    "prohibited_claims": [
+      "model quality or superiority",
+      "causal recovery benefit",
+      "quest-performance improvement",
+      "checkpoint or training superiority",
+      "generalization across tools, states, models, renderers, games, or environments",
+      "statistical independence of technical repeats"
+    ]
+  },
+  "zero_cost_contract": {
+    "model_calls": 0,
+    "remote_endpoints": "forbidden",
+    "metered_services": "forbidden",
+    "network_scope": "loopback_only",
+    "game_port": 9191,
+    "mongo_port": 27017,
+    "mongo_database": "kaetram_e2e"
+  },
+  "source_contract": {
+    "seal": "create_only_prelaunch_receipt",
+    "clean_worktree_required": true,
+    "files": [
+      "canonical_start.py",
+      "mcp_game_server.py",
+      "mcp_server/__init__.py",
+      "mcp_server/core.py",
+      "mcp_server/helpers.py",
+      "mcp_server/js/__init__.py",
+      "mcp_server/js/buy_packet.js",
+      "mcp_server/js/inventory_snapshot.js",
+      "mcp_server/js/nudge_store.js",
+      "mcp_server/js/observe.js",
+      "mcp_server/js/shop_ui_state.js",
+      "mcp_server/login.py",
+      "mcp_server/mob_stats.py",
+      "mcp_server/resource_gates.py",
+      "mcp_server/state_heartbeat.py",
+      "mcp_server/tools/__init__.py",
+      "mcp_server/tools/combat.py",
+      "mcp_server/tools/crafting.py",
+      "mcp_server/tools/gathering.py",
+      "mcp_server/tools/inventory.py",
+      "mcp_server/tools/navigation.py",
+      "mcp_server/tools/npc.py",
+      "mcp_server/tools/observe.py",
+      "mcp_server/tools/quest.py",
+      "mcp_server/tools/shop.py",
+      "mcp_server/tools/test_lane.py",
+      "mcp_server/utils.py",
+      "play_qwen.py",
+      "scripts/opd/canonicalize.py",
+      "scripts/opd/execution_evidence.py",
+      "scripts/opd/live_routing_launcher.py",
+      "scripts/opd/live_routing_analyzer.py",
+      "scripts/opd/live_routing_diagnostic.py",
+      "scripts/opd/live_routing_multi_action_analyzer.py",
+      "scripts/opd/live_routing_multi_action_diagnostic.py",
+      "scripts/opd/live_routing_multi_action_launcher.py",
+      "scripts/opd/live_routing_multi_action_orchestrator.py",
+      "scripts/opd/live_routing_multi_action_prelaunch.py",
+      "scripts/opd/live_routing_multi_action_result_verify.py",
+      "scripts/opd/live_routing_orchestrator.py",
+      "scripts/opd/live_routing_prelaunch.py",
+      "scripts/opd/live_routing_result_verify.py",
+      "scripts/opd/live_routing_services.py",
+      "scripts/opd/response_router.py",
+      "state_extractor.js",
+      "tests/e2e/helpers/mcp_client.py",
+      "tests/e2e/helpers/seed.py",
+      "tests/unit/test_live_routing_multi_action_analyzer.py",
+      "tests/unit/test_live_routing_multi_action_diagnostic.py",
+      "tests/unit/test_live_routing_multi_action_launcher.py",
+      "tests/unit/test_live_routing_multi_action_orchestrator.py",
+      "tests/unit/test_live_routing_multi_action_prelaunch.py",
+      "tests/unit/test_live_routing_multi_action_result_verify.py",
+      "tool_surface.py"
+    ]
+  },
+  "live_contract": {
+    "game_revision": "bec730773dd03b3f172b66e75f46b253dd801056",
+    "game_bundle_sha256": "b88ac739d546b698b3b70c8c748c319bf688e0f71d5a8ec852447d48e516aec8",
+    "client_dist_inventory_sha256": "8db3506ed1beb9a9f42a3fd1cf2aa0c00fd4442cc49e5ccd3addf1e0745d5e46",
+    "tool_schema_sha256": "770c9a44b1e656c3798577627ddf08928a5787036e22a5e3358bf78ff6432cfe",
+    "python_version": "3.12.13",
+    "python_executable_sha256": "eb9d74b9c7cfdfb2c9b91614edb2c3607360ba46c5aa7fc4557b3a4a23e97cff",
+    "mcp_version": "1.28.1",
+    "playwright_version": "1.61.0",
+    "pymongo_version": "4.17.0",
+    "node_version": "v20.20.2",
+    "node_executable_sha256": "edc0c98fee8947a04913cb45cf80e7341653b0ea9e907ff3dc50d7fdaedda1d2",
+    "docker_client_version": "Docker version 29.2.1, build a5c7197",
+    "docker_executable_sha256": "aeb0c9beb933a73723f1653d54f91636ef4033621543eef4c2c67d45aa467eba",
+    "browser_name": "chromium",
+    "browser_version": "149.0.7827.55",
+    "browser_executable_sha256": "b1b9e2dd063115031f08eadc10ed381ca0fa05b2284baff8f721d87f5f0f61b7"
+  },
+  "state_fixture": {
+    "source": "live_routing_multi_action_diagnostic.multi_action_documents",
+    "expected_observation": {
+      "pos": {"x": 328, "y": 892},
+      "stats": {"hp": 30, "max_hp": 69, "level": 1, "xp": 0},
+      "equipment": {},
+      "skills": {},
+      "inventory": [
+        {"slot": 0, "key": "bronzeaxe", "count": 1},
+        {"slot": 1, "key": "knife", "count": 1},
+        {"slot": 2, "key": "fishingpole", "count": 1},
+        {"slot": 3, "key": "coppersword", "count": 1},
+        {"slot": 4, "key": "woodenbow", "count": 1},
+        {"slot": 5, "key": "apple", "count": 1}
+      ],
+      "active_quests": [],
+      "finished_quests": ["Miner's Quest"],
+      "is_dead": false,
+      "indoors": false
+    },
+    "precondition": "Every trial must match the complete observation fixture before turn one or is invalid."
+  },
+  "actions": [
+    {
+      "turn": "equip_item",
+      "name": "equip_item",
+      "arguments": {"slot": 3},
+      "canonical_sha256": "ee9aa2a1ff2115b0053826728bdc5f0302dfa84f3b28faeeef52aaf628ab3512",
+      "content_envelope": "<tool_call><function=equip_item><parameter=slot>3</parameter></function></tool_call>",
+      "content_envelope_sha256": "f0ca4b8c4d14fe0a2d2b459e5ffa1f2632cb2872959b1076ceb4fdf31c9fd87a"
+    },
+    {
+      "turn": "eat_food",
+      "name": "eat_food",
+      "arguments": {"slot": 5},
+      "canonical_sha256": "6d3bd9502da16c21ef53cf89074b0b442d580e5186b30d9d283ceb43a666c9eb",
+      "content_envelope": "<tool_call><function=eat_food><parameter=slot>5</parameter></function></tool_call>",
+      "content_envelope_sha256": "75ef4500b384a502b8a66e3678e95ccbb852c75a85f5883e3c81f4391fe95ba5"
+    },
+    {
+      "turn": "warp",
+      "name": "warp",
+      "arguments": {"location": "mudwich"},
+      "canonical_sha256": "4a6268e304c29bed1d5122d30bd9d1a655d524e2e4855de45ffcc99c811f5676",
+      "content_envelope": "<tool_call><function=warp><parameter=location>mudwich</parameter></function></tool_call>",
+      "content_envelope_sha256": "d0f7273e796c09ae64d2bbeb307ec319e3d5243ec0bd2137871f5f68ce1ad05b"
+    }
+  ],
+  "arms": [
+    {
+      "arm": "structured_direct",
+      "route": "structured",
+      "recovery": false,
+      "expected_candidate_invocations": 3,
+      "expected_router_status_per_turn": "not_applicable_structured"
+    },
+    {
+      "arm": "content_recovery_on",
+      "route": "ordinary_content",
+      "recovery": true,
+      "expected_candidate_invocations": 3,
+      "expected_router_status_per_turn": "promoted"
+    },
+    {
+      "arm": "content_recovery_off",
+      "route": "ordinary_content",
+      "recovery": false,
+      "expected_candidate_invocations": 0,
+      "expected_router_status_per_turn": "disabled_not_evaluated"
+    }
+  ],
+  "schedule": {
+    "arm_orders": [
+      ["structured_direct", "content_recovery_on", "content_recovery_off"],
+      ["content_recovery_on", "content_recovery_off", "structured_direct"],
+      ["content_recovery_off", "structured_direct", "content_recovery_on"]
+    ],
+    "action_orders": [
+      ["equip_item", "eat_food", "warp"],
+      ["eat_food", "warp", "equip_item"],
+      ["warp", "equip_item", "eat_food"]
+    ],
+    "technical_repeats": 3,
+    "trials": 9,
+    "turns_per_trial": 3
+  },
+  "trial_identities": [
+    {"schedule_index": 1, "repeat": 1, "position_within_repeat": 1, "pair_id": "repeat-01", "arm": "structured_direct", "action_order": ["equip_item", "eat_food", "warp"], "trial_key": "llrma-v2-t01", "username_template": "ma_{run_id}_01", "treatment_session_id_template": "llrma-{run_id}-t01-treatment", "reconnect_session_id_template": "llrma-{run_id}-t01-reconnect", "expected_candidate_invocations": 3},
+    {"schedule_index": 2, "repeat": 1, "position_within_repeat": 2, "pair_id": "repeat-01", "arm": "content_recovery_on", "action_order": ["equip_item", "eat_food", "warp"], "trial_key": "llrma-v2-t02", "username_template": "ma_{run_id}_02", "treatment_session_id_template": "llrma-{run_id}-t02-treatment", "reconnect_session_id_template": "llrma-{run_id}-t02-reconnect", "expected_candidate_invocations": 3},
+    {"schedule_index": 3, "repeat": 1, "position_within_repeat": 3, "pair_id": "repeat-01", "arm": "content_recovery_off", "action_order": ["equip_item", "eat_food", "warp"], "trial_key": "llrma-v2-t03", "username_template": "ma_{run_id}_03", "treatment_session_id_template": "llrma-{run_id}-t03-treatment", "reconnect_session_id_template": "llrma-{run_id}-t03-reconnect", "expected_candidate_invocations": 0},
+    {"schedule_index": 4, "repeat": 2, "position_within_repeat": 1, "pair_id": "repeat-02", "arm": "content_recovery_on", "action_order": ["eat_food", "warp", "equip_item"], "trial_key": "llrma-v2-t04", "username_template": "ma_{run_id}_04", "treatment_session_id_template": "llrma-{run_id}-t04-treatment", "reconnect_session_id_template": "llrma-{run_id}-t04-reconnect", "expected_candidate_invocations": 3},
+    {"schedule_index": 5, "repeat": 2, "position_within_repeat": 2, "pair_id": "repeat-02", "arm": "content_recovery_off", "action_order": ["eat_food", "warp", "equip_item"], "trial_key": "llrma-v2-t05", "username_template": "ma_{run_id}_05", "treatment_session_id_template": "llrma-{run_id}-t05-treatment", "reconnect_session_id_template": "llrma-{run_id}-t05-reconnect", "expected_candidate_invocations": 0},
+    {"schedule_index": 6, "repeat": 2, "position_within_repeat": 3, "pair_id": "repeat-02", "arm": "structured_direct", "action_order": ["eat_food", "warp", "equip_item"], "trial_key": "llrma-v2-t06", "username_template": "ma_{run_id}_06", "treatment_session_id_template": "llrma-{run_id}-t06-treatment", "reconnect_session_id_template": "llrma-{run_id}-t06-reconnect", "expected_candidate_invocations": 3},
+    {"schedule_index": 7, "repeat": 3, "position_within_repeat": 1, "pair_id": "repeat-03", "arm": "content_recovery_off", "action_order": ["warp", "equip_item", "eat_food"], "trial_key": "llrma-v2-t07", "username_template": "ma_{run_id}_07", "treatment_session_id_template": "llrma-{run_id}-t07-treatment", "reconnect_session_id_template": "llrma-{run_id}-t07-reconnect", "expected_candidate_invocations": 0},
+    {"schedule_index": 8, "repeat": 3, "position_within_repeat": 2, "pair_id": "repeat-03", "arm": "structured_direct", "action_order": ["warp", "equip_item", "eat_food"], "trial_key": "llrma-v2-t08", "username_template": "ma_{run_id}_08", "treatment_session_id_template": "llrma-{run_id}-t08-treatment", "reconnect_session_id_template": "llrma-{run_id}-t08-reconnect", "expected_candidate_invocations": 3},
+    {"schedule_index": 9, "repeat": 3, "position_within_repeat": 3, "pair_id": "repeat-03", "arm": "content_recovery_on", "action_order": ["warp", "equip_item", "eat_food"], "trial_key": "llrma-v2-t09", "username_template": "ma_{run_id}_09", "treatment_session_id_template": "llrma-{run_id}-t09-treatment", "reconnect_session_id_template": "llrma-{run_id}-t09-reconnect", "expected_candidate_invocations": 3}
+  ],
+  "measurement": {
+    "per_turn": ["router decision", "frozen-schema verdict", "dispatch attempt", "delivery confirmation", "MCP result", "tool-reported error", "immediate semantic gameplay projection", "delayed semantic gameplay projection", "cumulative action predicates"],
+    "post_trial": ["cold reconnect semantic gameplay projection", "owned read-only Mongo semantic gameplay projection", "ownership cleanup proof"],
+    "equip_item_acceptance": "Copper Sword absent from inventory and present as equipped weapon.",
+    "eat_food_acceptance": "Apple absent from inventory and hit points strictly above the registered 30 HP baseline.",
+    "warp_acceptance": "Position lies in the registered Mudwich region x=188..191, y=157..160.",
+    "off_arm_acceptance": "Zero dispatches and semantic gameplay state remains at the registered baseline at every observation, reconnect, and database snapshot."
+  },
+  "runtime_parameters": {
+    "candidate_retry_count": 0,
+    "minimum_delayed_observation_seconds": 1.5,
+    "minimum_disconnect_settle_seconds": 1.5,
+    "worker_timeout_seconds": 180,
+    "service_readiness_timeout_seconds": 60,
+    "cold_mcp_session_per_trial": true,
+    "cold_browser_session_per_trial": true,
+    "fresh_unique_player_per_trial": true
+  },
+  "reporting": {
+    "artifact_cap_bytes": 16777216,
+    "unit": "technical trial",
+    "technical_repeats_are_independent": false,
+    "route_validity_separate_from_application": true,
+    "exact_verdict_language": "Report protocol validity, full-predicate pass/fail, and each action predicate separately; never call nine protocol-valid trials nine passes."
+  }
+}

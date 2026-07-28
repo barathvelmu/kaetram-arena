@@ -39,8 +39,11 @@ route-validity decomposition is secondary and must remain labeled post hoc.
 
 Use the official TMLR style on US Letter. References precede appendices. TMLR
 has no hard page limit, although main papers over 12 pages receive a slower
-review schedule. The review manuscript must disclose material LLM use in a
-first-page footnote. It must not contain author-owned repository links,
+review schedule. TMLR's current author policy permits LLMs as assistive tools,
+makes the human authors fully responsible, and does not prescribe a disclosure
+location. This draft nevertheless uses a short first-page disclosure as a
+transparent author choice; recheck the live policy before upload. The review
+manuscript must not contain author-owned repository links,
 identifying local paths, handles, emails, acknowledgments, or identity-bearing
 preprint links. Upload a standalone anonymized supplement rather than linking a
 personal fork.
@@ -51,5 +54,5 @@ personal fork.
 - Editorial and dual-submission policy:
   https://www.jmlr.org/tmlr/editorial-policies.html
 - Acceptance criteria: https://jmlr.org/tmlr/acceptance-criteria.html
-- FAQ and LLM disclosure: https://jmlr.org/tmlr/faq.html
+- FAQ and LLM-policy pointer: https://jmlr.org/tmlr/faq.html
 - Submission instructions: https://jmlr.org/tmlr/submissions.html

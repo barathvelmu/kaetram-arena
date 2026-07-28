@@ -25,6 +25,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from canonical_start import CANONICAL_DB_QUESTS  # noqa: E402
 from scripts.opd.live_routing_diagnostic import (  # noqa: E402
+    STATUS,
     load_registration_strict,
     validate_registration,
 )
@@ -419,7 +420,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         registration = load_registration_strict(args.registration)
-        errors = validate_registration(registration)
+        status = registration.get("status")
+        if status not in (STATUS, READY_STATUS):
+            raise LauncherError(f"unrecognized registration status: {status!r}")
+        errors = validate_registration(registration, expected_status=status)
         if errors:
             raise LauncherError("design registration invalid: " + "; ".join(errors))
         game = attest_game_checkout(args.game_root, registration)

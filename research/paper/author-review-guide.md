@@ -2,49 +2,69 @@
 
 ## What exists now
 
-- Historical technical report: `reference/overview.tex`.
-- Evidence-safe NAACL/ARR draft: `reference/naacl_submission.tex`.
-- Current rendered draft: `output/pdf/kaetram-opd-naacl-working-draft.pdf`.
+- TMLR manuscript source: `paper/tmlr/main.tex`.
+- Current review PDF: `output/pdf/kaetram-tool-routing-tmlr-draft.pdf`.
+- Anonymous supplement builder: `scripts/build_tmlr_supplement.py`.
 - Claim rules: `research/paper/claims-evidence-matrix.md`.
-- Venue rules and dates: `research/paper/venue-and-submission-guide.md`.
+- Current TMLR policy audit: `research/paper/tmlr-submission-audit-2026-07-28.md`.
 - Harsh-review record: `research/paper/reviewer-simulation.md`.
-- Experiment design: `research/paper/experiment-plan.md`.
+- Research and artifact map: `research/INDEX.md`.
 
-## What the draft says
+The historical NAACL draft and technical report remain provenance records, not
+the manuscript to submit.
 
-The current historical observations are base 12/30, natural-OPD round one 12/30, state-augmented round two 15/30 without recovery, round-two weights plus recovery 17/30, and round-three weights plus recovery 18/30. There is one complete run per principal arm. The paper therefore calls these exploratory observations, not replicated effects.
+## What the paper actually claims
 
-The candidate method is reachability-targeted persistent-player-state initialization for OPD. It is not yet validated causally and does not restore a complete shared world. TCOD already covers success-prefix temporal curricula, Guided-OPD changes occupancy with decaying teacher turns, ReOPD designs prefix distributions, and SCoRe targets verified pre-error prefixes. Random/progress resets, TCOD-B2F, and Guided-OPD must be direct baselines.
+The paper is a routing audit, not an OPD training-method paper. Its central
+finding is that a model can emit a parser-recoverable tool call in ordinary
+assistant text while the executor reads only the structured tool-call field.
+On the complete 1,200-request V2 finite grid, native schema exposure increased
+this content-only incidence by +23, +13, and +10 percentage points at Base,
+round 2, and round 3.
 
-## What your collaborator should review first
+The manuscript also preserves negative evidence:
 
-1. Approve the NAACL/ARR target and the October 12 internal schedule.
-2. Review and merge P0 PRs before spending compute.
-3. Freeze the primary endpoint, held-out quest, seed schedule, and baseline budgets.
-4. Confirm that every new run preserves raw emissions and immutable artifacts.
-5. Refuse any headline change until the corresponding gate in the evidence matrix changes.
+- the 18-cell recovery factorial completed, but no output was eligible for
+  recovery, so it did not identify a recovery effect;
+- V1's nominal seeds were ineffective, so V1 is discovery evidence only;
+- the model-free multi-action V2 measurement remains 9/9 protocol-valid but
+  0/9 full-predicate-pass; and
+- only the fresh post-amendment multi-action V3 run is reported as 9/9 on both
+  counts.
 
-## Current PR order
+A different-panel trigger-incidence V3 extension is currently finishing on the
+same zero-cost local setup. It must pass its independent verifier and anonymous
+export before any result enters the manuscript.
 
-1. Correctness and evaluation fixes: #36, #37, #38, #53.
-2. Canonical tool/render contract: #40.
-3. Immutable run manifests: #41.
-4. Recovery/copy-prior diagnostics: #39.
-5. Factorial/held-out launcher: #42 after #40; then #44/#45/#47.
-6. Matched-training stack: #48 -> #49 -> #51, then sibling #50/#52.
-7. Historical evidence and clean clone: #43/#46.
-8. Central paper and audit package: #35 after the supporting PRs settle.
+## What the author should review first
 
-## What is still missing
+1. Read the abstract, contribution list, limitations, and claim-to-evidence
+   table. Those are the highest-leverage places for a scientific wording check.
+2. Confirm that the model, game, and historical-development description matches
+   what the project actually did.
+3. Check the final V3 table against the generated public table; do not edit
+   numeric cells by hand.
+4. Decide the qualifying author list and order. Every author must meet TMLR's
+   contribution criteria, approve the paper, have an active OpenReview profile,
+   and accept responsibility for the work.
+5. Confirm that no overlapping version is under review at another archival
+   venue when this is submitted.
 
-- Fresh matched seeded-versus-natural training.
-- Random/progress reset, TCOD-B2F, Guided-OPD, and corrected-SFT baselines.
-- Full weights × recovery results.
-- Held-out/no-walkthrough and retention results.
-- Replicated copy-prior diagnostics.
-- Clean-clone reproduction from published immutable bundles.
-- Final figures and run-level confidence intervals.
+## What remains outside the paper's claim
+
+- Human judgments of whether model-emitted calls are appropriate.
+- Downstream quest utility for naturally emitted calls.
+- A second model family, renderer, parser, state pool, or game.
+- Independent training runs supporting checkpoint or OPD superiority.
+- A causal recovery benefit.
+
+These are real scientific limitations, but they are not hidden launch blockers.
+The TMLR paper is intentionally scoped to the action-routing mechanism that the
+current evidence can support.
 
 ## One-sentence status
 
-The infrastructure and evidence-safe paper shell are reviewable; the publishable scientific result still depends on new compute and immutable replicated data.
+The submission package is in final evidence-integration: the paper, local
+multi-action result, venue audit, and anonymous-review machinery are green; the
+last live trigger panel, final PDF/supplement rebuild, and human author approval
+remain.

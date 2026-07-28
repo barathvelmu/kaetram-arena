@@ -1,6 +1,15 @@
 \documentclass[10pt]{article}
-\pdftrailerid{[<04a26f53ce24fa9578c0e49d55b94632><04a26f53ce24fa9578c0e49d55b94632>]}
-\usepackage{tmlr}
+% A neutral, reproducible trailer ID avoids binding the anonymous PDF to a
+% searchable source artifact.
+\pdftrailerid{[<00000000000000000000000000000000><00000000000000000000000000000000>]}
+\ifdefined\ARXIVVERSION
+  \usepackage[preprint]{tmlr}
+\else
+  \usepackage{tmlr}
+  % Generated locally from the anonymous review projections. This file is
+  % intentionally untracked and contains no public-fork fingerprints.
+  \input{review-roots.tex}
+\fi
 \usepackage{amsmath,amssymb,booktabs,array,multirow}
 \usepackage{graphicx}
 \usepackage{xcolor}
@@ -8,7 +17,15 @@
 \usepackage{needspace}
 \usepackage{hyperref}
 \usepackage{url}
-\hypersetup{hidelinks}
+\ifdefined\ARXIVVERSION
+  \hypersetup{
+    hidelinks,
+    pdftitle={\ArchivePDFTitle},
+    pdfauthor={\ArchivePDFAuthor}
+  }
+\else
+  \hypersetup{hidelinks}
+\fi
 
 \title{Recoverable but Unrouted: Auditing Tool-Call Routing in a Persistent
 Language-Model Agent\thanks{Large language models materially assisted literature
@@ -16,8 +33,12 @@ search, code review, experimental-design critique, and manuscript drafting.
 The human authors verified the evidence, analyses, citations, and final claims
 and retain full responsibility for the work.}}
 
-% Author identities are suppressed by the review-mode TMLR style.
-\author{Anonymous authors}
+\ifdefined\ARXIVVERSION
+  \author{\ArchiveAuthorBlock}
+\else
+  % Author identities are suppressed by the review-mode TMLR style.
+  \author{Anonymous authors}
+\fi
 
 \def\month{MM}
 \def\year{YYYY}
@@ -31,35 +52,28 @@ and retain full responsibility for the work.}}
 \maketitle
 
 \begin{abstract}
-A tool-using language-model agent can generate a parser-recoverable action and still
-do nothing: the command may appear in ordinary assistant text while the
-executor reads only the structured tool-call field. We study this silent
-action-routing failure in a 2B agent controlling a persistent game through 17
-typed tools. A forensic audit first showed that historical score changes could
-not identify a training effect because model weights, visited states, rendered
-interfaces, and runtime recovery had changed together. We therefore moved from
-long-horizon scores to prospectively frozen manipulation checks. An 18-cell
-weights-by-recovery diagnostic produced no recovery-eligible output in 958
-generations, so the recovery intervention never engaged. A fixed-state V1
-study then found that passing a registered schema through the endpoint's native
-tools parameter increased the rate of recoverable calls stranded in text by
-15--30 percentage points across three checkpoints,
-but a post-outcome audit found that its five nominal seeds were ineffective.
-We repaired the sampling path and prospectively froze V2 on 20 outcome-unseen
-states before endpoint access.
-All 1,200 requests succeeded; all 240 state--condition groups contained five
-distinct normalized response payloads, and 126 groups varied in the primary
-outcome.
-The native-schema contrast was positive at Base, round 2, and round 3
-(+23, +13, and +10 points), satisfying the registered directional criterion.
-A clearly labeled post-hoc analysis also found that schema-invalid structured
-envelopes occurred less often and that valid candidates through either route
-rose from 61 to 135, 79 to 112, and 83 to 121 per 200 requests. Because schema
-exposure also changed routing, this comparison is descriptive.
-The contribution is an
-artifact-centered audit of where actions are lost between model and
-environment, not a checkpoint ranking, recovery benefit, or established
-training effect.
+A tool-using language-model agent can emit a parser-recoverable action yet do
+nothing when the executor reads only a structured tool-call field. We audit
+this failure in a 2B agent controlling a persistent game through 17 typed tools.
+Historical scores could not identify a training effect because weights, states,
+interfaces, and runtime recovery changed together. A prospective 18-condition
+test then found that recovery was never eligible to act in 958 generations. We
+therefore isolated the model-visible interface. A discovery study revealed that
+nominal request seeds produced duplicate outputs. After repairing sampling, a
+frozen 1,200-request study evaluated three checkpoints on 20 previously unseen
+decision states with five effective seeds. Supplying the 17-tool schema through
+the endpoint's structured tools field increased parser-recoverable actions
+stranded in ordinary text by +23, +13, and +10 percentage points. Repeating the
+same protocol on a different retained state set produced +13, +5.5, and +9
+points; no source log or rendered model input overlapped the first study. This
+second panel is a robustness check, not independent replication. Post-hoc
+analyses on both panels found more schema-valid candidates through either route.
+Finally, a model-free diagnostic preserved a failed measurement, amended it
+prospectively, and on a fresh run routed all three frozen calls in each of six
+active-route trials while the three disabled-control trials showed no registered
+action effect. The contribution is a reviewer-recomputable audit of where
+actions are lost between model and environment---not a checkpoint ranking,
+recovery benefit, broad generalization, or training effect.
 \end{abstract}
 
 \section{Introduction}
@@ -82,21 +96,25 @@ We encountered this problem while auditing a small language-model agent in a
 persistent MMORPG. The agent receives a procedural quest guide and acts through
 17 typed tools. Historical development records suggested that changing the
 training-state distribution improved quest progress, while later runs also
-changed the tool interface and runtime recovery. The records were rich enough
-to recover exact descriptive scores, but not to reconstruct every checkpoint,
-reset, renderer, or random seed. Rather than promote those scores into a causal
-claim, we used them to localize a testable interface mechanism.
+changed the tool interface and runtime recovery. The records preserved exact
+descriptive scores, but not the exact checkpoint, environment reset,
+model-visible prompt, or random seed for every run. Rather than treat those
+scores as causal evidence, we used them to identify a mechanism that could be
+tested directly.
 
 The resulting study follows a sequence that is useful beyond this game. First,
-we content-bound the historical evidence and marked which comparisons were not
-identifiable. Second, we ran a prospective recovery factorial and checked
+we tied every historical claim to retained evidence and marked the comparisons
+that could not identify an effect. Second, we ran a prospective recovery
+factorial and checked
 whether the intervention actually fired. It did not: none of 958 generations
 was eligible. Third, a registered fixed-state grid isolated two model-visible
 interface factors and exposed recoverable calls that were printed in text rather
 than delivered through the structured channel. Fourth, an audit discovered
 that nominal request seeds had not changed sampling. We repaired the seed path
 and prospectively froze an outcome-unseen confirmation instead of retrospectively
-upgrading the first study.
+upgrading the first study. Finally, we repeated the unchanged grid on a
+different retained state panel and followed three frozen calls across the next
+execution boundary with a prospectively repaired measure.
 
 Our contributions are:
 
@@ -106,19 +124,22 @@ Our contributions are:
   action stranded in recoverable text, a malformed surface form, and no recoverable
   call.
   \item We report a registered outcome-unseen finite-grid confirmation across
-  three fixed checkpoints. Native schema exposure increased content-only
-  recoverable-call incidence by 10--23 percentage points at every checkpoint,
-  satisfying the prospectively frozen directional criterion.
-  \item We provide a failure-aware evidence sequence: content-bound historical
-  recovery, a failed manipulation check, explicit discovery/confirmation
-  separation, model-level seed validation, and independently recomputable raw
-  artifacts.
+  three fixed checkpoints and a non-confirmatory extension on a different
+  retained panel. Native schema exposure increased content-only
+  recoverable-call incidence at every checkpoint on both panels, with effects
+  of 10--23 and 5.5--13 percentage points.
+  \item We provide a failure-aware, reviewer-recomputable evidence sequence that
+  preserves failed manipulation, effective-seed, and measurement checks. After
+  prospective measurement repair, three author-fixed calls produced their
+  registered fixture effects in all six active-route trials, while the disabled
+  arm showed no registered action effect in 3/3.
 \end{enumerate}
 
 The bounded conclusion is about this action-routing contract. The three
-checkpoints form one model lineage, the states come from one historical run,
-and the renderer is fixed. We do not treat checkpoints as training replicates,
-infer a recovery benefit, or claim improved quest performance.
+checkpoints form one model lineage, both state panels come from the same project
+and evaluation regime, and the renderer is fixed. We do not treat checkpoints
+as training replicates, call the two panels independent replications, infer a
+recovery benefit, or claim improved quest performance.
 
 \section{Setting and Action-Routing Contract}
 
@@ -199,11 +220,11 @@ uses either historical Python-like descriptions or canonicalized prose.
 the native field. The four conditions are therefore Python/no-schema,
 Python/schema, canonical/no-schema, and canonical/schema.
 
-We evaluate Base, OPD round 2, and OPD round 3 weight snapshots. These are fixed
-checkpoints chosen before outcome inspection, not independently trained draws.
-Every contrast is reported separately by checkpoint. A consistent direction
-across them is robustness within this lineage, not population-level evidence
-about training.
+We evaluate the Base checkpoint and two later on-policy-distillation checkpoints,
+OPD rounds 2 and 3. These are fixed members of one training lineage, not
+independently trained models. We report every contrast separately by checkpoint;
+agreement in direction is robustness within this lineage, not evidence about
+training methods in general.
 
 \section{Evidence Protocol}
 
@@ -235,7 +256,9 @@ V1 seed audit & Semantic duplicates recomputed post hoc &
 Collapse to 20 outputs per cell; no sampling claim \\
 V2 interface grid & 1,200/1,200; outcome-unseen panel; effective gates &
 Registered finite-grid directional confirmation \\
-Structured validity & Recomputed after V2 outcomes &
+V3 interface grid & 1,200/1,200; different retained panel; effective gates &
+Non-confirmatory same-direction finite-grid extension \\
+Structured validity & Recomputed after V2 and V3 outcomes &
 Post-hoc routing diagnostic, not a new primary outcome \\
 Multi-action execution V2 & 9/9 protocol-valid; 0/9 full predicate &
 Transport worked, but two frozen measurement predicates were defective \\
@@ -258,38 +281,28 @@ selected states were sent to an endpoint. The design was not deposited in an
 external public registry; the claim is about prospective outcome separation,
 not public timestamping.
 
-The V2 release contains the registration, selected rendered states, endpoint
-attestations, seed gates, all 1,200 raw rows, sealed analysis, code-closure
-hashes, and content indexes. A producer verifier replays the analysis; a
-secondary verifier reimplements the primary binary parser-recoverability label
-and recomputes cells, contrasts, seed heterogeneity, and the directional
-verdict. Exact recovered-call detail additionally uses the shared frozen
-canonicalization code. The artifact-index digest printed in this PDF binds the
-paper to the exact supplementary bundle. These checks establish artifact
-integrity and deterministic
-recomputation, not generalization.
+The V2 and V3 releases contain their registrations, selected rendered states,
+endpoint attestations, seed gates, 1,200 raw rows each, sealed analyses,
+code-closure hashes, and content indexes. Producer verifiers replay the
+analyses; secondary verifiers reimplement the primary binary
+parser-recoverability label and recompute cells, contrasts, seed heterogeneity,
+and directional verdicts. V3 additionally enforces zero V2 source-path and
+rendered-message overlap and binds a two-stage prospective freeze. Exact
+recovered-call detail uses the shared frozen canonicalization code. The
+\ifdefined\ARXIVVERSION public artifact\else review-projection\fi\ index
+digests printed in this PDF bind the paper to the exact supplementary evidence.
+These checks establish artifact integrity and
+deterministic recomputation, not generalization.
 
 \section{Historical Case: Why Scores Did Not Identify the Lever}
 
-The historical sequence motivated the audit but is not its causal result. A
-natural-visitation OPD round changed aggregate tool-use behavior while remaining
-at 12/30. A later round mixed natural trajectories with rollouts begun from a
-loadable, walkability-checked intermediate player state and was followed by a
-15/30 canonical-start run. Every prompt variant crossed one previously blocked
-quest stage. The round also changed initialization and data, and its reset and
-gameplay seed were not preserved. The defensible observation is therefore that
-a state-augmented training round was followed by wall passage in one run, not
-that state restoration caused it.
-
-A later development campaign supplied nine mechanism arms. Content-bound replay
-recovers the reported six-hour totals 12, 18, 12, 15, 13, 14, 12, 17, and 14.
-Four historically intended corpus/init-matched comparisons replace
-teacher-derived token advantages with a positive constant; the constant-weight
-arm matches or exceeds the graded arm in three of four cells. A repaired-render
-graded sensitivity reverses one direction. Each cell is one historical training
-run, and the launch-time corpus, checkpoint, render, reset, and random-seed
-identities were not all sealed. These observations motivate a corpus and
-interface hypothesis but cannot estimate a grading or state-visitation effect.
+Historical runs suggested that adding intermediate-state rollouts preceded
+better quest progress, but those runs also changed data, initialization, and
+other components and lacked sealed reset and seed identities. A later nine-arm
+campaign similarly mixed corpus, checkpoint, prompt rendering, reset, and seed
+changes. Its archived scores remain exactly replayable, but each cell is a
+single training run. We therefore use this evidence only to motivate the
+routing hypothesis, not to estimate training or state-visitation effects.
 
 The recovery affordance was also historically confounded with weights. A June
 round-3 run used recovery and scored 18/30; a recovered run labeled with
@@ -326,7 +339,7 @@ interfaces naturally produce content that the recovery layer could act on.
 
 V1 crossed the three checkpoints, four interfaces, 20 historical decision
 states, and five nominal request seeds. All 1,200 requests completed. After
-outcomes, an independent diversity audit found one normalized response payload in every
+outcomes, a separately implemented post-outcome diversity audit found one normalized response payload in every
 five-seed state--condition group: the serving thread accepted the request seed
 but did not change its sampling stream. We therefore collapse V1 to one output
 per state--condition group, or 20 outputs per cell. No stochastic-sampling
@@ -398,6 +411,33 @@ effects ($-3$, $+1$, and $-5$ points); the interactions were $+2$, $+4$, and
 $0$ points. We do not pool checkpoints or attach population uncertainty to the
 twenty states.
 
+\subsection{V3 extension on a different retained state panel}
+
+Before collecting V3 outcomes, we froze 20 decision states from a separate
+retained round-3 evaluation rollout and verified that neither their source logs
+nor their rendered model inputs overlapped V2. The rollout was generated after
+the round-3 checkpoint was frozen and is not known to have been training data,
+but it came from the same project, model lineage, renderer, and evaluation
+regime. We therefore treat V3 as a robustness extension, not an independent
+replication.
+
+The unchanged V2 protocol then scheduled another 1,200 local requests. All
+succeeded, every state--condition group contained five distinct normalized
+payloads, and 103/240 groups varied in the primary outcome. The generated table
+below is rendered only after a separately implemented public artifact auditor
+accepts the complete raw artifact.
+
+\input{../../research/results/local-trigger-incidence-v3/paper-table-public.tex}
+
+Native schema exposure increased content-only recoverable-call incidence by
+13 points at Base, 5.5 at round 2, and 9 at round 3. All three contrasts were
+strictly positive, so the inherited same-direction criterion passed. The
+documentation contrasts remained small and mixed ($+3$, $+1.5$, and $-3$
+points); interactions were $-4$, $-5$, and $-6$ points. V3 therefore shows
+that V2's direction persists on a second finite retained panel under the same
+interface contract. It does not turn either panel into an independent sample
+or establish a population effect.
+
 \subsection{Post-hoc route and schema decomposition}
 
 The prospectively frozen primary outcome asks whether a recoverable candidate was
@@ -440,6 +480,15 @@ actions, not evidence of semantic appropriateness or utility. Because schema
 exposure also changed routing, conditional route comparisons are
 selection-sensitive; the registered study does not determine whether executing
 the recovered calls improves environment state.
+
+Applying the same explicitly post-hoc decomposition to V3 gave valid-any-route
+counts of 101 versus 149 (Base), 91 versus 141 (round 2), and 89 versus 152
+(round 3) per 200 requests: $+24$, $+25$, and $+31.5$ points. Again all 15
+checkpoint-by-sample-index contrasts were positive. Strict replay preserved
+495 structured rows, promoted 352 recoverable-text rows, quarantined 41, and
+left 312 without a candidate. These counts strengthen the routing diagnosis
+across the second panel but inherit the same post-hoc, selection-sensitive, and
+no-utility boundary.
 
 \subsection{Prospectively amended multi-action routing diagnostic}
 
@@ -541,9 +590,17 @@ sequential API calls \citep{saha2024graphql}. Meanwhile, $\tau$-bench
 emphasizes persistent end states and repeated-trial reliability
 \citep{yao2025taubench}. BALROG and Orak extend game-agent evaluation across
 multiple environments and interfaces \citep{paglieri2025balrog,park2025orak}.
-Our study is narrower: it traces one action through a renderer, response
-channel, schema checker, parser, and recovery layer. It does not propose MCP or
-typed tools as novel infrastructure.
+Our study is narrower: it traces action candidates through a renderer, response
+channel, schema checker, parser, recovery layer, and a bounded model-free
+execution diagnostic. It does not propose MCP or typed tools as novel
+infrastructure.
+
+Relative to these studies, our contribution is the complete evidence sequence:
+beginning from an unauditable long-horizon score; preserving failed
+manipulation, effective-seed, and measurement checks; and repeating the same
+raw-channel contrast on two prospectively frozen finite panels with
+reviewer-recomputable artifacts. No individual tool or parser component is
+claimed as novel.
 
 The interface distinctions themselves are also established. CONFETTI compares
 native API and directly prompted function-calling modes
@@ -586,14 +643,19 @@ bindings for one case.
 
 \section{Limitations}
 
-V2 is a registered finite-grid study, not an independent population sample.
-Its twenty outcome-unseen states were selected from different source logs than
-V1 but from the same historical Base run, and temporal dependence may remain.
-The three checkpoints are related members of one model lineage and are not
-training replicates. All requests use one model family, one registered
-17-tool schema, one renderer, and one deterministic recovery parser. A second
-model family, renderer, parser, state pool, and environment are needed before a
-broad interface claim.
+V2 and V3 are finite-grid studies, not independent population samples. V2's
+twenty outcome-unseen states were selected from different source logs than V1
+but from the same historical Base run. V3 uses a separate retained round-3
+evaluation rollout with zero V2 source-path or rendered-message overlap. That
+rollout was generated after the round-3 checkpoint was frozen and is not known
+to have been training input, but it remains part of the same project and
+historical evaluation regime. Temporal dependence may remain within each
+rollout, and the panels do not represent independent replications. The three
+checkpoints are related members of one model lineage and are not training
+replicates. All requests use one model family, one registered 17-tool schema,
+one renderer, and one deterministic recovery parser. A prospectively collected
+independent state pool, second model family, renderer, parser, and environment
+are needed before a broad interface claim.
 
 The V2 primary outcome stops at parser recoverability. A separate model-free
 diagnostic follows three author-fixed calls through MCP and state projections,
@@ -608,13 +670,13 @@ unique normalized response payloads, and 126 vary in the primary label. That doe
 make the five samples independent draws from a stable deployment distribution,
 and no p-values or confidence intervals are reported.
 
-The structured-call validity analysis was conceived after V2 outcomes. It is
-reported because it prevents the misleading equation of ``structured'' with
-``executable,'' but its unconditional counts are exploratory. Schema exposure
-also affects channel selection, so validity conditional on entering the
-structured channel is selection-sensitive and receives no causal
-interpretation. The analysis does not change the registered primary outcome or
-directional verdict.
+The structured-call validity analyses were run after V2 and V3 outcomes. They
+are reported because they prevent the misleading equation of ``structured''
+with ``executable,'' but their unconditional counts are exploratory. Schema
+exposure also affects channel selection, so validity conditional on entering
+the structured channel is selection-sensitive and receives no causal
+interpretation. These analyses do not change either registered primary outcome
+or directional verdict.
 
 Historical long-horizon scores remain descriptive. Some raw transcripts are
 private, launch-time checkpoint/render/reset identities are incomplete, and one
@@ -638,17 +700,24 @@ action. In our fixed-state study, native schema exposure consistently increased
 such content-only calls across three fixed checkpoints: +23, +13, and +10
 percentage points on a prospectively frozen outcome-unseen panel. All 1,200 requests
 succeeded, effective seed diversity was verified, and the all-checkpoint
-direction criterion passed. In a post-hoc descriptive audit, schema-invalid
+direction criterion passed. On a different retained panel, another 1,200
+requests produced positive contrasts of +13, +5.5, and +9 points under the
+unchanged protocol. That extension is robustness within one project lineage,
+not independent replication. In post-hoc descriptive audits, schema-invalid
 structured envelopes also occurred less often per request when the native schema
 was present; because routing changed too, this is not a conditional causal
 validity effect.
+
+A separate model-free follow-up then carried three author-fixed calls through
+both active routes under a prospectively repaired measurement, while remaining
+a one-fixture operability check.
 
 These findings do not rank checkpoints or establish a recovery or training
 benefit. They show why tool-agent evaluation must treat weights, rendered
 interface, response channel, parser, and runtime repair as distinct components.
 The broader methodological lesson is simple: before attributing a long-horizon
-score to a model, verify that the intended action could travel through the
-entire system.
+score to a model, record which routing boundary each intended action reached
+and validate downstream execution separately.
 
 \bibliography{references}
 \bibliographystyle{tmlr}
@@ -682,7 +751,7 @@ random-valid and progress-matched resets, teacher-success prefixes, and
 turn-level guidance under matched budgets and independent training seeds.
 
 No verified trained-arm outcome exists. This protocol is a hypothesis generated
-by the historical audit, not a contribution established by the V1 or V2
+by the historical audit, not a contribution established by the V1--V3
 interface studies.
 
 \section{Historical Training Details}
@@ -723,6 +792,10 @@ V1 fixed panel; nominal seeds were ineffective and duplicates are collapsed. \\
 V2 directional confirmation & On the complete outcome-unseen grid, native
 schema effects were +23, +13, and +10 points and the registered criterion
 passed. This is conditional on the fixed checkpoints, renderer, and panel. \\
+V3 different-panel extension & Under the unchanged protocol, a separate
+retained panel with zero V2 path/message overlap gave +13, +5.5, and +9 point
+native-schema effects. This is non-confirmatory robustness within the same
+project/model/renderer lineage, not independent replication. \\
 Structured validity & Invalid structured envelopes occurred less often per 200
 requests with native schema in a post-hoc descriptive analysis. Conditional
 validity fractions are selection-sensitive; this is not the registered primary. \\
@@ -732,7 +805,7 @@ audit localized two representation-sensitive measurement defects. \\
 Local route diagnostic V3 & A fresh post-amendment run passed 9/9 full
 predicates across structured, recovery-on, and recovery-off arms. This supports
 three-call, one-fixture, within-build operability only. \\
-Quest performance & No V1/V2 result establishes downstream state change or
+Quest performance & No V1/V2/V3 result establishes downstream state change or
 quest improvement. \\
 Training superiority & Unsupported; checkpoints are fixed lineage members, not
 independent training replicates. \\
@@ -742,35 +815,51 @@ independent training replicates. \\
 
 \section{Reproducibility Contract}
 
-The public V2 artifact contains portable paths and no endpoint credentials or
-author identities. Verification requires the expected artifact-index digest and
-checks the registration, design receipt, snapshot lock, endpoint attestations,
-seed gates, run envelopes, raw JSONL rows, exact generated CSVs, source-code
-closure, and analysis. The secondary verifier uses strict JSON parsing,
-reimplements the primary binary parser-recoverability label, recomputes paired
-contrasts, checks the complete expected path set, and reproduces the directional
-and heterogeneity verdicts without calling the producer analyzer. Exact
-recovered-call details also use the shared frozen canonicalization code.
+The public V2 and V3 artifacts contain portable paths and no endpoint
+credentials or author identities. Verification requires the expected
+artifact-index digests and checks registrations, design receipts, snapshot
+locks, endpoint attestations, seed gates, run envelopes, raw JSONL rows, exact
+generated CSVs, source-code closure, and analyses. Secondary verifiers use
+strict JSON parsing, reimplement the primary binary parser-recoverability label,
+recompute paired contrasts, check complete expected path sets, and reproduce
+directional and heterogeneity verdicts without calling the producer analyzers.
+The V3 auditor additionally enforces both freeze stages and V2-panel
+separation. Exact recovered-call details use the shared frozen canonicalization
+code.
 
-The reviewed PDF records the expected artifact-index digest
-\texttt{04a26f53ce24fa9578c0e49d55b94632}\allowbreak
-\texttt{1347f9de2a1dd81e0739822d57978562}
-to bind the manuscript to the exact supplementary artifact. The verified
-artifact tree is
-\texttt{fede8cb870fe8790c5252fd8594f54cdc}\allowbreak
-\texttt{0505a81ce801f9baed0d036246ecdba}.
+The reviewed PDF records the following trust roots to bind the manuscript to
+the exact supplementary artifacts:
+\begin{center}
+\scriptsize
+\begin{tabular}{ll}
+\ifdefined\ARXIVVERSION
+V2 public index & \texttt{\VTwoArtifactIndex} \\
+V3 public index & \texttt{\VThreeArtifactIndex} \\
+V2 public tree & \texttt{\VTwoArtifactTree} \\
+V3 public tree & \texttt{\VThreeArtifactTree} \\
+\else
+V2 review index & \texttt{\VTwoReviewIndex} \\
+V3 review index & \texttt{\VThreeReviewIndex} \\
+\fi
+\end{tabular}
+\end{center}
+\ifdefined\ARXIVVERSION
+These public roots bind the identified archival manuscript to the released
+artifacts and their full provenance records.
+\else
 The anonymous supplement omits the searchable Git revision and the
 identity-bearing full model lock; those provenance tiers are verified after
 deanonymization. Internal self-hashes alone are not presented as prior public
 timestamping.
+\fi
 
 The complete local-routing packages contain clean prelaunch receipts, runtime
 identities, process-lifecycle evidence for every cold worker/MCP/browser
 session, chained trial receipts, and sealed analyses. Generated anonymous
-summaries bind both the unchanged V2 failure and the fresh V3 result to those
-private packages. These checks establish author-attested internal consistency,
-not independent reproduction; source and runtime authentication are deferred
-until deanonymization.
+summaries report the unchanged V2 failure and the fresh V3 result; binding to
+and authentication of the private packages are deferred until deanonymization.
+The review package therefore supports author-attested aggregate consistency,
+not independent reproduction.
 
 Historical evidence has a lower grade. Immutable inventories bind recovered
 directories and a reviewer-facing projection regenerates the nine July scores,
@@ -785,8 +874,8 @@ acceptance, and immediate, delayed, reconnect, and persistence projections for
 three frozen candidates. The next study should use an outcome-unseen panel of
 model-emitted candidates, measure downstream utility, and preregister separate
 gameplay-state and persistence projections expected from login and save.
-Replication on an independent state pool, renderer, and open model family is
-required for a general tool-routing claim.
+Replication on a prospectively collected independent state pool, renderer, and
+open model family is required for a general tool-routing claim.
 
 For the separate training hypothesis, fresh students must begin from the same
 checkpoint and cross state source with matched histories, strong reset/prefix

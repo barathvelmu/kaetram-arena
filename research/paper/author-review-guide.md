@@ -4,6 +4,9 @@
 
 - TMLR manuscript source: `paper/tmlr/main.tex`.
 - Current review PDF: `output/pdf/kaetram-tool-routing-tmlr-draft.pdf`.
+- Named archival wrapper: `paper/tmlr/arxiv.tex`.
+- Current named PDF: `output/pdf/kaetram-tool-routing-arxiv.pdf`.
+- Minimal arXiv source bundle: `output/arxiv/kaetram-tool-routing-arxiv-source.zip`.
 - Anonymous supplement builder: `scripts/build_tmlr_supplement.py`.
 - Claim rules: `research/paper/claims-evidence-matrix.md`.
 - Current TMLR policy audit: `research/paper/tmlr-submission-audit-2026-07-28.md`.
@@ -20,7 +23,11 @@ finding is that a model can emit a parser-recoverable tool call in ordinary
 assistant text while the executor reads only the structured tool-call field.
 On the complete 1,200-request V2 finite grid, native schema exposure increased
 this content-only incidence by +23, +13, and +10 percentage points at Base,
-round 2, and round 3.
+round 2, and round 3. The unchanged protocol then completed another 1,200
+requests on a different retained panel with zero V2 source-path or
+rendered-message overlap; the contrasts remained positive at +13, +5.5, and +9
+points. This is robustness across two finite panels in one project lineage, not
+independent replication.
 
 The manuscript also preserves negative evidence:
 
@@ -32,9 +39,10 @@ The manuscript also preserves negative evidence:
 - only the fresh post-amendment multi-action V3 run is reported as 9/9 on both
   counts.
 
-A different-panel trigger-incidence V3 extension is currently finishing on the
-same zero-cost local setup. It must pass its independent verifier and anonymous
-export before any result enters the manuscript.
+The different-panel trigger-incidence V3 extension is complete on the same
+zero-cost local setup. Its producer analysis and separately implemented local,
+public-artifact, and anonymous-review verifiers all agree. The artifact contains
+all 1,200 raw rows and regenerates the manuscript table.
 
 ## What the author should review first
 
@@ -64,7 +72,8 @@ current evidence can support.
 
 ## One-sentence status
 
-The submission package is in final evidence-integration: the paper, local
-multi-action result, venue audit, and anonymous-review machinery are green; the
-last live trigger panel, final PDF/supplement rebuild, and human author approval
+The zero-cost evidence collection and release QA are complete: both paper modes,
+both finite panels, the multi-action diagnostic, the fresh-extraction supplement
+check, the anonymity gate, and the arXiv source bundle are green. Only human
+authorship/consent, OpenReview-budget, parallel-submission, and upload decisions
 remain.

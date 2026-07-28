@@ -383,7 +383,6 @@ def main(argv: list[str] | None = None) -> int:
             artifact=V3_ARTIFACT,
             results=V3_RESULTS,
             registration_relative=Path("design/effective-registration.json"),
-            include_routing_posthoc=False,
         )
         copy_file(PAPER, stage / "paper.pdf")
         for name in (
@@ -394,6 +393,10 @@ def main(argv: list[str] | None = None) -> int:
         copy_file(
             V3_RESULTS / "paper-table-public.md",
             stage / "results" / "v3" / "paper-table-public.md",
+        )
+        copy_file(
+            V3_RESULTS / "structured-call-validity-posthoc.json",
+            stage / "results" / "v3" / "structured-call-validity-posthoc.json",
         )
         add_multi_action_review_summary(stage)
         if args.live_routing_projection is not None:

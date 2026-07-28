@@ -30,6 +30,7 @@ def test_renderer_emits_complete_nonconfirmatory_tables() -> None:
     assert r"\label{tab:trigger-incidence-v3}" in latex
     assert "126/240 state--condition groups" in latex
     assert "broad generalization" in latex
+    assert r"17/100 (17.0\%)" in latex
 
 
 def test_renderer_rejects_incomplete_analysis() -> None:

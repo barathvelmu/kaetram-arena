@@ -8,10 +8,14 @@ private review may continue now; an external upload may not.
 The defensible paper asks where an agent action is lost across the routing
 contract: weights, rendered interface, response channel, parser/recovery, or
 environment execution. The historical OPD sequence motivates the audit but is
-not a causal training-method result. The completed v2 outcome-unseen replication
-is the central prospectively frozen experiment. Its design was committed before
-endpoint access but was not deposited in an external public registry. The post-hoc
-route-validity decomposition is secondary and must remain labeled post hoc.
+not a causal training-method result. The completed V2 outcome-unseen confirmation
+is the central prospectively frozen experiment. The completed V3 extension
+repeats the unchanged grid on a different retained panel with zero V2 path and
+rendered-message overlap; it is non-confirmatory robustness within one project
+lineage, not independent replication. Both designs were committed before
+endpoint access but were not deposited in an external public registry. The
+post-hoc route-validity decompositions are secondary and must remain labeled
+post hoc.
 
 ## Hard upload gates
 

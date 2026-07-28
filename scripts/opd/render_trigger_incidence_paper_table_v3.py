@@ -104,7 +104,8 @@ def render(summary: dict) -> tuple[str, str]:
             values.append(f"{opportunities}/100 ({float(rate) * 100:.1f}%)")
         label = SNAPSHOT_LABELS[snapshot]
         md.append(f"| {label} | " + " | ".join(values) + " |")
-        tex_rows.append(f"{label} & " + " & ".join(values) + r" \\")
+        tex_values = [value.replace("%", r"\%") for value in values]
+        tex_rows.append(f"{label} & " + " & ".join(tex_values) + r" \\")
 
     md.extend(
         [

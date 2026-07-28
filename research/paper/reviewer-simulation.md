@@ -1,4 +1,69 @@
-# Adversarial reviewer simulation — updated July 23, 2026
+# Adversarial reviewer simulation — updated July 28, 2026
+
+## Pass 8 — final submission and cold-reader red team, July 28
+
+**TMLR-style verdict: weak accept, 3.5/5, confidence 4/5.**
+
+Three final adversarial lanes independently attacked scientific claims,
+reproducibility/anonymity, and zero-context readability. They found no remaining
+fatal scientific or narrative defect after correction. The pass did catch and
+repair real release issues: an imprecise 9/9 active-route sentence, language
+that could imply an external auditor, anonymous-PDF hashes that were searchable
+in the identified fork, omission of V3 post-hoc data from the standalone review
+projection, and project-internal jargon in the abstract and opening sections.
+
+The final anonymous package now binds itself only to review-only projections;
+both 1,200-row panels and both post-hoc decompositions recompute from a fresh ZIP
+extraction. A separately built named preprint contains the author identity and
+public provenance. The full offline suite passes 1,154 tests with 26 documented
+environment/data skips. The execution and artifact discipline are outstanding
+within the paper's deliberately narrow scope. The remaining ceiling is breadth,
+not correctness: one project/model/renderer lineage, finite retained panels,
+and no human appropriateness or downstream-utility labels.
+
+This is a credible, unusually reproducible TMLR submission. Acceptance or an
+Outstanding/Featured certificate cannot be guaranteed because reviewers may
+weight cross-system significance differently, but no known submission-quality
+defect remains.
+
+## Pass 7 — two-panel routing audit and execution boundary, July 28
+
+**TMLR-style verdict: weak accept, 3.5/5, confidence 3/5.**
+
+The paper now has a coherent narrow identity and unusually strong artifact
+support for that identity. V2 supplies a prospectively frozen 1,200-request
+outcome-unseen panel with effective request seeds and positive native-schema
+contrasts at all three checkpoints (+23, +13, +10 points). V3 retains the V2
+request/rendering/analysis contract on a different panel, proves zero V2
+source-path and rendered-message overlap,
+and completes another 1,200 requests with positive contrasts of +13, +5.5, and
++9 points. Separate producer and separately implemented auditors recompute both complete
+grids from raw responses. The model-free execution diagnostic also preserves a
+failed V2 measurement, applies a prospective amendment only to fresh evidence,
+and then passes all six active-route trials plus three disabled-control trials
+for three frozen calls.
+
+The main objections are now limitations rather than contradictions:
+
+1. The two panels remain in one project, model, renderer, and environment
+   lineage; V3 is not an independent replication.
+2. The primary outcome stops at parser recoverability. Post-hoc schema-validity
+   counts and the three author-fixed execution calls do not establish the
+   appropriateness or utility of naturally emitted calls.
+3. The checkpoints are fixed lineage members, not independent training runs;
+   the historical OPD sequence cannot support a training-method claim.
+4. Human appropriateness labels and a second model/renderer/environment would
+   materially strengthen significance, but are not required for the paper's
+   current bounded routing-contract claim.
+
+No known fatal scientific defect remains in the narrow manuscript. The strongest
+remaining rejection argument is significance: a reviewer may view the finding
+as one-system interface debugging. The answer is the evidence sequence itself:
+failed manipulation check, ineffective-seed discovery, prospective repair,
+second finite panel, raw-channel decomposition, and a preserved measurement
+failure across the execution boundary. TMLR does not require a new method or
+state-of-the-art score, so this is a credible submission candidate. The current
+evidence does not justify predicting an outstanding/featured-paper certificate.
 
 ## Pass 6 — sealed trigger result and seed audit, July 23
 
@@ -84,11 +149,15 @@ audit contribution whose executed findings stand on their own.
 
 | Reviewer | Score | Confidence | Decision |
 |---|---:|---:|---|
-| Methods and reproducibility | 2/10 | 5/5 | Strong reject |
-| Agent-learning novelty | 4/10 | 4/5 | Reject; promising idea |
-| Empirical design and statistics | 1/10 | 5/5 | Strong reject |
-| Overall today | 2/10 | — | Do not submit |
-| Potential after required work | 7/10 | — | Competitive case study/method paper |
+| Correctness and reproducibility | 4.5/5 | 4/5 | Accept |
+| Clarity and claim discipline | 4/5 | 4/5 | Accept |
+| Significance within scope | 3/5 | 3/5 | Borderline accept |
+| Overall TMLR fit | 3.5/5 | 3/5 | Weak accept / submission candidate |
+| Outstanding certificate bar | 2.5/5 | 3/5 | Not established by current evidence |
+
+The older strong-reject passes below are retained as the audit trail for the
+historical method-paper framing. They are not the verdict on the current TMLR
+routing-audit manuscript.
 
 ## Pass 4 — full-stack red team, July 19
 

@@ -84,6 +84,8 @@ paper/tmlr/main.pdf
 # committed to or linked from the identified public fork.
 output/supplement/*.zip
 output/pdf/kaetram-tool-routing-tmlr-draft.pdf
+output/pdf/kaetram-tool-routing-arxiv.pdf
+output/arxiv/*.zip
 
 # Personal / non-deliverable assets
 reference/people/

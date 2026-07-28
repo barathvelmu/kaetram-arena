@@ -52,12 +52,13 @@ Official sources:
 | Official style assets | Pass | Pinned template provenance and byte hashes are checked in. |
 | PDF format | Pass on current draft | US Letter; embedded fonts; automated build and layout-warning gate. |
 | Anonymous manuscript | Pass on current draft | Source, PDF text, metadata, and embedded URLs are scanned. |
-| Main-body length | Pass on current draft | Main narrative ends before references on page 9; total PDF is 14 pages including references and appendix. Recheck after V3 integration. |
+| Main-body length | Pass | Main narrative ends on page 10; references begin on page 11; total PDF is 15 pages including references and appendix. |
 | V2 trigger evidence | Pass | Anonymous 1,200-row projection independently recomputes. |
-| V3 trigger evidence | Pending live completion | Different-panel local run, result verifier, public export, and review projection must all pass before submission. |
+| V3 trigger evidence | Pass | Different-panel run completed 1,200/1,200 requests; public and anonymous verifiers recompute the registered result and post-hoc routing decomposition. |
 | Multi-action evidence | Pass | V2 remains failed; fresh V3 is separately reported 9/9 under the prospective amendment. |
-| Anonymous supplement | Pending final rebuild | Builder is fail-closed and now includes both trigger panels plus a hash-free multi-action summary. |
-| Claim/evidence audit | Pending final pass | Re-run after V3 numbers and final PDF are fixed. |
+| Anonymous supplement | Pass | Fail-closed 52-file ZIP includes the final review PDF, both trigger panels, V3 post-hoc evidence, standalone verifiers, and a hash-free multi-action summary. Both panels pass from a fresh extraction. |
+| Claim/evidence audit | Pass | Three adversarial passes found no remaining statistical-overreach, novelty, or narrative blocker after the final wording corrections. |
+| Named archival version | Pass | Separate TMLR preprint build names Barath Velmurugan, MIT, and the MIT email; its public provenance roots are isolated from the anonymous source and PDF. |
 | Author list and consent | Human gate | Determine qualifying authors, order, OpenReview profiles, and explicit consent before submission. |
 | TMLR authorship budget | Human gate | Check each author's remaining annual submission budget in OpenReview. |
 | Parallel-submission check | Human gate | Confirm the work is not under review at another archival venue on submission day. |

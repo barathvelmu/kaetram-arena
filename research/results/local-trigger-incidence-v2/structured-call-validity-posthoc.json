@@ -1,0 +1,83 @@
+{
+  "cells": [
+    {
+      "invalid_reason__missing_required_argument": 3,
+      "invalid_reason__unknown_argument": 1,
+      "invalid_reason__unknown_function": 14,
+      "invalid_reason__wrong_argument_type": 16,
+      "native_tool_schema": "absent",
+      "rows": 200,
+      "schema_invalid_structured_rows": 34,
+      "schema_valid_fraction_among_structured": 0.47692307692307695,
+      "schema_valid_structured_rows": 31,
+      "snapshot": "base_2b",
+      "structured_rows": 65,
+      "unstructured_rows": 135
+    },
+    {
+      "invalid_reason__unknown_argument": 1,
+      "native_tool_schema": "present",
+      "rows": 200,
+      "schema_invalid_structured_rows": 1,
+      "schema_valid_fraction_among_structured": 0.9833333333333333,
+      "schema_valid_structured_rows": 59,
+      "snapshot": "base_2b",
+      "structured_rows": 60,
+      "unstructured_rows": 140
+    },
+    {
+      "invalid_reason__missing_required_argument": 4,
+      "invalid_reason__unknown_function": 13,
+      "invalid_reason__wrong_argument_type": 7,
+      "native_tool_schema": "absent",
+      "rows": 200,
+      "schema_invalid_structured_rows": 24,
+      "schema_valid_fraction_among_structured": 0.6712328767123288,
+      "schema_valid_structured_rows": 49,
+      "snapshot": "opd_r2_2b",
+      "structured_rows": 73,
+      "unstructured_rows": 127
+    },
+    {
+      "invalid_reason__missing_required_argument": 1,
+      "invalid_reason__unknown_argument": 2,
+      "invalid_reason__unknown_function": 3,
+      "native_tool_schema": "present",
+      "rows": 200,
+      "schema_invalid_structured_rows": 6,
+      "schema_valid_fraction_among_structured": 0.9016393442622951,
+      "schema_valid_structured_rows": 55,
+      "snapshot": "opd_r2_2b",
+      "structured_rows": 61,
+      "unstructured_rows": 139
+    },
+    {
+      "invalid_reason__missing_required_argument": 2,
+      "invalid_reason__unknown_argument": 1,
+      "invalid_reason__unknown_function": 11,
+      "invalid_reason__wrong_argument_type": 4,
+      "native_tool_schema": "absent",
+      "rows": 200,
+      "schema_invalid_structured_rows": 18,
+      "schema_valid_fraction_among_structured": 0.6842105263157895,
+      "schema_valid_structured_rows": 39,
+      "snapshot": "opd_r3_2b",
+      "structured_rows": 57,
+      "unstructured_rows": 143
+    },
+    {
+      "invalid_reason__unknown_function": 3,
+      "native_tool_schema": "present",
+      "rows": 200,
+      "schema_invalid_structured_rows": 3,
+      "schema_valid_fraction_among_structured": 0.9473684210526315,
+      "schema_valid_structured_rows": 54,
+      "snapshot": "opd_r3_2b",
+      "structured_rows": 57,
+      "unstructured_rows": 143
+    }
+  ],
+  "registered_primary_unchanged": true,
+  "schema_version": "kaetram.structured-call-validity-diagnostic.v1",
+  "status": "post_hoc"
+}

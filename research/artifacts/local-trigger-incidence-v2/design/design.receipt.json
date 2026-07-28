@@ -1,0 +1,10 @@
+{
+  "design_sha256": "1ec80622d8a2e3ed3221d2e70e6f1c4f1dffe87ccd057d58396ba3b6b8d65cb9",
+  "dirty_paths": [],
+  "registration_sha256": "dc2aaaf6f25b45e0d2c5a522284b5023d7bb21c59d24add43218277901e0cb4e",
+  "schema_version": "kaetram.local-trigger-incidence-design.v1.receipt",
+  "selected_source_tree_sha256": "1ba4699123cfb0b2ac8c6ede90d4882aadfca8e1418618772b33981fc30a1bbc",
+  "source_git_commit": "af81627c76bfe9a9febe1864fff43e03dd82e170",
+  "state_count": 20,
+  "study_id": "local-trigger-incidence-seeded-v2"
+}

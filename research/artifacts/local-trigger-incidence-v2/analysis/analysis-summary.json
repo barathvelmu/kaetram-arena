@@ -1,0 +1,340 @@
+{
+  "analysis_code_provenance": {
+    "analysis_script_sha256": "38e7a31787dd081530535c3d860c1022f80d419e176de98547b0953d20e9440a",
+    "dirty_paths": [],
+    "python_version": "3.12.12",
+    "source_git_commit": "af81627c76bfe9a9febe1864fff43e03dd82e170"
+  },
+  "analysis_status": "complete",
+  "cells": [
+    {
+      "condition_id": "python-docs_no-tools",
+      "documentation": "python_docs",
+      "failures": 0,
+      "malformed_emissions": 1,
+      "native_tool_schema": "absent",
+      "no_structured_tool_call_responses": 68,
+      "opportunity_rate": 0.17,
+      "recovery_opportunities": 17,
+      "requests": 100,
+      "snapshot": "base_2b",
+      "structured_tool_responses": 32,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "python-docs_native-tools",
+      "documentation": "python_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "present",
+      "no_structured_tool_call_responses": 67,
+      "opportunity_rate": 0.39,
+      "recovery_opportunities": 39,
+      "requests": 100,
+      "snapshot": "base_2b",
+      "structured_tool_responses": 33,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "canonical-docs_no-tools",
+      "documentation": "canonical_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "absent",
+      "no_structured_tool_call_responses": 67,
+      "opportunity_rate": 0.13,
+      "recovery_opportunities": 13,
+      "requests": 100,
+      "snapshot": "base_2b",
+      "structured_tool_responses": 33,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "canonical-docs_native-tools",
+      "documentation": "canonical_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "present",
+      "no_structured_tool_call_responses": 73,
+      "opportunity_rate": 0.37,
+      "recovery_opportunities": 37,
+      "requests": 100,
+      "snapshot": "base_2b",
+      "structured_tool_responses": 27,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "python-docs_no-tools",
+      "documentation": "python_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "absent",
+      "no_structured_tool_call_responses": 65,
+      "opportunity_rate": 0.16,
+      "recovery_opportunities": 16,
+      "requests": 100,
+      "snapshot": "opd_r2_2b",
+      "structured_tool_responses": 35,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "python-docs_native-tools",
+      "documentation": "python_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "present",
+      "no_structured_tool_call_responses": 69,
+      "opportunity_rate": 0.27,
+      "recovery_opportunities": 27,
+      "requests": 100,
+      "snapshot": "opd_r2_2b",
+      "structured_tool_responses": 31,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "canonical-docs_no-tools",
+      "documentation": "canonical_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "absent",
+      "no_structured_tool_call_responses": 62,
+      "opportunity_rate": 0.15,
+      "recovery_opportunities": 15,
+      "requests": 100,
+      "snapshot": "opd_r2_2b",
+      "structured_tool_responses": 38,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "canonical-docs_native-tools",
+      "documentation": "canonical_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "present",
+      "no_structured_tool_call_responses": 70,
+      "opportunity_rate": 0.3,
+      "recovery_opportunities": 30,
+      "requests": 100,
+      "snapshot": "opd_r2_2b",
+      "structured_tool_responses": 30,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "python-docs_no-tools",
+      "documentation": "python_docs",
+      "failures": 0,
+      "malformed_emissions": 1,
+      "native_tool_schema": "absent",
+      "no_structured_tool_call_responses": 76,
+      "opportunity_rate": 0.26,
+      "recovery_opportunities": 26,
+      "requests": 100,
+      "snapshot": "opd_r3_2b",
+      "structured_tool_responses": 24,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "python-docs_native-tools",
+      "documentation": "python_docs",
+      "failures": 0,
+      "malformed_emissions": 1,
+      "native_tool_schema": "present",
+      "no_structured_tool_call_responses": 72,
+      "opportunity_rate": 0.36,
+      "recovery_opportunities": 36,
+      "requests": 100,
+      "snapshot": "opd_r3_2b",
+      "structured_tool_responses": 28,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "canonical-docs_no-tools",
+      "documentation": "canonical_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "absent",
+      "no_structured_tool_call_responses": 67,
+      "opportunity_rate": 0.21,
+      "recovery_opportunities": 21,
+      "requests": 100,
+      "snapshot": "opd_r3_2b",
+      "structured_tool_responses": 33,
+      "successful_requests": 100
+    },
+    {
+      "condition_id": "canonical-docs_native-tools",
+      "documentation": "canonical_docs",
+      "failures": 0,
+      "malformed_emissions": 0,
+      "native_tool_schema": "present",
+      "no_structured_tool_call_responses": 71,
+      "opportunity_rate": 0.31,
+      "recovery_opportunities": 31,
+      "requests": 100,
+      "snapshot": "opd_r3_2b",
+      "structured_tool_responses": 29,
+      "successful_requests": 100
+    }
+  ],
+  "claim_boundary": {
+    "confirmatory": false,
+    "permitted": [
+      "checkpoint-conditional trigger incidence under the registered interfaces",
+      "paired inference-time interface contrasts on the fixed outcome-unseen state panel",
+      "whether the positive native-schema contrast discovered in v1 has the same direction at each fixed checkpoint",
+      "within-state response and recovery-outcome heterogeneity across effective request seeds"
+    ],
+    "prohibited": [
+      "checkpoint or training-method superiority",
+      "a recovery benefit",
+      "a learned self-correction policy",
+      "quest-performance improvement",
+      "independence of states sampled from the same historical run",
+      "generalization beyond the fixed checkpoints, renderer, and historical state panel"
+    ]
+  },
+  "design_sha256": "1ec80622d8a2e3ed3221d2e70e6f1c4f1dffe87ccd057d58396ba3b6b8d65cb9",
+  "directional_replication": {
+    "criterion": "The v1 native-tools main effect replicates directionally only if its registered rate difference is strictly positive at Base, R2, and R3 on the complete v2 grid. Documentation and interaction contrasts have no directional replication criterion.",
+    "native_tools_effects": {
+      "base_2b": 0.23,
+      "opd_r2_2b": 0.13,
+      "opd_r3_2b": 0.1
+    },
+    "passed": true,
+    "status": "evaluated"
+  },
+  "failed_requests": 0,
+  "input_runs": [
+    {
+      "artifact_index_sha256": "ffc19c9b55882ea61dca4e5f31c1230bbaaaa466d505de5d1749d56148f83fee",
+      "snapshot": "base_2b",
+      "tree_sha256": "965b7bfd75e88913a215771061141bf2f196cf87b1d8f218834087f964112a08"
+    },
+    {
+      "artifact_index_sha256": "adab096399b27464f5ce68cceac9cdc538f42af2333f6293831f319a1098aced",
+      "snapshot": "opd_r2_2b",
+      "tree_sha256": "00be17367fe4fd3f6cc43d9543af4acd25f6f16f6b93656951cca73b0035d790"
+    },
+    {
+      "artifact_index_sha256": "ad8596bac13440cfd064dbb46af4eb636a5518c18015f86388c2828e30a2839d",
+      "snapshot": "opd_r3_2b",
+      "tree_sha256": "5ab55e08ea590b188f3cbd9bb67391c69afec9e25dc87a9dc58ab432136cf6ec"
+    }
+  ],
+  "recovery_opportunities": 308,
+  "registered_contrasts": [
+    {
+      "contrast": "native_tools_main",
+      "effect_rate_difference": 0.23,
+      "finite_grid_states": 20,
+      "snapshot": "base_2b",
+      "state_effect_max": 0.6,
+      "state_effect_min": -0.1,
+      "states_negative": 1,
+      "states_positive": 14,
+      "states_zero": 5
+    },
+    {
+      "contrast": "canonical_docs_main",
+      "effect_rate_difference": -0.03,
+      "finite_grid_states": 20,
+      "snapshot": "base_2b",
+      "state_effect_max": 0.2,
+      "state_effect_min": -0.3,
+      "states_negative": 7,
+      "states_positive": 5,
+      "states_zero": 8
+    },
+    {
+      "contrast": "interaction",
+      "effect_rate_difference": 0.02,
+      "finite_grid_states": 20,
+      "snapshot": "base_2b",
+      "state_effect_max": 0.6,
+      "state_effect_min": -0.6,
+      "states_negative": 5,
+      "states_positive": 6,
+      "states_zero": 9
+    },
+    {
+      "contrast": "native_tools_main",
+      "effect_rate_difference": 0.13,
+      "finite_grid_states": 20,
+      "snapshot": "opd_r2_2b",
+      "state_effect_max": 0.4,
+      "state_effect_min": -0.3,
+      "states_negative": 2,
+      "states_positive": 12,
+      "states_zero": 6
+    },
+    {
+      "contrast": "canonical_docs_main",
+      "effect_rate_difference": 0.01,
+      "finite_grid_states": 20,
+      "snapshot": "opd_r2_2b",
+      "state_effect_max": 0.2,
+      "state_effect_min": -0.2,
+      "states_negative": 5,
+      "states_positive": 7,
+      "states_zero": 8
+    },
+    {
+      "contrast": "interaction",
+      "effect_rate_difference": 0.04,
+      "finite_grid_states": 20,
+      "snapshot": "opd_r2_2b",
+      "state_effect_max": 0.6,
+      "state_effect_min": -0.4,
+      "states_negative": 4,
+      "states_positive": 7,
+      "states_zero": 9
+    },
+    {
+      "contrast": "native_tools_main",
+      "effect_rate_difference": 0.1,
+      "finite_grid_states": 20,
+      "snapshot": "opd_r3_2b",
+      "state_effect_max": 0.2,
+      "state_effect_min": -0.2,
+      "states_negative": 3,
+      "states_positive": 13,
+      "states_zero": 4
+    },
+    {
+      "contrast": "canonical_docs_main",
+      "effect_rate_difference": -0.05,
+      "finite_grid_states": 20,
+      "snapshot": "opd_r3_2b",
+      "state_effect_max": 0.2,
+      "state_effect_min": -0.4,
+      "states_negative": 7,
+      "states_positive": 3,
+      "states_zero": 10
+    },
+    {
+      "contrast": "interaction",
+      "effect_rate_difference": 0.0,
+      "finite_grid_states": 20,
+      "snapshot": "opd_r3_2b",
+      "state_effect_max": 0.8,
+      "state_effect_min": -0.4,
+      "states_negative": 8,
+      "states_positive": 6,
+      "states_zero": 6
+    }
+  ],
+  "registered_seed_heterogeneity": {
+    "groups_with_multiple_semantic_responses": 240,
+    "groups_with_primary_outcome_heterogeneity": 126,
+    "maximum_unique_semantic_responses_per_group": 5,
+    "minimum_unique_semantic_responses_per_group": 5,
+    "state_condition_groups": 240,
+    "status": "complete"
+  },
+  "registration_sha256": "dc2aaaf6f25b45e0d2c5a522284b5023d7bb21c59d24add43218277901e0cb4e",
+  "scheduled_requests": 1200,
+  "schema_version": "kaetram.local-trigger-incidence-analysis.v1",
+  "study_id": "local-trigger-incidence-seeded-v2",
+  "successful_requests": 1200
+}

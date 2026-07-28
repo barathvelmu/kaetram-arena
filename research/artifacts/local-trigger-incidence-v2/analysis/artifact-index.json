@@ -1,0 +1,21 @@
+{
+  "files": [
+    {
+      "path": "analysis-summary.json",
+      "sha256": "47e08241ac4d0e4f3d0f95cb603850171f0760801d8e468e3c228f6c1bf04d8f",
+      "size_bytes": 10902
+    },
+    {
+      "path": "cells.csv",
+      "sha256": "bc3e0e38b2ea1c45e55706e98a2f12cf23e506b0283391117f4cb13d77b6fc35",
+      "size_bytes": 1195
+    },
+    {
+      "path": "contrasts.csv",
+      "sha256": "eabc622d5f4c404ff98ba4078863694594bdecb580867a00407a10ae15579ec2",
+      "size_bytes": 593
+    }
+  ],
+  "schema_version": "kaetram.local-trigger-incidence-analysis.v1.artifacts",
+  "tree_sha256": "55c0bd7ee9c5222356da3fc52f1c00b57452c8d7f30d78f2a9d4844257719cc9"
+}

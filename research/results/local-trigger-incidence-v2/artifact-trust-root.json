@@ -1,0 +1,9 @@
+{
+  "artifact_index_sha256": "04a26f53ce24fa9578c0e49d55b946321347f9de2a1dd81e0739822d57978562",
+  "artifact_tree_sha256": "fede8cb870fe8790c5252fd8594f54cdc0505a81ce801f9baed0d036246ecdba",
+  "design_sha256": "1ec80622d8a2e3ed3221d2e70e6f1c4f1dffe87ccd057d58396ba3b6b8d65cb9",
+  "experiment_source_git_commit": "af81627c76bfe9a9febe1864fff43e03dd82e170",
+  "registration_sha256": "dc2aaaf6f25b45e0d2c5a522284b5023d7bb21c59d24add43218277901e0cb4e",
+  "schema_version": "kaetram.local-trigger-incidence-artifact-trust-root.v1",
+  "verification_source_git_commit": "819ae7ce0326fde4d7f4bd686cb6902ac14d9a6a"
+}

@@ -1,0 +1,13 @@
+{
+  "endpoint_identity_stable": true,
+  "failed_requests": 0,
+  "malformed_emissions": 1,
+  "no_structured_tool_call_responses": 275,
+  "recovery_opportunities": 106,
+  "scheduled_requests": 400,
+  "schema_version": "kaetram.local-trigger-incidence-run.v1.completed",
+  "snapshot": "base_2b",
+  "structured_tool_responses": 125,
+  "study_id": "local-trigger-incidence-seeded-v2",
+  "successful_requests": 400
+}

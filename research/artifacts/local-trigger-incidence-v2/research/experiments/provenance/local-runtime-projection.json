@@ -1,0 +1,82 @@
+{
+  "projection_sha256": "1da35557159ffe3a9897e698fb8b34fe62d69694516ad266eeb558e0e0706731",
+  "render_contract": {
+    "chat_template_sha256": "562a0a6f72bf5722612866d9f5d7e947be4b08a429e407f8e522e70137db5e1e",
+    "effective_renderer": {
+      "probe_token_ids_sha256": "90ecde92986668197b3ef90023bf8034e6c22b9979655e9c21ddbc8013c93d85",
+      "rendered_text_sha256": "d3156e531e7b2d662eb454c4560a7f21ceeb325b0b3e4a0297fc06d22a2850bb",
+      "rendered_token_count": 1846,
+      "rendered_token_ids_sha256": "27e5dff870057da9d656159fb570e6d81226237aa4de643524c0114370ffec4f",
+      "tokenizer_class": "Qwen2Tokenizer",
+      "vocab_size": 248077
+    },
+    "engine": "mlx-lm",
+    "engine_version": "0.31.3",
+    "fix_mistral_regex": false,
+    "schema_version": "kaetram.local-render-contract.v1",
+    "seeded_sampling": {
+      "runtime_probe": {
+        "distinct_seed_outputs": 3,
+        "execution_thread": "background",
+        "mlx_lm_version": "0.31.3",
+        "mlx_version": "0.32.0",
+        "native_distinct_seed_outputs": 1,
+        "native_sampled_token_ids": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "prng": "mx.random.key + per-token mx.random.split + categorical(key=...)",
+        "request_seeds": [
+          730001,
+          730002,
+          730003,
+          730004,
+          730005
+        ],
+        "sampled_token_ids": [
+          0,
+          1,
+          0,
+          0,
+          2
+        ],
+        "schema_version": "kaetram.mlx-explicit-key-sampling.v1"
+      },
+      "schema_version": "kaetram.mlx-explicit-key-sampling.v1",
+      "server_script_sha256": "ee1655c656827749ffee93d9a515d176215579f7f6f1cea7a33b08aca177bfcd"
+    },
+    "tokenizer_config_sha256": "49e2b6e395f959f077f1e992b338919c0d4a9732fc6e613995e06557f843500c",
+    "tokenizer_repo_id": "Qwen/Qwen3.5-2B",
+    "tokenizer_revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_snapshot": "base_2b",
+    "tool_schema_sha256": "770c9a44b1e656c3798577627ddf08928a5787036e22a5e3358bf78ff6432cfe"
+  },
+  "render_contract_sha256": "bc1597c47e5efbe533e52bb43335114426210bb29f868ef4fb2e7f86ca5b28ed",
+  "runtime_environment_receipt": {
+    "environment_kind": "local_mlx",
+    "marker": {
+      "git_commit": "af81627c76bfe9a9febe1864fff43e03dd82e170",
+      "installed_distribution_count": 35,
+      "installed_file_count": 10702,
+      "installed_tree_sha256": "37698c0a8499de0bc5e1610284bf81f906b981f0cd4c36076dc3060d26bfc211",
+      "lock_sha256": "9d1d544feee60302e81c55764a3231379560caace5b0a1c2f587cacfd4332868",
+      "machine": "arm64",
+      "pip_version": "26.1.2",
+      "python_executable_sha256": "f40034620925e25494a05702f0643f855feb78ced86c2872564cbb51fcfec40a",
+      "python_version": "3.12.12",
+      "runtime_search_path_count": 3,
+      "runtime_tree_sha256": "8ce9e501050f37204ce741bc3b20a34a853c16d9680ad804c87123718fb18f7b",
+      "schema_version": "kaetram.local-mlx-environment.v3",
+      "sys_platform": "darwin"
+    },
+    "marker_sha256": "d48bf0e1f69d1e528f8ef0907cf331fcf4beeb68a54ff1fe424a75eccd56e001",
+    "schema_version": "kaetram.pinned-python-environment-receipt.v1"
+  },
+  "runtime_environment_receipt_sha256": "1f25567b02fcdc0e6573dad92250c591838dee74378cc45ef65975f3d7833b00",
+  "sampling_contract_sha256": "506e4d3ae39e53793ceaef6a39b31dabce13a72b9345af5b43d96de2b46ff5d3",
+  "schema_version": "kaetram.local-runtime-public-projection.v1"
+}

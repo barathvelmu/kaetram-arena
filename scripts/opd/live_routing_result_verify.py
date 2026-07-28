@@ -262,7 +262,7 @@ def _validate_services_evidence(
             "$DOCKER", "run", "--rm", "--name", container_name,
             "--pull=never", "--publish", "127.0.0.1:27017:27017",
             "--mount", "type=bind,source=$RUN_ROOT/mongo-data,target=/data/db",
-            MONGO_IMAGE, "--bind_ip_all", "--port", "27017",
+            image["image_id"], "--bind_ip_all", "--port", "27017",
         ],
         "client": [
             "$PYTHON", "-m", "http.server", "9000", "--bind", "127.0.0.1",

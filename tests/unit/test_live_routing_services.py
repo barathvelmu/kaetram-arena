@@ -14,6 +14,7 @@ from scripts.opd.live_routing_launcher import _client_dist_inventory
 from scripts.opd.live_routing_analyzer import canonical_sha256
 from scripts.opd.live_routing_services import (
     MONGO_IMAGE,
+    MONGO_LOCAL_TAG,
     LiveRoutingServices,
     ServiceCleanupError,
     ServiceConfig,
@@ -261,7 +262,7 @@ def test_supervisor_uses_pinned_cached_image_loopback_and_owned_groups(
         mongo = evidence["services"]["mongo"]
         assert "--pull=never" in mongo["command"]
         assert "127.0.0.1:27017:27017" in mongo["command"]
-        assert MONGO_IMAGE in mongo["command"]
+        assert "sha256:" + "a" * 64 in mongo["command"]
         assert mongo["pid"] == mongo["process_group"]
         assert evidence["services"]["client"]["command"][-4:] == [
             "--bind",
@@ -294,6 +295,10 @@ def test_supervisor_uses_pinned_cached_image_loopback_and_owned_groups(
     assert (4101, signal.SIGTERM) in runtime.signals
     assert (4100, signal.SIGTERM) in runtime.signals
     assert any(command[1:3] == ["image", "inspect"] for command in runtime.commands)
+    image_inspect = next(
+        command for command in runtime.commands if command[1:3] == ["image", "inspect"]
+    )
+    assert image_inspect[-1] == MONGO_LOCAL_TAG
     assert any("stop" in command for command in runtime.commands)
     assert any("rm" in command for command in runtime.commands)
 

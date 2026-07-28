@@ -37,6 +37,7 @@ from scripts.opd.live_routing_launcher import (
 MONGO_IMAGE = (
     "mongo@sha256:9bdaeb6dac6e7e762e84e2f84103d1f9bb078fa1ba6bde8bb9d2274f655ad173"
 )
+MONGO_LOCAL_TAG = "mongo:7.0"
 SERVICE_PORTS = {"mongo": 27017, "client": 9000, "game": 9191}
 
 
@@ -253,7 +254,7 @@ class LiveRoutingServices:
                     "inspect",
                     "--format",
                     "{{json .}}",
-                    MONGO_IMAGE,
+                    MONGO_LOCAL_TAG,
                 ],
                 check=True,
             )
@@ -403,7 +404,7 @@ class LiveRoutingServices:
             "127.0.0.1:27017:27017",
             "--mount",
             f"type=bind,source={self._run_root / 'mongo-data'},target=/data/db",
-            MONGO_IMAGE,
+            image_attestation["image_id"],
             "--bind_ip_all",
             "--port",
             "27017",

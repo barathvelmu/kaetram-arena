@@ -54,7 +54,7 @@ def _services_evidence(live: dict, *, client_file_count: int = 25) -> dict:
                     "$DOCKER", "run", "--rm", "--name", container,
                     "--pull=never", "--publish", "127.0.0.1:27017:27017",
                     "--mount", "type=bind,source=$RUN_ROOT/mongo-data,target=/data/db",
-                    MONGO_IMAGE, "--bind_ip_all", "--port", "27017",
+                    "sha256:" + "9" * 64, "--bind_ip_all", "--port", "27017",
                 ],
                 "pid": 4100,
                 "process_group": 4100,

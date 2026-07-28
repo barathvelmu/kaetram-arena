@@ -108,8 +108,12 @@ they do not make the historical results reproducible.
 
 The April 25 database split affects the dedicated `run-eval.sh` lane. Headline
 r10 and June OPD paths used the separate database-aligned orchestrator and are
-not implicated by this specific mismatch. The conservative main-branch exposure
-window ends at PR #37's July 22 merge; July 18 is the first fixed branch commit.
+not implicated by this specific mismatch. The same is true for July E4
+(`run_20260711_153427`), E3-prime (`run_20260713_084905`), and Arm-C
+(`run_20260713_191230`): their preserved `dataset/raw/agent_*/runs/run_*`
+layout is produced by `orchestrate.py`, whereas the affected wrapper writes to
+`dataset/eval/runs/*`. The conservative main-branch exposure window ends at PR
+#37's July 22 merge; July 18 is the first fixed branch commit.
 Recovered external run directories are now bound to the SHA-256 digest of an
 external inventory. The checked-in run-digest audit independently hashes 60
 selected directories totaling 18,812 files, and the r10 analyses rerun from

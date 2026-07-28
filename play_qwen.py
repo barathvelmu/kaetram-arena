@@ -55,7 +55,7 @@ from scripts.isolated_python_entry import (
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts" / "opd"))
-from canonicalize import recover_tool_calls  # noqa: E402
+from response_router import route_content_tool_call  # noqa: E402
 
 # Harness-side recovery of malformed tool calls the server's parser dropped
 # (KAETRAM_TOOL_RECOVERY). Off by default to preserve pure-weights eval parity;
@@ -713,11 +713,17 @@ async def _run_inner_loop(
         if content:
             display = re.sub(r"<think>.*?</think>", "[think]", content, flags=re.DOTALL)
             info(f"  [{turn}] Assistant: {display[:120]}...")
-        recovered_content_calls = (
-            recover_tool_calls(content)
+        recovery_decision = (
+            route_content_tool_call(content)
             if content and _TOOL_RECOVERY and not tool_calls
-            else []
+            else {"status": "no_candidate", "calls": [], "reason": "route_disabled"}
         )
+        recovered_content_calls = recovery_decision["calls"]
+        if recovery_decision["status"] == "quarantined":
+            info(
+                f"  [{turn}] RECOVERY QUARANTINED: "
+                f"{recovery_decision['reason']}"
+            )
 
         # Route 1: structured tool_calls (server parsed XML into tool_calls).
         if tool_calls:

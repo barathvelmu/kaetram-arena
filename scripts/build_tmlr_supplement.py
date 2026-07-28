@@ -33,6 +33,7 @@ VERIFICATION_CODE = (
     "scripts/opd/analyze_structured_call_validity.py",
     "scripts/opd/audit_trigger_incidence_artifact.py",
     "scripts/opd/canonicalize.py",
+    "scripts/opd/response_router.py",
     "scripts/opd/verify_trigger_incidence_review_bundle.py",
     "tool_surface.py",
 )

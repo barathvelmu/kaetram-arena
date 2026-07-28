@@ -17,6 +17,7 @@ if str(REPO) not in sys.path:
 
 from tool_surface import validate_tool_call_arguments
 from scripts.opd.canonicalize import recover_tool_calls
+from scripts.opd.response_router import route_content_tool_call
 
 
 class DiagnosticError(RuntimeError):
@@ -112,12 +113,25 @@ def analyze_run(path: Path) -> dict:
             cell["unstructured_rows"] += 1
             content = (row.get("response_message") or {}).get("content") or ""
             recovered = recover_tool_calls(content)
+            strict_decision = route_content_tool_call(content)
             stored = row.get("recoverable_calls") or []
             if recovered != stored:
                 raise DiagnosticError("stored recoverable calls do not reparse exactly")
             if not recovered:
                 cell["no_candidate_rows"] += 1
+                if strict_decision["status"] != "no_candidate":
+                    raise DiagnosticError("strict router promoted a non-opportunity row")
+                cell["strict_no_candidate_rows"] += 1
                 continue
+            if strict_decision["status"] == "promoted":
+                if strict_decision["calls"] != recovered:
+                    raise DiagnosticError("strict router altered a recovered candidate")
+                cell["strict_promoted_rows"] += 1
+            elif strict_decision["status"] == "quarantined":
+                cell["strict_quarantined_rows"] += 1
+                cell[f"strict_quarantine_reason__{strict_decision['reason']}"] += 1
+            else:
+                raise DiagnosticError("strict router lost a recovery opportunity")
             verdicts = [validate_recovered_call(call) for call in recovered]
             if all(valid for valid, _reason in verdicts):
                 cell["schema_valid_recoverable_text_rows"] += 1
@@ -128,6 +142,7 @@ def analyze_run(path: Path) -> dict:
                         cell[f"recovery_invalid_reason__{reason}"] += 1
         else:
             cell["structured_rows"] += 1
+            cell["strict_structured_preserved_rows"] += 1
             verdicts = [validate_structured_call(call) for call in calls]
             if all(valid for valid, _reason in verdicts):
                 cell["schema_valid_structured_rows"] += 1
@@ -240,6 +255,11 @@ def analyze_runs(paths: list[Path]) -> dict:
                     ) / denominator,
                 }
             )
+    strict_totals: dict[str, int] = defaultdict(int)
+    for cell in sorted_cells:
+        for name, value in cell.items():
+            if name.startswith("strict_") and isinstance(value, int):
+                strict_totals[name] += value
     return {
         "schema_version": "kaetram.routing-validity-decomposition.v2",
         "status": "post_hoc",
@@ -248,6 +268,13 @@ def analyze_runs(paths: list[Path]) -> dict:
         "cells": sorted_cells,
         "native_schema_valid_any_route_contrasts": native_contrasts,
         "sample_index_native_schema_contrasts": seed_contrasts,
+        "strict_recovery_replay": {
+            "policy": (
+                "structured precedence; exactly one explicit closed tool_call block; "
+                "exactly one recovered call; frozen-schema validation"
+            ),
+            **dict(sorted(strict_totals.items())),
+        },
     }
 
 

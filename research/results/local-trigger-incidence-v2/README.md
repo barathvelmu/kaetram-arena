@@ -25,12 +25,21 @@ was positive in all 15 checkpoint-by-sample-index slices. Of 308 recoverable
 text rows, 304 were schema-valid; these are candidate actions, not evidence of
 semantic appropriateness, successful execution, or state change.
 
+A fail-closed frozen-response replay then applied the deployable routing policy:
+structured-call precedence, exactly one explicit closed `tool_call` envelope,
+exactly one recovered call, and frozen-schema validation. It preserved all 373
+structured rows, promoted 303 content-only rows, quarantined five (four missing
+required arguments and one corrupt outer envelope), and left 519 no-candidate
+rows untouched. This establishes deterministic safe promotion on the archived
+responses; it is not an environment-execution or utility result.
+
 Files:
 
 - `paper-table-public.md` and `paper-table-public.tex`: deterministic render of
   the registered v2 analysis.
 - `structured-call-validity-posthoc.json`: mutually exclusive post-hoc route
-  decomposition plus per-sample-index robustness contrasts.
+  decomposition, per-sample-index robustness contrasts, and strict-router
+  frozen-response replay.
 - `artifact-trust-root.json`: expected artifact-index digest required by the
   public verifiers.
 

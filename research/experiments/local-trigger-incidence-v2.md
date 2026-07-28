@@ -42,19 +42,23 @@ and +0.10 at R3, so the requirement that all three be strictly positive passed.
 These are fixed-panel interface contrasts, not independent checkpoint
 replications.
 
-A separately labeled post-hoc diagnostic checked whether structured envelopes
-were schema-valid under the frozen tool contract. Invalid/structured counts with
-native tools absent versus present were 34/65 versus 1/60 (Base), 24/73 versus
-6/61 (R2), and 18/57 versus 3/57 (R3). The registered primary outcome is
-unchanged; this diagnostic prevents the paper from equating every structured
-envelope with a schema-valid candidate action, much less a successfully executed
-action.
+A separately labeled post-hoc diagnostic checked both response routes against
+the frozen tool contract. Valid candidate counts through either route increased
+from 61 to 135 (Base), 79 to 112 (R2), and 83 to 121 (R3) per 200 requests when
+native tools were exposed: +0.37, +0.165, and +0.19. All 15
+checkpoint-by-sample-index contrasts were positive. A strict frozen-response
+router replay preserved 373 structured rows, promoted 303 unambiguous valid
+content-only calls, quarantined five, and left 519 no-candidate rows untouched.
+The registered primary outcome is unchanged; this diagnostic establishes a
+safe parser-to-candidate transition, not successful execution or utility.
 
-The 5 MB identity-scrubbed public bundle contains all raw rows, gates, the
+The 5 MB full-provenance public bundle contains all raw rows, gates, the
 outcome-unseen design, a deterministic 1,200-row expected-request grid, runtime
 and complete-snapshot projections, analysis, and code-closure hashes. Producer
-and secondary verifiers require the artifact-index hash recorded both in the
-paper and in [`../results/local-trigger-incidence-v2/artifact-trust-root.json`](../results/local-trigger-incidence-v2/artifact-trust-root.json).
+and secondary verifiers require the artifact-index hash in
+[`../results/local-trigger-incidence-v2/artifact-trust-root.json`](../results/local-trigger-incidence-v2/artifact-trust-root.json).
+The double-blind submission instead uses a minimal review projection with a
+different trust root and no source-history or model-host coordinates.
 
 Machine-readable registration:
 [`local-trigger-incidence-v2.json`](local-trigger-incidence-v2.json).

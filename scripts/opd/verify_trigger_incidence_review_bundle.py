@@ -320,6 +320,7 @@ def verify_review_artifact(root: Path, expected_index_sha256: str) -> dict:
         "sample_index_schema_contrast_count": len(
             routing_recomputed["sample_index_native_schema_contrasts"]
         ),
+        "strict_recovery_replay": routing_recomputed["strict_recovery_replay"],
         **heterogeneity,
         "source_history_authentication": "deferred_until_deanonymized",
     }

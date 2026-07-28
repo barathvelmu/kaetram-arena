@@ -69,3 +69,25 @@ def test_any_route_native_schema_effect_is_positive_for_every_sample_index() -> 
     per_seed = result["sample_index_native_schema_contrasts"]
     assert len(per_seed) == 15
     assert all(row["effect_rate_difference"] > 0 for row in per_seed)
+
+
+def test_strict_recovery_replay_promotes_only_unambiguous_valid_candidates() -> None:
+    result = analyze_runs(
+        [
+            RUNS / "base_2b" / "results.jsonl",
+            RUNS / "opd_r2_2b" / "results.jsonl",
+            RUNS / "opd_r3_2b" / "results.jsonl",
+        ]
+    )
+    assert result["strict_recovery_replay"] == {
+        "policy": (
+            "structured precedence; exactly one explicit closed tool_call block; "
+            "exactly one recovered call; frozen-schema validation"
+        ),
+        "strict_no_candidate_rows": 519,
+        "strict_promoted_rows": 303,
+        "strict_quarantine_reason__invalid_tool_call_envelope": 1,
+        "strict_quarantine_reason__missing_required_argument": 4,
+        "strict_quarantined_rows": 5,
+        "strict_structured_preserved_rows": 373,
+    }

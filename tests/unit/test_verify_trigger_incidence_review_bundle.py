@@ -44,6 +44,9 @@ def test_review_verifier_recomputes_sealed_primary_result(
     assert result["minimum_unique_semantic_responses_per_group"] == 5
     assert result["groups_with_primary_outcome_heterogeneity"] == 126
     assert result["source_history_authentication"] == "deferred_until_deanonymized"
+    assert result["strict_recovery_replay"]["strict_promoted_rows"] == 303
+    assert result["strict_recovery_replay"]["strict_quarantined_rows"] == 5
+    assert result["strict_recovery_replay"]["strict_structured_preserved_rows"] == 373
 
 
 @pytest.mark.parametrize("payload", ('{"a": 1, "a": 2}', '{"a": NaN}'))

@@ -57,12 +57,16 @@ PROHIBITED_CLAIMS = [
 DESIGN_SOURCE_PATHS = (
     "canonical_start.py",
     "mcp_server/js/observe.js",
+    "mcp_server/core.py",
+    "mcp_server/login.py",
     "mcp_server/tools/navigation.py",
     "mcp_server/tools/test_lane.py",
     "play_qwen.py",
     "scripts/opd/execution_evidence.py",
+    "scripts/opd/live_routing_analyzer.py",
     "scripts/opd/live_routing_diagnostic.py",
     "scripts/opd/live_routing_prelaunch.py",
+    "scripts/opd/live_routing_result_verify.py",
     "scripts/opd/response_router.py",
     "state_extractor.js",
     "tests/e2e/helpers/mcp_client.py",
@@ -70,9 +74,7 @@ DESIGN_SOURCE_PATHS = (
     "tool_surface.py",
 )
 LIVE_READY_ADDITIONAL_SOURCE_PATHS = (
-    "scripts/opd/live_routing_analyzer.py",
     "scripts/opd/live_routing_launcher.py",
-    "scripts/opd/live_routing_result_verify.py",
 )
 SOURCE_PATHS = DESIGN_SOURCE_PATHS
 MEASUREMENT_STAGES = [
@@ -168,7 +170,7 @@ def expected_trial_identities(
                     "position_within_repeat": position,
                     "pair_id": f"repeat-{repeat:02d}",
                     "arm": arm_name,
-                    "trial_id": f"llrd-v1-t{schedule_index:02d}",
+                    "trial_key": f"llrd-v1-t{schedule_index:02d}",
                     "username_template": f"lr_{{run_id}}_{schedule_index:02d}",
                     "treatment_session_id_template": (
                         f"llrd-{{run_id}}-t{schedule_index:02d}-treatment"
@@ -209,6 +211,8 @@ def validate_registration(
         "schedule",
         "trial_identities",
         "measurement",
+        "runtime_parameters",
+        "invalidity_reasons",
         "failure_policy",
         "reporting",
         "verdict_algorithm",
@@ -295,6 +299,15 @@ def validate_registration(
             "required_application_predicate": (
                 "measurement.warp_application_acceptance"
             ),
+            "expected_stage_outcomes": {
+                "router_status": "not_applicable_structured",
+                "schema_status": "valid",
+                "dispatch_attempted": True,
+                "delivery_status": "confirmed",
+                "protocol_success": True,
+                "tool_reported_error": None,
+                "state_predicate": "mudwich_immediate_delayed_reconnect",
+            },
         },
         {
             "arm": "content_recovery_on",
@@ -305,6 +318,15 @@ def validate_registration(
             "required_application_predicate": (
                 "measurement.warp_application_acceptance"
             ),
+            "expected_stage_outcomes": {
+                "router_status": "promoted",
+                "schema_status": "valid",
+                "dispatch_attempted": True,
+                "delivery_status": "confirmed",
+                "protocol_success": True,
+                "tool_reported_error": None,
+                "state_predicate": "mudwich_immediate_delayed_reconnect",
+            },
         },
         {
             "arm": "content_recovery_off",
@@ -314,6 +336,15 @@ def validate_registration(
             "required_state_predicate": (
                 "registered_baseline_at_immediate_delayed_reconnect_and_database"
             ),
+            "expected_stage_outcomes": {
+                "router_status": "disabled_not_evaluated",
+                "schema_status": "not_applicable_no_candidate",
+                "dispatch_attempted": False,
+                "delivery_status": "not_attempted",
+                "protocol_success": None,
+                "tool_reported_error": None,
+                "state_predicate": "baseline_immediate_delayed_reconnect_database",
+            },
         },
     ]
     if not _json_equal(registration.get("arms"), expected_arms):
@@ -333,7 +364,7 @@ def validate_registration(
     elif any(
         len({row[key] for row in identities}) != 9
         for key in (
-            "trial_id",
+            "trial_key",
             "username_template",
             "treatment_session_id_template",
             "reconnect_session_id_template",
@@ -432,6 +463,37 @@ def validate_registration(
         errors.append("warp application-acceptance predicate drift")
     if measurement.get("stages") != MEASUREMENT_STAGES:
         errors.append("measurement stages drift")
+    expected_runtime_parameters = {
+        "service_readiness_timeout_seconds": 60,
+        "login_timeout_seconds": 60,
+        "mcp_call_timeout_seconds": 120,
+        "minimum_delayed_observation_seconds": 5,
+        "minimum_disconnect_settle_seconds": 1.5,
+        "candidate_retry_count": 0,
+        "cold_mcp_process_per_trial": True,
+        "cold_browser_profile_per_trial": True,
+    }
+    if not _json_equal(
+        registration.get("runtime_parameters"), expected_runtime_parameters
+    ):
+        errors.append("runtime parameter contract drift")
+    expected_invalidity_reasons = [
+        "identity_mismatch_or_reuse",
+        "username_absence_unconfirmed",
+        "create_only_seed_unconfirmed",
+        "cold_session_unconfirmed",
+        "wrong_database_or_runtime_lane",
+        "precondition_missing_or_mismatch",
+        "applicable_measurement_missing_or_unparseable",
+        "delivery_unknown_after_exception",
+        "unregistered_candidate_retry",
+        "session_order_or_settle_violation",
+        "cleanup_absence_unconfirmed",
+    ]
+    if not _json_equal(
+        registration.get("invalidity_reasons"), expected_invalidity_reasons
+    ):
+        errors.append("invalidity reason taxonomy drift")
     if not _json_equal(registration.get("verdict_algorithm"), {
         "valid_trial": (
             "trial identity, isolation, and precondition match; every applicable "

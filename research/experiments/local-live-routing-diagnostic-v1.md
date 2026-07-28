@@ -58,7 +58,7 @@ pre-state must match before the candidate is allowed to run. Diagnostic
 
 The nine username and treatment/reconnect session templates are frozen in the
 registration. The create-only prelaunch seal resolves them with a unique
-6--12-character lowercase alphanumeric run ID, so a new run cannot silently
+eight-character lowercase alphanumeric run ID, so a new run cannot silently
 reuse a prior run's identities. The future launcher must additionally prove
 that every resolved username is absent before create-only seeding and record
 the database-assigned player identity; this remains a live-readiness blocker.

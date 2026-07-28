@@ -4,8 +4,10 @@ This module owns the singleton ``mcp`` instance that tool modules decorate.
 """
 
 import asyncio
+import hashlib
 import json
 import os
+import secrets
 import sys
 import time as _time
 from contextlib import asynccontextmanager
@@ -116,6 +118,12 @@ async def game_lifespan(server: FastMCP):
         "page": None, "browser": None, "pw": None,
         "logged_in": False, "_lock": asyncio.Lock(),
         "_heartbeat_tasks": [],
+        "mcp_instance_nonce": secrets.token_hex(16),
+        "mcp_pid": os.getpid(),
+        "mcp_process_group": os.getpgrp(),
+        "browser_launch_nonce": None,
+        "browser_executable_sha256": None,
+        "browser_version": None,
     }
     log("[mcp] Server ready (browser will launch on first tool call)")
     try:
@@ -176,7 +184,72 @@ async def _ensure_browser(state: dict):
             args=chrome_args,
             env=launch_env,
         )
-        context = await browser.new_context(viewport={"width": 1280, "height": 720})
+        browser_launch_nonce = secrets.token_hex(16)
+        executable_path = pw.chromium.executable_path
+        executable_sha256 = None
+        try:
+            digest = hashlib.sha256()
+            with open(executable_path, "rb") as executable:
+                for chunk in iter(lambda: executable.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            executable_sha256 = digest.hexdigest()
+        except OSError:
+            pass
+        state["browser_launch_nonce"] = browser_launch_nonce
+        state["browser_executable_sha256"] = executable_sha256
+        state["browser_version"] = browser.version
+        diagnostic_loopback_only = os.environ.get(
+            "KAETRAM_DIAGNOSTIC_LOOPBACK_ONLY", ""
+        ).lower() in ("1", "true", "yes")
+        context_options = {"viewport": {"width": 1280, "height": 720}}
+        if diagnostic_loopback_only:
+            context_options["service_workers"] = "block"
+        context = await browser.new_context(**context_options)
+
+        if diagnostic_loopback_only:
+            await context.add_init_script(
+                f"Object.defineProperty(window, '__kaetramDiagnosticNonce', "
+                f"{{value: {json.dumps(browser_launch_nonce)}, writable: false}});"
+            )
+
+        if diagnostic_loopback_only:
+            async def route_loopback_only(route):
+                from ipaddress import ip_address
+                from urllib.parse import urlsplit
+
+                parsed = urlsplit(route.request.url)
+                if parsed.scheme in ("data", "blob", "about"):
+                    await route.continue_()
+                    return
+                try:
+                    host = ip_address(parsed.hostname or "")
+                except ValueError:
+                    await route.abort()
+                    return
+                if (
+                    parsed.scheme in ("http", "https")
+                    and host.is_loopback
+                    and parsed.port == 9000
+                ):
+                    await route.continue_()
+                    return
+                await route.abort()
+
+            await context.route("**/*", route_loopback_only)
+            await context.add_init_script("""(() => {
+                const _WS = window.WebSocket;
+                window.WebSocket = function(url, protocols) {
+                    const parsed = new URL(url, window.location.href);
+                    if (parsed.protocol !== 'ws:' || parsed.hostname !== '127.0.0.1' || parsed.port !== '9191') {
+                        throw new Error('diagnostic blocked non-registered WebSocket');
+                    }
+                    return protocols ? new _WS(parsed.href, protocols) : new _WS(parsed.href);
+                };
+                window.WebSocket.prototype = _WS.prototype;
+                window.WebSocket.CONNECTING = 0; window.WebSocket.OPEN = 1;
+                window.WebSocket.CLOSING = 2; window.WebSocket.CLOSED = 3;
+            })()""")
+            log("[mcp] Diagnostic loopback-only browser policy enabled")
 
         # Inject state_extractor.js (survives page reloads/navigation)
         extractor_path = os.environ.get("KAETRAM_EXTRACTOR", "state_extractor.js")
@@ -225,7 +298,12 @@ async def _ensure_browser(state: dict):
         # the MCP server and are best-effort — never crash the agent.
         # Handles are tracked in state["_heartbeat_tasks"] so the lifespan
         # finally block can cancel them cleanly on shutdown.
-        if not state.get("_heartbeats_started"):
+        heartbeats_disabled = os.environ.get(
+            "KAETRAM_DISABLE_HEARTBEATS", ""
+        ).lower() in ("1", "true", "yes")
+        if heartbeats_disabled:
+            log("[mcp] Dashboard heartbeats disabled by launch contract")
+        elif not state.get("_heartbeats_started"):
             try:
                 from mcp_server.state_heartbeat import (
                     state_heartbeat_loop, activity_heartbeat_loop,

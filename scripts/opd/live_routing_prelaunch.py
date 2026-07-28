@@ -64,6 +64,26 @@ EXPECTED_LIVE_GATES = {
     "mongo_database_explicit_every_operation": "kaetram_e2e",
     "runtime_receipts_required": True,
 }
+PRELAUNCH_KEYS = {
+    "schema_version",
+    "study_id",
+    "run_id",
+    "status",
+    "created_at_utc",
+    "registration",
+    "claim_contract",
+    "claim_contract_sha256",
+    "candidate_contract_sha256",
+    "fixture_contract_sha256",
+    "stage_contract_sha256",
+    "zero_cost_contract_sha256",
+    "source",
+    "lane",
+    "trials",
+    "trial_plan_sha256",
+    "limitations",
+    "payload_sha256",
+}
 
 
 class PrelaunchError(RuntimeError):
@@ -266,7 +286,7 @@ def derive_trial_identities(
                     "position_within_repeat": position,
                     "pair_id": f"repeat-{repeat:02d}",
                     "arm": arm_name,
-                    "trial_id": f"llrd-v1-t{index:02d}",
+                    "trial_key": f"llrd-v1-t{index:02d}",
                     "username_template": f"lr_{{run_id}}_{index:02d}",
                     "treatment_session_id_template": (
                         f"llrd-{{run_id}}-t{index:02d}-treatment"
@@ -284,7 +304,7 @@ def derive_trial_identities(
     if identities != expected or len(expected) != 9:
         raise PrelaunchError("trial identities do not exactly match the registered schedule")
     for key in (
-        "trial_id",
+        "trial_key",
         "username_template",
         "treatment_session_id_template",
         "reconnect_session_id_template",
@@ -299,23 +319,58 @@ def derive_trial_identities(
         raise PrelaunchError("treatment/reconnect session identities are not globally unique")
     resolved = []
     for row in identities:
-        resolved.append(
+        resolved_row = {
+            **{
+                key: value
+                for key, value in row.items()
+                if not key.endswith("_template")
+            },
+            "username": row["username_template"].format(run_id=run_id),
+            "treatment_session_id": row["treatment_session_id_template"].format(
+                run_id=run_id
+            ),
+            "reconnect_session_id": row["reconnect_session_id_template"].format(
+                run_id=run_id
+            ),
+        }
+        resolved.append(resolved_row)
+    return resolved
+
+
+def bind_trial_ids(
+    trials: list[dict[str, Any]],
+    *,
+    study_id: str,
+    run_id: str,
+    registration_sha256: str,
+) -> list[dict[str, Any]]:
+    bound: list[dict[str, Any]] = []
+    for trial in trials:
+        identity = {
+            "study_id": study_id,
+            "run_id": run_id,
+            "registration_sha256": registration_sha256,
+            "schedule_index": trial["schedule_index"],
+            "repeat": trial["repeat"],
+            "position_within_repeat": trial["position_within_repeat"],
+            "arm": trial["arm"],
+            "username": trial["username"],
+            "treatment_session_id": trial["treatment_session_id"],
+            "reconnect_session_id": trial["reconnect_session_id"],
+        }
+        bound.append(
             {
-                **{
-                    key: value
-                    for key, value in row.items()
-                    if not key.endswith("_template")
-                },
-                "username": row["username_template"].format(run_id=run_id),
-                "treatment_session_id": row["treatment_session_id_template"].format(
-                    run_id=run_id
-                ),
-                "reconnect_session_id": row["reconnect_session_id_template"].format(
-                    run_id=run_id
-                ),
+                **trial,
+                "study_id": study_id,
+                "run_id": run_id,
+                "registration_sha256": registration_sha256,
+                "trial_id": f"llrd-{canonical_sha256(identity)[:24]}",
+                "trial_identity_sha256": canonical_sha256(identity),
             }
         )
-    return resolved
+    if len({trial["trial_id"] for trial in bound}) != len(bound):
+        raise PrelaunchError("derived trial IDs are not unique")
+    return bound
 
 
 def _tracked_bytes(repo_root: Path, head: str, path: Path) -> bytes:
@@ -340,8 +395,8 @@ def build_prelaunch_payload(
         raise PrelaunchError(
             "registration is not live-ready; prelaunch creation is forbidden"
         )
-    if not re.fullmatch(r"[a-z0-9]{6,12}", run_id):
-        raise PrelaunchError("run_id must be 6-12 lowercase alphanumeric characters")
+    if not re.fullmatch(r"[a-z0-9]{8}", run_id):
+        raise PrelaunchError("run_id must be exactly 8 lowercase alphanumeric characters")
     try:
         registration_errors = validate_registration(
             registration,
@@ -392,7 +447,30 @@ def build_prelaunch_payload(
             {"path": relative, "size_bytes": len(working_bytes), "sha256": actual}
         )
 
-    trials = derive_trial_identities(registration, run_id)
+    study_id = registration.get("study_id")
+    if not isinstance(study_id, str):
+        raise PrelaunchError("registration study ID is missing")
+    trials = bind_trial_ids(
+        derive_trial_identities(registration, run_id),
+        study_id=study_id,
+        run_id=run_id,
+        registration_sha256=registration_sha,
+    )
+    for trial in trials:
+        if not re.fullmatch(r"[a-z0-9_]{1,16}", trial["username"]):
+            raise PrelaunchError("resolved trial username violates Kaetram limits")
+        trial.update(
+            {
+                "mongo_database": "kaetram_e2e",
+                "candidate_sha256": registration["candidate"]["sha256"],
+                "content_envelope_sha256": registration["candidate"][
+                    "content_envelope_sha256"
+                ],
+                "precondition_sha256": canonical_sha256(
+                    registration["state_fixture"]["expected"]
+                ),
+            }
+        )
     claim_contract = {
         key: registration[key]
         for key in (
@@ -406,7 +484,7 @@ def build_prelaunch_payload(
     validate_timestamp(timestamp)
     payload: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
-        "study_id": registration.get("study_id"),
+        "study_id": study_id,
         "run_id": run_id,
         "status": SEALED_STATUS,
         "created_at_utc": timestamp,
@@ -416,7 +494,16 @@ def build_prelaunch_payload(
             "schema_version": registration.get("schema_version"),
             "execution_status": registration.get("status"),
         },
+        "claim_contract": claim_contract,
         "claim_contract_sha256": canonical_sha256(claim_contract),
+        "candidate_contract_sha256": canonical_sha256(registration["candidate"]),
+        "fixture_contract_sha256": canonical_sha256(registration["state_fixture"]),
+        "stage_contract_sha256": canonical_sha256(
+            registration["measurement"]["stages"]
+        ),
+        "zero_cost_contract_sha256": canonical_sha256(
+            registration["zero_cost_contract"]
+        ),
         "source": {
             **source_identity,
             "inventory": inventory,
@@ -512,22 +599,7 @@ def verify_prelaunch_receipt(
 ) -> list[str]:
     try:
         receipt, _ = load_json_strict(receipt_path)
-        expected_keys = {
-            "schema_version",
-            "study_id",
-            "run_id",
-            "status",
-            "created_at_utc",
-            "registration",
-            "claim_contract_sha256",
-            "source",
-            "lane",
-            "trials",
-            "trial_plan_sha256",
-            "limitations",
-            "payload_sha256",
-        }
-        if set(receipt) != expected_keys:
+        if set(receipt) != PRELAUNCH_KEYS:
             raise PrelaunchError("prelaunch receipt key set drift")
         unsigned = {key: value for key, value in receipt.items() if key != "payload_sha256"}
         if receipt.get("payload_sha256") != canonical_sha256(unsigned):

@@ -3,7 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -16,9 +18,11 @@ from scripts.opd.live_routing_prelaunch import (
     EXPECTED_LANE,
     READY_STATUS,
     PrelaunchError,
+    build_prelaunch_payload,
     create_prelaunch_receipt,
     load_json_strict,
     require_loopback_uri,
+    validate_source_relative_path,
     verify_prelaunch_receipt,
 )
 
@@ -95,6 +99,12 @@ def test_strict_json_rejects_duplicate_keys_and_non_finite_values(
         load_json_strict(non_finite)
 
 
+@pytest.mark.parametrize("path", ["../escape.py", "/tmp/escape.py", "a\\b.py"])
+def test_source_contract_paths_cannot_escape(path: str) -> None:
+    with pytest.raises(PrelaunchError):
+        validate_source_relative_path(path)
+
+
 @pytest.mark.parametrize(
     "uri",
     [
@@ -150,8 +160,10 @@ def test_create_only_receipt_round_trip_and_tamper_detection(tmp_path: Path) -> 
         lane=EXPECTED_LANE,
     )
     assert output.exists()
+    assert stat.S_IMODE(output.stat().st_mode) == 0o444
     assert receipt["source"]["git_head"] == head
     assert len(receipt["trials"]) == 9
+    assert len({trial["trial_id"] for trial in receipt["trials"]}) == 9
     assert len(
         {
             trial[key]
@@ -159,6 +171,16 @@ def test_create_only_receipt_round_trip_and_tamper_detection(tmp_path: Path) -> 
             for key in ("treatment_session_id", "reconnect_session_id")
         }
     ) == 18
+    other_run = build_prelaunch_payload(
+        registration,
+        repo_root=repo,
+        expected_head=head,
+        run_id="local002",
+        lane=EXPECTED_LANE,
+    )
+    assert receipt["trial_plan_sha256"] != other_run["trial_plan_sha256"]
+    assert receipt["trials"][0]["username"] != other_run["trials"][0]["username"]
+    assert receipt["trials"][0]["trial_id"] != other_run["trials"][0]["trial_id"]
     assert verify_prelaunch_receipt(
         output,
         registration,
@@ -184,6 +206,93 @@ def test_create_only_receipt_round_trip_and_tamper_detection(tmp_path: Path) -> 
         repo_root=repo,
         expected_head=head,
     )
+
+
+def test_recomputed_self_hash_cannot_hide_tampering(tmp_path: Path) -> None:
+    repo, registration, head = _ready_repo(tmp_path)
+    output = tmp_path / "recomputed-tamper.json"
+    create_prelaunch_receipt(
+        output,
+        registration,
+        repo_root=repo,
+        expected_head=head,
+        run_id="local001",
+    )
+    os.chmod(output, 0o644)
+    record = json.loads(output.read_text())
+    record["limitations"]["live_results"] = "present"
+    unsigned = {key: value for key, value in record.items() if key != "payload_sha256"}
+    record["payload_sha256"] = hashlib.sha256(
+        json.dumps(
+            unsigned,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    output.write_text(json.dumps(record) + "\n")
+    errors = verify_prelaunch_receipt(
+        output,
+        registration,
+        repo_root=repo,
+        expected_head=head,
+    )
+    assert any("differs from recomputed source/design seal" in error for error in errors)
+
+
+def test_wrong_head_and_malformed_contract_fail_cleanly(tmp_path: Path) -> None:
+    repo, registration, head = _ready_repo(tmp_path)
+    with pytest.raises(PrelaunchError, match="Git HEAD drift"):
+        create_prelaunch_receipt(
+            tmp_path / "wrong-head.json",
+            registration,
+            repo_root=repo,
+            expected_head="0" * 40,
+            run_id="local001",
+        )
+    value = json.loads(registration.read_text())
+    value["live_contract"] = []
+    registration.write_text(json.dumps(value, indent=2) + "\n")
+    _git(repo, "add", str(registration.relative_to(repo)))
+    _git(repo, "commit", "-qm", "malformed registration")
+    malformed_head = _git(repo, "rev-parse", "HEAD")
+    with pytest.raises(PrelaunchError, match="registration contract invalid"):
+        create_prelaunch_receipt(
+            tmp_path / "malformed.json",
+            registration,
+            repo_root=repo,
+            expected_head=malformed_head,
+            run_id="local001",
+        )
+
+
+def test_concurrent_create_only_publication_has_one_winner(tmp_path: Path) -> None:
+    repo, registration, head = _ready_repo(tmp_path)
+    output = tmp_path / "race.json"
+
+    def attempt() -> str:
+        try:
+            create_prelaunch_receipt(
+                output,
+                registration,
+                repo_root=repo,
+                expected_head=head,
+                run_id="local001",
+            )
+            return "created"
+        except PrelaunchError:
+            return "refused"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(lambda _: attempt(), range(2)))
+    assert sorted(outcomes) == ["created", "refused"]
+    assert verify_prelaunch_receipt(
+        output,
+        registration,
+        repo_root=repo,
+        expected_head=head,
+    ) == []
 
 
 def test_dirty_repo_and_in_repo_output_fail_closed(tmp_path: Path) -> None:

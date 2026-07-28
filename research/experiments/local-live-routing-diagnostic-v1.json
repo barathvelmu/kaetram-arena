@@ -29,12 +29,16 @@
     "files": {
       "canonical_start.py": "acfe896250e5be3f725a4c3430609c3619b8c268da31df68d513075fa3270486",
       "mcp_server/js/observe.js": "20c4d1151b0939eae60d89191c01e7b21c72a7f4445bfc697a4e1f70aa4c3020",
+      "mcp_server/core.py": "5a829187e336e2751a20a15a8722bbafd6a475ab0dc089e19b874a86bff17af1",
+      "mcp_server/login.py": "dc97e21ee12942034ad8cedcfdc3cf7b4acda2d2df9adfa7cfc299016f05c830",
       "mcp_server/tools/navigation.py": "d9a2638f0685698352d94d48311a1835f380fd8175bf9ffd06aa02f74595716a",
-      "mcp_server/tools/test_lane.py": "4a0c8aa725ed52efab15f310eea341db3dd65a3db3f0d40b0ac9c7107ec27fc4",
+      "mcp_server/tools/test_lane.py": "e4638cebc5f627074ac92358aba88518b4792bd4d605268368f3e861f8b9a6ae",
       "play_qwen.py": "d15208bf3198a26a8397b72a3c089e0e16b057a11bd442855aac905d5498c557",
       "scripts/opd/execution_evidence.py": "3bb6a9618596742f8559fedf7472dcda8c7b1d1305d30638202929a5a1d0bd7f",
-      "scripts/opd/live_routing_diagnostic.py": "21f768e6d2d5476841c82b336e87a72c2bed79ebe02d4cd4eaaa8b7433c3ec74",
-      "scripts/opd/live_routing_prelaunch.py": "fc8c48caf0c7b88da9c7fa32bbf35d8d242b5139eab1e2d8fafb7cf7b2fb56c6",
+      "scripts/opd/live_routing_analyzer.py": "41ff9560e232449bccefeb96027167a5e3e806640428607a707fedec331af300",
+      "scripts/opd/live_routing_diagnostic.py": "2120a50c833a456d1e2f5d6aed10d5e60328afc545ad4288b4f7acccf767bd54",
+      "scripts/opd/live_routing_prelaunch.py": "8c5898994d45b5d3494eb3efa4070dcbc7039d937cafcd2fff9e21e678d5842e",
+      "scripts/opd/live_routing_result_verify.py": "2429479b5ea3c4d48a14f21f670e0f962a66c43b90f3a84e9cd9e2a715428313",
       "scripts/opd/response_router.py": "0da3488c2663a12d8f9364c753581125a41bf9e88df56b30d04cfdca1f9f7873",
       "state_extractor.js": "25aa4283fdfe5219c58c6db60fe815e4b0fe5ca12696b7282757dbe9801346e7",
       "tests/e2e/helpers/mcp_client.py": "c4ba56262dcd723b8f71bd2d2cc0a2f64609e73726906bb8c4851dfb0e9ff9c6",
@@ -120,7 +124,16 @@
       "route": "structured",
       "recovery": false,
       "expected_candidate_invocations": 1,
-      "required_application_predicate": "measurement.warp_application_acceptance"
+      "required_application_predicate": "measurement.warp_application_acceptance",
+      "expected_stage_outcomes": {
+        "router_status": "not_applicable_structured",
+        "schema_status": "valid",
+        "dispatch_attempted": true,
+        "delivery_status": "confirmed",
+        "protocol_success": true,
+        "tool_reported_error": null,
+        "state_predicate": "mudwich_immediate_delayed_reconnect"
+      }
     },
     {
       "arm": "content_recovery_on",
@@ -128,14 +141,32 @@
       "recovery": true,
       "required_router_status": "promoted",
       "expected_candidate_invocations": 1,
-      "required_application_predicate": "measurement.warp_application_acceptance"
+      "required_application_predicate": "measurement.warp_application_acceptance",
+      "expected_stage_outcomes": {
+        "router_status": "promoted",
+        "schema_status": "valid",
+        "dispatch_attempted": true,
+        "delivery_status": "confirmed",
+        "protocol_success": true,
+        "tool_reported_error": null,
+        "state_predicate": "mudwich_immediate_delayed_reconnect"
+      }
     },
     {
       "arm": "content_recovery_off",
       "route": "ordinary_content",
       "recovery": false,
       "expected_candidate_invocations": 0,
-      "required_state_predicate": "registered_baseline_at_immediate_delayed_reconnect_and_database"
+      "required_state_predicate": "registered_baseline_at_immediate_delayed_reconnect_and_database",
+      "expected_stage_outcomes": {
+        "router_status": "disabled_not_evaluated",
+        "schema_status": "not_applicable_no_candidate",
+        "dispatch_attempted": false,
+        "delivery_status": "not_attempted",
+        "protocol_success": null,
+        "tool_reported_error": null,
+        "state_predicate": "baseline_immediate_delayed_reconnect_database"
+      }
     }
   ],
   "schedule": [
@@ -171,7 +202,7 @@
       "position_within_repeat": 1,
       "pair_id": "repeat-01",
       "arm": "structured_direct",
-      "trial_id": "llrd-v1-t01",
+      "trial_key": "llrd-v1-t01",
       "username_template": "lr_{run_id}_01",
       "treatment_session_id_template": "llrd-{run_id}-t01-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t01-reconnect",
@@ -185,7 +216,7 @@
       "position_within_repeat": 2,
       "pair_id": "repeat-01",
       "arm": "content_recovery_on",
-      "trial_id": "llrd-v1-t02",
+      "trial_key": "llrd-v1-t02",
       "username_template": "lr_{run_id}_02",
       "treatment_session_id_template": "llrd-{run_id}-t02-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t02-reconnect",
@@ -199,7 +230,7 @@
       "position_within_repeat": 3,
       "pair_id": "repeat-01",
       "arm": "content_recovery_off",
-      "trial_id": "llrd-v1-t03",
+      "trial_key": "llrd-v1-t03",
       "username_template": "lr_{run_id}_03",
       "treatment_session_id_template": "llrd-{run_id}-t03-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t03-reconnect",
@@ -213,7 +244,7 @@
       "position_within_repeat": 1,
       "pair_id": "repeat-02",
       "arm": "content_recovery_on",
-      "trial_id": "llrd-v1-t04",
+      "trial_key": "llrd-v1-t04",
       "username_template": "lr_{run_id}_04",
       "treatment_session_id_template": "llrd-{run_id}-t04-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t04-reconnect",
@@ -227,7 +258,7 @@
       "position_within_repeat": 2,
       "pair_id": "repeat-02",
       "arm": "content_recovery_off",
-      "trial_id": "llrd-v1-t05",
+      "trial_key": "llrd-v1-t05",
       "username_template": "lr_{run_id}_05",
       "treatment_session_id_template": "llrd-{run_id}-t05-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t05-reconnect",
@@ -241,7 +272,7 @@
       "position_within_repeat": 3,
       "pair_id": "repeat-02",
       "arm": "structured_direct",
-      "trial_id": "llrd-v1-t06",
+      "trial_key": "llrd-v1-t06",
       "username_template": "lr_{run_id}_06",
       "treatment_session_id_template": "llrd-{run_id}-t06-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t06-reconnect",
@@ -255,7 +286,7 @@
       "position_within_repeat": 1,
       "pair_id": "repeat-03",
       "arm": "content_recovery_off",
-      "trial_id": "llrd-v1-t07",
+      "trial_key": "llrd-v1-t07",
       "username_template": "lr_{run_id}_07",
       "treatment_session_id_template": "llrd-{run_id}-t07-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t07-reconnect",
@@ -269,7 +300,7 @@
       "position_within_repeat": 2,
       "pair_id": "repeat-03",
       "arm": "structured_direct",
-      "trial_id": "llrd-v1-t08",
+      "trial_key": "llrd-v1-t08",
       "username_template": "lr_{run_id}_08",
       "treatment_session_id_template": "llrd-{run_id}-t08-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t08-reconnect",
@@ -283,7 +314,7 @@
       "position_within_repeat": 3,
       "pair_id": "repeat-03",
       "arm": "content_recovery_on",
-      "trial_id": "llrd-v1-t09",
+      "trial_key": "llrd-v1-t09",
       "username_template": "lr_{run_id}_09",
       "treatment_session_id_template": "llrd-{run_id}-t09-treatment",
       "reconnect_session_id_template": "llrd-{run_id}-t09-reconnect",
@@ -323,6 +354,29 @@
       "read-only database projection after close"
     ]
   },
+  "runtime_parameters": {
+    "service_readiness_timeout_seconds": 60,
+    "login_timeout_seconds": 60,
+    "mcp_call_timeout_seconds": 120,
+    "minimum_delayed_observation_seconds": 5,
+    "minimum_disconnect_settle_seconds": 1.5,
+    "candidate_retry_count": 0,
+    "cold_mcp_process_per_trial": true,
+    "cold_browser_profile_per_trial": true
+  },
+  "invalidity_reasons": [
+    "identity_mismatch_or_reuse",
+    "username_absence_unconfirmed",
+    "create_only_seed_unconfirmed",
+    "cold_session_unconfirmed",
+    "wrong_database_or_runtime_lane",
+    "precondition_missing_or_mismatch",
+    "applicable_measurement_missing_or_unparseable",
+    "delivery_unknown_after_exception",
+    "unregistered_candidate_retry",
+    "session_order_or_settle_violation",
+    "cleanup_absence_unconfirmed"
+  ],
   "failure_policy": {
     "outcome_based_exclusions": "forbidden",
     "invalid_precondition": "retain failure receipt and do not invoke candidate",

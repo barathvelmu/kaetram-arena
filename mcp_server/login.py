@@ -8,6 +8,14 @@ from mcp.server.fastmcp import Context
 from mcp_server.core import log, log_tool
 
 
+def require_existing_account() -> bool:
+    return os.environ.get("KAETRAM_REQUIRE_EXISTING_ACCOUNT", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+
 async def _attempt_register(page, username: str, password: str) -> None:
     """Fill + submit the register form. Returns when the form was clicked; the
     caller's attempt loop will detect success/failure."""
@@ -40,6 +48,7 @@ async def login_impl(ctx: Context, page) -> str:
     # against any seeded account.
     password = os.environ.get("KAETRAM_PASSWORD", "test")
     client_url = os.environ.get("KAETRAM_CLIENT_URL", "http://localhost:9000")
+    existing_account_only = require_existing_account()
 
     # Surface the resolved credentials on every login attempt. Hardcoded env
     # in opencode.json was silently overriding KAETRAM_PASSWORD with the wrong
@@ -126,6 +135,12 @@ async def login_impl(ctx: Context, page) -> str:
                 continue
             if not_found:
                 saw_not_found = True
+                if existing_account_only:
+                    log(
+                        "[mcp] registration fallback forbidden by "
+                        "KAETRAM_REQUIRE_EXISTING_ACCOUNT"
+                    )
+                    break
                 if not tried_register:
                     tried_register = True
                     log(f"[mcp] login rejected ({err_text!r}); attempting register for {username}")

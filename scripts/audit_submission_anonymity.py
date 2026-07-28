@@ -80,6 +80,7 @@ _REPOSITORY_REFERENCE = re.compile(
 )
 _SOCIAL_HANDLE = re.compile(r"(?<![A-Za-z0-9_\\])@([A-Za-z0-9_][A-Za-z0-9_.-]{1,})")
 _PDF_URL = re.compile(r"(?:https?|ftp)://\S+|mailto:\S+", re.IGNORECASE)
+_NEUTRAL_PDF_DATE = "Sat Jan 1 00:00:00 2000 UTC"
 
 
 def _line_number(text: str, position: int) -> int:
@@ -139,6 +140,10 @@ def audit_pdf_metadata(label: str, pdfinfo_text: str) -> list[str]:
         findings.append(f"{label}: unexpected PDF creator metadata")
     if not metadata.get("producer", "").startswith("pdfTeX-"):
         findings.append(f"{label}: unexpected PDF producer metadata")
+    for field in ("creationdate", "moddate"):
+        normalized = " ".join(metadata.get(field, "").split())
+        if normalized != _NEUTRAL_PDF_DATE:
+            findings.append(f"{label}: non-neutral PDF {field} metadata")
     return findings
 
 

@@ -30,6 +30,10 @@ route-validity decomposition is secondary and must remain labeled post hoc.
    TMLR template's Apache-2.0 license.
 6. Keep the exact final review PDF, ZIP, and review trust root local/unlinked
    until the double-blind period ends. Do not push them to an identified fork.
+   The formerly tracked v1 ZIP was identity-bearing and was removed from the
+   current tree; repository history is still identifying, so reviewers must
+   never receive a link to this fork or any artifact derived directly from its
+   public URLs.
 
 ## Format and disclosure
 

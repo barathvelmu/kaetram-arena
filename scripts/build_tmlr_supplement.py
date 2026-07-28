@@ -16,6 +16,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
@@ -238,9 +239,40 @@ def audit_review_tree(root: Path) -> None:
             raise SystemExit(f"40-hex source-control fingerprint in supplement: {path}")
 
 
+def require_local_untracked_output() -> None:
+    """Refuse to build a double-blind ZIP into the public Git index."""
+
+    relative = OUTPUT.relative_to(ROOT).as_posix()
+    inside = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--is-inside-work-tree"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if inside.returncode != 0:
+        return
+    tracked = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--error-unmatch", "--", relative],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    ignored = subprocess.run(
+        ["git", "-C", str(ROOT), "check-ignore", "--quiet", "--", relative],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if tracked.returncode == 0 or ignored.returncode != 0:
+        raise SystemExit(
+            "anonymous supplement output must be ignored and absent from the Git index"
+        )
+
+
 def main() -> int:
     if not ARTIFACT.is_dir() or not PAPER.is_file():
         raise SystemExit("build the sealed artifact and TMLR PDF first")
+    require_local_untracked_output()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="kaetram-tmlr-supplement-") as temporary:
         stage = Path(temporary) / "kaetram-tmlr-anonymous-supplement"

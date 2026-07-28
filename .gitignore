@@ -80,6 +80,11 @@ paper/tmlr/*.log
 paper/tmlr/*.out
 paper/tmlr/main.pdf
 
+# Double-blind submission packages are generated locally and must never be
+# committed to or linked from the identified public fork.
+output/supplement/*.zip
+output/pdf/kaetram-tool-routing-tmlr-draft.pdf
+
 # Personal / non-deliverable assets
 reference/people/
 

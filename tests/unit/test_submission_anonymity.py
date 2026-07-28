@@ -76,14 +76,23 @@ def test_generic_audit_rejects_identifying_pdf_metadata() -> None:
     clean = (
         "Title:\nSubject:\nKeywords:\nAuthor:\n"
         "Creator: LaTeX with hyperref\nProducer: pdfTeX-1.40.24\n"
+        "CreationDate: Sat Jan 1 00:00:00 2000 UTC\n"
+        "ModDate: Sat Jan 1 00:00:00 2000 UTC\n"
     )
     identifying = (
         "Title:\nSubject:\nKeywords:\nAuthor: Example Researcher\n"
         "Creator: LaTeX with hyperref\nProducer: pdfTeX-1.40.24\n"
+        "CreationDate: Sat Jan 1 00:00:00 2000 UTC\n"
+        "ModDate: Sat Jan 1 00:00:00 2000 UTC\n"
     )
     unexpected_creator = (
         "Title:\nSubject:\nKeywords:\nAuthor:\n"
         "Creator: Example Researcher\nProducer: Custom PDF tool\n"
+        "CreationDate: Sat Jan 1 00:00:00 2000 UTC\n"
+        "ModDate: Sat Jan 1 00:00:00 2000 UTC\n"
+    )
+    correlated_date = clean.replace(
+        "Sat Jan 1 00:00:00 2000 UTC", "Thu Jul 23 20:03:09 2026 EDT"
     )
     incomplete = "Creator: LaTeX\n"
 
@@ -91,6 +100,7 @@ def test_generic_audit_rejects_identifying_pdf_metadata() -> None:
     assert audit_pdf_metadata("fixture", identifying)
     assert audit_pdf_metadata("fixture", unexpected_creator)
     assert audit_pdf_metadata("fixture", incomplete)
+    assert audit_pdf_metadata("fixture", correlated_date)
 
 
 def test_pdf_annotation_audit_allows_citations_and_rejects_hidden_links() -> None:

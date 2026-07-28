@@ -11,9 +11,9 @@ pdf_text_file="$build_dir/main.txt"
 pdf_info_file="$build_dir/main.pdfinfo"
 pdf_urls_file="$build_dir/main.urls"
 
-# Freeze PDF timestamps to the sealed V2 experiment commit so clean builds are
-# byte-reproducible instead of inheriting the builder's wall-clock time.
-export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1784851389}"
+# Freeze PDF timestamps to a neutral, reproducible epoch.  Binding the review
+# PDF to an author-owned commit time creates a searchable identity channel.
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-946684800}"
 export FORCE_SOURCE_DATE=1
 export TZ=UTC
 

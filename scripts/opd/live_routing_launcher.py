@@ -550,8 +550,12 @@ def run_session_worker(
     environment = sanitized_worker_environment(
         os.environ, spec, lane=LaneConfig(), state_dir=state_dir
     )
+    # Preserve the selected virtual-environment entry point.  Resolving this
+    # symlink launches the base interpreter outside the venv and silently drops
+    # the registered MCP/Playwright packages from the cold worker.
+    invoked_python = python_executable.expanduser().absolute()
     command = [
-        str(python_executable.resolve()),
+        str(invoked_python),
         str(Path(__file__).resolve()),
         "session-worker",
         "--registration",

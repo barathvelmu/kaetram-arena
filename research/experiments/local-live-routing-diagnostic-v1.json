@@ -59,7 +59,7 @@
       "scripts/opd/execution_evidence.py": "3bb6a9618596742f8559fedf7472dcda8c7b1d1305d30638202929a5a1d0bd7f",
       "scripts/opd/live_routing_analyzer.py": "3cdbd3fdd2fdd839717694c4bfcb5cd595466fdc82439fa64324ad038c59c591",
       "scripts/opd/live_routing_diagnostic.py": "995c8e82a63a316b6ebf622d3b7cc16fc1e720b3c1d77c9cb4577c8c2a374aee",
-      "scripts/opd/live_routing_launcher.py": "4552b328840b24ef59e3f5f83b8ecb0ce4b234b4341d2ffdfff94f47c2d260de",
+      "scripts/opd/live_routing_launcher.py": "a521621893a9b5d596c93c5922eae4b5c23b3b799588dce7edde818fb090f9ea",
       "scripts/opd/live_routing_orchestrator.py": "f454c785cf9ba4ce8be2080297400fdbf939db744dbf2f8cd773f944e7ddf792",
       "scripts/opd/live_routing_prelaunch.py": "8c5898994d45b5d3494eb3efa4070dcbc7039d937cafcd2fff9e21e678d5842e",
       "scripts/opd/live_routing_result_verify.py": "5d193e5d0e013d348763eca29fe04111da0e548e3eb52f904a4520ca297047cd",

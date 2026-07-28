@@ -546,6 +546,43 @@ class _WorkerProcess:
         return self.stdout, self.stderr
 
 
+def test_worker_preserves_virtual_environment_entrypoint(
+    tmp_path: Path, monkeypatch
+) -> None:
+    base = tmp_path / "runtime" / "python3.12"
+    base.parent.mkdir()
+    base.write_bytes(b"base interpreter")
+    venv_python = tmp_path / "venv" / "bin" / "python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to(base)
+    calls = []
+    process = _WorkerProcess('{"ok":true}')
+
+    def popen(command, **kwargs):
+        calls.append((command, kwargs))
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: {
+            "found_alive": False,
+            "sigkill_required": False,
+            "still_alive": False,
+        },
+    )
+
+    assert run_session_worker(
+        _session_spec(),
+        tmp_path / "registration.json",
+        python_executable=venv_python,
+        state_dir=tmp_path / "state",
+        timeout_seconds=1,
+    ) == {"ok": True}
+    assert calls[0][0][0] == str(venv_python.absolute())
+    assert calls[0][0][0] != str(venv_python.resolve())
+
+
 @pytest.mark.parametrize(
     ("process", "exception"),
     [

@@ -1,0 +1,61 @@
+{
+  "schema_version": "kaetram.live-routing-multi-action-measurement-amendment.v3",
+  "study_id": "local-live-routing-multi-action-v3",
+  "status": "registered_before_v3_live_execution",
+  "amendment_scope": {
+    "parent_registration_path": "research/experiments/local-live-routing-multi-action-v2.json",
+    "parent_registration_sha256": "6755e7272fe06d62d2a19e38ad960a7247e32a0b4303be18f3689ce369710558",
+    "preserved_v2_source_commit": "65b3bead4ccb59953c0860a5530c6c42199128db",
+    "execution_change": "none",
+    "receipt_schema_change": "none",
+    "measurement_change_only": true,
+    "prior_v2_result": {
+      "run_directory": "kaetram-live-routing-multi-action-run-20260728-v1",
+      "prelaunch_git_head": "65b3bead4ccb59953c0860a5530c6c42199128db",
+      "reason": "collected before this measurement amendment was frozen"
+    }
+  },
+  "prospective_gate": {
+    "require_clean_v2_prelaunch": true,
+    "prelaunch_git_head_must_contain": [
+      "research/experiments/local-live-routing-multi-action-v3.json",
+      "scripts/opd/live_routing_multi_action_measurement_v3.py",
+      "tests/unit/test_live_routing_multi_action_measurement_v3.py"
+    ],
+    "forbid_pre_amendment_data": true,
+    "model_calls": 0,
+    "remote_endpoints": "forbidden",
+    "metered_services": "forbidden"
+  },
+  "measurement": {
+    "equipment_key_aliases": {
+      "coppersword": "coppersword",
+      "player/weapon/coppersword": "coppersword"
+    },
+    "equip_item_acceptance": "Canonical coppersword absent from inventory and present in equipment; only the two explicitly listed raw keys are equivalent.",
+    "eat_food_acceptance": "Apple absent from inventory and HP strictly above the registered 30 HP fixture.",
+    "warp_acceptance": "Position lies in Mudwich x=188..191, y=157..160.",
+    "active_arm_acceptance": "Every completed action predicate persists at immediate, delayed, reconnect, and database observations.",
+    "off_arm_acceptance": "Zero candidate dispatches and none of the three registered action-effect signatures appears at any immediate, delayed, reconnect, or database observation.",
+    "off_arm_hp_policy": "HP-only drift is ignored because passive regeneration is not a registered action effect."
+  },
+  "claim_boundary": {
+    "confirmatory": false,
+    "permitted_claim": "Preliminary within-build evidence about routing and fixture-specific application under a prospectively frozen measurement amendment.",
+    "prohibited_claims": [
+      "retroactive validation of the V2 result",
+      "model quality or superiority",
+      "causal recovery benefit",
+      "quest-performance improvement",
+      "checkpoint or training superiority",
+      "generalization across tools, states, models, renderers, games, or environments",
+      "statistical independence of technical repeats"
+    ]
+  },
+  "reporting": {
+    "technical_repeats_are_independent": false,
+    "report_v2_and_v3_separately": true,
+    "never_relabel_v2_failures": true,
+    "exact_verdict_language": "Report protocol validity, V3 full-predicate pass/fail, and each action predicate separately."
+  }
+}

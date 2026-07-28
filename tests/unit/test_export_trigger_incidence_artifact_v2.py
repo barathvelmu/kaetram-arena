@@ -248,8 +248,6 @@ def _fixture(tmp_path: Path, monkeypatch) -> dict:
         "eligible_source_log_count": 2,
         "personality": "completionist",
         "selection_stride": 1,
-        "excluded_source_log_count": 1,
-        "excluded_source_logs_sha256": v1.sha256_json(["earlier.log"]),
         "states": excluded_states,
         "source_git_commit": COMMIT,
         "dirty_paths": [],

@@ -84,6 +84,10 @@ DESIGN_KEYS = {
     "source_git_commit",
     "dirty_paths",
 }
+EXCLUDED_DESIGN_KEYS = DESIGN_KEYS - {
+    "excluded_source_log_count",
+    "excluded_source_logs_sha256",
+}
 DESIGN_RECEIPT_KEYS = {
     "schema_version",
     "study_id",
@@ -917,7 +921,7 @@ def _verify_design(root: Path, registration: dict) -> dict:
         != max(1, design["eligible_source_log_count"] // (2 * state_count))
         or len(selected_paths) != len(set(selected_paths))
         or not isinstance(excluded, dict)
-        or set(excluded) != DESIGN_KEYS
+        or set(excluded) != EXCLUDED_DESIGN_KEYS
         or excluded.get("schema_version")
         != "kaetram.local-trigger-incidence-design.v1"
         or not isinstance(excluded_states, list)

@@ -1,6 +1,6 @@
 # Seeded outcome-unseen interface replication (v2)
 
-Status: complete, preregistered directional criterion passed.
+Status: complete, prospectively frozen directional criterion passed.
 
 This is the v2 replication, not the earlier v1 discovery study. It uses 20
 outcome-unseen states, four interface conditions, three fixed checkpoints, and
@@ -17,21 +17,23 @@ training-method superiority, improved quest performance, or generalization to
 other renderers, model families, or state pools.
 
 The structured-call validity analysis is explicitly post hoc and leaves the
-registered primary outcome unchanged. It found that some structured envelopes
-were not executable under the registered schema. With native tools absent vs.
+frozen primary outcome unchanged. It found that some structured envelopes were
+not schema-valid under the frozen tool contract. With native tools absent vs.
 present, invalid/structured counts were 34/65 vs. 1/60 (Base), 24/73 vs. 6/61
 (R2), and 18/57 vs. 3/57 (R3). Accordingly, the paper distinguishes a
-structured envelope from a schema-valid executable call.
+structured envelope from a schema-valid candidate action; V2 did not execute
+those candidates in the environment.
 
 Files:
 
 - `paper-table-public.md` and `paper-table-public.tex`: deterministic render of
   the registered v2 analysis.
 - `structured-call-validity-posthoc.json`: secondary schema-validity diagnostic.
-- `artifact-trust-root.json`: external hash required by the public verifiers.
+- `artifact-trust-root.json`: expected artifact-index digest required by the
+  public verifiers.
 
 The sealed raw artifact is at
 `research/artifacts/local-trigger-incidence-v2/`. Verification must pass the
-expected artifact-index SHA-256 from `artifact-trust-root.json`; internal hashes
-alone do not provide an external authenticity anchor.
-
+expected artifact-index SHA-256 from `artifact-trust-root.json`. The reviewed
+PDF records the same digest, binding it to the exact anonymous supplement;
+identity-bearing source-history authentication is deferred until deanonymization.

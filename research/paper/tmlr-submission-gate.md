@@ -9,8 +9,9 @@ The defensible paper asks where an agent action is lost across the routing
 contract: weights, rendered interface, response channel, parser/recovery, or
 environment execution. The historical OPD sequence motivates the audit but is
 not a causal training-method result. The completed v2 outcome-unseen replication
-is the central registered experiment. The post-hoc structured-call validity
-diagnostic is secondary and must remain labeled post hoc.
+is the central prospectively frozen experiment. Its design was committed before
+endpoint access but was not deposited in an external public registry. The post-hoc
+structured-call validity diagnostic is secondary and must remain labeled post hoc.
 
 ## Hard upload gates
 
@@ -19,9 +20,12 @@ diagnostic is secondary and must remain labeled post hoc.
    terminal AAAI decision before a TMLR upload.
 2. Resolve authorship by contribution and responsibility, not fork ownership.
    Every author must approve the manuscript and submission.
-3. Run the public evidence verifier with the committed external v2 trust root.
+3. Run the public evidence verifier with the artifact-index digest recorded in
+   the reviewed PDF. **Complete locally.** This binds the PDF to the exact
+   anonymous supplement without claiming prior public registration.
 4. Build the official TMLR package, render every page, and pass source, PDF,
-   metadata, URL, artifact-ZIP, and clean-clone anonymity audits.
+   metadata, URL, artifact-ZIP, and clean-clone anonymity audits. **Complete
+   locally; rerun after any manuscript or supplement edit.**
 5. Preserve the repository's MIT notice, the Kaetram MPL-2.0 notice, and the
    TMLR template's Apache-2.0 license.
 
@@ -43,4 +47,3 @@ personal fork.
 - Acceptance criteria: https://jmlr.org/tmlr/acceptance-criteria.html
 - FAQ and LLM disclosure: https://jmlr.org/tmlr/faq.html
 - Submission instructions: https://jmlr.org/tmlr/submissions.html
-

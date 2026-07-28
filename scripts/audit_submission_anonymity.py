@@ -18,6 +18,8 @@ ALLOWED_PDF_URLS = {
     "https://arxiv.org/abs/2506.03610",
     "https://doi.org/10.65109/OLHJ8062",
     "https://doi.org/10.18653/v1/2026.acl-long.1880",
+    "https://aclanthology.org/2026.acl-long.855/",
+    "https://aclanthology.org/2024.emnlp-main.1083/",
 }
 
 _BIBTEX_ENTRY_TYPES = {

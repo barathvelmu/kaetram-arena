@@ -193,12 +193,39 @@ def verify_bundle(
     except AuditError as exc:
         raise exporter.ExportError(str(exc)) from exc
 
-    verified = exporter._semantic_verify(artifact_dir)
+    summary = exporter.v1_export.load_json(
+        artifact_dir / "analysis" / "analysis-summary.json"
+    )
+    provenance = summary.get("analysis_code_provenance", {})
+    current_analysis_sha256 = exporter.sha256_file(
+        Path(exporter.probe.__file__).resolve()
+    )
+    historical = (
+        provenance.get("analysis_script_sha256") != current_analysis_sha256
+        or provenance.get("python_version") != sys.version.split()[0]
+        or index["export_script_sha256"]
+        != exporter.sha256_file(Path(exporter.__file__).resolve())
+        or index["verifier_script_sha256"]
+        != exporter.sha256_file(Path(__file__).resolve())
+        or index["independent_audit_script_sha256"]
+        != exporter.sha256_file(
+            REPO / "scripts" / "opd" / "audit_trigger_incidence_artifact_v2.py"
+        )
+    )
+    verified = exporter._semantic_verify(
+        artifact_dir,
+        expected_analysis_script_sha256=(
+            index["analysis_script_sha256"] if historical else None
+        ),
+        enforce_python_version=not historical,
+    )
     summary = verified["summary"]
     excluded_relative = exporter._safe_registered_path(
         verified["registration"]["state_pool"]["excluded_design"]
     )
-    code_files = exporter._critical_code_records()
+    code_files = (
+        index["code_files"] if historical else exporter._critical_code_records()
+    )
     expected = {
         "schema_version": exporter.EXPORT_SCHEMA,
         "study_id": verified["registration"]["study_id"],
@@ -208,10 +235,22 @@ def verify_bundle(
         ],
         "verification_source_git_commit": index["verification_source_git_commit"],
         "analysis_script_sha256": verified["analysis_script_sha256"],
-        "export_script_sha256": exporter.sha256_file(Path(exporter.__file__).resolve()),
-        "verifier_script_sha256": exporter.sha256_file(Path(__file__).resolve()),
-        "independent_audit_script_sha256": exporter.sha256_file(
-            REPO / "scripts" / "opd" / "audit_trigger_incidence_artifact_v2.py"
+        "export_script_sha256": (
+            index["export_script_sha256"]
+            if historical
+            else exporter.sha256_file(Path(exporter.__file__).resolve())
+        ),
+        "verifier_script_sha256": (
+            index["verifier_script_sha256"]
+            if historical
+            else exporter.sha256_file(Path(__file__).resolve())
+        ),
+        "independent_audit_script_sha256": (
+            index["independent_audit_script_sha256"]
+            if historical
+            else exporter.sha256_file(
+                REPO / "scripts" / "opd" / "audit_trigger_incidence_artifact_v2.py"
+            )
         ),
         "registration_sha256": exporter.sha256_file(artifact_dir / "registration.json"),
         "design_sha256": exporter.sha256_file(artifact_dir / "design" / "design.json"),

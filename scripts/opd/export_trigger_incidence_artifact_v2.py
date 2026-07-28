@@ -361,7 +361,12 @@ def _canonical_directories(root: Path, name: str) -> list[Path]:
     return directories
 
 
-def _semantic_verify_unlocked(staged: Path) -> dict:
+def _semantic_verify_unlocked(
+    staged: Path,
+    *,
+    expected_analysis_script_sha256: str | None = None,
+    enforce_python_version: bool = True,
+) -> dict:
     registration_path = staged / "registration.json"
     design_path = staged / "design" / "design.json"
     with _artifact_repo(staged):
@@ -462,7 +467,10 @@ def _semantic_verify_unlocked(staged: Path) -> dict:
         summary_path = staged / "analysis" / "analysis-summary.json"
         summary = v1_export.load_json(summary_path)
         provenance = summary.get("analysis_code_provenance")
-        expected_script_sha256 = sha256_file(Path(probe.__file__).resolve())
+        expected_script_sha256 = (
+            expected_analysis_script_sha256
+            or sha256_file(Path(probe.__file__).resolve())
+        )
         if (
             not isinstance(provenance, dict)
             or set(provenance)
@@ -473,7 +481,17 @@ def _semantic_verify_unlocked(staged: Path) -> dict:
                 "python_version",
             }
             or provenance.get("analysis_script_sha256") != expected_script_sha256
-            or provenance.get("python_version") != sys.version.split()[0]
+            or (
+                enforce_python_version
+                and provenance.get("python_version") != sys.version.split()[0]
+            )
+            or (
+                not enforce_python_version
+                and re.fullmatch(
+                    r"\d+\.\d+\.\d+", str(provenance.get("python_version", ""))
+                )
+                is None
+            )
             or provenance.get("dirty_paths") != []
             or re.fullmatch(
                 r"[0-9a-f]{40}", str(provenance.get("source_git_commit", ""))
@@ -523,10 +541,19 @@ def _semantic_verify_unlocked(staged: Path) -> dict:
     }
 
 
-def _semantic_verify(staged: Path) -> dict:
+def _semantic_verify(
+    staged: Path,
+    *,
+    expected_analysis_script_sha256: str | None = None,
+    enforce_python_version: bool = True,
+) -> dict:
     """Serialize legacy module-identity overrides used by the CLI verifier."""
     with _SEMANTIC_VERIFY_LOCK:
-        return _semantic_verify_unlocked(staged)
+        return _semantic_verify_unlocked(
+            staged,
+            expected_analysis_script_sha256=expected_analysis_script_sha256,
+            enforce_python_version=enforce_python_version,
+        )
 
 
 def _source_files(

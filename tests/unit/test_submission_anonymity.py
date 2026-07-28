@@ -116,7 +116,7 @@ def test_pdf_annotation_audit_allows_citations_and_rejects_hidden_links() -> Non
         header + "  1  Annotation    https://arxiv.org/abs/9999.99999\n",
     )
     assert audit_pdf_urls("fixture", "not pdfinfo output")
-    assert len(ALLOWED_PDF_URLS) == 5
+    assert len(ALLOWED_PDF_URLS) == 7
 
 
 def test_causal_figure_separates_parallel_training_from_runtime_factorial() -> None:

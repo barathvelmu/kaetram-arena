@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -101,6 +103,39 @@ def _verify_file_inventory(root: Path, index: dict) -> list[Path]:
     return paths
 
 
+def _git_blob(commit: str, relative: str) -> bytes:
+    try:
+        result = subprocess.run(
+            ["git", "show", f"{commit}:{relative}"],
+            cwd=REPO,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise exporter.ExportError(
+            f"cannot resolve frozen source blob: {relative}"
+        ) from exc
+    return result.stdout
+
+
+def _verify_frozen_analysis_source(root: Path, index: dict) -> None:
+    analysis_blob = _git_blob(
+        index["analysis_source_git_commit"],
+        "scripts/opd/trigger_incidence_probe.py",
+    )
+    if hashlib.sha256(analysis_blob).hexdigest() != index[
+        "analysis_script_sha256"
+    ]:
+        raise exporter.ExportError("analysis script differs from its frozen Git blob")
+    registration_blob = _git_blob(
+        index["experiment_source_git_commit"],
+        "research/experiments/local-trigger-incidence-v1.json",
+    )
+    if registration_blob != (root / "registration.json").read_bytes():
+        raise exporter.ExportError("registration differs from its frozen Git blob")
+
+
 def verify_bundle(
     artifact_dir: Path,
     *,
@@ -139,7 +174,28 @@ def verify_bundle(
     if actual_run_names != set(snapshots):
         raise exporter.ExportError("public run directories are not canonical")
 
-    verified = exporter._semantic_verify(artifact_dir)
+    summary = exporter.load_json(artifact_dir / "analysis" / "analysis-summary.json")
+    provenance = summary.get("analysis_code_provenance", {})
+    current_analysis_sha256 = exporter.sha256_file(
+        Path(exporter.probe.__file__).resolve()
+    )
+    historical = (
+        provenance.get("analysis_script_sha256") != current_analysis_sha256
+        or provenance.get("python_version") != sys.version.split()[0]
+        or index["export_script_sha256"]
+        != exporter.sha256_file(Path(exporter.__file__).resolve())
+        or index["verifier_script_sha256"]
+        != exporter.sha256_file(Path(__file__).resolve())
+    )
+    if historical:
+        _verify_frozen_analysis_source(artifact_dir, index)
+    verified = exporter._semantic_verify(
+        artifact_dir,
+        expected_analysis_script_sha256=(
+            index["analysis_script_sha256"] if historical else None
+        ),
+        enforce_python_version=not historical,
+    )
     summary = verified["summary"]
     expected = {
         "schema_version": exporter.EXPORT_SCHEMA,
@@ -149,10 +205,16 @@ def verify_bundle(
             "source_git_commit"
         ],
         "analysis_script_sha256": verified["analysis_script_sha256"],
-        "export_script_sha256": exporter.sha256_file(
-            Path(exporter.__file__).resolve()
+        "export_script_sha256": (
+            index["export_script_sha256"]
+            if historical
+            else exporter.sha256_file(Path(exporter.__file__).resolve())
         ),
-        "verifier_script_sha256": exporter.sha256_file(Path(__file__).resolve()),
+        "verifier_script_sha256": (
+            index["verifier_script_sha256"]
+            if historical
+            else exporter.sha256_file(Path(__file__).resolve())
+        ),
         "registration_sha256": exporter.sha256_file(
             artifact_dir / "registration.json"
         ),

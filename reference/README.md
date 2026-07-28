@@ -1,24 +1,28 @@
-# Submission artifact boundary
+# Manuscript artifact boundary
 
-The only current submission-format manuscript is:
+The current primary audit manuscript is:
 
-- source: `reference/naacl_submission.tex`
-- rendered draft: `output/pdf/kaetram-opd-naacl-working-draft.pdf`
+- source: `paper/tmlr/main.tex`
+- rendered draft: `output/pdf/kaetram-tool-routing-tmlr-draft.pdf`
+- anonymous supplement: `output/supplement/kaetram-tmlr-anonymous-supplement.zip`
 
-`reference/overview.pdf` is a historical technical report. It is not the ACL/ARR
-submission artifact and must not be uploaded to a venue. Its historical claims
-have not all survived the evidence audit.
+`reference/naacl_submission.tex` is a historical ACL-format working manuscript,
+and `reference/overview.pdf` is a historical technical report. Neither is the
+current submission artifact, and their claims have not all survived the evidence
+audit.
 
 ## Rebuild and validate
 
 From any directory, run:
 
 ```bash
-./scripts/build_submission.sh
+./scripts/build_tmlr_submission.sh
+python3 scripts/build_tmlr_supplement.py
 ```
 
-The script builds from the vendored official ACL style files, runs BibTeX and
-the required LaTeX passes, rejects undefined citations or references and
-overfull boxes, verifies A4 output, and writes the stable submission artifact
-to `output/pdf/kaetram-opd-naacl-working-draft.pdf`. Intermediate files remain
-under `tmp/pdfs/submission-build/` and are not submission artifacts.
+The paper build uses the vendored official TMLR style files, runs BibTeX and the
+required LaTeX passes, rejects undefined citations or references and overfull
+boxes, verifies US-Letter output, and writes the stable PDF. The supplement
+builder then packages that PDF with the sealed V2 evidence and standalone
+anonymous verifier. Intermediate files remain under `tmp/pdfs/` and are not
+submission artifacts.

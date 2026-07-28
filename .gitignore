@@ -71,6 +71,14 @@ kaetram-learn/
 reference/*.aux
 reference/*.log
 reference/*.out
+paper/tmlr/*.aux
+paper/tmlr/*.bbl
+paper/tmlr/*.blg
+paper/tmlr/*.fdb_latexmk
+paper/tmlr/*.fls
+paper/tmlr/*.log
+paper/tmlr/*.out
+paper/tmlr/main.pdf
 
 # Personal / non-deliverable assets
 reference/people/

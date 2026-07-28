@@ -446,7 +446,7 @@ def verify_outer_inventory(root: Path) -> dict:
     code_files = index.get("code_files")
     if not isinstance(code_files, list) or not code_files:
         raise AuditError("public manifest has no critical-code closure")
-    expected_code_files = []
+    normalized_code_files = []
     for record in code_files:
         if (
             not isinstance(record, dict)
@@ -458,14 +458,14 @@ def verify_outer_inventory(root: Path) -> dict:
         path = REPO / relative
         if path.is_symlink() or not path.is_file():
             raise AuditError(f"critical code file is missing: {relative.as_posix()}")
-        expected_code_files.append(
-            {"path": relative.as_posix(), "sha256": sha256_file(path)}
+        normalized_code_files.append(
+            {"path": relative.as_posix(), "sha256": record["sha256"]}
         )
         git_blob = _git_blob(index["verification_source_git_commit"], relative.as_posix())
         if hashlib.sha256(git_blob).hexdigest() != record["sha256"]:
             raise AuditError(f"critical code differs from verification Git blob: {relative}")
     if (
-        code_files != expected_code_files
+        code_files != normalized_code_files
         or [record["path"] for record in code_files] != list(CRITICAL_CODE_PATHS)
         or index.get("code_tree_sha256") != sha256_json(code_files)
     ):
@@ -1536,6 +1536,7 @@ def audit_artifact(
     excluded_relative = _safe_relative_path(
         registration["state_pool"]["excluded_design"]
     )
+    verification_commit = outer["verification_source_git_commit"]
     expected_outer_bindings = {
         "study_id": registration["study_id"],
         "experiment_source_git_commit": design["source_git_commit"],
@@ -1548,13 +1549,24 @@ def audit_artifact(
         ),
         "code_files": outer["code_files"],
         "code_tree_sha256": outer["code_tree_sha256"],
-        "export_script_sha256": sha256_file(
-            REPO / "scripts" / "opd" / "export_trigger_incidence_artifact_v2.py"
-        ),
-        "verifier_script_sha256": sha256_file(
-            REPO / "scripts" / "opd" / "verify_trigger_incidence_artifact_v2.py"
-        ),
-        "independent_audit_script_sha256": sha256_file(Path(__file__).resolve()),
+        "export_script_sha256": hashlib.sha256(
+            _git_blob(
+                verification_commit,
+                "scripts/opd/export_trigger_incidence_artifact_v2.py",
+            )
+        ).hexdigest(),
+        "verifier_script_sha256": hashlib.sha256(
+            _git_blob(
+                verification_commit,
+                "scripts/opd/verify_trigger_incidence_artifact_v2.py",
+            )
+        ).hexdigest(),
+        "independent_audit_script_sha256": hashlib.sha256(
+            _git_blob(
+                verification_commit,
+                "scripts/opd/audit_trigger_incidence_artifact_v2.py",
+            )
+        ).hexdigest(),
     }
     for field, value in expected_outer_bindings.items():
         if outer.get(field) != value:

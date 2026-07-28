@@ -43,17 +43,18 @@ These are fixed-panel interface contrasts, not independent checkpoint
 replications.
 
 A separately labeled post-hoc diagnostic checked whether structured envelopes
-were executable under the registered schema. Invalid/structured counts with
+were schema-valid under the frozen tool contract. Invalid/structured counts with
 native tools absent versus present were 34/65 versus 1/60 (Base), 24/73 versus
 6/61 (R2), and 18/57 versus 3/57 (R3). The registered primary outcome is
 unchanged; this diagnostic prevents the paper from equating every structured
-envelope with an executable action.
+envelope with a schema-valid candidate action, much less a successfully executed
+action.
 
 The 5 MB identity-scrubbed public bundle contains all raw rows, gates, the
 outcome-unseen design, a deterministic 1,200-row expected-request grid, runtime
 and complete-snapshot projections, analysis, and code-closure hashes. Producer
-and independent verifiers require the externally recorded artifact-index hash
-in [`../results/local-trigger-incidence-v2/artifact-trust-root.json`](../results/local-trigger-incidence-v2/artifact-trust-root.json).
+and secondary verifiers require the artifact-index hash recorded both in the
+paper and in [`../results/local-trigger-incidence-v2/artifact-trust-root.json`](../results/local-trigger-incidence-v2/artifact-trust-root.json).
 
 Machine-readable registration:
 [`local-trigger-incidence-v2.json`](local-trigger-incidence-v2.json).

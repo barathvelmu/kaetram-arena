@@ -14,6 +14,7 @@ import shutil
 import stat
 import sys
 import tempfile
+import types
 import unicodedata
 from pathlib import Path
 from typing import Any, Iterator
@@ -237,19 +238,30 @@ def _validate_health_allowlist(
 
 @contextlib.contextmanager
 def _analysis_identity(provenance: dict) -> Iterator[None]:
-    original = probe._git_identity
+    original_identity = probe._git_identity
+    original_sys = probe.sys
     identity = {
         "source_git_commit": provenance.get("source_git_commit"),
         "dirty_paths": provenance.get("dirty_paths"),
     }
     probe._git_identity = lambda: identity
+    probe.sys = types.SimpleNamespace(
+        path=original_sys.path,
+        version=str(provenance.get("python_version", original_sys.version)),
+    )
     try:
         yield
     finally:
-        probe._git_identity = original
+        probe._git_identity = original_identity
+        probe.sys = original_sys
 
 
-def _semantic_verify(staged: Path) -> dict:
+def _semantic_verify(
+    staged: Path,
+    *,
+    expected_analysis_script_sha256: str | None = None,
+    enforce_python_version: bool = True,
+) -> dict:
     registration_path = staged / "registration.json"
     design_path = staged / "design" / "design.json"
     try:
@@ -301,7 +313,10 @@ def _semantic_verify(staged: Path) -> dict:
     provenance = summary.get("analysis_code_provenance")
     if not isinstance(provenance, dict):
         raise ExportError("analysis lacks code provenance")
-    expected_script_sha256 = sha256_file(Path(probe.__file__).resolve())
+    expected_script_sha256 = (
+        expected_analysis_script_sha256
+        or sha256_file(Path(probe.__file__).resolve())
+    )
     if (
         set(provenance)
         != {
@@ -311,7 +326,17 @@ def _semantic_verify(staged: Path) -> dict:
             "python_version",
         }
         or provenance.get("analysis_script_sha256") != expected_script_sha256
-        or provenance.get("python_version") != sys.version.split()[0]
+        or (
+            enforce_python_version
+            and provenance.get("python_version") != sys.version.split()[0]
+        )
+        or (
+            not enforce_python_version
+            and re.fullmatch(
+                r"\d+\.\d+\.\d+", str(provenance.get("python_version", ""))
+            )
+            is None
+        )
         or provenance.get("dirty_paths") != []
         or re.fullmatch(
             r"[0-9a-f]{40}", str(provenance.get("source_git_commit", ""))

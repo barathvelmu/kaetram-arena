@@ -1,0 +1,692 @@
+\documentclass[10pt]{article}
+\pdftrailerid{[<04a26f53ce24fa9578c0e49d55b94632><04a26f53ce24fa9578c0e49d55b94632>]}
+\usepackage{tmlr}
+\usepackage{amsmath,amssymb,booktabs,array,multirow}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{needspace}
+\usepackage{hyperref}
+\usepackage{url}
+\hypersetup{hidelinks}
+
+\title{Recoverable but Unrouted: Auditing Tool-Call Routing in a Persistent
+Language-Model Agent\thanks{Large language models materially assisted literature
+search, code review, experimental-design critique, and manuscript drafting.
+The human authors verified the evidence, analyses, citations, and final claims
+and retain full responsibility for the work.}}
+
+% Author identities are suppressed by the review-mode TMLR style.
+\author{Anonymous authors}
+
+\def\month{MM}
+\def\year{YYYY}
+\def\openreview{\url{https://openreview.net/forum?id=XXXX}}
+
+\newcommand{\opd}{\textsc{opd}}
+\newcommand{\core}{\textsc{Core-3}}
+\newcommand{\pp}{\,pp}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+A tool-using language-model agent can generate a parser-recoverable action and still
+do nothing: the command may appear in ordinary assistant text while the
+executor reads only the structured tool-call field. We study this silent
+action-routing failure in a 2B agent controlling a persistent game through 17
+typed tools. A forensic audit first showed that historical score changes could
+not identify a training effect because model weights, visited states, rendered
+interfaces, and runtime recovery had changed together. We therefore moved from
+long-horizon scores to prospectively frozen manipulation checks. An 18-cell
+weights-by-recovery diagnostic produced no recovery-eligible output in 958
+generations, so the recovery intervention never engaged. A fixed-state V1
+study then found that presenting a registered tool schema increased recoverable
+calls stranded in text by 15--30 percentage points across three checkpoints,
+but a post-outcome audit found that its five nominal seeds were ineffective.
+We repaired the sampling path and prospectively froze V2 on 20 outcome-unseen
+states before endpoint access.
+All 1,200 requests succeeded; all 240 state--condition groups contained five
+distinct semantic responses, and 126 groups varied in the primary outcome.
+The native-schema contrast was positive at Base, round 2, and round 3
+(+23, +13, and +10 points), satisfying the registered directional criterion.
+A clearly labeled post-hoc analysis also found that schema-invalid structured
+envelopes occurred less often per request when the native schema was present.
+Because schema exposure also changed routing, this comparison is descriptive.
+The contribution is an
+artifact-centered audit of where actions are lost between model and
+environment, not a checkpoint ranking, recovery benefit, or established
+training effect.
+\end{abstract}
+
+\section{Introduction}
+
+Tool use is often reported as though it were a property of model weights. In a
+deployed agent, however, an action must survive a chain of contracts. The model
+sees a rendered description of available tools, emits both text and structured
+fields, an endpoint serializes those fields, a parser accepts or rejects them,
+and a harness may rewrite or recover content before an environment changes
+state. A valid command at one layer can be invisible at the next.
+
+This distinction matters most in long-horizon settings. If a command is silently
+dropped, the agent receives no state transition, later observations diverge,
+and an eventual task score attributes the failure to the entire policy. If
+model weights, prompts, schemas, parsers, and recovery rules also change between
+runs, the score does not reveal which component helped or failed. The resulting
+ambiguity is not fixed by collecting more turns from the same run.
+
+We encountered this problem while auditing a small language-model agent in a
+persistent MMORPG. The agent receives a procedural quest guide and acts through
+17 typed tools. Historical development records suggested that changing the
+training-state distribution improved quest progress, while later runs also
+changed the tool interface and runtime recovery. The records were rich enough
+to recover exact descriptive scores, but not to reconstruct every checkpoint,
+reset, renderer, or random seed. Rather than promote those scores into a causal
+claim, we used them to localize a testable interface mechanism.
+
+The resulting study follows a sequence that is useful beyond this game. First,
+we content-bound the historical evidence and marked which comparisons were not
+identifiable. Second, we ran a prospective recovery factorial and checked
+whether the intervention actually fired. It did not: none of 958 generations
+was eligible. Third, a registered fixed-state grid isolated two model-visible
+interface factors and exposed recoverable calls that were printed in text rather
+than delivered through the structured channel. Fourth, an audit discovered
+that nominal request seeds had not changed sampling. We repaired the seed path
+and prospectively froze an outcome-unseen replication instead of retrospectively
+upgrading the first study.
+
+Our contributions are:
+
+\begin{enumerate}
+  \item We decompose tool execution into a model-to-environment routing contract
+  and define auditable outcomes that distinguish a structured envelope, an
+  recoverable call stranded in text, a malformed surface form, and no recoverable
+  call.
+  \item We report a registered outcome-unseen finite-grid replication across
+  three fixed checkpoints. Native schema exposure increased content-only
+  recoverable-call incidence by 10--23 percentage points at every checkpoint,
+  satisfying the prospectively frozen directional criterion.
+  \item We provide a failure-aware evidence sequence: content-bound historical
+  recovery, a failed manipulation check, explicit discovery/replication
+  separation, model-level seed validation, and independently recomputable raw
+  artifacts.
+\end{enumerate}
+
+The bounded conclusion is about this action-routing contract. The three
+checkpoints form one model lineage, the states come from one historical run,
+and the renderer is fixed. We do not treat checkpoints as training replicates,
+infer a recovery benefit, or claim improved quest performance.
+
+\section{Setting and Action-Routing Contract}
+
+\subsection{Persistent tool-use setting}
+
+The environment is a permissioned fork of the open-source Kaetram MMORPG
+\citep{kaetram2026}. A Qwen/Qwen3.5-2B agent \citep{qwen35modelcards2026}
+controls a persistent player through 17 tools for observation, navigation,
+combat, gathering, dialogue, quest inspection, inventory use, and crafting.
+Game state persists across conversation rollovers. The system prompt contains
+procedural quest guidance, so the benchmark measures execution of a supplied
+plan rather than autonomous discovery of game rules.
+
+The historical development score, \core{}, counts newly reached stages in
+three quest chains, with ten stages per agent and three prompt variants for a
+maximum of 30. This score is useful for end-to-end development, much like
+persistent state metrics in $\tau$-bench \citep{yao2025taubench}, but it is too
+coarse to localize a dropped action. The registered interface studies therefore
+operate on fixed historical decision states and inspect the immediate model
+response.
+
+\subsection{How a recoverable action can disappear}
+
+Figure~\ref{fig:routing} separates the layers between a model-visible tool and
+an environment transition. The registered ``native schema'' treatment means
+that a hash-bound 17-tool schema is supplied through the model endpoint's
+native \texttt{tools} field. It is not claimed to be byte-identical to every
+historical production schema.
+
+\begin{figure}[H]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lcc}
+\toprule
+Response route & Measured routing boundary & Beyond V2 \\
+\midrule
+Structured field & schema check $\rightarrow$ candidate action &
+execution / environment \\
+Ordinary content & recovery parser $\rightarrow$ candidate action &
+execution / environment \\
+\bottomrule
+\end{tabular}
+\caption{Two response routes converge on a candidate action. V2 measures
+whether a candidate is stranded in ordinary content rather than delivered in
+the structured field; execution, environment acceptance, state change, and
+task utility are outside its primary outcome.}
+\label{fig:routing}
+\end{figure}
+
+For example, a response may contain a canonical function block naming
+\texttt{navigate} with valid JSON-like arguments, while its structured
+\texttt{tool\_calls} field is empty. The harness sees ordinary text unless an
+explicit recovery layer parses that block. We use the following taxonomy:
+
+\begin{description}
+  \item[Structured envelope.] The endpoint returns at least one call in the
+  structured field. Schema validity is a separate question.
+  \item[Content-only recoverable call.] The structured field is empty, but the
+  prospectively frozen deterministic parser recovers at least one candidate from the
+  text. This is the primary outcome, also called a recovery opportunity.
+  \item[No recoverable call.] Neither route yields a candidate.
+  \item[Malformed surface form.] A secondary detector identifies a registered
+  syntax family. This label is not synonymous with content-only: most recovered
+  V1 calls were canonical function blocks printed into the wrong channel.
+\end{description}
+
+The first three categories are mutually exclusive for the primary analysis.
+The malformed-family label is secondary. A later post-hoc analysis additionally
+checks whether structured envelopes name a registered function and satisfy its
+argument schema; it does not redefine the primary outcome.
+
+\subsection{Interface factors and fixed checkpoints}
+
+Each registered grid crosses two model-visible factors. \emph{Documentation}
+uses either historical Python-like descriptions or canonicalized prose.
+\emph{Schema exposure} omits or includes the registered 17-tool schema through
+the native field. The four conditions are therefore Python/no-schema,
+Python/schema, canonical/no-schema, and canonical/schema.
+
+We evaluate Base, OPD round 2, and OPD round 3 weight snapshots. These are fixed
+checkpoints chosen before outcome inspection, not independently trained draws.
+Every contrast is reported separately by checkpoint. A consistent direction
+across them is robustness within this lineage, not population-level evidence
+about training.
+
+\section{Evidence Protocol}
+
+Persistent agents need provenance not only for code and weights, but also for
+the state shown to the model, rendered prompt, tool schema, response channel,
+parser, and any history rewrite. We therefore grade an artifact before using it
+to support a claim. Table~\ref{tab:evidence-ladder} summarizes the resulting
+evidence ladder.
+
+\begin{table}[H]
+\caption{Evidence ladder and permitted inference. ``V1'' and ``V2'' are
+separate registered studies.}
+\label{tab:evidence-ladder}
+\centering
+\small
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.18\linewidth}
+                >{\raggedright\arraybackslash}p{0.29\linewidth}
+                >{\raggedright\arraybackslash}p{0.43\linewidth}}
+\toprule
+Evidence & Audit status & Permitted inference \\
+\midrule
+Historical OPD runs & Scores replayed; launch identities incomplete &
+Descriptive case and hypothesis generation only \\
+30-minute recovery grid & 18/18 cells; 958 raw generations &
+Manipulation failed because no output was eligible \\
+V1 interface grid & 1,200/1,200; complete public rows &
+Fixed-panel discovery; nominal seeds ineffective \\
+V1 seed audit & Semantic duplicates recomputed post hoc &
+Collapse to 20 outputs per cell; no sampling claim \\
+V2 interface grid & 1,200/1,200; outcome-unseen panel; effective gates &
+Registered finite-grid directional replication \\
+Structured validity & Recomputed after V2 outcomes &
+Post-hoc routing diagnostic, not a new primary outcome \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For the historical long-horizon runs, a fresh training seed would be the unit
+for a training-method claim, with evaluation worlds nested within it. Prompt
+variants sharing weights and a launch are not independent policies. For the
+interface studies, the estimand is explicitly the registered finite grid of
+state--seed pairs. States from one historical run may be temporally dependent,
+so we report exact paired finite-grid contrasts rather than p-values or
+population confidence intervals.
+
+Here, ``registered'' means prospectively frozen in a clean commit before the
+selected states were sent to an endpoint. The design was not deposited in an
+external public registry; the claim is about prospective outcome separation,
+not public timestamping.
+
+The V2 release contains the registration, selected rendered states, endpoint
+attestations, seed gates, all 1,200 raw rows, sealed analysis, code-closure
+hashes, and content indexes. A producer verifier replays the analysis; a
+secondary verifier reimplements the primary binary parser-recoverability label
+and recomputes cells, contrasts, seed heterogeneity, and the directional
+verdict. Exact recovered-call detail additionally uses the shared frozen
+canonicalization code. The artifact-index digest printed in this PDF binds the
+paper to the exact supplementary bundle. These checks establish artifact
+integrity and deterministic
+recomputation, not generalization.
+
+\section{Historical Case: Why Scores Did Not Identify the Lever}
+
+The historical sequence motivated the audit but is not its causal result. A
+natural-visitation OPD round changed aggregate tool-use behavior while remaining
+at 12/30. A later round mixed natural trajectories with rollouts begun from a
+loadable, walkability-checked intermediate player state and was followed by a
+15/30 canonical-start run. Every prompt variant crossed one previously blocked
+quest stage. The round also changed initialization and data, and its reset and
+gameplay seed were not preserved. The defensible observation is therefore that
+a state-augmented training round was followed by wall passage in one run, not
+that state restoration caused it.
+
+A later development campaign supplied nine mechanism arms. Content-bound replay
+recovers the reported six-hour totals 12, 18, 12, 15, 13, 14, 12, 17, and 14.
+Four historically intended corpus/init-matched comparisons replace
+teacher-derived token advantages with a positive constant; the constant-weight
+arm matches or exceeds the graded arm in three of four cells. A repaired-render
+graded sensitivity reverses one direction. Each cell is one historical training
+run, and the launch-time corpus, checkpoint, render, reset, and random-seed
+identities were not all sealed. These observations motivate a corpus and
+interface hypothesis but cannot estimate a grading or state-visitation effect.
+
+The recovery affordance was also historically confounded with weights. A June
+round-3 run used recovery and scored 18/30; a recovered run labeled with
+round-3 weights and recovery disabled also replays to 18/30. Missing launch
+parity prevents a weights-only interpretation. Historical notes report recovery
+markers in rewritten sessions, but raw pre-rewrite emissions were unavailable,
+so those markers cannot measure the natural trigger rate.
+
+One separate evaluation lane was found to reset a different database from the
+one used by its game servers and was quarantined. The headline runs came from a
+different database-aligned orchestrator, and their recovered first observations
+match the canonical player start. Their exact historical reset command and game
+revision remain unattested. This distinction matters: finding one concrete
+infrastructure defect does not justify invalidating unrelated runs, but neither
+does it repair their missing provenance.
+
+\section{Prospectively Frozen Interface Studies}
+
+\subsection{The recovery factorial failed its manipulation check}
+
+We first prospectively froze 18 local cells crossing three fixed checkpoints,
+recovery off/on, and three paired 30-minute seed blocks. All cells completed and
+1,266 retained files rehashed. Across 958 raw generations, 294 contained a
+canonical structured call and 664 contained none. No generation matched the
+registered recovery eligibility rule, and no call was recovered. The recovery
+switch therefore never applied its intervention. Quest-stage differences among
+cells cannot be called recovery effects.
+
+This null trigger count changed the next question. Instead of extending a
+factorial whose treatment did not engage, we asked which model-visible
+interfaces naturally produce content that the recovery layer could act on.
+
+\subsection{V1 discovery and the ineffective-seed audit}
+
+V1 crossed the three checkpoints, four interfaces, 20 historical decision
+states, and five nominal request seeds. All 1,200 requests completed. After
+outcomes, an independent diversity audit found one semantic response in every
+five-seed state--condition group: the serving thread accepted the request seed
+but did not change its sampling stream. We therefore collapse V1 to one output
+per state--condition group, or 20 outputs per cell. No stochastic-sampling
+uncertainty is claimed.
+
+On that collapsed discovery panel, native schema exposure increased
+content-only recoverable-call incidence by 30, 22.5, and 15 percentage points
+for Base, round 2, and round 3. Documentation effects were mixed. These values
+motivated a directional replication criterion, but the ineffective seeds and
+outcome-seen state panel prevent V1 from serving as that replication.
+
+\subsection{V2 prospectively frozen outcome-unseen replication}
+
+V2 was frozen before any selected state was sent to an endpoint. It selected 20
+different source logs from the same historical Base run, explicitly excluding
+all V1 source paths. Selection used registered path, metadata, and parseability
+rules rather than interface outcomes. The design remained
+$3\times4\times20\times5=1{,}200$ requests.
+
+Before a checkpoint could create an outcome directory, an unrelated
+plain-English seed gate required five seeds to produce at least three semantic
+responses, while an exact repeat of the third seed had to reproduce exactly.
+Base, round 2, and round 3 all passed. The registered directional criterion was
+strict: the native-schema contrast had to be positive at all three checkpoints
+on the complete grid. Documentation and interaction contrasts had no directional
+success rule. Failures would remain in the artifact, and no verdict would be
+emitted unless every scheduled request succeeded.
+
+The primary contrast averages schema-present minus schema-absent incidence over
+the two documentation conditions within each checkpoint. Documentation and
+interaction contrasts are computed analogously. We also report, for each
+paired state, whether the effect is positive, negative, or zero, plus semantic
+and primary-outcome heterogeneity across the five seeds.
+
+\subsection{V2 results}
+
+All 1,200 requests succeeded. Every one of the 240
+checkpoint--condition--state groups contained five distinct semantic responses,
+showing that the repaired seed path changed generation on the study prompts as
+well as on the gate. The primary recovery-opportunity label varied across seeds
+in 126 of 240 groups. V2 therefore supplies non-identical within-state
+responses rather than deterministic replay; it does not make them independent
+draws from a deployment population.
+
+% The generated result uses table* for compatibility with the ACL working
+% draft. TMLR is single-column, so keep the unchanged generated table at this
+% exact narrative location rather than allowing it to float ahead of Methods.
+\begingroup
+\renewenvironment{table*}[1][]{\begin{table}[H]}{\end{table}}
+\input{../../research/results/local-trigger-incidence-v2/paper-table-public.tex}
+\endgroup
+
+Native schema exposure increased the registered primary outcome by 23 points at
+Base, 13 at round 2, and 10 at round 3. All three effects were strictly
+positive, so the prospectively frozen directional criterion passed. The magnitudes are
+smaller than V1's 30, 22.5, and 15 points, which is expected to matter when
+interpreting the discovery study. Canonicalized documentation had small mixed
+effects ($-3$, $+1$, and $-5$ points); the interactions were $+2$, $+4$, and
+$0$ points. We do not pool checkpoints or attach population uncertainty to the
+twenty states.
+
+\subsection{Post-hoc schema validity of structured envelopes}
+
+The prospectively frozen primary outcome asks whether a recoverable candidate was
+stranded in text; it treats any nonempty structured field as ``structured.''
+After V2, we asked a different question: do structured envelopes name a
+registered tool and satisfy its argument schema? Table~\ref{tab:validity}
+reports this explicitly post-hoc analysis. Counts pool the two documentation
+conditions within a checkpoint and show invalid structured envelopes per 200
+requests, without conditioning on whether a structured envelope was emitted.
+
+\begin{table}[H]
+\caption{Post-hoc counts of schema-invalid structured envelopes per 200
+requests. This descriptive analysis does not redefine the registered primary
+outcome.}
+\label{tab:validity}
+\centering
+\small
+\begin{tabular}{lrr}
+\toprule
+Weights & Schema absent & Schema present \\
+\midrule
+Base & 34 & 1 \\
+Round 2 & 24 & 6 \\
+Round 3 & 18 & 3 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In this post-hoc descriptive analysis, schema-invalid structured envelopes
+occurred less often per 200 requests when the native schema was present, even
+while recoverable calls stranded in text became more common. Because schema
+exposure also changed whether responses reached the structured channel,
+comparisons conditional on producing a structured envelope are
+selection-sensitive and are not interpreted causally. The registered study does
+not determine whether recovering and executing stranded calls improves
+environment state, nor does the post-hoc table define a net-utility metric.
+
+\section{What the Audit Establishes}
+
+\paragraph{A manipulation check precedes an effect estimate.}
+The recovery factorial completed cleanly, but completion was not evidence that
+recovery had been tested. Because eligibility was zero, the treatment contrast
+was undefined in practice. Trigger incidence had to be measured first.
+
+\paragraph{Model-visible tools and executor-visible calls are different.}
+Providing a schema changes the distribution over both output content and the
+structured channel. A schema-parity test that only hashes the tool list does not
+establish parser alignment; raw response fields and parser outcomes must also be
+retained.
+
+\paragraph{A structured envelope is not automatically executable.}
+The post-hoc audit found unknown functions, unknown or missing arguments, and
+wrong argument types. Evaluations should report schema validity after channel
+routing rather than equating a nonempty envelope with a valid action.
+
+\paragraph{Request parameters are not effective randomization by inspection.}
+V1 stored five distinct seed values, yet they produced identical semantic
+outputs. V2 required model-level diversity plus exact repeatability before
+outcome collection and audited heterogeneity after completion.
+
+\paragraph{Artifact integrity does not create experimental independence.}
+Cryptographic manifests establish which bytes were analyzed. They do not turn
+three related checkpoints into training replicates or twenty temporally related
+states into an independent population sample. The statistical claim must remain
+conditional on the registered finite grid.
+
+Together, these lessons suggest a reusable audit order for tool agents: bind the
+interface, retain raw channels, verify the treatment fires, test the effective
+randomization path, classify calls at each routing stage, and only then measure
+downstream task effects.
+
+\section{Related Work}
+
+Function-calling benchmarks increasingly distinguish structured-call validity
+from broader agent behavior. BFCL evaluates function selection and formatting,
+including stateful and multi-step settings \citep{patil2025bfcl}. ToolPRM
+studies fine-grained structured generation and the cost of early JSON errors
+\citep{lin2026toolprm}; GraphQLRestBench makes response schemas visible for
+sequential API calls \citep{saha2024graphql}. Meanwhile, $\tau$-bench
+emphasizes persistent end states and repeated-trial reliability
+\citep{yao2025taubench}. BALROG and Orak extend game-agent evaluation across
+multiple environments and interfaces \citep{paglieri2025balrog,park2025orak}.
+Our study is narrower: it traces one action through a renderer, response
+channel, schema checker, parser, and recovery layer. It does not propose MCP or
+typed tools as novel infrastructure.
+
+Recovery can also be learned or implemented at different layers.
+Fission-GRPO learns from execution errors \citep{zhang2026fission}; our recovery
+switch is a runtime rewrite for a fixed checkpoint and cannot be described as
+learned self-correction. The distinction mirrors the central theme of this
+paper: weights, rendered affordances, parser behavior, and harness intervention
+are separate treatments.
+
+The historical motivation comes from on-policy distillation. GKD trains on
+student-generated sequences \citep{agarwal2024gkd}, and later work changes
+state occupancy through teacher-success prefixes, mixed teacher/student turns,
+prefix replay, or first-error curricula
+\citep{wang2026tcod,li2026guidedopd,liao2026reopd,lyu2025score}. DAgger gives
+the complementary imitation-learning lesson that training data must cover
+learner-induced states \citep{ross2011dagger}; Backplay and Go-Explore use
+intermediate resets to expose sparse reward
+\citep{resnick2018backplay,ecoffet2021goexplore}. These works preempt a broad
+novelty claim for intermediate starts. Our historical state-restoration
+hypothesis remains prospective and is included in Appendix~\ref{app:opd} only
+to document what the routing audit does and does not establish.
+
+Finally, reproducibility checklists provide a general baseline
+\citep{pineau2021reproducibility}. Persistent tool agents add bindings among
+world state, visible history, render contract, response channels, parser, and
+history rewrites. The evidence ladder here operationalizes those additional
+bindings for one case.
+
+\section{Limitations}
+
+V2 is a registered finite-grid study, not an independent population sample.
+Its twenty outcome-unseen states were selected from different source logs than
+V1 but from the same historical Base run, and temporal dependence may remain.
+The three checkpoints are related members of one model lineage and are not
+training replicates. All requests use one model family, one registered
+17-tool schema, one renderer, and one deterministic recovery parser. A second
+model family, renderer, parser, state pool, and environment are needed before a
+broad interface claim.
+
+The primary outcome stops at parser recoverability. It does not show that a
+recovered call is safe, semantically appropriate, accepted by the game server,
+or beneficial for quest progress. Conversely, a no-call response can be
+appropriate when deliberation is useful. A controlled execution study should
+separately measure parser acceptance, environment acceptance, immediate state
+change, and downstream utility.
+
+V1's five nominal seeds were ineffective and were collapsed after a
+post-outcome audit. V2 repairs this specific failure: all 240 groups have five
+unique semantic responses, and 126 vary in the primary label. That does not
+make the five samples independent draws from a stable deployment distribution,
+and no p-values or confidence intervals are reported.
+
+The structured-call validity analysis was conceived after V2 outcomes. It is
+reported because it prevents the misleading equation of ``structured'' with
+``executable,'' but its unconditional counts are exploratory. Schema exposure
+also affects channel selection, so validity conditional on entering the
+structured channel is selection-sensitive and receives no causal
+interpretation. The analysis does not change the registered primary outcome or
+directional verdict.
+
+Historical long-horizon scores remain descriptive. Some raw transcripts are
+private, launch-time checkpoint/render/reset identities are incomplete, and one
+separate database-misaligned lane was quarantined. The public historical score
+projection permits exact score replay but not independent repetition of the
+private raw-to-projection extraction. The prompt also contains procedural quest
+knowledge, so the game benchmark measures plan execution rather than autonomous
+world-model acquisition.
+
+\paragraph{Broader impact.}
+The experiments run in an isolated game environment and use no human-user data.
+The main risk is interpretive: a routing diagnostic can be mistaken for evidence
+of agent competence, safety, or downstream utility. We therefore release raw
+channels and stage-specific outcomes and explicitly stop the primary claim
+before execution or environment change.
+
+\section{Conclusion}
+
+An agent can generate a parser-recoverable action that never becomes an environment
+action. In our fixed-state study, native schema exposure consistently increased
+such content-only calls across three fixed checkpoints: +23, +13, and +10
+percentage points on a prospectively frozen outcome-unseen panel. All 1,200 requests
+succeeded, effective seed diversity was verified, and the all-checkpoint
+direction criterion passed. In a post-hoc descriptive audit, schema-invalid
+structured envelopes also occurred less often per request when the native schema
+was present; because routing changed too, this is not a conditional causal
+validity effect.
+
+These findings do not rank checkpoints or establish a recovery or training
+benefit. They show why tool-agent evaluation must treat weights, rendered
+interface, response channel, parser, and runtime repair as distinct components.
+The broader methodological lesson is simple: before attributing a long-horizon
+score to a model, verify that the intended action could travel through the
+entire system.
+
+\bibliography{references}
+\bibliographystyle{tmlr}
+
+\appendix
+
+\section{Prospective State-Visitation Hypothesis}
+\label{app:opd}
+
+The historical case began with a state-visitation hypothesis for on-policy
+distillation. Let $x$ be persistent player state, $h$ the model-visible history,
+and $d^{\pi}_{\mu,q}(x,h)$ the joint occupancy induced by policy
+$\pi(a\mid h)$ from player-state initializer $\mu$ and history constructor
+$q(h\mid x)$. A reverse-KL on-policy objective is
+\begin{equation}
+\mathcal{L}_{\mathrm{OPD}}
+=\mathbb{E}_{(x,h)\sim d^{\pi_S}_{\mu,q}}
+  \mathbb{E}_{a\sim\pi_S(\cdot\mid h)}
+  \left[\log\pi_S(a\mid h)-\log\pi_T(a\mid h)\right].
+\end{equation}
+If teacher advantage is concentrated on states with negligible student
+occupancy, natural student rollouts provide little supervision there.
+
+The prospective intervention restores witness-certified persistent player
+states selected by a frozen visitation, teacher-advantage, recoverability, and
+task-relevance rule. The implementation restores player state, not the complete
+shared world. Because a database snapshot is not the policy state, the planned
+study crosses each restored $x$ with minimal canonical, authentic-prefix, and
+matched reconstructed histories. It compares natural OPD, targeted states,
+random-valid and progress-matched resets, teacher-success prefixes, and
+turn-level guidance under matched budgets and independent training seeds.
+
+No verified trained-arm outcome exists. This protocol is a hypothesis generated
+by the historical audit, not a contribution established by the V1 or V2
+interface studies.
+
+\section{Historical Training Details}
+
+The following settings are reconstructed from implementation and development
+notes rather than a complete launch-time receipt. A scaffolded
+Qwen/Qwen3.5-4B teacher scored tokens emitted by a 2B student. Training used a
+clipped importance-weighted update, one epoch, learning rate
+$5\times10^{-5}$, effective batch size 32, and LoRA initialized over the prior
+merged checkpoint. Action positions received the language-model loss.
+
+Round 1 contains 5,564 training and 574 held-out records from natural Base
+rollouts. Round 2 combines 5,523 natural round-1 records with 2,326 records
+collected after loading a player at an accepted Herbalist quest, Foraging level
+5, starter inventory, and a walkability-checked tile near the target resource.
+Evaluation did not intentionally load that state. The historical split held out
+every tenth session in deterministic file order and lacks the stronger
+run-stratified, duplicate-aware provenance required for a new causal study.
+
+\Needspace{0.52\textheight}
+\section{Claim-to-Evidence Boundary}
+
+\begin{table}[H]
+\caption{Claims supported by the current evidence.}
+\centering
+\small
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.28\linewidth}
+                >{\raggedright\arraybackslash}p{0.62\linewidth}}
+\toprule
+Claim & Boundary \\
+\midrule
+Historical score replay & Nine July scores are content-bound descriptive
+observations; treatment identities and effects are not established. \\
+Recovery factorial & The registered cells completed, but recovery never
+engaged; no recovery effect is identified. \\
+V1 trigger incidence & Native schema exposure had a positive contrast on the
+V1 fixed panel; nominal seeds were ineffective and duplicates are collapsed. \\
+V2 directional replication & On the complete outcome-unseen grid, native
+schema effects were +23, +13, and +10 points and the registered criterion
+passed. This is conditional on the fixed checkpoints, renderer, and panel. \\
+Structured validity & Invalid structured envelopes occurred less often per 200
+requests with native schema in a post-hoc descriptive analysis. Conditional
+validity fractions are selection-sensitive; this is not the registered primary. \\
+Quest performance & No V1/V2 result establishes downstream state change or
+quest improvement. \\
+Training superiority & Unsupported; checkpoints are fixed lineage members, not
+independent training replicates. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Reproducibility Contract}
+
+The public V2 artifact contains portable paths and no endpoint credentials or
+author identities. Verification requires the expected artifact-index digest and
+checks the registration, design receipt, snapshot lock, endpoint attestations,
+seed gates, run envelopes, raw JSONL rows, exact generated CSVs, source-code
+closure, and analysis. The secondary verifier uses strict JSON parsing,
+reimplements the primary binary parser-recoverability label, recomputes paired
+contrasts, checks the complete expected path set, and reproduces the directional
+and heterogeneity verdicts without calling the producer analyzer. Exact
+recovered-call details also use the shared frozen canonicalization code.
+
+The reviewed PDF records the expected artifact-index digest
+\texttt{04a26f53ce24fa9578c0e49d55b94632}\allowbreak
+\texttt{1347f9de2a1dd81e0739822d57978562}
+to bind the manuscript to the exact supplementary artifact. The verified
+artifact tree is
+\texttt{fede8cb870fe8790c5252fd8594f54cdc}\allowbreak
+\texttt{0505a81ce801f9baed0d036246ecdba}.
+The anonymous supplement omits the searchable Git revision and the
+identity-bearing full model lock; those provenance tiers are verified after
+deanonymization. Internal self-hashes alone are not presented as prior public
+timestamping.
+
+Historical evidence has a lower grade. Immutable inventories bind recovered
+directories and a reviewer-facing projection regenerates the nine July scores,
+but complete transcripts, historical launch receipts, and some executed inputs
+are not public. Prospective protections do not retroactively upgrade those
+runs.
+
+\section{Next Mechanism Tests}
+
+The most direct next experiment is an intervention on the routing contract:
+repair the renderer or endpoint parser, rerun the identical registered state
+panel, and test whether content-only recoverable calls move into a schema-valid
+structured channel. A controlled local executor should then report four
+separate stages: parser acceptance, environment acceptance, immediate state
+change, and downstream task utility. Replication on an independent state pool,
+renderer, and open model family is required for a general tool-routing claim.
+
+For the separate training hypothesis, fresh students must begin from the same
+checkpoint and cross state source with matched histories, strong reset/prefix
+baselines, independent training seeds, and nested canonical-start evaluation
+worlds. Results from that study should not be pooled with the fixed-checkpoint
+interface grid.
+
+\end{document}

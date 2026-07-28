@@ -261,6 +261,7 @@ def _fixture(tmp_path: Path, monkeypatch) -> dict:
     _write_json(registration_path, registration)
     lock = {
         "schema_version": "kaetram-hf-snapshot-lock-v1",
+        "source": "https://huggingface.co",
         "snapshots": {
             snapshot: {
                 "repo_id": f"private-owner/{snapshot}",

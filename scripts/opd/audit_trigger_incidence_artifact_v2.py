@@ -310,8 +310,11 @@ def _verify_snapshot_lock(
     if not isinstance(source, dict) or set(source) != {
         "schema_version",
         "snapshots",
+        "source",
         "lock_sha256",
-    } or source.get("schema_version") != "kaetram-hf-snapshot-lock-v1":
+    } or source.get("schema_version") != "kaetram-hf-snapshot-lock-v1" or source.get(
+        "source"
+    ) != "https://huggingface.co":
         raise AuditError("source snapshot lock schema is invalid")
     unsigned = dict(source)
     embedded = unsigned.pop("lock_sha256")

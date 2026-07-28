@@ -113,7 +113,7 @@ result must preserve and cross them rather than roll them into one headline.
 
 \subsection{Persistent tool-use benchmark}
 
-The environment is a pinned fork of Kaetram, an open-source tile-based MMORPG
+The environment is a pinned, permissioned fork of the Kaetram MMORPG
 \citep{kaetram2026}, backed by a game server and MongoDB. Each policy controls
 three agents with different priority
 prompts (grinder, completionist, and explorer) through 17 typed tools. Tools
@@ -125,7 +125,9 @@ world-model discovery.
 The primary development metric, \core{}, counts newly reached stages in three
 quest chains: Foresting (3 stages), Herbalist's Desperation (3), and Rick's Roll
 (4). Each agent can gain at most ten stages; a three-agent run therefore scores
-in $[0,30]$. Historical notes describe runs as beginning from a freshly
+in $[0,30]$. Like $\tau$-bench, scoring emphasizes the persistent end state and
+repeated-trial reliability rather than textual plausibility alone
+\citep{yao2025taubench}. Historical notes describe runs as beginning from a freshly
 initialized player state in a restarted server, but no fail-closed reset receipt
 or complete shared-world hash survives. Runs continue for six hours while
 conversation sessions roll over under a fixed context budget and game state
@@ -191,11 +193,12 @@ or an invariant certificate executed by a pinned checker that establishes a vali
 path to the snapshot. Hash continuity or certificate-shaped metadata alone is not
 sufficient. Evaluation always starts from the canonical initial player state;
 prospective runs nevertheless record distinct gameplay-RNG seeds. This resembles reset-based curricula in reinforcement learning
-\citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. TCOD
+\citep{salimans2018montezuma,resnick2018backplay,ecoffet2021goexplore}. TCOD-B2F
 uses teacher-success prefixes to initialize multi-turn OPD curricula
 \citep{wang2026tcod}; Guided-OPD mixes teacher and student turns and anneals
-guidance to zero \citep{li2026guidedopd}; ReOPD treats prefix selection as a
-teacher-reliability problem \citep{liao2026reopd}. These works preempt generic
+guidance to zero \citep{li2026guidedopd}; ReOPD replays pre-collected teacher
+prefixes with a reliability-motivated step-decaying schedule
+\citep{liao2026reopd}. These works preempt generic
 novelty for intermediate starts or state-distribution design. Our narrower
 object is a direct, prefix-independent player-state initializer. A candidate
 state need not lie on a successful teacher trajectory and is selected by a
@@ -262,6 +265,11 @@ Validity/reachability & -- & pinned check \\
 
 \section{Evidence Protocol}
 
+Standard reproducibility checklists establish an important baseline
+\citep{pineau2021reproducibility}; persistent agents additionally require
+bindings among database state, visible history, runtime interface, and model
+identity.
+
 We grade evidence before interpreting it. For a fixed checkpoint, a fresh-world
 evaluation run is the independent unit; agents within it share the policy,
 launch, infrastructure, and analysis pipeline. For a training-method claim, the
@@ -306,8 +314,8 @@ Policy & Training states & Recovery & \core{} & Wall & Interpretation \\
 Base 2B & -- & off & 12 & 0/3 & Reference run \\
 OPD round 1 & natural & off & 12 & 0/3 & Behavior changed; score did not \\
 OPD round 2 & natural + seeded & off & 15 & 3/3 & Reported recovery-off observation \\
-Round-2 weights & -- & on & 17 & -- & Unmatched recovery-on observation \\
-Round-3 weights & broader seeded & on & 18 & -- & Weights plus interface; not pure weights \\
+Round-2 weights & -- & on & 17 & 3/3 & Unmatched recovery-on observation \\
+Round-3 weights & broader seeded & on & 18 & 3/3 & Weights plus interface; not pure weights \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -324,8 +332,8 @@ natural-visitation round}
 
 Round 1 leaves \core{} unchanged at 12/30 and every agent reaches the same 4/10
 stage profile as base. Nevertheless, turns per session and several aggregate
-tool shares move toward the 4B teacher: turns/session are
-9.1/6.1/6.1 for base/round~1/teacher, observe shares are
+tool shares move toward the 4B teacher: assistant turns/session are
+9.0/6.1/6.1 for base/round~1/teacher, observe shares are
 26.6/35.5/36.1\%, and navigate shares are 14.3/9.4/9.1\%. Query-quest share
 instead overshoots (5.3/18.0/8.7\%). These one-run diagnostics are consistent
 with behavioral imitation on frequently visited states, but they lack
@@ -480,11 +488,15 @@ the native schema changes their incidence by $+30$, $+22.5$, and $+15$
 percentage points for Base, round 2, and round 3. The corresponding counts of
 states with positive/negative/zero paired effects are 9/0/11, 8/0/12, and
 5/1/14. Canonicalizing the prose documentation has mixed effects: 0, $-7.5$,
-and $+10$ points. Only one of 240 distinct outputs matches the registered
-malformed-syntax detector; the others contain an executable canonical function
-block in text but no structured tool call. Thus model-visible schema exposure
+and $+10$ points. Of 93 distinct recovery-opportunity outputs, one matches the
+registered malformed-syntax detector; the other 92 contain an executable
+canonical function block in text but no structured tool call. The remaining
+147 outputs comprise 108 no-call and 39 structured-call outputs. Thus
+model-visible schema exposure
 does not guarantee parser alignment and can increase dropped, recoverable
-actions under this renderer. This is a fixed-grid interface result, not a
+actions under this renderer. This separation of structured, invalid, and
+stateful multi-step behavior follows the broader function-calling evaluation
+problem highlighted by BFCL \citep{patil2025bfcl}. This is a fixed-grid interface result, not a
 recovery benefit or checkpoint ranking.
 
 \section{Confirmatory Study Design}
@@ -508,7 +520,7 @@ two-level power analysis rather than justified by the current launcher example.
 
 \paragraph{What is compared.}
 The primary arms are natural OPD, the targeted-state selector, random valid
-resets, progress-matched resets, TCOD teacher-success prefixes, Guided-OPD, and
+resets, progress-matched resets, TCOD-B2F teacher-success prefixes, Guided-OPD, and
 TRB. Visitation-only and teacher-advantage-only selectors diagnose which part of
 the rule matters. Corrected-interface SFT and SCoRe-style first-error prefixes
 provide supervision baselines \citep{lyu2025score}. The targeted method fails
@@ -552,11 +564,15 @@ reasoning and action spans receive supervision \citep{liu2026sad}, while OPCD
 and on-policy expert corrections change the feedback or actor within a student
 trajectory \citep{ye2026opcd,lauffer2025oec}. Our proposed intervention instead
 changes where a student rollout begins while keeping the distillation loss
-fixed.
+fixed. \citet{nie2026states} more broadly frames SFT, RL, and OPD as
+state-distribution shaping; our narrower contribution audits visitation in a
+persistent player state and separates restored environment state from visible
+history.
 
-The closest work also changes the training-state distribution. TCOD starts from
-teacher-success prefixes; Guided-OPD mixes teacher and student turns; ReOPD
-selects reliable prefixes; TRB anneals a teacher-near rollout policy; and SCoRe
+The closest work also changes the training-state distribution. TCOD-B2F starts
+from teacher-success prefixes; Guided-OPD mixes teacher and student turns; ReOPD
+replays pre-collected teacher prefixes with a reliability-motivated step-decaying
+schedule; TRB anneals a teacher-near rollout policy; and SCoRe
 trains from the first student error
 \citep{wang2026tcod,li2026guidedopd,liao2026reopd,plyusov2026trb,lyu2025score}.
 These methods rule out a broad novelty claim for intermediate starts. The
@@ -587,8 +603,9 @@ therefore motivate a corpus-quality question rather than instantiate either
 method.
 
 BALROG and Orak evaluate game agents broadly across environments and interfaces
-\citep{paglieri2025balrog,park2025orak}; GITM, Voyager, and AgentTrek study
-planning, skills, curricula, or guided replay in open worlds
+\citep{paglieri2025balrog,park2025orak}. GITM and Voyager study planning,
+curricula, and reusable skills in open-world Minecraft, while AgentTrek
+synthesizes GUI-agent trajectories through tutorial-guided replay
 \citep{zhu2023gitm,wang2023voyager,zheng2025agenttrek}. Our evidence is deeper
 but much narrower: one persistent game, one model family, and supplied quest
 guidance. The game and MCP-style tool interface are infrastructure, not novelty.

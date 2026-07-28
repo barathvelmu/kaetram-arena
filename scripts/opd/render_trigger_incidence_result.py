@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Render deterministic paper tables from a trigger-incidence analysis."""
+
 from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -96,9 +98,8 @@ def _cell_text(
         count = collapsed.get("recovery_opportunity_states")
         successful = collapsed.get("state_outputs")
         rate = collapsed.get("opportunity_rate")
-        if (
-            collapsed.get("outcome_stable_states") != successful
-            or rate != cell.get("opportunity_rate")
+        if collapsed.get("outcome_stable_states") != successful or rate != cell.get(
+            "opportunity_rate"
         ):
             raise RenderError("collapsed state cell differs from registered rate")
     if (
@@ -109,6 +110,7 @@ def _cell_text(
         or successful <= 0
         or not isinstance(rate, (int, float))
         or isinstance(rate, bool)
+        or not math.isfinite(rate)
         or count < 0
         or count > successful
         or abs(rate - count / successful) > 1e-12
@@ -126,6 +128,7 @@ def _effect_text(contrast: dict[str, Any]) -> str:
     if (
         not isinstance(effect, (int, float))
         or isinstance(effect, bool)
+        or not math.isfinite(effect)
         or not all(
             isinstance(value, int) and not isinstance(value, bool) and value >= 0
             for value in (positive, negative, zero, state_count)
@@ -134,6 +137,56 @@ def _effect_text(contrast: dict[str, Any]) -> str:
     ):
         raise RenderError("invalid trigger-incidence contrast")
     return f"{100 * effect:+.1f} pp ({positive}/{negative}/{zero})"
+
+
+def _v2_annotations(
+    summary: dict[str, Any],
+    snapshots: list[str],
+    contrasts: dict[tuple[Any, ...], dict[str, Any]],
+) -> dict[str, Any] | None:
+    heterogeneity = summary.get("registered_seed_heterogeneity")
+    directional = summary.get("directional_replication")
+    if heterogeneity is None and directional is None:
+        return None
+    if not isinstance(heterogeneity, dict) or not isinstance(directional, dict):
+        raise RenderError("seeded replication annotations are incomplete")
+    expected_groups = len(snapshots) * len(CONDITION_COLUMNS) * 20
+    semantic_groups = heterogeneity.get("groups_with_multiple_semantic_responses")
+    outcome_groups = heterogeneity.get("groups_with_primary_outcome_heterogeneity")
+    minimum_unique = heterogeneity.get("minimum_unique_semantic_responses_per_group")
+    maximum_unique = heterogeneity.get("maximum_unique_semantic_responses_per_group")
+    effects = directional.get("native_tools_effects")
+    expected_effects = {
+        snapshot: contrasts[(snapshot, "native_tools_main")]["effect_rate_difference"]
+        for snapshot in snapshots
+    }
+    counts = (semantic_groups, outcome_groups, minimum_unique, maximum_unique)
+    if (
+        heterogeneity.get("status") != "complete"
+        or heterogeneity.get("state_condition_groups") != expected_groups
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool) for value in counts
+        )
+        or not (0 <= semantic_groups <= expected_groups)
+        or not (0 <= outcome_groups <= expected_groups)
+        or not (1 <= minimum_unique <= maximum_unique <= 5)
+        or directional.get("status") != "evaluated"
+        or not isinstance(directional.get("criterion"), str)
+        or not directional["criterion"]
+        or not isinstance(directional.get("passed"), bool)
+        or effects != expected_effects
+        or directional["passed"]
+        != all(expected_effects[snapshot] > 0 for snapshot in snapshots)
+    ):
+        raise RenderError("seeded replication annotations are invalid")
+    return {
+        "groups": expected_groups,
+        "semantic_groups": semantic_groups,
+        "outcome_groups": outcome_groups,
+        "minimum_unique": minimum_unique,
+        "maximum_unique": maximum_unique,
+        "passed": directional["passed"],
+    }
 
 
 def render_tables(
@@ -167,6 +220,58 @@ def render_tables(
         raise RenderError("cell identities do not match the registered grid")
     if set(contrasts) != expected_contrast_keys:
         raise RenderError("contrast identities do not match the registered grid")
+    v2 = _v2_annotations(summary, snapshots, contrasts)
+
+    for cell in cells.values():
+        _cell_text(cell)
+        if cell.get("successful_requests") != 100:
+            raise RenderError("analysis cell request count is not registered")
+
+    for snapshot in snapshots:
+        rates = {
+            condition_id: cells[(snapshot, condition_id)].get("opportunity_rate")
+            for condition_id, _label in CONDITION_COLUMNS
+        }
+        if not all(
+            isinstance(rate, (int, float))
+            and not isinstance(rate, bool)
+            and math.isfinite(rate)
+            for rate in rates.values()
+        ):
+            raise RenderError("invalid trigger-incidence cell")
+        expected_effects = {
+            "native_tools_main": (
+                rates["python-docs_native-tools"]
+                + rates["canonical-docs_native-tools"]
+                - rates["python-docs_no-tools"]
+                - rates["canonical-docs_no-tools"]
+            )
+            / 2,
+            "canonical_docs_main": (
+                rates["canonical-docs_no-tools"]
+                + rates["canonical-docs_native-tools"]
+                - rates["python-docs_no-tools"]
+                - rates["python-docs_native-tools"]
+            )
+            / 2,
+            "interaction": (
+                rates["canonical-docs_native-tools"]
+                - rates["canonical-docs_no-tools"]
+                - rates["python-docs_native-tools"]
+                + rates["python-docs_no-tools"]
+            ),
+        }
+        for contrast_id, expected in expected_effects.items():
+            observed = contrasts[(snapshot, contrast_id)].get(
+                "effect_rate_difference"
+            )
+            if (
+                not isinstance(observed, (int, float))
+                or isinstance(observed, bool)
+                or not math.isfinite(observed)
+                or abs(observed - expected) > 1e-12
+            ):
+                raise RenderError("registered contrast differs from analysis cells")
     collapsed: dict[tuple[Any, ...], dict[str, Any]] = {}
     if seed_audit is not None:
         if (
@@ -175,6 +280,8 @@ def render_tables(
             or seed_audit.get("groups_with_multiple_semantic_responses") != 0
             or seed_audit.get("groups_with_identical_semantic_responses")
             != seed_audit.get("state_condition_groups")
+            or seed_audit.get("state_condition_groups")
+            != len(snapshots) * len(CONDITION_COLUMNS) * 20
         ):
             raise RenderError("seed-diversity audit does not support state collapse")
         collapsed = _index_unique(
@@ -185,6 +292,14 @@ def render_tables(
         )
         if set(collapsed) != expected_cell_keys:
             raise RenderError("collapsed cell identities do not match the grid")
+
+    if collapsed:
+        for cell in collapsed.values():
+            if (
+                cell.get("state_outputs") != 20
+                or cell.get("outcome_stable_states") != 20
+            ):
+                raise RenderError("collapsed cell state count is not registered")
 
     markdown = [
         "### Recovery-opportunity incidence",
@@ -200,12 +315,29 @@ def render_tables(
             )
             for condition_id, _label in CONDITION_COLUMNS
         ]
-        markdown.append(f"| {SNAPSHOT_LABELS.get(snapshot, snapshot)} | " + " | ".join(values) + " |")
+        markdown.append(
+            f"| {SNAPSHOT_LABELS.get(snapshot, snapshot)} | "
+            + " | ".join(values)
+            + " |"
+        )
+    markdown.extend(["", "### Registered finite-grid contrasts", ""])
+    if v2 is not None:
+        verdict = "met" if v2["passed"] else "not met"
+        markdown.extend(
+            [
+                (
+                    f"Seed check: {v2['semantic_groups']}/{v2['groups']} "
+                    "state-condition groups had multiple semantic responses and "
+                    f"{v2['outcome_groups']}/{v2['groups']} varied in the primary "
+                    f"outcome (unique-response range {v2['minimum_unique']}--"
+                    f"{v2['maximum_unique']})."
+                ),
+                f"The registered all-checkpoint directional criterion was {verdict}.",
+                "",
+            ]
+        )
     markdown.extend(
         [
-            "",
-            "### Registered finite-grid contrasts",
-            "",
             "| Weights | Native schema | Canonical docs | Interaction |",
             "|---|---:|---:|---:|",
         ]
@@ -215,7 +347,11 @@ def render_tables(
             _effect_text(contrasts[(snapshot, contrast_id)])
             for contrast_id, _label in CONTRAST_COLUMNS
         ]
-        markdown.append(f"| {SNAPSHOT_LABELS.get(snapshot, snapshot)} | " + " | ".join(values) + " |")
+        markdown.append(
+            f"| {SNAPSHOT_LABELS.get(snapshot, snapshot)} | "
+            + " | ".join(values)
+            + " |"
+        )
     markdown.extend(
         [
             "",
@@ -252,7 +388,17 @@ def render_tables(
         ),
         "Contrasts are paired rate differences in percentage points; $+/-/0$",
         "counts the states with positive, negative, or zero effects. Descriptive",
-        "fixed-grid results only.}",
+        *(
+            [
+                f"fixed-grid results; {v2['outcome_groups']}/{v2['groups']} state--condition",
+                "groups vary in the primary outcome across five effective paired seeds,",
+                "and the registered all-checkpoint direction criterion "
+                + ("is met." if v2["passed"] else "is not met."),
+            ]
+            if v2 is not None
+            else ["fixed-grid results only."]
+        ),
+        "}",
         "\\label{tab:trigger-incidence}",
         "\\begin{tabular}{lrrrr}",
         "\\toprule",
@@ -267,7 +413,11 @@ def render_tables(
             ).replace("%", "\\%")
             for condition_id, _label in CONDITION_COLUMNS
         ]
-        latex.append(f"{SNAPSHOT_LABELS.get(snapshot, snapshot)} & " + " & ".join(values) + " \\\\")
+        latex.append(
+            f"{SNAPSHOT_LABELS.get(snapshot, snapshot)} & "
+            + " & ".join(values)
+            + " \\\\"
+        )
     latex.extend(
         [
             "\\bottomrule",
@@ -285,7 +435,11 @@ def render_tables(
             _effect_text(contrasts[(snapshot, contrast_id)]).replace(" pp", "")
             for contrast_id, _label in CONTRAST_COLUMNS
         ]
-        latex.append(f"{SNAPSHOT_LABELS.get(snapshot, snapshot)} & " + " & ".join(values) + " \\\\")
+        latex.append(
+            f"{SNAPSHOT_LABELS.get(snapshot, snapshot)} & "
+            + " & ".join(values)
+            + " \\\\"
+        )
     latex.extend(
         [
             "\\bottomrule",

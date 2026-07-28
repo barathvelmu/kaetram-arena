@@ -98,8 +98,9 @@ def test_pdf_annotation_audit_allows_citations_and_rejects_hidden_links() -> Non
     clean = (
         header
         + "  1  Annotation    https://github.com/Kaetram/Kaetram-Open\n"
-        + "  2  Annotation    https://arxiv.org/abs/2506.03610\n"
-        + "  3  Annotation    https://doi.org/10.18653/v1/2026.acl-long.1880\n"
+            + "  2  Annotation    https://arxiv.org/abs/2506.03610\n"
+            + "  3  Annotation    https://doi.org/10.18653/v1/2026.acl-long.1880\n"
+            + "  4  Annotation    https://doi.org/10.65109/OLHJ8062\n"
     )
     hidden_repository = (
         header
@@ -115,7 +116,7 @@ def test_pdf_annotation_audit_allows_citations_and_rejects_hidden_links() -> Non
         header + "  1  Annotation    https://arxiv.org/abs/9999.99999\n",
     )
     assert audit_pdf_urls("fixture", "not pdfinfo output")
-    assert len(ALLOWED_PDF_URLS) == 4
+    assert len(ALLOWED_PDF_URLS) == 5
 
 
 def test_causal_figure_separates_parallel_training_from_runtime_factorial() -> None:

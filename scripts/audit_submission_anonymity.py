@@ -16,6 +16,7 @@ ALLOWED_PDF_URLS = {
     *ALLOWED_GITHUB_URLS,
     "https://huggingface.co/collections/Qwen/qwen35",
     "https://arxiv.org/abs/2506.03610",
+    "https://doi.org/10.65109/OLHJ8062",
     "https://doi.org/10.18653/v1/2026.acl-long.1880",
 }
 

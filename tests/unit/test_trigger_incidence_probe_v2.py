@@ -59,12 +59,23 @@ def _registration(tmp_path: Path, monkeypatch) -> tuple[Path, dict]:
             "excluded_source_logs": excluded_logs,
         },
         "snapshots": {
-            name: {"api_model": name, "checkpoint_sha256": name * 8}
+            name: {"api_model": name, "checkpoint_sha256": v1.sha256_json(name)}
             for name in ("base", "r2", "r3")
         },
         "endpoint_contract": {"tokenizer_sha256": "f" * 64},
         "conditions": conditions,
-        "sampling": {"samples_per_state_condition": 2, "base_seed": 500},
+        "sampling": {
+            "samples_per_state_condition": 2,
+            "base_seed": 500,
+            "max_tokens": 20,
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "top_k": 20,
+            "presence_penalty": 1.5,
+            "concurrency": 2,
+            "attempts": 1,
+            "request_timeout_seconds": 5,
+        },
         "seed_gate": {
             "required": True,
             "messages": [{"role": "user", "content": "vary"}],

@@ -24,17 +24,21 @@ ineligible. No V3 live run has been performed.
 
 After a future V2-format result package passes its unchanged verifier, create
 the V3 score as a sibling artifact rather than adding a file to the immutable
-V2 package:
+V2 package. Set `PYTHON` to the exact Python 3.12 interpreter created by the
+repository's pinned bootstrap rather than relying on the shell's default
+`python`:
 
 ```bash
-python scripts/opd/live_routing_multi_action_measurement_v3.py analyze \
+PYTHON=/path/to/pinned-python3.12
+
+"$PYTHON" scripts/opd/live_routing_multi_action_measurement_v3.py analyze \
   --result-root /local/future-run/result \
   --analysis-artifact /local/future-run/analysis-v3.json \
   --registration research/experiments/local-live-routing-multi-action-v3.json \
   --parent-registration research/experiments/local-live-routing-multi-action-v2.json \
   --repo-root "$PWD"
 
-python scripts/opd/live_routing_multi_action_measurement_v3.py verify \
+"$PYTHON" scripts/opd/live_routing_multi_action_measurement_v3.py verify \
   --result-root /local/future-run/result \
   --analysis-artifact /local/future-run/analysis-v3.json \
   --registration research/experiments/local-live-routing-multi-action-v3.json \

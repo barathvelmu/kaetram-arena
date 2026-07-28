@@ -58,6 +58,31 @@ EQUIPMENT_KEY_ALIASES = {
     "coppersword": "coppersword",
     "player/weapon/coppersword": "coppersword",
 }
+CLAIM_BOUNDARY = {
+    "confirmatory": False,
+    "permitted_claim": (
+        "Preliminary within-build evidence about routing and fixture-specific "
+        "application under a prospectively frozen measurement amendment."
+    ),
+    "prohibited_claims": [
+        "retroactive validation of the V2 result",
+        "model quality or superiority",
+        "causal recovery benefit",
+        "quest-performance improvement",
+        "checkpoint or training superiority",
+        "generalization across tools, states, models, renderers, games, or environments",
+        "statistical independence of technical repeats",
+    ],
+}
+REPORTING_CONTRACT = {
+    "technical_repeats_are_independent": False,
+    "report_v2_and_v3_separately": True,
+    "never_relabel_v2_failures": True,
+    "exact_verdict_language": (
+        "Report protocol validity, V3 full-predicate pass/fail, and each action "
+        "predicate separately."
+    ),
+}
 EXCLUDED_PRIOR_RUN = {
     "run_directory": "kaetram-live-routing-multi-action-run-20260728-v1",
     "prelaunch_git_head": PRESERVED_V2_SOURCE_COMMIT,
@@ -161,21 +186,9 @@ def validate_registration(registration: Mapping[str, Any]) -> list[str]:
         ),
     }:
         errors.append("measurement contract drift")
-    claim = registration.get("claim_boundary")
-    if not isinstance(claim, Mapping) or claim.get("confirmatory") is not False:
+    if registration.get("claim_boundary") != CLAIM_BOUNDARY:
         errors.append("claim boundary drift")
-    prohibited = claim.get("prohibited_claims") if isinstance(claim, Mapping) else None
-    if (
-        not isinstance(prohibited, list)
-        or "retroactive validation of the V2 result" not in prohibited
-    ):
-        errors.append("retroactive-claim guard missing")
-    reporting = registration.get("reporting")
-    if not isinstance(reporting, Mapping) or (
-        reporting.get("technical_repeats_are_independent") is not False
-        or reporting.get("report_v2_and_v3_separately") is not True
-        or reporting.get("never_relabel_v2_failures") is not True
-    ):
+    if registration.get("reporting") != REPORTING_CONTRACT:
         errors.append("reporting guard drift")
     return errors
 
@@ -519,6 +532,18 @@ def verify_prospective_prelaunch(
     if not isinstance(parent, Mapping) or parent.get("sha256") != PARENT_REGISTRATION_SHA256:
         raise MultiActionV3Error("prelaunch does not bind the preserved V2 execution contract")
     root = repo_root.resolve()
+    checked_registration = root / AMENDMENT_PATH
+    if checked_registration.is_symlink() or not checked_registration.is_file():
+        raise MultiActionV3Error("checked-in V3 registration is missing or unsafe")
+    try:
+        supplied_registration_raw = registration_path.read_bytes()
+        checked_registration_raw = checked_registration.read_bytes()
+    except OSError as exc:
+        raise MultiActionV3Error("V3 registration bytes are unavailable") from exc
+    if supplied_registration_raw != checked_registration_raw:
+        raise MultiActionV3Error(
+            "supplied V3 registration differs from the checked-in amendment"
+        )
     for relative in AMENDMENT_SOURCE_PATHS:
         try:
             blob = subprocess.run(
@@ -530,6 +555,10 @@ def verify_prospective_prelaunch(
             raise MultiActionV3Error(
                 f"prelaunch Git head does not contain frozen V3 source: {relative}"
             ) from exc
+        if relative == AMENDMENT_PATH and blob != supplied_registration_raw:
+            raise MultiActionV3Error(
+                "supplied V3 registration differs from the prelaunch Git head"
+            )
         current = (root / relative).read_bytes()
         if blob != current:
             raise MultiActionV3Error(f"V3 source differs from prelaunch Git head: {relative}")

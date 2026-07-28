@@ -113,6 +113,22 @@ def test_registration_rejects_alias_and_reporting_drift() -> None:
     assert "reporting guard drift" in v3.validate_registration(changed)
 
 
+def test_registration_rejects_weakened_claim_and_verdict_language() -> None:
+    registration = v3._load_json_strict(REGISTRATION)
+    changed = deepcopy(registration)
+    changed["claim_boundary"]["permitted_claim"] = "The model is generally superior."
+    changed["claim_boundary"]["prohibited_claims"] = [
+        "retroactive validation of the V2 result"
+    ]
+    changed["reporting"]["exact_verdict_language"] = (
+        "Call every protocol-valid trial a success."
+    )
+    assert v3.validate_registration(changed) == [
+        "claim boundary drift",
+        "reporting guard drift",
+    ]
+
+
 def test_equipment_alias_table_is_exhaustive_not_heuristic() -> None:
     assert v3.canonical_item_key("coppersword") == "coppersword"
     assert v3.canonical_item_key("player/weapon/coppersword") == "coppersword"
@@ -243,7 +259,28 @@ def test_future_prelaunch_must_contain_all_frozen_v3_files(
             tmp_path / "prelaunch.json",
             REGISTRATION,
             parent_registration_path=tmp_path / "v2.json",
-            repo_root=tmp_path,
+            repo_root=v3.REPO,
+        )
+
+
+def test_alternate_registration_bytes_cannot_bypass_checked_in_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prelaunch = {
+        "git_head": "f" * 40,
+        "registration": {"sha256": v3.PARENT_REGISTRATION_SHA256},
+    }
+    monkeypatch.setattr(v3, "verify_v2_prelaunch", lambda *args, **kwargs: prelaunch)
+    alternate = tmp_path / "alternate-v3.json"
+    # Semantically identical JSON with different bytes must still be rejected:
+    # the caller cannot substitute an unsealed registration path.
+    alternate.write_bytes(REGISTRATION.read_bytes() + b"\n")
+    with pytest.raises(v3.MultiActionV3Error, match="differs from the checked-in"):
+        v3.verify_prospective_prelaunch(
+            tmp_path / "prelaunch.json",
+            alternate,
+            parent_registration_path=tmp_path / "v2.json",
+            repo_root=v3.REPO,
         )
 
 

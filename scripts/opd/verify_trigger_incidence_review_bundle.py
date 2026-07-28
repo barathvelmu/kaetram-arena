@@ -28,9 +28,10 @@ if str(REVIEW_ROOT) not in sys.path:
     sys.path.insert(0, str(REVIEW_ROOT))
 
 from scripts.opd import audit_trigger_incidence_artifact as primary_audit  # noqa: E402
+from scripts.opd import analyze_structured_call_validity as routing_analysis  # noqa: E402
 
 
-PUBLIC_SCHEMA = "kaetram.local-trigger-incidence-public-artifact.v2"
+REVIEW_SCHEMA = "kaetram.local-trigger-incidence-review-artifact.v1"
 SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -121,8 +122,8 @@ def _verify_inventory(root: Path, expected_index_sha256: str) -> dict:
     if _sha256_file(index_path) != expected_index_sha256:
         raise ReviewVerificationError("artifact-index digest differs from trust root")
     index = _load_object(index_path)
-    if index.get("schema_version") != PUBLIC_SCHEMA:
-        raise ReviewVerificationError("unexpected public artifact schema")
+    if index.get("schema_version") != REVIEW_SCHEMA:
+        raise ReviewVerificationError("unexpected review artifact schema")
     records = index.get("files")
     if not isinstance(records, list) or not records:
         raise ReviewVerificationError("artifact file inventory is missing")
@@ -179,6 +180,34 @@ def _verify_inventory(root: Path, expected_index_sha256: str) -> dict:
     return index
 
 
+def _verify_code_identity(index: dict) -> None:
+    """Bind the executing standalone verifier stack to the review trust root."""
+
+    records = index.get("verification_code")
+    if not isinstance(records, list) or not records:
+        raise ReviewVerificationError("verification-code identity is missing")
+    names = []
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {"path", "sha256"}:
+            raise ReviewVerificationError("invalid verification-code record")
+        relative = _safe_path(record["path"])
+        digest = record["sha256"]
+        path = REVIEW_ROOT / relative
+        if (
+            not isinstance(digest, str)
+            or SHA256.fullmatch(digest) is None
+            or path.is_symlink()
+            or not path.is_file()
+            or _sha256_file(path) != digest
+        ):
+            raise ReviewVerificationError(
+                f"verification-code digest mismatch: {relative.as_posix()}"
+            )
+        names.append(relative.as_posix())
+    if names != sorted(set(names)):
+        raise ReviewVerificationError("verification-code records are not canonical")
+
+
 def _semantic_digest(message: Any) -> str:
     if not isinstance(message, dict) or message.get("role") != "assistant":
         raise ReviewVerificationError("response message is not canonical")
@@ -231,6 +260,7 @@ def _seed_heterogeneity(registration: dict, rows: dict[tuple, dict]) -> dict:
 
 def verify_review_artifact(root: Path, expected_index_sha256: str) -> dict:
     index = _verify_inventory(root, expected_index_sha256)
+    _verify_code_identity(index)
     registration = _load_object(root / "registration.json")
     design = _load_object(root / "design" / "design.json")
     stored = _load_object(root / "analysis" / "analysis-summary.json")
@@ -240,6 +270,12 @@ def verify_review_artifact(root: Path, expected_index_sha256: str) -> dict:
     except primary_audit.AuditError as exc:
         raise ReviewVerificationError(str(exc)) from exc
     heterogeneity = _seed_heterogeneity(registration, rows)
+    routing_stored = _load_object(root / "analysis" / "routing-validity-posthoc.json")
+    routing_recomputed = routing_analysis.analyze_runs(
+        [root / "runs" / snapshot / "results.jsonl" for snapshot in registration["snapshots"]]
+    )
+    if routing_stored != routing_recomputed:
+        raise ReviewVerificationError("stored routing-validity decomposition does not recompute")
     native_effects = {
         record["snapshot"]: record["effect_rate_difference"]
         for record in recomputed["registered_contrasts"]
@@ -273,6 +309,17 @@ def verify_review_artifact(root: Path, expected_index_sha256: str) -> dict:
         "recovery_opportunities": recomputed["recovery_opportunities"],
         "native_tools_effects": native_effects,
         "directional_replication_passed": directional_passed,
+        "schema_valid_any_route_effects": {
+            row["snapshot"]: row["effect_rate_difference"]
+            for row in routing_recomputed["native_schema_valid_any_route_contrasts"]
+        },
+        "positive_sample_index_schema_contrasts": sum(
+            row["effect_rate_difference"] > 0
+            for row in routing_recomputed["sample_index_native_schema_contrasts"]
+        ),
+        "sample_index_schema_contrast_count": len(
+            routing_recomputed["sample_index_native_schema_contrasts"]
+        ),
         **heterogeneity,
         "source_history_authentication": "deferred_until_deanonymized",
     }

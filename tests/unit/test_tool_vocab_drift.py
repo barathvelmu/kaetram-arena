@@ -20,6 +20,7 @@ from tool_surface import (  # noqa: E402
     TOOL_SCHEMA_VERSION,
     tool_schema_sha256,
     validate_live_tool_compatibility,
+    validate_tool_call_arguments,
     validate_tool_definitions,
 )
 
@@ -179,3 +180,21 @@ def test_canonical_runtime_handshake_rejects_live_functional_drift_only():
     missing = [t for t in live if t["function"]["name"] != "observe"]
     with pytest.raises(ValueError, match="live MCP tool-name drift"):
         validate_live_tool_compatibility(missing)
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments", "expected"),
+    [
+        ("observe", {}, (True, "valid")),
+        ("navigate", {"x": 10, "y": 20}, (True, "valid")),
+        ("navigate", {}, (False, "missing_required_argument")),
+        ("navigate", {"x": True, "y": 20}, (False, "wrong_argument_type")),
+        ("gather", {"resource_name": "Oak", "extra": 1}, (False, "unknown_argument")),
+        ("not_a_tool", {}, (False, "unknown_function")),
+        ("observe", [], (False, "invalid_arguments_object")),
+    ],
+)
+def test_executor_call_gate_uses_the_frozen_visible_schema(
+    name: str, arguments, expected: tuple[bool, str]
+) -> None:
+    assert validate_tool_call_arguments(name, arguments) == expected

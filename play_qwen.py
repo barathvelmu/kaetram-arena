@@ -47,6 +47,7 @@ from tool_surface import (
     MODEL_VISIBLE_TOOL_DEFINITIONS,
     MODEL_VISIBLE_TOOL_NAMES,
     validate_live_tool_compatibility,
+    validate_tool_call_arguments,
 )
 from scripts.isolated_python_entry import (
     isolated_contract_active,
@@ -67,6 +68,18 @@ _FORMAT_NOTE = (
     "</parameter>\\n</function>\\n</tool_call> — never function(args) or "
     "<parameter=key=value>."
 )
+
+
+async def call_schema_validated_tool(mcp, name: str, arguments) -> tuple[str, bool, str]:
+    """Invoke MCP only after the call passes the frozen model-visible schema."""
+
+    valid, reason = validate_tool_call_arguments(name, arguments)
+    if not valid:
+        return f"Error: tool call rejected by frozen schema ({reason})", False, reason
+    try:
+        return await mcp.call_tool(name, arguments), True, "valid"
+    except Exception as exc:
+        return f"Error: {exc}", True, "valid"
 
 
 def resolve_mcp_python() -> str:
@@ -700,6 +713,11 @@ async def _run_inner_loop(
         if content:
             display = re.sub(r"<think>.*?</think>", "[think]", content, flags=re.DOTALL)
             info(f"  [{turn}] Assistant: {display[:120]}...")
+        recovered_content_calls = (
+            recover_tool_calls(content)
+            if content and _TOOL_RECOVERY and not tool_calls
+            else []
+        )
 
         # Route 1: structured tool_calls (server parsed XML into tool_calls).
         if tool_calls:
@@ -745,10 +763,11 @@ async def _run_inner_loop(
                 fn_name = parsed["name"]
                 fn_args = parsed["args"]
                 info(f"  [{turn}] → {fn_name}({fn_args})")
-                try:
-                    result = await mcp.call_tool(fn_name, fn_args)
-                except Exception as e:
-                    result = f"Error: {e}"
+                result, invoked, schema_reason = await call_schema_validated_tool(
+                    mcp, fn_name, fn_args
+                )
+                if not invoked:
+                    info(f"  [{turn}] REJECTED {fn_name}: {schema_reason}")
                 info(f"  [{turn}] ← {result[:120]}...")
 
                 # Native role=tool — matches build_tool_result_message in
@@ -768,14 +787,14 @@ async def _run_inner_loop(
                     except Exception:
                         pass
 
-        elif content and _TOOL_RECOVERY and recover_tool_calls(content):
+        elif recovered_content_calls:
             # The server's parser dropped a malformed tool call (e.g.
             # `<function=gather("Oak")>`), leaving it in content. Recover the
             # executable call, rewrite history to a CLEAN canonical assistant
             # turn (severs the in-context copy prior — the model no longer sees
             # its own malformed exemplar), execute, and return a loud format
             # note so it self-corrects. Env-gated (KAETRAM_TOOL_RECOVERY).
-            recovered = recover_tool_calls(content)
+            recovered = recovered_content_calls
             reasoning = re.split(r"<tool_call>|<function=", content, maxsplit=1)[0].rstrip()
             structured_calls, parsed_calls = [], []
             for i, rc in enumerate(recovered):
@@ -793,10 +812,14 @@ async def _run_inner_loop(
             info(f"  [{turn}] RECOVERED {len(recovered)} malformed call(s): "
                  f"{[(p['name'], p['args']) for p in parsed_calls]}")
             for parsed in parsed_calls:
-                try:
-                    result = await mcp.call_tool(parsed["name"], parsed["args"])
-                except Exception as e:
-                    result = f"Error: {e}"
+                result, invoked, schema_reason = await call_schema_validated_tool(
+                    mcp, parsed["name"], parsed["args"]
+                )
+                if not invoked:
+                    info(
+                        f"  [{turn}] RECOVERY REJECTED {parsed['name']}: "
+                        f"{schema_reason}"
+                    )
                 result = f"{_FORMAT_NOTE}\n\n{result}"
                 messages.append({
                     "role": "tool", "content": result,

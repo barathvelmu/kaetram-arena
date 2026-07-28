@@ -11,7 +11,7 @@ environment execution. The historical OPD sequence motivates the audit but is
 not a causal training-method result. The completed v2 outcome-unseen replication
 is the central prospectively frozen experiment. Its design was committed before
 endpoint access but was not deposited in an external public registry. The post-hoc
-structured-call validity diagnostic is secondary and must remain labeled post hoc.
+route-validity decomposition is secondary and must remain labeled post hoc.
 
 ## Hard upload gates
 
@@ -20,14 +20,16 @@ structured-call validity diagnostic is secondary and must remain labeled post ho
    terminal AAAI decision before a TMLR upload.
 2. Resolve authorship by contribution and responsibility, not fork ownership.
    Every author must approve the manuscript and submission.
-3. Run the public evidence verifier with the artifact-index digest recorded in
-   the reviewed PDF. **Complete locally.** This binds the PDF to the exact
-   anonymous supplement without claiming prior public registration.
+3. Run the review-projection verifier with the review-artifact digest recorded
+   in the PDF. **Complete locally; rerun after every package edit.** This binds
+   the PDF to the projected raw evidence without claiming public registration.
 4. Build the official TMLR package, render every page, and pass source, PDF,
    metadata, URL, artifact-ZIP, and clean-clone anonymity audits. **Complete
    locally; rerun after any manuscript or supplement edit.**
 5. Preserve the repository's MIT notice, the Kaetram MPL-2.0 notice, and the
    TMLR template's Apache-2.0 license.
+6. Keep the exact final review PDF, ZIP, and review trust root local/unlinked
+   until the double-blind period ends. Do not push them to an identified fork.
 
 ## Format and disclosure
 

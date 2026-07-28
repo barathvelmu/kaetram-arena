@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -7,6 +8,15 @@ from pathlib import Path
 import pytest
 
 import play_qwen
+
+
+class _RecordingMCP:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def call_tool(self, name, arguments):
+        self.calls.append((name, arguments))
+        return "ok"
 
 
 def test_mcp_runtime_defaults_to_active_interpreter(monkeypatch) -> None:
@@ -93,3 +103,25 @@ def test_isolated_mcp_command_preserves_full_contract(
     assert command[0] == str(environment / "bin/python")
     assert command[1:4] == ["-I", "-S", "-B"]
     assert command[command.index("--script") + 1] == str(server)
+
+
+def test_runtime_never_sends_schema_invalid_call_to_mcp() -> None:
+    mcp = _RecordingMCP()
+    result, invoked, reason = asyncio.run(
+        play_qwen.call_schema_validated_tool(mcp, "navigate", {})
+    )
+    assert invoked is False
+    assert reason == "missing_required_argument"
+    assert "rejected by frozen schema" in result
+    assert mcp.calls == []
+
+
+def test_runtime_sends_schema_valid_call_once() -> None:
+    mcp = _RecordingMCP()
+    result, invoked, reason = asyncio.run(
+        play_qwen.call_schema_validated_tool(
+            mcp, "navigate", {"x": 10, "y": 20}
+        )
+    )
+    assert (result, invoked, reason) == ("ok", True, "valid")
+    assert mcp.calls == [("navigate", {"x": 10, "y": 20})]

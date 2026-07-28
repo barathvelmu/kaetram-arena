@@ -358,6 +358,48 @@ def validate_tool_definitions(tool_definitions) -> None:
         )
 
 
+def validate_tool_call_arguments(name, arguments) -> tuple[bool, str]:
+    """Validate an executor-bound call against the frozen visible schema.
+
+    The function is deliberately dependency-free so the runtime router and
+    offline evidence analyzers use exactly the same gate. It validates the
+    subset of JSON Schema present in the frozen contract and rejects Python's
+    ``bool`` values where an integer is required.
+    """
+
+    definitions = {
+        tool["function"]["name"]: tool["function"]["parameters"]
+        for tool in MODEL_VISIBLE_TOOL_DEFINITIONS
+    }
+    schema = definitions.get(name)
+    if schema is None:
+        return False, "unknown_function"
+    if not isinstance(arguments, dict):
+        return False, "invalid_arguments_object"
+    properties = schema.get("properties", {})
+    if set(arguments) - set(properties):
+        return False, "unknown_argument"
+    if set(schema.get("required", [])) - set(arguments):
+        return False, "missing_required_argument"
+    for argument_name, value in arguments.items():
+        contract = properties[argument_name]
+        expected = contract.get("type")
+        valid_type = {
+            "string": isinstance(value, str),
+            "integer": isinstance(value, int) and not isinstance(value, bool),
+            "boolean": isinstance(value, bool),
+        }.get(expected, False)
+        if not valid_type:
+            return False, "wrong_argument_type"
+        if "enum" in contract and value not in contract["enum"]:
+            return False, "argument_outside_enum"
+        if "minimum" in contract and value < contract["minimum"]:
+            return False, "argument_below_minimum"
+        if "maximum" in contract and value > contract["maximum"]:
+            return False, "argument_above_maximum"
+    return True, "valid"
+
+
 def _functional_parameter_schema(tool_definition: dict) -> dict:
     """Normalize the execution-relevant subset of an OpenAI tool schema."""
     parameters = tool_definition["function"]["parameters"]

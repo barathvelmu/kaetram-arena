@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -90,6 +92,35 @@ def _critical_code_records(repo: Path = REPO) -> list[dict[str, str]]:
         v1_export._require_regular_file(path)
         records.append({"path": relative, "sha256": sha256_file(path)})
     return records
+
+
+def _verification_commit(repo: Path = REPO) -> str:
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.strip()
+        for relative in CRITICAL_CODE_PATHS:
+            blob = subprocess.run(
+                ["git", "show", f"{commit}:{relative}"],
+                cwd=repo,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ).stdout
+            if hashlib.sha256(blob).hexdigest() != sha256_file(
+                repo / relative
+            ):
+                raise ExportError(f"critical code differs from Git: {relative}")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ExportError("cannot bind verification code to Git") from exc
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise ExportError("verification commit is invalid")
+    return commit
 
 
 def _snapshot_lock_projection(source: dict, registration: dict) -> dict:
@@ -632,6 +663,7 @@ def export_bundle(
             "analysis_source_git_commit": summary["analysis_code_provenance"][
                 "source_git_commit"
             ],
+            "verification_source_git_commit": _verification_commit(),
             "analysis_script_sha256": verified["analysis_script_sha256"],
             "export_script_sha256": sha256_file(Path(__file__).resolve()),
             "verifier_script_sha256": sha256_file(

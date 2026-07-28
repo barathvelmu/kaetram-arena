@@ -175,6 +175,7 @@ def _completed(registration: dict, rows: list[dict], snapshot: str) -> dict:
 
 def _fixture(tmp_path: Path, monkeypatch) -> dict:
     monkeypatch.setattr(audit, "_verify_source_commits", lambda _root, _outer: None)
+    monkeypatch.setattr(exporter, "_verification_commit", lambda: COMMIT)
     registration_path, registration = _registration(tmp_path, monkeypatch)
     runtime_marker_path = tmp_path / "runtime-marker.json"
     _write_json(
@@ -297,7 +298,7 @@ def _fixture(tmp_path: Path, monkeypatch) -> dict:
         lambda _commit, relative: (
             source_lock_path.read_bytes()
             if relative == exporter.SOURCE_SNAPSHOT_LOCK_RELATIVE.as_posix()
-            else b""
+            else (audit.REPO / relative).read_bytes()
         ),
     )
     assert set(_health(registration, "base")["attestation"]) == {

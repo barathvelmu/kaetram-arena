@@ -30,6 +30,7 @@ INDEX_KEYS = {
     "study_id",
     "experiment_source_git_commit",
     "analysis_source_git_commit",
+    "verification_source_git_commit",
     "analysis_script_sha256",
     "export_script_sha256",
     "verifier_script_sha256",
@@ -156,7 +157,11 @@ def verify_bundle(
         "tree_sha256",
     ):
         _require_hash(index.get(label), label=label, pattern=SHA256)
-    for label in ("experiment_source_git_commit", "analysis_source_git_commit"):
+    for label in (
+        "experiment_source_git_commit",
+        "analysis_source_git_commit",
+        "verification_source_git_commit",
+    ):
         _require_hash(index.get(label), label=label, pattern=COMMIT)
 
     files = _verify_file_inventory(artifact_dir, index)
@@ -201,6 +206,7 @@ def verify_bundle(
         "analysis_source_git_commit": summary["analysis_code_provenance"][
             "source_git_commit"
         ],
+        "verification_source_git_commit": index["verification_source_git_commit"],
         "analysis_script_sha256": verified["analysis_script_sha256"],
         "export_script_sha256": exporter.sha256_file(Path(exporter.__file__).resolve()),
         "verifier_script_sha256": exporter.sha256_file(Path(__file__).resolve()),

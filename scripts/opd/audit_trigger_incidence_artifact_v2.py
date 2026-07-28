@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 import csv
+import hashlib
 import io
 import json
 import math
@@ -48,6 +49,7 @@ INDEX_KEYS = {
     "study_id",
     "experiment_source_git_commit",
     "analysis_source_git_commit",
+    "verification_source_git_commit",
     "analysis_script_sha256",
     "export_script_sha256",
     "verifier_script_sha256",
@@ -424,7 +426,11 @@ def verify_outer_inventory(root: Path) -> dict:
             or SHA256.fullmatch(index[name]) is None
         ):
             raise AuditError(f"invalid public manifest hash: {name}")
-    for name in ("experiment_source_git_commit", "analysis_source_git_commit"):
+    for name in (
+        "experiment_source_git_commit",
+        "analysis_source_git_commit",
+        "verification_source_git_commit",
+    ):
         if (
             not isinstance(index.get(name), str)
             or COMMIT.fullmatch(index[name]) is None
@@ -448,6 +454,9 @@ def verify_outer_inventory(root: Path) -> dict:
         expected_code_files.append(
             {"path": relative.as_posix(), "sha256": sha256_file(path)}
         )
+        git_blob = _git_blob(index["verification_source_git_commit"], relative.as_posix())
+        if hashlib.sha256(git_blob).hexdigest() != record["sha256"]:
+            raise AuditError(f"critical code differs from verification Git blob: {relative}")
     if (
         code_files != expected_code_files
         or [record["path"] for record in code_files] != list(CRITICAL_CODE_PATHS)

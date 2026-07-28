@@ -214,8 +214,8 @@ to support a claim. Table~\ref{tab:evidence-ladder} summarizes the resulting
 evidence ladder.
 
 \begin{table}[H]
-\caption{Evidence ladder and permitted inference. ``V1'' and ``V2'' are
-separate registered studies.}
+\caption{Evidence ladder and permitted inference. Version labels denote
+separately frozen studies or measurement amendments.}
 \label{tab:evidence-ladder}
 \centering
 \small
@@ -237,9 +237,10 @@ V2 interface grid & 1,200/1,200; outcome-unseen panel; effective gates &
 Registered finite-grid directional confirmation \\
 Structured validity & Recomputed after V2 outcomes &
 Post-hoc routing diagnostic, not a new primary outcome \\
-One-action execution check & 9/9 valid model-free technical trials &
-Direct and recovered routing work for one fixture; strict disabled-arm
-persistence equality does not \\
+Multi-action execution V2 & 9/9 protocol-valid; 0/9 full predicate &
+Transport worked, but two frozen measurement predicates were defective \\
+Multi-action execution V3 & Fresh post-amendment run; 9/9 full predicate &
+Three author-fixed calls traverse both active routes on one local build \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -440,50 +441,53 @@ exposure also changed routing, conditional route comparisons are
 selection-sensitive; the registered study does not determine whether executing
 the recovered calls improves environment state.
 
-\subsection{One-action local routing diagnostic}
+\subsection{Prospectively amended multi-action routing diagnostic}
 
-To test the next boundary without a model call, we prospectively froze one
-schema-valid \texttt{warp} candidate and routed it through structured input,
-strict content recovery, and a recovery-off control. All nine trials were
-protocol-valid; the sealed verdict was \texttt{complete\_with\_failures}.
-Structured input and content recovery each passed all three technical repeats:
-exactly one candidate was delivered, the application
-predicate passed, and the immediate, delayed, and reconnect client projections
-were in Mudwich.
+To test the next boundary without a model call, we froze three schema-valid
+calls---\texttt{equip\_item}, \texttt{eat\_food}, and \texttt{warp}---and
+routed them in order through structured input, strict content recovery, and a
+recovery-off control. In V2, all nine technical trials were protocol-valid,
+and the six active-route trials delivered all 18 scheduled calls without a
+schema, delivery, protocol, or tool error. Nevertheless, its sealed verdict
+was \texttt{complete\_with\_failures}: 0/9 trials passed every frozen predicate.
+A post-outcome audit localized the failures to measurement. Client projections
+namespaced the equipped item differently from the database projection, and
+passive health regeneration violated exact whole-state equality in the
+disabled arm despite an empty dispatch ledger.
+
+We did not relabel V2. Instead, a prospectively frozen V3 amendment
+canonicalized equipment identity and replaced exact disabled-arm equality with
+the absence of the three registered action-specific effects. Applied only to a
+fresh run, V3 was protocol-valid and passed the full predicate in all 9/9
+technical trials.
 
 \begin{table}[H]
-\caption{Model-free one-action routing diagnostic. Counts are technical repeats
-out of three, not independent samples. Recovery-off failed only the
-preregistered exact database predicate.}
+\caption{Model-free multi-action routing diagnostic. Counts are technical
+trials out of three per arm, not independent samples. V2 remains failed under
+its original predicates; V3 is a fresh post-amendment run.}
 \label{tab:execution-check}
 \centering
 \small
-\begin{tabular}{>{\raggedright\arraybackslash}p{0.23\linewidth}
-                >{\raggedright\arraybackslash}p{0.22\linewidth}
-                >{\raggedright\arraybackslash}p{0.27\linewidth}
-                >{\raggedright\arraybackslash}p{0.17\linewidth}}
+\begin{tabular}{>{\raggedright\arraybackslash}p{0.20\linewidth}
+                >{\raggedright\arraybackslash}p{0.29\linewidth}
+                >{\raggedright\arraybackslash}p{0.19\linewidth}
+                >{\raggedright\arraybackslash}p{0.20\linewidth}}
 \toprule
-Arm & Candidate routing & Client-state predicate & Full predicate \\
+Study / arm & Registered action effects & Protocol valid & Full predicate \\
 \midrule
-Structured direct & Exactly one, 3/3 & Mudwich at all stages, 3/3 & 3/3 \\
-Content recovery on & Exactly one, 3/3 & Mudwich at all stages, 3/3 & 3/3 \\
-Content recovery off & Zero, 3/3 & Baseline at all stages, 3/3 &
-0/3: database mismatch \\
+V2 / all arms & Measurement defects found post hoc & 9/9 & 0/9 \\
+V3 / structured & Equip, eat, warp: 3/3 each & 3/3 & 3/3 \\
+V3 / recovery on & Equip, eat, warp: 3/3 each & 3/3 & 3/3 \\
+V3 / recovery off & No registered effect: 3/3 & 3/3 & 3/3 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-With recovery disabled, no candidate was invoked and all three client
-projections remained at the registered baseline in every repeat. Nevertheless,
-all three trials failed the full registered predicate because login and save
-expanded sparse database records with default equipment, quest, achievement,
-and skill entries plus session bookkeeping. We retain this failure rather than
-redefining database equality after observing the result.
-
-These technical repeats are not independent samples. The diagnostic shows that
-one frozen action can traverse both active routes on this build; it does not
-estimate a recovery benefit, validate model-selected calls, or establish quest
-utility.
+These technical repeats share one fixture and build and are not independent
+samples. V3 supplies preliminary within-build evidence that three frozen calls
+can traverse both active routes and produce their action-specific fixture
+effects. It does not estimate a recovery benefit, validate model-selected
+calls, or establish quest utility.
 
 \section{What the Audit Establishes}
 
@@ -503,11 +507,12 @@ The post-hoc audit found unknown functions, unknown or missing arguments, and
 wrong argument types. Evaluations should report schema validity after channel
 routing rather than equating a nonempty envelope with a valid action.
 
-\paragraph{Client state and persistence equality are separate contracts.}
-Recovery-off invoked no candidate and preserved every registered client
-projection, yet login and save changed the database representation. This is not
-evidence that the warp executed; it shows why client-visible state, candidate
-delivery, and exact persistence equality must be reported separately.
+\paragraph{A frozen measure can fail without invalidating the transport trace.}
+V2 retained valid delivery evidence but used a representation-sensitive item
+predicate and an exact disabled-arm equality predicate that passive health
+regeneration could violate. Preserving that negative result, amending the
+measure prospectively, and rerunning fresh separates measurement repair from
+post-hoc relabeling.
 
 \paragraph{Request parameters are not effective randomization by inspection.}
 V1 stored five distinct seed values, yet they produced identical normalized
@@ -591,12 +596,11 @@ model family, renderer, parser, state pool, and environment are needed before a
 broad interface claim.
 
 The V2 primary outcome stops at parser recoverability. A separate model-free
-diagnostic follows one author-fixed warp through MCP and client-state checks,
-but it does not test naturally emitted V2 calls. Both active routes passed,
-while recovery-off failed exact database equality because login and save
-changed the persistence representation without invoking the candidate. With
-one action, one start state, one build, and three technical repeats, this does
-not establish safety, appropriateness, quest utility, or recovery benefit.
+diagnostic follows three author-fixed calls through MCP and state projections,
+but it does not test naturally emitted calls. Its first frozen measurement
+failed and remains failed; a prospective amendment passed only on a fresh run.
+With three calls, one fixture, one build, and dependent technical repeats, this
+does not establish safety, appropriateness, quest utility, or recovery benefit.
 
 V1's five nominal seeds were ineffective and were collapsed after a
 post-outcome audit. V2 repairs this specific failure: all 240 groups have five
@@ -722,10 +726,12 @@ passed. This is conditional on the fixed checkpoints, renderer, and panel. \\
 Structured validity & Invalid structured envelopes occurred less often per 200
 requests with native schema in a post-hoc descriptive analysis. Conditional
 validity fractions are selection-sensitive; this is not the registered primary. \\
-Local route diagnostic & All nine trials were valid. Both active routes passed
-3/3; recovery-off invoked no candidate and preserved the client baseline 3/3,
-but exact database baseline failed 3/3. This supports one-fixture route
-operability and failure localization only. \\
+Local route diagnostic V2 & All 9/9 trials were protocol-valid but 0/9 passed
+the full frozen predicate. The negative result is preserved; a post-outcome
+audit localized two representation-sensitive measurement defects. \\
+Local route diagnostic V3 & A fresh post-amendment run passed 9/9 full
+predicates across structured, recovery-on, and recovery-off arms. This supports
+three-call, one-fixture, within-build operability only. \\
 Quest performance & No V1/V2 result establishes downstream state change or
 quest improvement. \\
 Training superiority & Unsupported; checkpoints are fixed lineage members, not
@@ -758,13 +764,13 @@ identity-bearing full model lock; those provenance tiers are verified after
 deanonymization. Internal self-hashes alone are not presented as prior public
 timestamping.
 
-The complete local-routing package contains a clean prelaunch receipt, runtime
+The complete local-routing packages contain clean prelaunch receipts, runtime
 identities, process-lifecycle evidence for every cold worker/MCP/browser
-session, chained trial receipts, and a sealed analysis. These checks establish
-author-attested internal consistency, not independent reproduction. Its
-anonymous reviewer projection retains only the re-keyed scientific fields
-needed to recompute the stage table; source and runtime authentication are
-deferred until deanonymization.
+session, chained trial receipts, and sealed analyses. Generated anonymous
+summaries bind both the unchanged V2 failure and the fresh V3 result to those
+private packages. These checks establish author-attested internal consistency,
+not independent reproduction; source and runtime authentication are deferred
+until deanonymization.
 
 Historical evidence has a lower grade. Immutable inventories bind recovered
 directories and a reviewer-facing projection regenerates the nine July scores,
@@ -774,9 +780,9 @@ runs.
 
 \section{Next Mechanism Tests}
 
-The one-action executor diagnostic now covers parser acceptance, MCP
+The multi-action executor diagnostic now covers parser acceptance, MCP
 acceptance, and immediate, delayed, reconnect, and persistence projections for
-one frozen candidate. The next study should use an outcome-unseen panel of
+three frozen candidates. The next study should use an outcome-unseen panel of
 model-emitted candidates, measure downstream utility, and preregister separate
 gameplay-state and persistence projections expected from login and save.
 Replication on an independent state pool, renderer, and open model family is

@@ -8,6 +8,7 @@ import pytest
 
 from scripts.build_tmlr_supplement import (
     add_live_routing_projection,
+    add_multi_action_review_summary,
     audit_review_tree,
 )
 from scripts.opd import live_routing_review_projection as projection
@@ -243,6 +244,21 @@ def test_supplement_copy_accepts_only_valid_anonymous_projection(
     assert destination == stage / "results" / "local-routing-diagnostic-review.json"
     assert destination.read_bytes() == source.read_bytes()
     audit_review_tree(stage)
+
+
+def test_multi_action_review_summary_preserves_v2_failure_and_fresh_v3(
+    tmp_path: Path,
+) -> None:
+    destination = add_multi_action_review_summary(tmp_path)
+    value = json.loads(destination.read_text())
+
+    assert value["v2"]["registered_outcome"]["protocol_valid"] == 9
+    assert value["v2"]["registered_outcome"]["full_predicate_pass"] == 0
+    assert value["v3"]["outcome"]["protocol_valid"] == 9
+    assert value["v3"]["outcome"]["full_predicate_pass"] == 9
+    assert value["v3"]["measurement_history"]["v2_relabelled"] is False
+    assert "evidence_binding" not in destination.read_text()
+    audit_review_tree(tmp_path)
 
 
 def test_supplement_copy_rejects_resigned_identity_field(tmp_path: Path) -> None:

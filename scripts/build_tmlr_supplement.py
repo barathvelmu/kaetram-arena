@@ -33,10 +33,26 @@ from scripts.opd.live_routing_review_projection import load_review_projection
 
 ARTIFACT = ROOT / "research" / "artifacts" / "local-trigger-incidence-v2"
 RESULTS = ROOT / "research" / "results" / "local-trigger-incidence-v2"
+V3_ARTIFACT = ROOT / "research" / "artifacts" / "local-trigger-incidence-v3"
+V3_RESULTS = ROOT / "research" / "results" / "local-trigger-incidence-v3"
+MULTI_V2_SUMMARY = (
+    ROOT
+    / "research"
+    / "results"
+    / "local-live-routing-multi-action-v2"
+    / "public-summary.json"
+)
+MULTI_V3_SUMMARY = (
+    ROOT
+    / "research"
+    / "results"
+    / "local-live-routing-multi-action-v3"
+    / "public-summary.json"
+)
 PAPER = ROOT / "output" / "pdf" / "kaetram-tool-routing-tmlr-draft.pdf"
 OUTPUT = ROOT / "output" / "supplement" / "kaetram-tmlr-anonymous-supplement.zip"
 REVIEW_SCHEMA = "kaetram.local-trigger-incidence-review-artifact.v1"
-PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v4"
+PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v5"
 VERIFICATION_CODE = (
     "scripts/opd/analyze_structured_call_validity.py",
     "scripts/opd/audit_trigger_incidence_artifact.py",
@@ -186,13 +202,20 @@ def _inventory(root: Path) -> list[dict]:
     return records
 
 
-def build_review_artifact(destination: Path) -> str:
+def build_review_artifact(
+    destination: Path,
+    *,
+    artifact: Path = ARTIFACT,
+    results: Path = RESULTS,
+    registration_relative: Path = Path("registration.json"),
+    include_routing_posthoc: bool = True,
+) -> str:
     """Create the minimal anonymous projection and return its trust root."""
 
-    registration = json.loads((ARTIFACT / "registration.json").read_text())
-    design = json.loads((ARTIFACT / "design" / "design.json").read_text())
+    registration = json.loads((artifact / registration_relative).read_text())
+    design = json.loads((artifact / "design" / "design.json").read_text())
     analysis = json.loads(
-        (ARTIFACT / "analysis" / "analysis-summary.json").read_text()
+        (artifact / "analysis" / "analysis-summary.json").read_text()
     )
     write_json(destination / "registration.json", _review_registration(registration))
     write_json(destination / "design" / "design.json", _review_design(design))
@@ -200,12 +223,13 @@ def build_review_artifact(destination: Path) -> str:
         destination / "analysis" / "analysis-summary.json",
         _review_analysis(analysis),
     )
-    copy_file(
-        RESULTS / "structured-call-validity-posthoc.json",
-        destination / "analysis" / "routing-validity-posthoc.json",
-    )
+    if include_routing_posthoc:
+        copy_file(
+            results / "structured-call-validity-posthoc.json",
+            destination / "analysis" / "routing-validity-posthoc.json",
+        )
     for snapshot in registration["snapshots"]:
-        source_run = ARTIFACT / "runs" / snapshot
+        source_run = artifact / "runs" / snapshot
         destination_run = destination / "runs" / snapshot
         for kind in ("prelaunch", "postflight", "completed"):
             source = json.loads((source_run / f"{kind}.json").read_text())
@@ -260,6 +284,55 @@ def add_live_routing_projection(stage: Path, source: Path) -> Path:
     return destination
 
 
+def add_multi_action_review_summary(stage: Path) -> Path:
+    """Add a hash-free anonymous projection of the sealed V2/V3 summaries."""
+
+    v2 = json.loads(MULTI_V2_SUMMARY.read_text())
+    v3 = json.loads(MULTI_V3_SUMMARY.read_text())
+    if (
+        v2.get("status") != "complete_with_failures"
+        or v2.get("registered_outcome", {}).get("protocol_valid") != 9
+        or v2.get("registered_outcome", {}).get("full_predicate_pass") != 0
+        or v3.get("status") != "complete"
+        or v3.get("outcome", {}).get("protocol_valid") != 9
+        or v3.get("outcome", {}).get("full_predicate_pass") != 9
+        or v3.get("measurement_history", {}).get("v2_relabelled") is not False
+        or v3.get("measurement_history", {}).get("fresh_post_amendment_run")
+        is not True
+    ):
+        raise SystemExit("multi-action public summaries drifted from the sealed result")
+    projection = {
+        "schema_version": "kaetram.live-routing-multi-action-review-summary.v1",
+        "v2": {
+            "status": v2["status"],
+            "registered_outcome": v2["registered_outcome"],
+            "protocol_delivery": v2["protocol_delivery"],
+            "registered_action_predicate_pass_by_arm": v2[
+                "registered_action_predicate_pass_by_arm"
+            ],
+            "measurement_failures": v2["measurement_failures"],
+            "post_outcome_measurement_audit": v2[
+                "post_outcome_measurement_audit"
+            ],
+            "claim_boundary": v2["claim_boundary"],
+        },
+        "v3": {
+            "status": v3["status"],
+            "outcome": v3["outcome"],
+            "arms": v3["arms"],
+            "measurement_history": v3["measurement_history"],
+            "claim_boundary": v3["claim_boundary"],
+        },
+        "review_projection": {
+            "private_package_authentication": "deferred_until_deanonymized",
+            "technical_repeats_are_independent": False,
+        },
+    }
+    destination = stage / "results" / "local-routing-multi-action-review.json"
+    write_json(destination, projection)
+    return destination
+
+
 def require_local_untracked_output() -> None:
     """Refuse to build a double-blind ZIP into the public Git index."""
 
@@ -298,26 +371,39 @@ def main(argv: list[str] | None = None) -> int:
         help="validated anonymous projection of the completed local routing diagnostic",
     )
     args = parser.parse_args(argv)
-    if not ARTIFACT.is_dir() or not PAPER.is_file():
-        raise SystemExit("build the sealed artifact and TMLR PDF first")
+    if not ARTIFACT.is_dir() or not V3_ARTIFACT.is_dir() or not PAPER.is_file():
+        raise SystemExit("build both sealed trigger artifacts and the TMLR PDF first")
     require_local_untracked_output()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="kaetram-tmlr-supplement-") as temporary:
         stage = Path(temporary) / "kaetram-tmlr-anonymous-supplement"
-        trust_root = build_review_artifact(stage / "artifact")
+        v2_trust_root = build_review_artifact(stage / "artifact-v2")
+        v3_trust_root = build_review_artifact(
+            stage / "artifact-v3",
+            artifact=V3_ARTIFACT,
+            results=V3_RESULTS,
+            registration_relative=Path("design/effective-registration.json"),
+            include_routing_posthoc=False,
+        )
         copy_file(PAPER, stage / "paper.pdf")
         for name in (
             "paper-table-public.md",
             "structured-call-validity-posthoc.json",
         ):
-            copy_file(RESULTS / name, stage / "results" / name)
+            copy_file(RESULTS / name, stage / "results" / "v2" / name)
+        copy_file(
+            V3_RESULTS / "paper-table-public.md",
+            stage / "results" / "v3" / "paper-table-public.md",
+        )
+        add_multi_action_review_summary(stage)
         if args.live_routing_projection is not None:
             add_live_routing_projection(stage, args.live_routing_projection)
         write_json(
             stage / "results" / "review-artifact-trust-root.json",
             {
                 "schema_version": "kaetram.review-artifact-trust-root.v1",
-                "artifact_index_sha256": trust_root,
+                "v2_artifact_index_sha256": v2_trust_root,
+                "v3_artifact_index_sha256": v3_trust_root,
                 "source_history_authentication": "deferred_until_deanonymized",
             },
         )
@@ -354,33 +440,44 @@ python3 scripts/opd/verify_live_routing_review_projection.py \\
 """
         readme = f"""# Anonymous TMLR review supplement
 
-This package contains the review manuscript and a review-only projection of the
-V2 artifact. The projection preserves the registered contract, all 20 rendered
-states, all 1,200 raw responses, and stored outcomes needed for independent
-recomputation. Direct source-history, historical-path, model-host, and endpoint
-coordinates are deferred until deanonymization.
+This package contains the review manuscript and review-only projections of the
+V2 and V3 trigger-incidence artifacts. Each projection preserves its registered
+contract, all 20 rendered states, all 1,200 raw responses, and stored outcomes
+needed for independent recomputation. Direct source-history, historical-path,
+model-host, and endpoint coordinates are deferred until deanonymization.
 
 Run from this directory:
 
 ```bash
 python3 scripts/opd/verify_trigger_incidence_review_bundle.py \\
-  --artifact-dir artifact \\
-  --expected-index-sha256 {trust_root}
+  --artifact-dir artifact-v2 \\
+  --expected-index-sha256 {v2_trust_root}
+
+python3 scripts/opd/verify_trigger_incidence_review_bundle.py \\
+  --artifact-dir artifact-v3 \\
+  --expected-index-sha256 {v3_trust_root}
 ```
 
-The command verifies every projected artifact byte, rejects duplicate or
+These commands verify every projected artifact byte, reject duplicate or
 non-finite JSON, checks the complete registered request schedule, reclassifies
 the primary parser-recoverable outcome from raw response messages, and
 recomputes all registered contrasts, the directional verdict, and response
-heterogeneity. The review trust root authenticates this projection only; it is
-not a public timestamp and it does not authenticate the deferred provenance.
+heterogeneity. The review trust roots authenticate these projections only;
+they are not public timestamps and do not authenticate deferred provenance.
+
+The file `results/local-routing-multi-action-review.json` preserves the sealed
+aggregate outcomes from the model-free routing diagnostic without source
+revisions or private runtime identities. V2 remains 9/9 protocol-valid and
+0/9 full-predicate-pass; the fresh post-amendment V3 run is separately 9/9 on
+both counts. Its three repeats per arm are dependent technical checks.
 {routing_note}
 """
         (stage / "README.md").write_text(readme)
         records = _inventory(stage)
         manifest = {
             "schema_version": PACKAGE_SCHEMA,
-            "review_artifact_index_sha256": trust_root,
+            "v2_review_artifact_index_sha256": v2_trust_root,
+            "v3_review_artifact_index_sha256": v3_trust_root,
             "files": records,
             "tree_sha256": hashlib.sha256(canonical_json_bytes(records).rstrip()).hexdigest(),
         }

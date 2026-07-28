@@ -270,12 +270,20 @@ def verify_review_artifact(root: Path, expected_index_sha256: str) -> dict:
     except primary_audit.AuditError as exc:
         raise ReviewVerificationError(str(exc)) from exc
     heterogeneity = _seed_heterogeneity(registration, rows)
-    routing_stored = _load_object(root / "analysis" / "routing-validity-posthoc.json")
-    routing_recomputed = routing_analysis.analyze_runs(
-        [root / "runs" / snapshot / "results.jsonl" for snapshot in registration["snapshots"]]
-    )
-    if routing_stored != routing_recomputed:
-        raise ReviewVerificationError("stored routing-validity decomposition does not recompute")
+    routing_path = root / "analysis" / "routing-validity-posthoc.json"
+    routing_recomputed = None
+    if routing_path.exists():
+        routing_stored = _load_object(routing_path)
+        routing_recomputed = routing_analysis.analyze_runs(
+            [
+                root / "runs" / snapshot / "results.jsonl"
+                for snapshot in registration["snapshots"]
+            ]
+        )
+        if routing_stored != routing_recomputed:
+            raise ReviewVerificationError(
+                "stored routing-validity decomposition does not recompute"
+            )
     native_effects = {
         record["snapshot"]: record["effect_rate_difference"]
         for record in recomputed["registered_contrasts"]
@@ -300,7 +308,7 @@ def verify_review_artifact(root: Path, expected_index_sha256: str) -> dict:
         raise ReviewVerificationError("stored registered contrasts do not recompute")
     if stored.get("directional_replication", {}).get("passed") != directional_passed:
         raise ReviewVerificationError("stored directional verdict does not recompute")
-    return {
+    result = {
         "artifact_index_sha256": expected_index_sha256,
         "artifact_tree_sha256": index["tree_sha256"],
         "scheduled_requests": recomputed["scheduled_requests"],
@@ -309,21 +317,33 @@ def verify_review_artifact(root: Path, expected_index_sha256: str) -> dict:
         "recovery_opportunities": recomputed["recovery_opportunities"],
         "native_tools_effects": native_effects,
         "directional_replication_passed": directional_passed,
-        "schema_valid_any_route_effects": {
-            row["snapshot"]: row["effect_rate_difference"]
-            for row in routing_recomputed["native_schema_valid_any_route_contrasts"]
-        },
-        "positive_sample_index_schema_contrasts": sum(
-            row["effect_rate_difference"] > 0
-            for row in routing_recomputed["sample_index_native_schema_contrasts"]
-        ),
-        "sample_index_schema_contrast_count": len(
-            routing_recomputed["sample_index_native_schema_contrasts"]
-        ),
-        "strict_recovery_replay": routing_recomputed["strict_recovery_replay"],
         **heterogeneity,
         "source_history_authentication": "deferred_until_deanonymized",
     }
+    if routing_recomputed is not None:
+        result.update(
+            {
+                "schema_valid_any_route_effects": {
+                    row["snapshot"]: row["effect_rate_difference"]
+                    for row in routing_recomputed[
+                        "native_schema_valid_any_route_contrasts"
+                    ]
+                },
+                "positive_sample_index_schema_contrasts": sum(
+                    row["effect_rate_difference"] > 0
+                    for row in routing_recomputed[
+                        "sample_index_native_schema_contrasts"
+                    ]
+                ),
+                "sample_index_schema_contrast_count": len(
+                    routing_recomputed["sample_index_native_schema_contrasts"]
+                ),
+                "strict_recovery_replay": routing_recomputed[
+                    "strict_recovery_replay"
+                ],
+            }
+        )
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:

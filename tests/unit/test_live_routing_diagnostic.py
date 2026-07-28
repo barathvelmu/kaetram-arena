@@ -17,20 +17,29 @@ from scripts.opd.live_routing_diagnostic import (
 REGISTRATION = (
     REPO_ROOT / "research/experiments/local-live-routing-diagnostic-v1.json"
 )
+READY_STATUS = "registered_before_live_execution"
 
 
 def _load() -> dict:
     return json.loads(REGISTRATION.read_text())
 
 
+def _validate(registration: dict, *, repo_root: Path | None = None) -> list[str]:
+    return validate_registration(
+        registration,
+        repo_root=repo_root,
+        expected_status=READY_STATUS,
+    )
+
+
 def test_frozen_registration_and_source_contract_are_valid() -> None:
-    assert validate_registration(_load(), repo_root=REPO_ROOT) == []
+    assert _validate(_load(), repo_root=REPO_ROOT) == []
 
 
 def test_candidate_or_content_drift_fails_closed() -> None:
     registration = _load()
     registration["candidate"]["arguments"]["location"] = "aynor"
-    errors = validate_registration(registration)
+    errors = _validate(registration)
     assert "candidate canonical JSON mismatch" in errors
     assert any(
         error.startswith("strict router no longer promotes frozen candidate")
@@ -42,7 +51,7 @@ def test_arm_and_schedule_drift_fails_closed() -> None:
     registration = _load()
     registration["arms"][2]["expected_candidate_invocations"] = 1
     registration["schedule"][0]["arm_order"].reverse()
-    errors = validate_registration(registration)
+    errors = _validate(registration)
     assert "arm semantics drift" in errors
     assert "balanced schedule drift" in errors
 
@@ -50,7 +59,7 @@ def test_arm_and_schedule_drift_fails_closed() -> None:
 def test_trial_identity_or_session_reuse_fails_closed() -> None:
     registration = _load()
     registration["trial_identities"][1]["username_template"] = "lr_{run_id}_01"
-    errors = validate_registration(registration)
+    errors = _validate(registration)
     assert "trial identity plan drift" in errors
 
 
@@ -59,7 +68,7 @@ def test_zero_cost_and_claim_boundaries_cannot_be_relaxed() -> None:
     registration["zero_cost_contract"]["remote_endpoints"] = "allowed"
     registration["claim_boundary"]["confirmatory"] = True
     registration["claim_boundary"]["prohibited_claims"].pop()
-    errors = validate_registration(registration)
+    errors = _validate(registration)
     assert "zero-cost or isolated-lane contract drift" in errors
     assert "diagnostic must remain explicitly non-confirmatory" in errors
     assert "prohibited claim boundary drift" in errors
@@ -71,7 +80,7 @@ def test_unknown_fields_and_json_type_confusion_fail_closed() -> None:
     registration["measurement"]["new_threshold"] = 0
     registration["live_contract"]["optional_invalidity_rule"] = "exclude"
     registration["zero_cost_contract"]["model_calls"] = False
-    errors = validate_registration(registration)
+    errors = _validate(registration)
     assert "registration top-level key set drift" in errors
     assert "measurement key set drift" in errors
     assert "live contract key set drift" in errors
@@ -87,7 +96,7 @@ def test_source_file_tampering_is_detected(tmp_path: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(source.read_bytes())
     (root / "tool_surface.py").write_text("tampered\n")
-    errors = validate_registration(registration, repo_root=root)
+    errors = _validate(registration, repo_root=root)
     assert "source file digest drift: tool_surface.py" in errors
 
 
@@ -95,7 +104,7 @@ def test_retry_or_independence_overclaim_fails_closed() -> None:
     registration = copy.deepcopy(_load())
     registration["measurement"]["candidate_retry_count"] = 1
     registration["reporting"]["independent_sample_claim"] = True
-    errors = validate_registration(registration)
+    errors = _validate(registration)
     assert "candidate retry count must remain zero" in errors
     assert "technical repeats cannot be called independent samples" in errors
 
@@ -108,7 +117,7 @@ def test_scientific_contract_fields_are_all_fail_closed() -> None:
     registration["reporting"]["p_values"] = "allowed"
     registration["live_contract"]["game_revision"] = "0" * 40
     registration["state_fixture"]["precondition"] = "best effort"
-    errors = validate_registration(registration)
+    errors = _validate(registration)
     assert "permitted claim boundary drift" in errors
     assert "Mudwich success predicate drift" in errors
     assert "failure policy drift" in errors
@@ -117,13 +126,36 @@ def test_scientific_contract_fields_are_all_fail_closed() -> None:
     assert "canonical precondition drift" in errors
 
 
-def test_design_is_explicitly_not_live_ready_and_seals_validator_source() -> None:
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("node_version", "v20.20.1"),
+        ("node_executable_sha256", "0" * 64),
+        ("docker_client_version", "Docker version 29.2.0, build stale"),
+        ("docker_executable_sha256", "0" * 64),
+    ],
+)
+def test_registered_node_and_docker_identity_cannot_drift(
+    field: str, value: str
+) -> None:
     registration = _load()
-    assert registration["status"] == "design_scaffolding_not_live_ready"
+    registration["live_contract"][field] = value
+    assert f"runtime environment drift: {field}" in _validate(registration)
+
+
+def test_live_ready_registration_seals_complete_runtime_source() -> None:
+    registration = _load()
+    assert registration["status"] == READY_STATUS
     assert "scripts/opd/live_routing_diagnostic.py" in (
         registration["source_contract"]["files"]
     )
     assert "scripts/opd/live_routing_prelaunch.py" in (
+        registration["source_contract"]["files"]
+    )
+    assert "scripts/opd/live_routing_orchestrator.py" in (
+        registration["source_contract"]["files"]
+    )
+    assert "scripts/opd/live_routing_services.py" in (
         registration["source_contract"]["files"]
     )
 
@@ -133,7 +165,7 @@ def test_measurement_fixture_and_source_key_set_cannot_drift() -> None:
     registration["measurement"]["stages"].pop()
     registration["state_fixture"]["source"] = "another.fixture"
     del registration["source_contract"]["files"]["mcp_server/tools/navigation.py"]
-    errors = validate_registration(registration)
+    errors = _validate(registration)
     assert "measurement stages drift" in errors
     assert "canonical state fixture source drift" in errors
     assert "source file contract key set drift" in errors

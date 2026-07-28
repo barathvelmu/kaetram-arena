@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import socket
 import sys
@@ -97,6 +98,14 @@ async def _wait_for_client_url(client_url: str, *, timeout_s: float = 20.0) -> N
     await _wait_for_tcp(parsed.hostname, port, timeout_s=timeout_s, label="Game client")
 
 
+def _registered_timeout(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+    return value if math.isfinite(value) and value > 0 else default
+
+
 async def send_chat_command_via_browser(
     *,
     username: str,
@@ -127,8 +136,16 @@ async def send_chat_command_via_browser(
     except ValueError:
         game_ws_port = 9001
 
-    await _wait_for_tcp(game_ws_host, game_ws_port, label="Game server")
-    await _wait_for_client_url(client_url)
+    readiness_timeout = _registered_timeout(
+        "KAETRAM_SERVICE_READINESS_TIMEOUT_SECONDS", 20.0
+    )
+    await _wait_for_tcp(
+        game_ws_host,
+        game_ws_port,
+        timeout_s=readiness_timeout,
+        label="Game server",
+    )
+    await _wait_for_client_url(client_url, timeout_s=readiness_timeout)
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
@@ -350,6 +367,7 @@ async def mcp_session(
     headed: bool = False,
     state_dir: str | None = None,
     extra_env: dict[str, str] | None = None,
+    python_executable: str | None = None,
 ):
     """Spawn mcp_game_server as a stdio MCP subprocess scoped to `username`.
 
@@ -434,8 +452,16 @@ async def mcp_session(
 
     # Block before any test code runs until both the game socket and the web
     # client URL are reachable.
-    await _wait_for_tcp(game_ws_host, game_ws_port, label="Game server")
-    await _wait_for_client_url(client_url)
+    readiness_timeout = _registered_timeout(
+        "KAETRAM_SERVICE_READINESS_TIMEOUT_SECONDS", 20.0
+    )
+    await _wait_for_tcp(
+        game_ws_host,
+        game_ws_port,
+        timeout_s=readiness_timeout,
+        label="Game server",
+    )
+    await _wait_for_client_url(client_url, timeout_s=readiness_timeout)
     mark("endpoints_ready")
 
     if state_dir is None:
@@ -468,8 +494,11 @@ async def mcp_session(
         **(extra_env or {}),
     }
 
+    resolved_python = python_executable or (
+        str(VENV_PYTHON) if VENV_PYTHON.is_file() else sys.executable
+    )
     params = StdioServerParameters(
-        command=str(VENV_PYTHON),
+        command=resolved_python,
         args=[str(MCP_SERVER)],
         env=env,
     )

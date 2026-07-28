@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
+import os
+import signal
 import subprocess
+import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -11,10 +18,18 @@ from scripts.opd.live_routing_launcher import (
     CreateOnlyCanonicalStore,
     LaneConfig,
     LauncherError,
+    PartialSeedError,
     SessionSpec,
+    _client_dist_inventory,
+    _parse_tool_json,
+    _terminate_owned_process_group,
     attest_game_checkout,
     canonical_documents,
+    run_session_worker,
+    session_worker,
     sanitized_worker_environment,
+    validate_runtime_attestation,
+    validate_runtime_attestation_set,
 )
 
 
@@ -30,8 +45,11 @@ def _git(repo: Path, *arguments: str) -> str:
 def test_game_checkout_attestation_binds_clean_commit_and_bundle(tmp_path: Path) -> None:
     root = tmp_path / "game"
     bundle = root / "packages/server/dist/main.js"
+    client_file = root / "packages/client/dist/index.html"
     bundle.parent.mkdir(parents=True)
+    client_file.parent.mkdir(parents=True)
     bundle.write_bytes(b"reviewed game bundle\n")
+    client_file.write_bytes(b"reviewed client bundle\n")
     _git(root, "init", "-q")
     _git(root, "config", "user.name", "Game Test")
     _git(root, "config", "user.email", "game@example.invalid")
@@ -44,13 +62,52 @@ def test_game_checkout_attestation_binds_clean_commit_and_bundle(tmp_path: Path)
         "live_contract": {
             "game_revision": head,
             "game_bundle_sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
+            "client_dist_inventory_sha256": _client_dist_inventory(
+                client_file.parent
+            )["inventory_sha256"],
         }
     }
     receipt = attest_game_checkout(root, registration)
     assert receipt["git_head"] == head
     assert receipt["worktree_clean"] is True
+    assert receipt["client_dist_file_count"] == 1
     bundle.write_bytes(b"drift\n")
     with pytest.raises(LauncherError, match="not completely clean"):
+        attest_game_checkout(root, registration)
+
+
+def test_game_checkout_attestation_detects_ignored_client_mutation_and_symlink(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "game"
+    bundle = root / "packages/server/dist/main.js"
+    client_dist = root / "packages/client/dist"
+    bundle.parent.mkdir(parents=True)
+    client_dist.mkdir(parents=True)
+    bundle.write_bytes(b"reviewed game bundle\n")
+    (client_dist / "index.html").write_bytes(b"reviewed client bundle\n")
+    (root / ".gitignore").write_text("/packages/client/dist/\n", encoding="utf-8")
+    _git(root, "init", "-q")
+    _git(root, "config", "user.name", "Game Test")
+    _git(root, "config", "user.email", "game@example.invalid")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "game")
+    registration = {
+        "live_contract": {
+            "game_revision": _git(root, "rev-parse", "HEAD"),
+            "game_bundle_sha256": hashlib.sha256(bundle.read_bytes()).hexdigest(),
+            "client_dist_inventory_sha256": _client_dist_inventory(client_dist)[
+                "inventory_sha256"
+            ],
+        }
+    }
+    attest_game_checkout(root, registration)
+    (client_dist / "index.html").write_bytes(b"mutated client bundle\n")
+    with pytest.raises(LauncherError, match="client dist inventory digest drift"):
+        attest_game_checkout(root, registration)
+    (client_dist / "index.html").write_bytes(b"reviewed client bundle\n")
+    (client_dist / "escape").symlink_to(bundle)
+    with pytest.raises(LauncherError, match="client dist contains a symlink"):
         attest_game_checkout(root, registration)
 
 
@@ -78,8 +135,533 @@ def test_worker_environment_is_local_minimal_and_credential_free(tmp_path: Path)
     assert environment["KAETRAM_MONGO_DB"] == "kaetram_e2e"
     assert environment["KAETRAM_REQUIRE_EXISTING_ACCOUNT"] == "1"
     assert environment["KAETRAM_DISABLE_HEARTBEATS"] == "1"
+    assert environment["KAETRAM_SERVICE_READINESS_TIMEOUT_SECONDS"] == "60"
+    assert environment["KAETRAM_LOGIN_TIMEOUT_SECONDS"] == "60"
     assert "OPENAI_API_KEY" not in environment
     assert "KAETRAM_QWEN_ENDPOINT" not in environment
+
+
+class _ToolResult:
+    def __init__(self, text: str, *, is_error: bool = False):
+        self.text = text
+        self.is_error = is_error
+
+
+def test_tool_result_parser_is_strict_and_name_bound() -> None:
+    assert _parse_tool_json(
+        _ToolResult('observe: {"pos":{"x":1,"y":2}}\n\nASCII_MAP:\nignored'),
+        expected_name="observe",
+    ) == {"pos": {"x": 1, "y": 2}}
+    assert _parse_tool_json(
+        _ToolResult('{"a":1,"a":2}'), expected_name="observe"
+    ) is None
+    assert _parse_tool_json(
+        _ToolResult('{"a":NaN}'), expected_name="observe"
+    ) is None
+    assert _parse_tool_json(
+        _ToolResult('{"ok":true}', is_error=True), expected_name="observe"
+    ) is None
+
+
+def _session_spec() -> SessionSpec:
+    return SessionSpec(
+        trial_id="trial-0001",
+        session_id="llrd-local001-t01-treatment",
+        phase="treatment",
+        username="lr_local001_01",
+        arm="structured_direct",
+    )
+
+
+def _runtime_attestation() -> dict:
+    return {
+        "schema_version": "kaetram.diagnostic-runtime-attestation.v1",
+        "session_id": "llrd-local001-t01-treatment",
+        "mcp_pid": 12346,
+        "mcp_process_group": 12345,
+        "mcp_instance_nonce": "1" * 32,
+        "browser_launch_nonce": "2" * 32,
+        "browser_nonce_echo": "2" * 32,
+        "browser_name": "chromium",
+        "browser_version": "123.0",
+        "browser_executable_sha256": "3" * 64,
+        "page_url": "http://127.0.0.1:9000/",
+        "player_username": "lr_local001_01",
+        "configured_client_url": "http://127.0.0.1:9000",
+        "configured_game_port": "9191",
+        "require_existing_account": True,
+        "heartbeats_disabled": True,
+        "loopback_only": True,
+    }
+
+
+def test_runtime_attestation_binds_exact_cold_session_and_lane() -> None:
+    validate_runtime_attestation(
+        _runtime_attestation(),
+        _session_spec(),
+        worker_pid=12344,
+        worker_process_group=12345,
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("session_id", "llrd-local001-t02-treatment", "session identity"),
+        ("mcp_pid", True, "MCP process identity"),
+        ("mcp_process_group", 99999, "MCP process identity"),
+        ("mcp_instance_nonce", "not-a-nonce", "nonce identity"),
+        ("browser_nonce_echo", "4" * 32, "nonce echo"),
+        ("browser_executable_sha256", None, "browser identity"),
+        ("page_url", "https://example.invalid/", "loopback lane"),
+        ("configured_game_port", "9001", "lane or player identity"),
+        ("loopback_only", False, "lane or player identity"),
+    ],
+)
+def test_runtime_attestation_rejects_identity_or_lane_drift(
+    field: str, value, message: str
+) -> None:
+    attestation = _runtime_attestation()
+    attestation[field] = value
+    with pytest.raises(LauncherError, match=message):
+        validate_runtime_attestation(
+            attestation,
+            _session_spec(),
+            worker_pid=12344,
+            worker_process_group=12345,
+        )
+
+
+def _runtime_attestation_rows() -> list[tuple[SessionSpec, dict]]:
+    rows = []
+    index = 0
+    for trial_index in range(1, 10):
+        for phase in ("treatment", "reconnect"):
+            index += 1
+            spec = SessionSpec(
+                trial_id=f"trial-{trial_index:02d}",
+                session_id=f"llrd-local001-t{trial_index:02d}-{phase}",
+                phase=phase,
+                username=f"lr_local001_{trial_index:02d}",
+                arm=(
+                    "structured_direct"
+                    if trial_index % 3 == 1
+                    else "content_recovery_on"
+                    if trial_index % 3 == 2
+                    else "content_recovery_off"
+                ),
+            )
+            attestation = _runtime_attestation()
+            attestation.update(
+                {
+                    "session_id": spec.session_id,
+                    "player_username": spec.username,
+                    "mcp_pid": 20_000 + index,
+                    "mcp_process_group": 10_000 + index,
+                    "mcp_instance_nonce": f"{index:032x}",
+                    "browser_launch_nonce": f"{index + 100:032x}",
+                    "browser_nonce_echo": f"{index + 100:032x}",
+                }
+            )
+            rows.append((spec, attestation))
+    return rows
+
+
+def test_runtime_attestation_set_proves_all_18_sessions_are_cold() -> None:
+    validate_runtime_attestation_set(_runtime_attestation_rows())
+
+
+def test_runtime_attestation_set_rejects_cross_session_reuse() -> None:
+    rows = _runtime_attestation_rows()
+    rows[1][1]["browser_launch_nonce"] = rows[0][1]["browser_launch_nonce"]
+    rows[1][1]["browser_nonce_echo"] = rows[0][1]["browser_nonce_echo"]
+    with pytest.raises(LauncherError, match="cold identity reused"):
+        validate_runtime_attestation_set(rows)
+
+
+def test_runtime_attestation_set_accepts_and_verifies_raw_envelopes() -> None:
+    rows = []
+    for spec, parsed in _runtime_attestation_rows():
+        raw = "__diagnostic_runtime_attestation: " + json.dumps(
+            parsed, separators=(",", ":")
+        )
+        rows.append(
+            (
+                spec,
+                {
+                    "raw_text": raw,
+                    "raw_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+                    "parsed": parsed,
+                },
+            )
+        )
+    validate_runtime_attestation_set(rows)
+
+
+def _observe_payload(*, canonical: bool = True) -> dict:
+    return {
+        "pos": {"x": 328 if canonical else 329, "y": 892},
+        "stats": {"hp": 69, "max_hp": 69, "level": 1, "xp": 0},
+        "equipment": {},
+        "skills": {},
+        "inventory": [
+            {"slot": 0, "key": "bronzeaxe", "count": 1},
+            {"slot": 1, "key": "knife", "count": 1},
+            {"slot": 2, "key": "fishingpole", "count": 1},
+            {"slot": 3, "key": "coppersword", "count": 1},
+            {"slot": 4, "key": "woodenbow", "count": 1},
+        ],
+        "active_quests": [],
+        "finished_quests": [{"name": "Miner's Quest"}],
+        "is_dead": False,
+        "indoors": False,
+    }
+
+
+class _FakeMcpHandle:
+    def __init__(
+        self,
+        *,
+        attestation_raw: str,
+        canonical_precondition: bool = True,
+        candidate_text: str = '{"warping":true,"warp_id":0}',
+        candidate_exception: Exception | None = None,
+    ) -> None:
+        self.attestation_raw = attestation_raw
+        self.canonical_precondition = canonical_precondition
+        self.candidate_text = candidate_text
+        self.candidate_exception = candidate_exception
+        self.calls: list[tuple[str, dict]] = []
+        self.observe_count = 0
+
+    async def call_tool(self, name: str, arguments: dict) -> _ToolResult:
+        self.calls.append((name, arguments))
+        if name == "__diagnostic_runtime_attestation":
+            return _ToolResult(self.attestation_raw)
+        if name == "observe":
+            self.observe_count += 1
+            payload = _observe_payload(
+                canonical=self.canonical_precondition or self.observe_count > 1
+            )
+            return _ToolResult("observe: " + json.dumps(payload, separators=(",", ":")))
+        if self.candidate_exception is not None:
+            raise self.candidate_exception
+        return _ToolResult(self.candidate_text)
+
+
+class _FakeMcpContext:
+    def __init__(self, handle: _FakeMcpHandle) -> None:
+        self.handle = handle
+
+    async def __aenter__(self) -> _FakeMcpHandle:
+        return self.handle
+
+    async def __aexit__(self, *_args) -> None:
+        return None
+
+
+def _run_fake_worker(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    arm: str = "structured_direct",
+    phase: str = "treatment",
+    canonical_precondition: bool = True,
+    candidate_text: str = '{"warping":true,"warp_id":0}',
+    candidate_exception: Exception | None = None,
+) -> tuple[dict, _FakeMcpHandle, str]:
+    session_id = f"llrd-local001-t01-{phase}"
+    spec = SessionSpec(
+        trial_id="trial-0001",
+        session_id=session_id,
+        phase=phase,
+        username="lr_local001_01",
+        arm=arm,
+    )
+    attestation = _runtime_attestation()
+    attestation.update(
+        {
+            "session_id": session_id,
+            "mcp_pid": os.getpid() + 100_000,
+            "mcp_process_group": os.getpgrp(),
+        }
+    )
+    attestation_raw = "__diagnostic_runtime_attestation: " + json.dumps(
+        attestation, separators=(",", ":")
+    )
+    handle = _FakeMcpHandle(
+        attestation_raw=attestation_raw,
+        canonical_precondition=canonical_precondition,
+        candidate_text=candidate_text,
+        candidate_exception=candidate_exception,
+    )
+
+    def factory(**_kwargs) -> _FakeMcpContext:
+        return _FakeMcpContext(handle)
+
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    registration = {
+        "arms": [{"arm": arm}],
+        "candidate": {
+            "name": "warp",
+            "arguments": {"location": "mudwich"},
+            "content_envelope": (
+                "<tool_call><function=warp><parameter=location>mudwich"
+                "</parameter></function></tool_call>"
+            ),
+        },
+        "runtime_parameters": {"minimum_delayed_observation_seconds": 0},
+    }
+    monkeypatch.setenv("KAETRAM_STATE_DIR", str(tmp_path / "state"))
+    phase_record = asyncio.run(
+        session_worker(
+            spec,
+            registration,
+            mcp_session_factory=factory,
+            sleep=no_sleep,
+        )
+    )
+    return phase_record, handle, attestation_raw
+
+
+@pytest.mark.parametrize("arm", ["structured_direct", "content_recovery_on"])
+def test_worker_dispatches_valid_candidate_exactly_once(
+    tmp_path: Path, monkeypatch, arm: str
+) -> None:
+    phase, handle, _ = _run_fake_worker(tmp_path, monkeypatch, arm=arm)
+    assert [call for call in handle.calls if call[0] == "warp"] == [
+        ("warp", {"location": "mudwich"})
+    ]
+    assert phase["routing"]["candidate_invocation_count"] == 1
+    assert phase["routing"]["delivery_status"] == "confirmed"
+    assert phase["candidate_call_ledger"] == [
+        {
+            "sequence": 1,
+            "name": "warp",
+            "arguments": {"location": "mudwich"},
+            "delivery_status": "confirmed",
+            "protocol_success": True,
+            "result_raw_sha256": hashlib.sha256(
+                b'{"warping":true,"warp_id":0}'
+            ).hexdigest(),
+        }
+    ]
+
+
+def test_worker_recovery_off_makes_zero_candidate_calls(
+    tmp_path: Path, monkeypatch
+) -> None:
+    phase, handle, _ = _run_fake_worker(
+        tmp_path, monkeypatch, arm="content_recovery_off"
+    )
+    assert not [call for call in handle.calls if call[0] == "warp"]
+    assert phase["routing"]["candidate_invocation_count"] == 0
+    assert phase["candidate_call_ledger"] == []
+
+
+def test_worker_precondition_mismatch_makes_zero_candidate_calls(
+    tmp_path: Path, monkeypatch
+) -> None:
+    phase, handle, _ = _run_fake_worker(
+        tmp_path, monkeypatch, canonical_precondition=False
+    )
+    assert not [call for call in handle.calls if call[0] == "warp"]
+    assert phase["routing"]["dispatch_attempted"] is False
+    assert phase["candidate_call_ledger"] == []
+
+
+def test_worker_transport_exception_is_unknown_and_never_retried(
+    tmp_path: Path, monkeypatch
+) -> None:
+    phase, handle, _ = _run_fake_worker(
+        tmp_path, monkeypatch, candidate_exception=RuntimeError("transport lost")
+    )
+    assert len([call for call in handle.calls if call[0] == "warp"]) == 1
+    assert phase["routing"]["delivery_status"] == "unknown_after_exception"
+    assert phase["routing"]["protocol_success"] is None
+    assert phase["candidate_call_ledger"] == [
+        {
+            "sequence": 1,
+            "name": "warp",
+            "arguments": {"location": "mudwich"},
+            "delivery_status": "unknown_after_exception",
+            "protocol_success": None,
+            "result_raw_sha256": None,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "candidate_text",
+    [
+        '{"warping":true,"warp_id":0,"warp_id":1}',
+        '{"warping":true,"warp_id":NaN}',
+    ],
+)
+def test_worker_rejects_duplicate_or_nonfinite_candidate_result(
+    tmp_path: Path, monkeypatch, candidate_text: str
+) -> None:
+    phase, handle, _ = _run_fake_worker(
+        tmp_path, monkeypatch, candidate_text=candidate_text
+    )
+    assert len([call for call in handle.calls if call[0] == "warp"]) == 1
+    assert phase["routing"]["result_json"] is None
+    assert phase["routing"]["result_raw_text"] == candidate_text
+
+
+def test_worker_reconnect_is_observe_only(tmp_path: Path, monkeypatch) -> None:
+    phase, handle, _ = _run_fake_worker(
+        tmp_path, monkeypatch, phase="reconnect"
+    )
+    assert [name for name, _ in handle.calls] == [
+        "__diagnostic_runtime_attestation",
+        "observe",
+    ]
+    assert phase["routing"] is None
+    assert phase["reconnect"]["available"] is True
+    assert phase["candidate_call_ledger"] == []
+
+
+def test_worker_retains_exact_raw_runtime_attestation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    phase, _, raw = _run_fake_worker(tmp_path, monkeypatch)
+    evidence = phase["runtime_attestation"]
+    assert set(evidence) == {"raw_text", "raw_sha256", "parsed"}
+    assert evidence["raw_text"] == raw
+    assert evidence["raw_sha256"] == hashlib.sha256(raw.encode()).hexdigest()
+
+
+class _WorkerProcess:
+    pid = 4321
+
+    def __init__(self, stdout: str, stderr: str = "", returncode: int = 0):
+        self.stdout = stdout
+        self.stderr = stderr
+        self.returncode = returncode
+
+    def communicate(self, timeout=None):
+        return self.stdout, self.stderr
+
+
+@pytest.mark.parametrize(
+    ("process", "exception"),
+    [
+        (_WorkerProcess("not-json"), LauncherError),
+        (_WorkerProcess('{"ok":true}', stderr="failed", returncode=2), LauncherError),
+    ],
+)
+def test_worker_failure_paths_always_check_owned_process_group(
+    tmp_path: Path, monkeypatch, process: _WorkerProcess, exception: type[BaseException]
+) -> None:
+    cleanup_calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": False, "sigkill_required": False, "still_alive": False},
+    )
+    with pytest.raises(exception):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=tmp_path / "state",
+            timeout_seconds=1,
+        )
+    assert cleanup_calls == [4321]
+
+
+@pytest.mark.parametrize(
+    ("raised", "expected"),
+    [
+        (KeyboardInterrupt(), KeyboardInterrupt),
+        (subprocess.TimeoutExpired(cmd="worker", timeout=1), LauncherError),
+    ],
+)
+def test_worker_interrupt_or_timeout_always_checks_owned_process_group(
+    tmp_path: Path, monkeypatch, raised: BaseException, expected: type[BaseException]
+) -> None:
+    class _InterruptedProcess:
+        pid = 4321
+        returncode = None
+
+        @staticmethod
+        def communicate(timeout=None):
+            raise raised
+
+    cleanup_calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: _InterruptedProcess())
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": True, "sigkill_required": False, "still_alive": False},
+    )
+    with pytest.raises(expected):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=tmp_path / "state",
+            timeout_seconds=1,
+        )
+    assert cleanup_calls == [4321]
+
+
+def test_surviving_process_group_is_killed_and_refuses_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    process = _WorkerProcess('{"ok":true}')
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: {
+            "found_alive": True,
+            "sigkill_required": True,
+            "still_alive": False,
+        },
+    )
+    with pytest.raises(LauncherError, match="survived worker exit"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=tmp_path / "state",
+            timeout_seconds=1,
+        )
+
+
+def test_process_group_teardown_escalates_to_kill(monkeypatch) -> None:
+    alive = True
+    signals = []
+
+    def killpg(process_group: int, sent_signal: int) -> None:
+        nonlocal alive
+        if sent_signal == 0:
+            if not alive:
+                raise ProcessLookupError
+            return
+        signals.append((process_group, sent_signal))
+        if sent_signal == signal.SIGKILL:
+            alive = False
+
+    class _Process:
+        pid = 9876
+
+        @staticmethod
+        def poll():
+            return 0
+
+    monkeypatch.setattr("scripts.opd.live_routing_launcher.os.killpg", killpg)
+    result = _terminate_owned_process_group(_Process(), grace_seconds=0)
+    assert signals == [(9876, signal.SIGTERM), (9876, signal.SIGKILL)]
+    assert result == {
+        "found_alive": True,
+        "sigkill_required": True,
+        "still_alive": False,
+    }
 
 
 def test_canonical_documents_cover_all_player_collections() -> None:
@@ -100,6 +682,11 @@ def test_canonical_documents_cover_all_player_collections() -> None:
 class _InsertResult:
     def __init__(self, identifier: str):
         self.inserted_id = identifier
+
+
+class _DeleteResult:
+    def __init__(self, deleted_count: int):
+        self.deleted_count = deleted_count
 
 
 class _Collection:
@@ -130,6 +717,13 @@ class _Collection:
             if all(document.get(key) == value for key, value in query.items()):
                 return dict(document)
         return None
+
+    def delete_one(self, query: dict) -> _DeleteResult:
+        for index, document in enumerate(self.documents):
+            if all(document.get(key) == value for key, value in query.items()):
+                self.documents.pop(index)
+                return _DeleteResult(1)
+        return _DeleteResult(0)
 
 
 class _Database:
@@ -166,7 +760,96 @@ def test_create_only_store_refuses_reuse_and_inserts_player_info_last() -> None:
     receipt = store.insert_canonical("lr_local001_01", "trial-0001")
     assert receipt["absence"]["all_absent"] is True
     assert receipt["player_info_inserted_last"] is True
+    assert receipt["insertion_order"] == [
+        LOCK_COLLECTION,
+        *(name for name in MONGO_COLLECTIONS if name != "player_info"),
+        "player_info",
+    ]
     assert client.database.order[-1] == "player_info"
     assert set(receipt["inserted_ids"]) == {LOCK_COLLECTION, *MONGO_COLLECTIONS}
     with pytest.raises(LauncherError, match="already exists"):
         store.insert_canonical("lr_local001_01", "trial-0001-retry")
+
+
+def test_partial_seed_receipt_reports_only_completed_insert_order(
+    monkeypatch,
+) -> None:
+    client = _Client()
+    store = CreateOnlyCanonicalStore(client_factory=lambda _: client)
+
+    def fail_insert(_document: dict) -> _InsertResult:
+        raise RuntimeError("injected write failure")
+
+    monkeypatch.setattr(client.database["player_bank"], "insert_one", fail_insert)
+    with pytest.raises(PartialSeedError) as raised:
+        store.insert_canonical("lr_local001_01", "trial-0001")
+    assert raised.value.receipt["insertion_order"] == [
+        LOCK_COLLECTION,
+        "player_inventory",
+    ]
+    assert set(raised.value.receipt["inserted_ids"]) == {
+        LOCK_COLLECTION,
+        "player_inventory",
+    }
+    assert raised.value.receipt["player_info_inserted_last"] is False
+
+
+def test_partial_seed_cleanup_deletes_only_owned_inserted_rows(
+    monkeypatch,
+) -> None:
+    client = _Client()
+    store = CreateOnlyCanonicalStore(client_factory=lambda _: client)
+
+    def fail_insert(_document: dict) -> _InsertResult:
+        raise RuntimeError("injected write failure")
+
+    monkeypatch.setattr(client.database["player_bank"], "insert_one", fail_insert)
+    with pytest.raises(PartialSeedError) as raised:
+        store.insert_canonical("lr_local001_01", "trial-0001")
+    monkeypatch.setitem(
+        sys.modules, "bson", types.SimpleNamespace(ObjectId=lambda value: value)
+    )
+    cleanup = store.cleanup_owned(
+        "lr_local001_01",
+        "trial-0001",
+        raised.value.receipt["inserted_ids"],
+    )
+    assert cleanup["deleted"]["player_inventory"] == 1
+    assert all(
+        cleanup["deleted"][collection] == 0
+        for collection in MONGO_COLLECTIONS
+        if collection != "player_inventory"
+    )
+    assert cleanup["lock_deleted"] == 1
+    assert cleanup["absence"]["all_absent"] is True
+    assert cleanup["complete"] is True
+
+
+def test_cleanup_attempts_remaining_owned_rows_after_one_delete_fails(
+    monkeypatch,
+) -> None:
+    client = _Client()
+    store = CreateOnlyCanonicalStore(client_factory=lambda _: client)
+    seed = store.insert_canonical("lr_local001_01", "trial-0001")
+    monkeypatch.setitem(
+        sys.modules, "bson", types.SimpleNamespace(ObjectId=lambda value: value)
+    )
+
+    def fail_delete(_query: dict) -> _DeleteResult:
+        raise RuntimeError("injected delete failure")
+
+    monkeypatch.setattr(
+        client.database["player_bank"], "delete_one", fail_delete
+    )
+    with pytest.raises(LauncherError, match="ownership cleanup") as raised:
+        store.cleanup_owned(
+            "lr_local001_01", "trial-0001", seed["inserted_ids"]
+        )
+    receipt = raised.value.cleanup_receipt
+    assert receipt["deleted"]["player_bank"] == 0
+    assert receipt["deleted"]["player_info"] == 1
+    assert receipt["lock_deleted"] == 1
+    assert receipt["complete"] is False
+    assert client.database["player_bank"].documents
+    assert client.database["player_info"].documents == []
+    assert client.database[LOCK_COLLECTION].documents == []

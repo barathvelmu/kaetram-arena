@@ -11,8 +11,10 @@ from pathlib import Path
 import pytest
 
 from scripts.opd.live_routing_diagnostic import (
+    DESIGN_SOURCE_PATHS,
     LIVE_READY_ADDITIONAL_SOURCE_PATHS,
     REPO_ROOT,
+    STATUS,
 )
 from scripts.opd.live_routing_prelaunch import (
     EXPECTED_LANE,
@@ -46,10 +48,12 @@ def _ready_repo(tmp_path: Path) -> tuple[Path, Path, str]:
     repo.mkdir()
     registration = json.loads(REGISTRATION.read_text())
     registration["status"] = READY_STATUS
-    for relative in LIVE_READY_ADDITIONAL_SOURCE_PATHS:
+    for relative in (*DESIGN_SOURCE_PATHS, *LIVE_READY_ADDITIONAL_SOURCE_PATHS):
         target = repo / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(f'"""Test placeholder for {relative}."""\n')
+        if not target.exists():
+            source = REPO_ROOT / relative
+            target.write_bytes(source.read_bytes())
         registration["source_contract"]["files"][relative] = ""
     for relative in registration["source_contract"]["files"]:
         target = repo / relative
@@ -73,12 +77,16 @@ def _ready_repo(tmp_path: Path) -> tuple[Path, Path, str]:
     return repo, registration_path, _git(repo, "rev-parse", "HEAD")
 
 
-def test_current_design_registration_cannot_create_receipt(tmp_path: Path) -> None:
+def test_design_status_registration_cannot_create_receipt(tmp_path: Path) -> None:
+    design_registration = json.loads(REGISTRATION.read_text())
+    design_registration["status"] = STATUS
+    registration_path = tmp_path / "design-registration.json"
+    registration_path.write_text(json.dumps(design_registration))
     output = tmp_path / "receipt.json"
     with pytest.raises(PrelaunchError, match="not live-ready"):
         create_prelaunch_receipt(
             output,
-            REGISTRATION,
+            registration_path,
             repo_root=REPO_ROOT,
             expected_head="0" * 40,
             run_id="local001",

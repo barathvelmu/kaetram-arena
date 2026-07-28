@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,9 +36,10 @@ from scripts.opd.live_routing_prelaunch import (  # noqa: E402
     validate_lane,
     verify_prelaunch_receipt,
 )
+from scripts.opd.live_routing_services import MONGO_IMAGE  # noqa: E402
 
 
-MANIFEST_SCHEMA_VERSION = "kaetram.live-routing-diagnostic-manifest.v1"
+MANIFEST_SCHEMA_VERSION = "kaetram.live-routing-diagnostic-manifest.v2"
 MANIFEST_KEYS = {
     "schema_version",
     "study_id",
@@ -44,11 +47,91 @@ MANIFEST_KEYS = {
     "registration_sha256",
     "prelaunch_file_sha256",
     "prelaunch_payload_sha256",
+    "runtime_preflight_file_sha256",
+    "runtime_preflight_payload_sha256",
     "claim_contract_sha256",
     "trial_plan_sha256",
     "entries",
     "final_chain_head",
     "payload_sha256",
+}
+RUNTIME_PREFLIGHT_SCHEMA_VERSION = "kaetram.live-routing-runtime-preflight.v2"
+RUNTIME_PREFLIGHT_KEYS = {
+    "schema_version",
+    "study_id",
+    "run_id",
+    "registration_sha256",
+    "prelaunch_payload_sha256",
+    "game",
+    "mongo",
+    "python",
+    "services",
+    "payload_sha256",
+}
+GAME_PREFLIGHT_KEYS = {
+    "git_head",
+    "worktree_clean",
+    "bundle_path",
+    "bundle_size_bytes",
+    "bundle_sha256",
+    "client_dist_file_count",
+    "client_dist_inventory_sha256",
+}
+MONGO_PREFLIGHT_KEYS = {"uri", "database", "nodes", "loopback_only"}
+MONGO_NODE_KEYS = {"host", "port"}
+PYTHON_PREFLIGHT_KEYS = {
+    "python_version",
+    "python_executable_sha256",
+    "mcp_version",
+    "playwright_version",
+    "pymongo_version",
+}
+SERVICES_EVIDENCE_KEYS = {
+    "schema_version",
+    "lane",
+    "mongo_image",
+    "mongo_image_attestation",
+    "container_name",
+    "services",
+    "environment",
+    "identity",
+    "payload_sha256",
+}
+SERVICES_LANE = {
+    "host": "127.0.0.1",
+    "mongo_port": 27017,
+    "client_port": 9000,
+    "game_port": 9191,
+    "mongo_database": "kaetram_e2e",
+    "model_calls": 0,
+    "remote_endpoints": 0,
+}
+SERVICE_PROCESS_KEYS = {"command", "pid", "process_group", "cwd"}
+SERVICE_ENVIRONMENT = {
+    "NODE_ENV": "e2e",
+    "HOST": "127.0.0.1",
+    "PORT": "9191",
+    "SKIP_DATABASE": "false",
+    "DATABASE": "mongodb",
+    "MONGODB_HOST": "127.0.0.1",
+    "MONGODB_PORT": "27017",
+    "MONGODB_DATABASE": "kaetram_e2e",
+    "MONGODB_SRV": "false",
+    "MONGODB_TLS": "false",
+    "API_ENABLED": "false",
+    "HUB_ENABLED": "false",
+    "DISCORD_ENABLED": "false",
+}
+SERVICE_IDENTITY_KEYS = {
+    "game_revision",
+    "server_bundle_sha256",
+    "client_dist_file_count",
+    "client_dist_inventory_sha256",
+    "docker_executable_sha256",
+    "docker_client_version",
+    "python_executable_sha256",
+    "node_executable_sha256",
+    "node_version",
 }
 ENTRY_KEYS = {
     "schedule_index",
@@ -110,6 +193,115 @@ def _verify_self_hash(record: dict[str, Any], field: str, label: str) -> None:
         raise VerificationError(f"{label} self-hash mismatch")
 
 
+def _validate_services_evidence(
+    evidence: Any,
+    *,
+    game: dict[str, Any],
+    mongo: dict[str, Any],
+    python: dict[str, Any],
+    live_contract: dict[str, Any],
+) -> None:
+    """Validate author-attested owned-service evidence without contacting it."""
+
+    if not isinstance(evidence, dict) or set(evidence) != SERVICES_EVIDENCE_KEYS:
+        raise VerificationError("owned-service evidence key set drift")
+    if evidence.get("schema_version") != "kaetram.live-routing-services.v1":
+        raise VerificationError("owned-service evidence schema drift")
+    _verify_self_hash(evidence, "payload_sha256", "owned-service evidence")
+    if evidence.get("lane") != SERVICES_LANE:
+        raise VerificationError("owned-service evidence escaped the zero-cost lane")
+    if evidence.get("mongo_image") != MONGO_IMAGE:
+        raise VerificationError("owned-service Mongo image reference drift")
+
+    image = evidence.get("mongo_image_attestation")
+    if not isinstance(image, dict) or set(image) != {
+        "reference",
+        "image_id",
+        "architecture",
+        "os",
+    }:
+        raise VerificationError("owned-service Mongo image attestation key set drift")
+    if (
+        image.get("reference") != MONGO_IMAGE
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", str(image.get("image_id"))) is None
+        or image.get("architecture") not in {"arm64", "amd64"}
+        or image.get("os") != "linux"
+    ):
+        raise VerificationError("owned-service Mongo image identity drift")
+
+    container_name = evidence.get("container_name")
+    if (
+        not isinstance(container_name, str)
+        or re.fullmatch(r"kaetram-live-mongo-[A-Za-z0-9_-]+", container_name) is None
+    ):
+        raise VerificationError("owned-service container identity is invalid")
+    if evidence.get("environment") != SERVICE_ENVIRONMENT:
+        raise VerificationError("owned-service game environment drift")
+
+    identity = evidence.get("identity")
+    if not isinstance(identity, dict) or set(identity) != SERVICE_IDENTITY_KEYS:
+        raise VerificationError("owned-service identity key set drift")
+    expected_identity = {
+        "game_revision": game["git_head"],
+        "server_bundle_sha256": game["bundle_sha256"],
+        "client_dist_file_count": game["client_dist_file_count"],
+        "client_dist_inventory_sha256": game["client_dist_inventory_sha256"],
+        "python_executable_sha256": python["python_executable_sha256"],
+        "node_version": live_contract["node_version"],
+        "node_executable_sha256": live_contract["node_executable_sha256"],
+        "docker_client_version": live_contract["docker_client_version"],
+        "docker_executable_sha256": live_contract["docker_executable_sha256"],
+    }
+    if any(identity.get(key) != value for key, value in expected_identity.items()):
+        raise VerificationError("owned-service identity differs from runtime preflight")
+    services = evidence.get("services")
+    if not isinstance(services, dict) or set(services) != {"mongo", "client", "game"}:
+        raise VerificationError("owned-service process set drift")
+    expected_commands = {
+        "mongo": [
+            "$DOCKER", "run", "--rm", "--name", container_name,
+            "--pull=never", "--publish", "127.0.0.1:27017:27017",
+            "--mount", "type=bind,source=$RUN_ROOT/mongo-data,target=/data/db",
+            MONGO_IMAGE, "--bind_ip_all", "--port", "27017",
+        ],
+        "client": [
+            "$PYTHON", "-m", "http.server", "9000", "--bind", "127.0.0.1",
+            "--directory", "$GAME_ROOT/packages/client/dist",
+        ],
+        "game": [
+            "$NODE20", "--enable-source-maps",
+            "$GAME_ROOT/packages/server/dist/main.js",
+            "--host", "127.0.0.1", "--port", "9191",
+        ],
+    }
+    expected_cwds = {
+        "mongo": "$RUN_ROOT",
+        "client": "$RUN_ROOT",
+        "game": "$GAME_ROOT/packages/server",
+    }
+    pids: set[int] = set()
+    for label in ("mongo", "client", "game"):
+        process = services[label]
+        if not isinstance(process, dict) or set(process) != SERVICE_PROCESS_KEYS:
+            raise VerificationError(f"owned {label} process evidence key set drift")
+        pid = process.get("pid")
+        if type(pid) is not int or pid <= 1 or process.get("process_group") != pid:
+            raise VerificationError(f"owned {label} process-group identity is invalid")
+        if pid in pids:
+            raise VerificationError("owned-service process identities are not unique")
+        pids.add(pid)
+        if process.get("command") != expected_commands[label]:
+            raise VerificationError(f"owned {label} command drift")
+        if process.get("cwd") != expected_cwds[label]:
+            raise VerificationError(f"owned {label} working directory drift")
+
+    if (
+        mongo.get("database") != SERVICES_LANE["mongo_database"]
+        or mongo.get("loopback_only") is not True
+    ):
+        raise VerificationError("owned-service lane differs from Mongo preflight")
+
+
 def _expected_trials(
     registration: dict[str, Any], registration_sha: str, run_id: str
 ) -> list[dict[str, Any]]:
@@ -135,6 +327,86 @@ def _expected_trials(
     return trials
 
 
+def validate_runtime_preflight(
+    record: dict[str, Any],
+    *,
+    registration: dict[str, Any],
+    registration_sha256: str,
+    prelaunch: dict[str, Any],
+) -> None:
+    if set(record) != RUNTIME_PREFLIGHT_KEYS:
+        raise VerificationError("runtime preflight key set drift")
+    if record.get("schema_version") != RUNTIME_PREFLIGHT_SCHEMA_VERSION:
+        raise VerificationError("runtime preflight schema drift")
+    _verify_self_hash(record, "payload_sha256", "runtime preflight")
+    expected_refs = {
+        "study_id": prelaunch["study_id"],
+        "run_id": prelaunch["run_id"],
+        "registration_sha256": registration_sha256,
+        "prelaunch_payload_sha256": prelaunch["payload_sha256"],
+    }
+    for key, expected in expected_refs.items():
+        if record.get(key) != expected:
+            raise VerificationError(f"runtime preflight reference drift: {key}")
+
+    live = registration["live_contract"]
+    game = record.get("game")
+    if not isinstance(game, dict) or set(game) != GAME_PREFLIGHT_KEYS:
+        raise VerificationError("runtime game preflight key set drift")
+    expected_game = {
+        "git_head": live["game_revision"],
+        "worktree_clean": True,
+        "bundle_path": "packages/server/dist/main.js",
+        "bundle_sha256": live["game_bundle_sha256"],
+        "client_dist_inventory_sha256": live["client_dist_inventory_sha256"],
+    }
+    if any(game.get(key) != value for key, value in expected_game.items()):
+        raise VerificationError("runtime game preflight differs from registration")
+    if (
+        type(game.get("bundle_size_bytes")) is not int
+        or game["bundle_size_bytes"] <= 0
+        or type(game.get("client_dist_file_count")) is not int
+        or game["client_dist_file_count"] <= 0
+    ):
+        raise VerificationError("runtime game preflight size/count is invalid")
+
+    mongo = record.get("mongo")
+    if not isinstance(mongo, dict) or set(mongo) != MONGO_PREFLIGHT_KEYS:
+        raise VerificationError("runtime Mongo preflight key set drift")
+    if (
+        mongo.get("uri") != "mongodb://127.0.0.1:27017/kaetram_e2e"
+        or mongo.get("database") != "kaetram_e2e"
+        or mongo.get("loopback_only") is not True
+        or not isinstance(mongo.get("nodes"), list)
+        or not mongo["nodes"]
+    ):
+        raise VerificationError("runtime Mongo preflight escaped the registered lane")
+    for node in mongo["nodes"]:
+        if not isinstance(node, dict) or set(node) != MONGO_NODE_KEYS:
+            raise VerificationError("runtime Mongo node key set drift")
+        try:
+            address = ipaddress.ip_address(node.get("host"))
+        except (TypeError, ValueError) as exc:
+            raise VerificationError("runtime Mongo node host is not numeric") from exc
+        if str(address) != "127.0.0.1" or node.get("port") != 27017:
+            raise VerificationError("runtime Mongo node escaped 127.0.0.1:27017")
+
+    python = record.get("python")
+    if not isinstance(python, dict) or set(python) != PYTHON_PREFLIGHT_KEYS:
+        raise VerificationError("runtime Python preflight key set drift")
+    for key in PYTHON_PREFLIGHT_KEYS:
+        if python.get(key) != live.get(key):
+            raise VerificationError(f"runtime Python preflight drift: {key}")
+
+    _validate_services_evidence(
+        record.get("services"),
+        game=game,
+        mongo=mongo,
+        python=python,
+        live_contract=live,
+    )
+
+
 def verify_package_or_raise(
     package_dir: Path,
     registration_path: Path,
@@ -142,13 +414,21 @@ def verify_package_or_raise(
     repo_root: Path | None = None,
     expected_head: str | None = None,
 ) -> dict[str, Any]:
-    """Verify a package without contacting any runtime service."""
+    """Verify a package without contacting any runtime service.
+
+    Passing ``repo_root`` and ``expected_head`` adds the external source/design
+    seal. The runtime records remain author-attested: successful verification
+    establishes internal consistency, not independent proof that live execution
+    occurred. Omitting both is intentionally supported for isolated fixture
+    tests and establishes package-internal consistency only.
+    """
 
     if package_dir.is_symlink() or not package_dir.is_dir():
         raise VerificationError("package root must be an existing non-symlink directory")
     package_dir = package_dir.resolve()
     expected_paths = {
         "prelaunch.json",
+        "runtime-preflight.json",
         "manifest.json",
         "analysis.json",
         *{f"receipts/trial-{index:02d}.json" for index in range(1, 10)},
@@ -224,6 +504,16 @@ def verify_package_or_raise(
     if prelaunch.get("trial_plan_sha256") != canonical_sha256(expected_trials):
         raise VerificationError("prelaunch trial-plan digest mismatch")
 
+    runtime_preflight, runtime_preflight_raw = load_json_strict(
+        package_dir / "runtime-preflight.json"
+    )
+    validate_runtime_preflight(
+        runtime_preflight,
+        registration=registration,
+        registration_sha256=registration_sha,
+        prelaunch=prelaunch,
+    )
+
     if (repo_root is None) != (expected_head is None):
         raise VerificationError("repo_root and expected_head must be supplied together")
     if repo_root is not None and expected_head is not None:
@@ -248,6 +538,8 @@ def verify_package_or_raise(
         "registration_sha256": registration_sha,
         "prelaunch_file_sha256": _sha256_bytes(prelaunch_raw),
         "prelaunch_payload_sha256": prelaunch["payload_sha256"],
+        "runtime_preflight_file_sha256": _sha256_bytes(runtime_preflight_raw),
+        "runtime_preflight_payload_sha256": runtime_preflight["payload_sha256"],
         "claim_contract_sha256": prelaunch["claim_contract_sha256"],
         "trial_plan_sha256": prelaunch["trial_plan_sha256"],
     }
@@ -302,6 +594,11 @@ def verify_package(
     repo_root: Path | None = None,
     expected_head: str | None = None,
 ) -> list[str]:
+    """Return package verification errors.
+
+    Without ``repo_root`` and ``expected_head`` this checks only the package's
+    internal consistency; the command-line interface always requires both.
+    """
     try:
         verify_package_or_raise(
             package_dir,
@@ -327,8 +624,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--registration", type=Path, required=True)
-    parser.add_argument("--repo-root", type=Path)
-    parser.add_argument("--expected-head")
+    parser.add_argument("--repo-root", type=Path, required=True)
+    parser.add_argument("--expected-head", required=True)
     args = parser.parse_args(argv)
     errors = verify_package(
         args.package,

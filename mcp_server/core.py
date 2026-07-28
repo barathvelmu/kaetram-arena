@@ -154,6 +154,15 @@ async def _ensure_browser(state: dict):
         if state["page"] is not None:
             return state["page"]
 
+        diagnostic_loopback_only = os.environ.get(
+            "KAETRAM_DIAGNOSTIC_LOOPBACK_ONLY", ""
+        ).lower() in ("1", "true", "yes")
+        port = os.environ.get("KAETRAM_PORT", "")
+        if diagnostic_loopback_only and port != "9191":
+            raise RuntimeError(
+                "diagnostic browser policy requires KAETRAM_PORT=9191"
+            )
+
         log("[mcp] Launching browser...")
         pw = await async_playwright().start()
         headed = os.environ.get("KAETRAM_HEADED", "").lower() in ("1", "true", "yes")
@@ -173,6 +182,13 @@ async def _ensure_browser(state: dict):
             "--disable-infobars",
             "--hide-scrollbars",
         ]
+        if diagnostic_loopback_only:
+            chrome_args.extend(
+                [
+                    "--disable-background-networking",
+                    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+                ]
+            )
         # Pass DISPLAY through so headed Chromium can attach to the per-agent
         # Xvfb display when orchestrate.py sets DISPLAY=:99+N. In pure
         # headless mode DISPLAY is ignored.
@@ -198,9 +214,6 @@ async def _ensure_browser(state: dict):
         state["browser_launch_nonce"] = browser_launch_nonce
         state["browser_executable_sha256"] = executable_sha256
         state["browser_version"] = browser.version
-        diagnostic_loopback_only = os.environ.get(
-            "KAETRAM_DIAGNOSTIC_LOOPBACK_ONLY", ""
-        ).lower() in ("1", "true", "yes")
         context_options = {"viewport": {"width": 1280, "height": 720}}
         if diagnostic_loopback_only:
             context_options["service_workers"] = "block"
@@ -240,9 +253,15 @@ async def _ensure_browser(state: dict):
                 const _WS = window.WebSocket;
                 window.WebSocket = function(url, protocols) {
                     const parsed = new URL(url, window.location.href);
-                    if (parsed.protocol !== 'ws:' || parsed.hostname !== '127.0.0.1' || parsed.port !== '9191') {
-                        throw new Error('diagnostic blocked non-registered WebSocket');
+                    if (parsed.protocol !== 'ws:' || parsed.username || parsed.password) {
+                        throw new Error('diagnostic blocked invalid WebSocket URL');
                     }
+                    // The attested client bundle is built with 0.0.0.0:9001.
+                    // Pin both coordinates here so it can reach only the
+                    // registered diagnostic lane, independent of init-script
+                    // ordering or the client bundle's configured endpoint.
+                    parsed.hostname = '127.0.0.1';
+                    parsed.port = '9191';
                     return protocols ? new _WS(parsed.href, protocols) : new _WS(parsed.href);
                 };
                 window.WebSocket.prototype = _WS.prototype;
@@ -258,8 +277,7 @@ async def _ensure_browser(state: dict):
             log(f"[mcp] Injected {extractor_path}")
 
         # WebSocket port override for multi-agent isolation
-        port = os.environ.get("KAETRAM_PORT", "")
-        if port:
+        if port and not diagnostic_loopback_only:
             await context.add_init_script(f"""(() => {{
                 const PORT = '{port}';
                 const _WS = window.WebSocket;

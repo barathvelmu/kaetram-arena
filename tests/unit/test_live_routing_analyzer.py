@@ -7,8 +7,13 @@ from pathlib import Path
 
 import pytest
 
+from canonical_start import CANONICAL_DATABASE_PROJECTION
 from scripts.opd.live_routing_analyzer import (
     AnalysisError,
+    EVENT_ORDER,
+    LOCK_COLLECTION,
+    MONGO_COLLECTIONS,
+    SEED_INSERTION_ORDER,
     analyze_run,
     canonical_sha256,
 )
@@ -67,14 +72,332 @@ def _mudwich_projection(fixture: dict) -> dict:
     return projection
 
 
+def _observe_raw(projection: dict) -> str:
+    payload = copy.deepcopy(projection)
+    payload["finished_quests"] = [
+        {"name": name} for name in projection.get("finished_quests", [])
+    ]
+    return "observe: " + json.dumps(
+        payload,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _database_raw(
+    projection: dict,
+    *,
+    username: str,
+    document_ids: dict[str, str],
+) -> str:
+    documents = {
+        "player_info": {
+            "x": projection["pos"]["x"],
+            "y": projection["pos"]["y"],
+            "hitPoints": projection["hit_points"],
+        },
+        "player_inventory": {
+            "slots": [
+                {
+                    "index": item["slot"],
+                    "key": item["key"],
+                    "count": item["count"],
+                }
+                for item in projection["inventory"]
+            ]
+        },
+        "player_bank": {"slots": []},
+        "player_equipment": {"equipments": projection["equipment"]},
+        "player_quests": {
+            "quests": [
+                {
+                    "key": quest["key"],
+                    "stage": quest["stage"],
+                    "subStage": quest["sub_stage"],
+                    "completedSubStages": quest["completed_sub_stages"],
+                }
+                for quest in projection["quests"]
+            ]
+        },
+        "player_achievements": {"achievements": projection["achievements"]},
+        "player_skills": {"skills": projection["skills"]},
+        "player_statistics": copy.deepcopy(projection["statistics"]),
+        "player_abilities": {"abilities": projection["abilities"]},
+    }
+    for collection, document in documents.items():
+        document["_id"] = document_ids[collection]
+        document["username"] = username
+    return json.dumps(
+        {"database": "kaetram_e2e", "username": username, "documents": documents},
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _measurement(
+    projection: dict,
+    *,
+    database: bool = False,
+    username: str | None = None,
+    document_ids: dict[str, str] | None = None,
+) -> dict:
+    raw = (
+        _database_raw(
+            projection,
+            username=username or "",
+            document_ids=document_ids or {},
+        )
+        if database
+        else _observe_raw(projection)
+    )
+    return {
+        "available": True,
+        "raw_text": raw,
+        "raw_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        "normalized_projection": copy.deepcopy(projection),
+    }
+
+
+def _set_observation_projection(row: dict, stage: str, projection: dict) -> None:
+    row["measurements"][stage] = _measurement(projection)
+
+
+def _set_candidate_protocol(row: dict, protocol_success: bool) -> None:
+    row["routing"]["protocol_success"] = protocol_success
+    row["execution_evidence"]["candidate_call_ledger"][-1][
+        "protocol_success"
+    ] = protocol_success
+
+
+def _set_no_candidate(row: dict) -> None:
+    row["routing"].update(
+        dispatch_attempted=False,
+        candidate_invocation_count=0,
+        delivery_status="not_attempted",
+        protocol_success=None,
+        result_json=None,
+        result_raw_text=None,
+        result_raw_sha256=None,
+    )
+    row["execution_evidence"]["candidate_call_ledger"] = []
+
+
+def _set_confirmed_candidate(row: dict) -> None:
+    raw = 'warp: {"warping":true,"warp_id":0}'
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    row["routing"].update(
+        dispatch_attempted=True,
+        candidate_invocation_count=1,
+        delivery_status="confirmed",
+        protocol_success=True,
+        result_json={"warping": True, "warp_id": 0},
+        result_raw_text=raw,
+        result_raw_sha256=digest,
+    )
+    row["execution_evidence"]["candidate_call_ledger"] = [
+        {
+            "sequence": 1,
+            "name": "warp",
+            "arguments": {"location": "mudwich"},
+            "delivery_status": "confirmed",
+            "protocol_success": True,
+            "result_raw_sha256": digest,
+        }
+    ]
+
+
+def _set_unknown_delivery(row: dict) -> None:
+    row["routing"].update(
+        delivery_status="unknown_after_exception",
+        protocol_success=None,
+        result_json=None,
+        result_raw_text=None,
+        result_raw_sha256=None,
+    )
+    row["execution_evidence"]["candidate_call_ledger"][-1].update(
+        delivery_status="unknown_after_exception",
+        protocol_success=None,
+        result_raw_sha256=None,
+    )
+
+
+def _set_attestation_field(record: dict, key: str, value) -> None:
+    record["parsed"][key] = value
+    raw = "__diagnostic_runtime_attestation: " + json.dumps(
+        record["parsed"],
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    record["raw_text"] = raw
+    record["raw_sha256"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _set_precondition_mismatch(row: dict) -> None:
+    projection = copy.deepcopy(row["precondition"]["normalized_projection"])
+    projection["pos"] = {"x": 1, "y": 1}
+    row["precondition"] = _measurement(projection)
+
+
+def _set_non_cold_browser(row: dict) -> None:
+    runtime = row["execution_evidence"]["runtime_attestations"]
+    _set_attestation_field(
+        runtime["reconnect"],
+        "browser_launch_nonce",
+        runtime["treatment"]["parsed"]["browser_launch_nonce"],
+    )
+    _set_attestation_field(
+        runtime["reconnect"],
+        "browser_nonce_echo",
+        runtime["treatment"]["parsed"]["browser_launch_nonce"],
+    )
+
+
+def _set_wrong_database_lane(row: dict) -> None:
+    row["execution_evidence"]["absence"]["database"] = "wrong_database"
+
+
+def _runtime_attestation(plan: dict, phase: str, live_contract: dict) -> dict:
+    index = plan["schedule_index"]
+    phase_offset = 1 if phase == "treatment" else 2
+    token_base = index * 4 + phase_offset
+    parsed = {
+        "schema_version": "kaetram.diagnostic-runtime-attestation.v1",
+        "session_id": plan[f"{phase}_session_id"],
+        "mcp_pid": 1000 + index * 10 + phase_offset,
+        "mcp_process_group": 2000 + index * 10 + phase_offset,
+        "mcp_instance_nonce": f"{token_base:032x}",
+        "browser_launch_nonce": f"{token_base + 2:032x}",
+        "browser_nonce_echo": f"{token_base + 2:032x}",
+        "browser_name": live_contract["browser_name"],
+        "browser_version": live_contract["browser_version"],
+        "browser_executable_sha256": live_contract["browser_executable_sha256"],
+        "page_url": "http://127.0.0.1:9000/",
+        "player_username": plan["username"],
+        "configured_client_url": "http://127.0.0.1:9000",
+        "configured_game_port": "9191",
+        "require_existing_account": True,
+        "heartbeats_disabled": True,
+        "loopback_only": True,
+    }
+    raw = "__diagnostic_runtime_attestation: " + json.dumps(
+        parsed,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    return {
+        "raw_text": raw,
+        "raw_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        "parsed": parsed,
+    }
+
+
+def _execution_evidence(
+    plan: dict,
+    *,
+    active: bool,
+    result_sha: str | None,
+    live_contract: dict,
+) -> dict:
+    username = plan["username"]
+    index = plan["schedule_index"]
+    document_ids = {
+        collection: f"{plan['trial_id']}-{collection}" for collection in MONGO_COLLECTIONS
+    }
+    inserted_ids = {
+        LOCK_COLLECTION: f"{plan['trial_id']}-{LOCK_COLLECTION}",
+        **document_ids,
+    }
+    base = float(index * 100)
+    offsets = (0, 1, 2, 3, 5, 6, 7, 9, 10, 11, 12)
+    candidate_calls = (
+        [
+            {
+                "sequence": 1,
+                "name": "warp",
+                "arguments": {"location": "mudwich"},
+                "delivery_status": "confirmed",
+                "protocol_success": True,
+                "result_raw_sha256": result_sha,
+            }
+        ]
+        if active
+        else []
+    )
+    return {
+        "absence": {
+            "database": "kaetram_e2e",
+            "username": username,
+            "counts": {collection: 0 for collection in MONGO_COLLECTIONS},
+            "all_absent": True,
+        },
+        "seed": {
+            "database": "kaetram_e2e",
+            "username": username,
+            "trial_id": plan["trial_id"],
+            "inserted_ids": inserted_ids,
+            "insertion_order": list(SEED_INSERTION_ORDER),
+            "player_info_inserted_last": True,
+        },
+        "runtime_attestations": {
+            "treatment": _runtime_attestation(plan, "treatment", live_contract),
+            "reconnect": _runtime_attestation(plan, "reconnect", live_contract),
+        },
+        "parent_event_ledger": [
+            {"event": event, "monotonic_seconds": base + offset}
+            for event, offset in zip(EVENT_ORDER, offsets, strict=True)
+        ],
+        "candidate_call_ledger": candidate_calls,
+        "database_snapshot_ownership": {
+            "database": "kaetram_e2e",
+            "username": username,
+            "document_ids": document_ids,
+        },
+        "cleanup": {
+            "database": "kaetram_e2e",
+            "username": username,
+            "trial_id": plan["trial_id"],
+            "deleted_counts": {collection: 1 for collection in MONGO_COLLECTIONS},
+            "lock_deleted": 1,
+            "post_cleanup_counts": {collection: 0 for collection in MONGO_COLLECTIONS},
+            "all_absent": True,
+        },
+    }
+
+
 def _unsigned_receipt(registration: dict, prelaunch: dict, plan: dict) -> dict:
     fixture = registration["state_fixture"]["expected"]
     arm = next(row for row in registration["arms"] if row["arm"] == plan["arm"])
     expected = arm["expected_stage_outcomes"]
     active = arm["expected_candidate_invocations"] == 1
     state = _mudwich_projection(fixture) if active else copy.deepcopy(fixture)
+    database_state = copy.deepcopy(CANONICAL_DATABASE_PROJECTION)
+    if active:
+        database_state["pos"] = {"x": 190, "y": 160}
+    result_raw = (
+        'warp: {"warping":true,"warp_id":0}' if active else None
+    )
+    result_sha = (
+        hashlib.sha256(result_raw.encode("utf-8")).hexdigest()
+        if result_raw is not None
+        else None
+    )
+    execution = _execution_evidence(
+        plan,
+        active=active,
+        result_sha=result_sha,
+        live_contract=registration["live_contract"],
+    )
+    document_ids = execution["database_snapshot_ownership"]["document_ids"]
     return {
-        "schema_version": "kaetram.live-routing-trial-receipt.v1",
+        "schema_version": "kaetram.live-routing-trial-receipt.v2",
         "study_id": prelaunch["study_id"],
         "run_id": prelaunch["run_id"],
         "registration_sha256": prelaunch["registration"]["sha256"],
@@ -87,20 +410,10 @@ def _unsigned_receipt(registration: dict, prelaunch: dict, plan: dict) -> dict:
             "username": plan["username"],
             "treatment_session_id": plan["treatment_session_id"],
             "reconnect_session_id": plan["reconnect_session_id"],
-            "database_player_id": f"player-{plan['schedule_index']:02d}",
-        },
-        "isolation": {
-            "username_absence_confirmed": True,
-            "create_only_seed_confirmed": True,
-            "cold_mcp_process": True,
-            "cold_browser_profile": True,
-            "prior_trial_cleanup_confirmed": True,
-            "mongo_database_every_operation": "kaetram_e2e",
-            "runtime_lane_attested": True,
+            "database_player_id": document_ids["player_info"],
         },
         "precondition": {
-            "available": True,
-            "normalized_projection": copy.deepcopy(fixture),
+            **_measurement(fixture),
         },
         "routing": {
             "router_status": expected["router_status"],
@@ -111,24 +424,22 @@ def _unsigned_receipt(registration: dict, prelaunch: dict, plan: dict) -> dict:
             "protocol_success": expected["protocol_success"],
             "tool_reported_error": expected["tool_reported_error"],
             "result_json": {"warping": True, "warp_id": 0} if active else None,
-            "result_raw_sha256": hashlib.sha256(b"warp result").hexdigest()
-            if active
-            else None,
+            "result_raw_text": result_raw,
+            "result_raw_sha256": result_sha,
         },
         "measurements": {
-            "immediate": {"available": True, "normalized_projection": copy.deepcopy(state)},
-            "delayed": {"available": True, "normalized_projection": copy.deepcopy(state)},
-            "reconnect": {"available": True, "normalized_projection": copy.deepcopy(state)},
-            "database": {"available": True, "normalized_projection": copy.deepcopy(state)},
+            "immediate": _measurement(state),
+            "delayed": _measurement(state),
+            "reconnect": _measurement(state),
+            "database": _measurement(
+                database_state,
+                database=True,
+                username=plan["username"],
+                document_ids=document_ids,
+            ),
             "delayed_elapsed_monotonic_seconds": 5.0,
         },
-        "lifecycle": {
-            "candidate_retry_count": 0,
-            "event_order_valid": True,
-            "treatment_session_closed_and_settled": True,
-            "reconnect_session_closed_and_settled": True,
-            "cleanup_absence_confirmed": True,
-        },
+        "execution_evidence": execution,
     }
 
 
@@ -165,36 +476,27 @@ def test_all_nine_pass_releases_descriptive_grid() -> None:
 @pytest.mark.parametrize(
     ("index", "mutate", "expected_reason"),
     [
-        (0, lambda row: row["routing"].update(protocol_success=False), "unexpected_protocol_success"),
+        (0, lambda row: _set_candidate_protocol(row, False), "unexpected_protocol_success"),
         (
             1,
-            lambda row: row["routing"].update(
-                dispatch_attempted=False,
-                candidate_invocation_count=0,
-                delivery_status="not_attempted",
-                protocol_success=None,
-                result_json=None,
-                result_raw_sha256=None,
-            ),
+            _set_no_candidate,
             "unexpected_dispatch_attempted",
         ),
         (
             2,
-            lambda row: row["routing"].update(
-                dispatch_attempted=True,
-                candidate_invocation_count=1,
-                delivery_status="confirmed",
-                protocol_success=True,
-                result_json={"warping": True, "warp_id": 0},
-                result_raw_sha256="5" * 64,
-            ),
+            _set_confirmed_candidate,
             "unexpected_dispatch_attempted",
         ),
         (
             0,
-            lambda row: row["measurements"]["immediate"][
-                "normalized_projection"
-            ].update(pos={"x": 1, "y": 1}),
+            lambda row: _set_observation_projection(
+                row,
+                "immediate",
+                {
+                    **row["measurements"]["immediate"]["normalized_projection"],
+                    "pos": {"x": 1, "y": 1},
+                },
+            ),
             "immediate_mudwich_state_predicate_failed",
         ),
     ],
@@ -220,29 +522,28 @@ def test_known_behavior_deviations_are_valid_failures(
     ("mutate", "expected_reason"),
     [
         (
-            lambda row: row["routing"].update(
-                delivery_status="unknown_after_exception"
-            ),
+            _set_unknown_delivery,
             "delivery_unknown_after_exception",
         ),
         (
-            lambda row: row["precondition"].update(normalized_projection={}),
+            _set_precondition_mismatch,
             "precondition_missing_or_mismatch",
         ),
         (
             lambda row: row["measurements"]["delayed"].update(
-                available=False, normalized_projection=None
+                available=False,
+                raw_text=None,
+                raw_sha256=None,
+                normalized_projection=None,
             ),
             "applicable_measurement_missing_or_unparseable",
         ),
         (
-            lambda row: row["isolation"].update(cold_browser_profile=False),
+            _set_non_cold_browser,
             "cold_session_unconfirmed",
         ),
         (
-            lambda row: row["isolation"].update(
-                mongo_database_every_operation="kaetram_devlopment"
-            ),
+            _set_wrong_database_lane,
             "wrong_database_or_runtime_lane",
         ),
     ],
@@ -277,6 +578,148 @@ def test_duplicate_database_player_identity_invalidates_affected_trials() -> Non
     assert [row["validity"] for row in analysis["trials"][:2]] == [
         "invalid",
         "invalid",
+    ]
+
+
+def test_candidate_raw_duplicate_key_is_rejected_even_when_rehashed() -> None:
+    registration, prelaunch, receipts = _complete()
+    raw = 'warp: {"warping":true,"warping":false,"warp_id":0}'
+    receipts[0]["routing"].update(
+        result_raw_text=raw,
+        result_raw_sha256=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+    )
+    receipts[0]["execution_evidence"]["candidate_call_ledger"][0][
+        "result_raw_sha256"
+    ] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    _resign(receipts, prelaunch)
+    with pytest.raises(AnalysisError, match="raw evidence"):
+        analyze_run(
+            registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+        )
+
+
+def test_observation_raw_nonfinite_value_is_rejected_even_when_rehashed() -> None:
+    registration, prelaunch, receipts = _complete()
+    raw = 'observe: {"pos":{"x":NaN,"y":160}}'
+    receipts[0]["measurements"]["immediate"].update(
+        raw_text=raw,
+        raw_sha256=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+    )
+    _resign(receipts, prelaunch)
+    with pytest.raises(AnalysisError, match="raw evidence"):
+        analyze_run(
+            registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+        )
+
+
+def test_database_projection_mismatch_is_rejected_even_when_rehashed() -> None:
+    registration, prelaunch, receipts = _complete()
+    receipts[0]["measurements"]["database"]["normalized_projection"]["pos"] = {
+        "x": 1,
+        "y": 1,
+    }
+    _resign(receipts, prelaunch)
+    with pytest.raises(AnalysisError, match="database projection differs from raw evidence"):
+        analyze_run(
+            registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+        )
+
+
+@pytest.mark.parametrize(
+    "identity_field",
+    ["mcp_pid", "mcp_process_group", "mcp_instance_nonce"],
+)
+def test_duplicate_runtime_identity_invalidates_every_affected_trial(
+    identity_field: str,
+) -> None:
+    registration, prelaunch, receipts = _complete()
+    first = receipts[0]["execution_evidence"]["runtime_attestations"]["treatment"]
+    second = receipts[1]["execution_evidence"]["runtime_attestations"]["treatment"]
+    _set_attestation_field(
+        second,
+        identity_field,
+        first["parsed"][identity_field],
+    )
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert [analysis["trials"][index]["validity"] for index in (0, 1)] == [
+        "invalid",
+        "invalid",
+    ]
+    assert analysis["paired_aggregate"]["status"] == "withheld_invalid_trials"
+
+
+def test_snapshot_id_mismatch_cannot_hide_behind_true_seed_summary() -> None:
+    registration, prelaunch, receipts = _complete()
+    receipts[0]["execution_evidence"]["database_snapshot_ownership"][
+        "document_ids"
+    ]["player_info"] = "different-player-info-id"
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert analysis["trials"][0]["validity"] == "invalid"
+    assert "create_only_seed_unconfirmed" in analysis["trials"][0][
+        "invalid_reasons"
+    ]
+
+
+def test_short_treatment_settle_is_derived_as_invalid() -> None:
+    registration, prelaunch, receipts = _complete()
+    ledger = receipts[0]["execution_evidence"]["parent_event_ledger"]
+    finished = next(
+        row["monotonic_seconds"]
+        for row in ledger
+        if row["event"] == "treatment_finished"
+    )
+    next(
+        row for row in ledger if row["event"] == "treatment_settle_finished"
+    )["monotonic_seconds"] = finished + 1.49
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert analysis["trials"][0]["validity"] == "invalid"
+    assert "session_order_or_settle_violation" in analysis["trials"][0][
+        "invalid_reasons"
+    ]
+
+
+def test_extra_candidate_event_derives_retry_and_invalidates_trial() -> None:
+    registration, prelaunch, receipts = _complete()
+    calls = receipts[0]["execution_evidence"]["candidate_call_ledger"]
+    duplicate = copy.deepcopy(calls[0])
+    duplicate["sequence"] = 2
+    calls.append(duplicate)
+    receipts[0]["routing"]["candidate_invocation_count"] = 2
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert analysis["trials"][0]["validity"] == "invalid"
+    assert "unregistered_candidate_retry" in analysis["trials"][0][
+        "invalid_reasons"
+    ]
+
+
+def test_residual_cleanup_is_derived_as_invalid() -> None:
+    registration, prelaunch, receipts = _complete()
+    cleanup = receipts[0]["execution_evidence"]["cleanup"]
+    cleanup["post_cleanup_counts"]["player_info"] = 1
+    cleanup["all_absent"] = False
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert analysis["trials"][0]["validity"] == "invalid"
+    assert analysis["trials"][1]["validity"] == "invalid"
+    assert "cleanup_absence_unconfirmed" in analysis["trials"][0][
+        "invalid_reasons"
+    ]
+    assert "session_order_or_settle_violation" in analysis["trials"][1][
+        "invalid_reasons"
     ]
 
 

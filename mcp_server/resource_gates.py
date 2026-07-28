@@ -25,12 +25,24 @@ _FILE_TO_SKILL = {
 }
 
 
+def _diagnostic_lane() -> bool:
+    return os.environ.get("KAETRAM_DIAGNOSTIC_LANE", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def _load_gates() -> dict:
     """Build {display_name_lower: {skill, level, item}} from all data files.
 
     Returns {} (and warns silently) if files aren't present — callers should
     treat absence as "we don't know the gate" rather than blowing up.
     """
+    # The registered warp diagnostic never gathers. Avoid reading mutable
+    # game-data files that are outside its sealed source and state contract.
+    if _diagnostic_lane():
+        return {}
     data_dir = Path(os.environ.get("KAETRAM_DATA_DIR", _DEFAULT_DATA_DIR))
     out: dict[str, dict] = {}
     for fname, skill in _FILE_TO_SKILL.items():

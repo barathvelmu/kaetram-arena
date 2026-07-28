@@ -1,11 +1,15 @@
 """Login and registration flow for the Kaetram game client."""
 
+from __future__ import annotations
+
+import asyncio
 import json
+import math
 import os
+from typing import TYPE_CHECKING
 
-from mcp.server.fastmcp import Context
-
-from mcp_server.core import log, log_tool
+if TYPE_CHECKING:
+    from mcp.server.fastmcp import Context
 
 
 def require_existing_account() -> bool:
@@ -14,6 +18,14 @@ def require_existing_account() -> bool:
         "true",
         "yes",
     )
+
+
+def login_timeout_seconds() -> float:
+    try:
+        value = float(os.environ.get("KAETRAM_LOGIN_TIMEOUT_SECONDS", "18"))
+    except ValueError:
+        return 18.0
+    return value if math.isfinite(value) and value > 0 else 18.0
 
 
 async def _attempt_register(page, username: str, password: str) -> None:
@@ -42,6 +54,10 @@ async def _attempt_register(page, username: str, password: str) -> None:
 
 
 async def login_impl(ctx: Context, page) -> str:
+    # Keep the pure timeout/credential guards importable without requiring the
+    # live MCP/Playwright stack. Runtime logging is resolved only on invocation.
+    from mcp_server.core import log, log_tool
+
     username = os.environ.get("KAETRAM_USERNAME", "ClaudeBot")
     # Default password matches bench/seed.py:FIXED_BCRYPT_HASH (bcrypt of "test").
     # "password123" was a legacy default that would silently produce invalidlogin
@@ -49,6 +65,9 @@ async def login_impl(ctx: Context, page) -> str:
     password = os.environ.get("KAETRAM_PASSWORD", "test")
     client_url = os.environ.get("KAETRAM_CLIENT_URL", "http://localhost:9000")
     existing_account_only = require_existing_account()
+    timeout_seconds = login_timeout_seconds()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
 
     # Surface the resolved credentials on every login attempt. Hardcoded env
     # in opencode.json was silently overriding KAETRAM_PASSWORD with the wrong
@@ -68,7 +87,7 @@ async def login_impl(ctx: Context, page) -> str:
                 document.body?.className === 'game' ||
                 !!document.getElementById('login-name-input')
             )""",
-            timeout=10000,
+            timeout=min(10_000, max(1, int((deadline - loop.time()) * 1000))),
         )
     except Exception:
         log("[mcp] login readiness wait timed out; trying login form anyway")
@@ -84,8 +103,12 @@ async def login_impl(ctx: Context, page) -> str:
     login_error: str | None = None
     tried_register = False
     saw_not_found = False
-    for _attempt in range(18):
-        await page.wait_for_timeout(1000)
+    _attempt = 0
+    while loop.time() < deadline:
+        _attempt += 1
+        await page.wait_for_timeout(
+            min(1000, max(1, int((deadline - loop.time()) * 1000)))
+        )
         result = await page.evaluate("""() => {
             const game = document.body.className === 'game';
             const lc = document.getElementById('load-character');
@@ -94,7 +117,7 @@ async def login_impl(ctx: Context, page) -> str:
             const errText = err ? (err.textContent || '').trim() : '';
             return { game, loginVisible, errText };
         }""")
-        log(f"[mcp] login attempt {_attempt+1}: {result}")
+        log(f"[mcp] login attempt {_attempt}: {result}")
         if result.get("game"):
             game_ready = True
             break
@@ -130,7 +153,9 @@ async def login_impl(ctx: Context, page) -> str:
                 # seconds to time out the old socket and retry login rather
                 # than registering over top of our existing account.
                 log("[mcp] server reports already-logged-in; waiting for ghost session to clear")
-                await page.wait_for_timeout(3000)
+                await page.wait_for_timeout(
+                    min(3000, max(1, int((deadline - loop.time()) * 1000)))
+                )
                 await page.locator("#login").click()
                 continue
             if not_found:
@@ -261,7 +286,8 @@ async def login_impl(ctx: Context, page) -> str:
         tutorial = (tutorial_state or {}).get("tutorial")
         tutorial_unfinished = bool(tutorial and not tutorial.get("finished"))
         if (
-            tutorial_unfinished
+            os.environ.get("KAETRAM_DIAGNOSTIC_LANE") != "1"
+            and tutorial_unfinished
             and pos
             and 300 <= pos.get("x", 0) <= 360
             and 860 <= pos.get("y", 0) <= 920

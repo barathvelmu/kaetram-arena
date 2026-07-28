@@ -1,9 +1,10 @@
 # Local live routing diagnostic v1
 
-Status: design scaffolding, not yet live-run ready. This is a zero-cost,
-model-free engineering diagnostic, not a model evaluation. It remains blocked
-until a result-bearing launcher, verifier, and create-only clean-commit
-prelaunch receipt exist.
+Status: registered before live execution. This is a zero-cost, model-free
+engineering diagnostic, not a model evaluation. The result-bearing launcher,
+owned loopback service supervisor, strict verifier, and source/runtime closure
+are implemented. No live result exists yet. Execution is permitted only after
+a create-only prelaunch receipt seals the final clean source commit.
 
 ## Question
 
@@ -59,9 +60,10 @@ pre-state must match before the candidate is allowed to run. Diagnostic
 The nine username and treatment/reconnect session templates are frozen in the
 registration. The create-only prelaunch seal resolves them with a unique
 eight-character lowercase alphanumeric run ID, so a new run cannot silently
-reuse a prior run's identities. The future launcher must additionally prove
-that every resolved username is absent before create-only seeding and record
-the database-assigned player identity; this remains a live-readiness blocker.
+reuse a prior run's identities. The launcher proves that every resolved
+username is absent before create-only seeding and records each database-assigned
+identity. Completed trial receipts are published immediately and retained if a
+later trial or cleanup is interrupted.
 
 Each trial retains the router decision, schema verdict, candidate count, MCP
 delivery status, protocol result, tool-reported error, raw result hash,
@@ -102,5 +104,13 @@ states, or generalization across tools, states, renderers, models, or
 environments.
 
 No model call, remote endpoint, Modal account, or metered service is permitted.
+MongoDB, the static client, and the game server are started as owned local
+processes on the registered loopback ports from frozen binaries and a cached,
+digest-pinned Mongo image. Optional quest, mob, and resource enrichments are
+disabled in this diagnostic lane so mutable data outside the source seal cannot
+affect an observation. Source, Python, game, Mongo, and cleanup identities are
+rechecked before a completed package is published. Verification establishes
+internal consistency of author-attested receipts; it is not an external
+timestamp or independent proof that execution occurred.
 The machine-readable source of truth is
 `research/experiments/local-live-routing-diagnostic-v1.json`.

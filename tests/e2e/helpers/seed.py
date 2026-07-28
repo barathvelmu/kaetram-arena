@@ -16,9 +16,10 @@ Without this, seeded players snap back to the Programmer's house every time.
 from __future__ import annotations
 
 import os
-from typing import Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
-from pymongo import MongoClient
+if TYPE_CHECKING:
+    from pymongo import MongoClient
 
 DEFAULT_MONGO_URI = os.environ.get("KAETRAM_MONGO_URI", "mongodb://127.0.0.1:27017")
 DEFAULT_DB_NAME = os.environ.get("KAETRAM_MONGO_DB", "kaetram_devlopment")
@@ -161,6 +162,8 @@ def _normalize_skills(skills: Iterable[dict[str, Any]] | None) -> list[dict[str,
 
 
 def _client(uri: str = DEFAULT_MONGO_URI) -> MongoClient:
+    from pymongo import MongoClient
+
     return MongoClient(uri, serverSelectionTimeoutMS=3000)
 
 

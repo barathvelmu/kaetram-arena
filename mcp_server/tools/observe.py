@@ -23,6 +23,12 @@ def _walkthrough_by_name() -> dict:
     observe() runs every turn, so the walkthrough JSON is parsed once and reused.
     """
     global _WALKTHROUGH_BY_NAME
+    if os.environ.get("KAETRAM_DIAGNOSTIC_LANE", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return {}
     if _WALKTHROUGH_BY_NAME is None:
         mapping: dict = {}
         try:

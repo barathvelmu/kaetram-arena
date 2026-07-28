@@ -1,7 +1,7 @@
 {
   "schema_version": "kaetram.live-routing-diagnostic-registration.v1",
   "study_id": "local-live-routing-diagnostic-v1",
-  "status": "design_scaffolding_not_live_ready",
+  "status": "registered_before_live_execution",
   "claim_boundary": {
     "confirmatory": false,
     "permitted_claim": "Preliminary exact-route behavior for one frozen local warp fixture on the registered build; active-route operability and recovery-off non-routing are reported separately.",
@@ -27,29 +27,67 @@
     "source_commit": "sealed_in_create_only_prelaunch_receipt",
     "clean_worktree_required": true,
     "files": {
-      "canonical_start.py": "acfe896250e5be3f725a4c3430609c3619b8c268da31df68d513075fa3270486",
+      "canonical_start.py": "2b29bf870eb87502bca483abd5f93485b40f35535347cc4ba3ea35c438dc4a32",
+      "mcp_game_server.py": "c84d69215bdf95b80a5a6dd1c7ec44f4a4ecb16317d94978a39dc594622d62ce",
+      "mcp_server/__init__.py": "7277f344b4689eeeba0142c170ccd562223a3aea6377673ed5088e0406c4e94c",
+      "mcp_server/core.py": "068bd6701590417783b7b6d2245c58e883b9bcd415ad2e4e02923856f61ec199",
+      "mcp_server/helpers.py": "14f7c40e07aff6ad8cecabc7226025c17d17663c6136a58b990ff20034fc0175",
+      "mcp_server/js/__init__.py": "ab0431706efa9a031ad8e3a929cb0ebe42be4f7600e1020ddb411d71cf441123",
+      "mcp_server/js/buy_packet.js": "dfefd196f19e2c0fd4478f95eed1d8b4d5ece3545cb45527c5d5ed9702efb855",
+      "mcp_server/js/inventory_snapshot.js": "a3beeae864ac7e4427c7e5c47e2549e5da261975008eebbb90a6298f43f97a1c",
+      "mcp_server/js/nudge_store.js": "677b5daee5695c939eada45ce60c78f478d5624976e99988757427eb5dc84afe",
       "mcp_server/js/observe.js": "20c4d1151b0939eae60d89191c01e7b21c72a7f4445bfc697a4e1f70aa4c3020",
-      "mcp_server/core.py": "5a829187e336e2751a20a15a8722bbafd6a475ab0dc089e19b874a86bff17af1",
-      "mcp_server/login.py": "dc97e21ee12942034ad8cedcfdc3cf7b4acda2d2df9adfa7cfc299016f05c830",
+      "mcp_server/js/shop_ui_state.js": "1535336a1f99eb1f9704efc1eb7b93990fa93088404b2e6901d6eedc6525b5f8",
+      "mcp_server/login.py": "bcd5fab0b55f38b61dadf66b8ec50a4381fcef72aa86e9138cbea8f666413e77",
+      "mcp_server/mob_stats.py": "2007c573874f1aa56091f9ed886b40b29b4c1361aa7ad5a4ff426699cc9c3221",
+      "mcp_server/resource_gates.py": "cc9122c80b7b588758ca98d746039aa9db395a8f3f0473f1d9c6cb815c91b7f5",
+      "mcp_server/state_heartbeat.py": "9d71a239cd013a231b48983b9e96361cdfdb0c81034392c39f58c510713b1609",
+      "mcp_server/tools/__init__.py": "03d69726d445e43da43d520fe0ccac42fb38ec6453ec5db2e699fd5609fec6fd",
+      "mcp_server/tools/combat.py": "e8c682d336ba58dc3f08451d705669aa3aa60260da3eb669986ded77fa171b70",
+      "mcp_server/tools/crafting.py": "5a05e3d5207afe324e9983ca9a42437f4cf37bf10e1185f378c8a71ba86e6bda",
+      "mcp_server/tools/gathering.py": "35e56dadc31e4affee8ea4819e5fd1f4793023f89f91ec700ca96faed754bc92",
+      "mcp_server/tools/inventory.py": "ed56c477005171197f25b22859bd0b06ddb66df3c56266f26bd8f7c98060d34c",
       "mcp_server/tools/navigation.py": "d9a2638f0685698352d94d48311a1835f380fd8175bf9ffd06aa02f74595716a",
+      "mcp_server/tools/npc.py": "7ea258f01deecfba9d9be1e23b3e8112d4a9d7065493c016b2b50852ced687e2",
+      "mcp_server/tools/observe.py": "ec8777e56fa8392764c187774cb394c9b76f065dab6e2c2dbb286b643eeb3878",
+      "mcp_server/tools/quest.py": "f29fae2f3235ec100848854b648903cb9a92ee73537eb0f266ae34115079db7b",
+      "mcp_server/tools/shop.py": "68a9dd839d582064a9cfffd9d112ee3fe5d61cfad8079c9f56b2f4521cb4d6cb",
       "mcp_server/tools/test_lane.py": "e4638cebc5f627074ac92358aba88518b4792bd4d605268368f3e861f8b9a6ae",
+      "mcp_server/utils.py": "7d08f7a081c56f5c2a3651c390e72dca77ad9cd0815d7b7eb81025f1377454cc",
       "play_qwen.py": "d15208bf3198a26a8397b72a3c089e0e16b057a11bd442855aac905d5498c557",
+      "scripts/opd/canonicalize.py": "ca509636bc179e0b2d6efa31f7aee1fecc7f6675ccfee87a9f7b3e1345e16f01",
       "scripts/opd/execution_evidence.py": "3bb6a9618596742f8559fedf7472dcda8c7b1d1305d30638202929a5a1d0bd7f",
-      "scripts/opd/live_routing_analyzer.py": "41ff9560e232449bccefeb96027167a5e3e806640428607a707fedec331af300",
-      "scripts/opd/live_routing_diagnostic.py": "2120a50c833a456d1e2f5d6aed10d5e60328afc545ad4288b4f7acccf767bd54",
+      "scripts/opd/live_routing_analyzer.py": "3cdbd3fdd2fdd839717694c4bfcb5cd595466fdc82439fa64324ad038c59c591",
+      "scripts/opd/live_routing_diagnostic.py": "995c8e82a63a316b6ebf622d3b7cc16fc1e720b3c1d77c9cb4577c8c2a374aee",
+      "scripts/opd/live_routing_launcher.py": "4552b328840b24ef59e3f5f83b8ecb0ce4b234b4341d2ffdfff94f47c2d260de",
+      "scripts/opd/live_routing_orchestrator.py": "f454c785cf9ba4ce8be2080297400fdbf939db744dbf2f8cd773f944e7ddf792",
       "scripts/opd/live_routing_prelaunch.py": "8c5898994d45b5d3494eb3efa4070dcbc7039d937cafcd2fff9e21e678d5842e",
-      "scripts/opd/live_routing_result_verify.py": "2429479b5ea3c4d48a14f21f670e0f962a66c43b90f3a84e9cd9e2a715428313",
+      "scripts/opd/live_routing_result_verify.py": "91fb2eba39cd6b2cee593c3edf692668d33cfb884e37350523bb509d00aa7105",
+      "scripts/opd/live_routing_services.py": "38de361a6066020f616f270a92796ed7ad7d2157c78dabfa673bf83597159f61",
       "scripts/opd/response_router.py": "0da3488c2663a12d8f9364c753581125a41bf9e88df56b30d04cfdca1f9f7873",
       "state_extractor.js": "25aa4283fdfe5219c58c6db60fe815e4b0fe5ca12696b7282757dbe9801346e7",
-      "tests/e2e/helpers/mcp_client.py": "c4ba56262dcd723b8f71bd2d2cc0a2f64609e73726906bb8c4851dfb0e9ff9c6",
-      "tests/e2e/helpers/seed.py": "5e1c65c35239dbf9e5b38549b1b1c86ec8455a9ff0786ee7baa234a7e89eb585",
+      "tests/e2e/helpers/mcp_client.py": "30e08d4e36658775b63ffb54f20f59926b03534cac9fc01b42c028d477f15cb0",
+      "tests/e2e/helpers/seed.py": "e550bb849d16c007e1cf715ee612be5be42752b348d8ac6ef1bc1a3ff1151711",
       "tool_surface.py": "8d30dae10cddc24c15426df57e7f5eeea5ba53d9185941cd2f5c1586cdd2b9b4"
     }
   },
   "live_contract": {
-    "game_revision": "7a3d722e8e200ca44fd959099386b42a5fbe0cb5",
-    "game_bundle_sha256": "b0f9e42b0da63dc7bb1f9172136cd8a1361f762e683b72011172db286c256916",
+    "game_revision": "bec730773dd03b3f172b66e75f46b253dd801056",
+    "game_bundle_sha256": "b88ac739d546b698b3b70c8c748c319bf688e0f71d5a8ec852447d48e516aec8",
+    "client_dist_inventory_sha256": "8db3506ed1beb9a9f42a3fd1cf2aa0c00fd4442cc49e5ccd3addf1e0745d5e46",
     "tool_schema_sha256": "770c9a44b1e656c3798577627ddf08928a5787036e22a5e3358bf78ff6432cfe",
+    "python_version": "3.12.13",
+    "python_executable_sha256": "eb9d74b9c7cfdfb2c9b91614edb2c3607360ba46c5aa7fc4557b3a4a23e97cff",
+    "mcp_version": "1.28.1",
+    "playwright_version": "1.61.0",
+    "pymongo_version": "4.17.0",
+    "node_version": "v20.20.2",
+    "node_executable_sha256": "edc0c98fee8947a04913cb45cf80e7341653b0ea9e907ff3dc50d7fdaedda1d2",
+    "docker_client_version": "Docker version 29.2.1, build a5c7197",
+    "docker_executable_sha256": "aeb0c9beb933a73723f1653d54f91636ef4033621543eef4c2c67d45aa467eba",
+    "browser_name": "chromium",
+    "browser_version": "149.0.7827.55",
+    "browser_executable_sha256": "b1b9e2dd063115031f08eadc10ed381ca0fa05b2284baff8f721d87f5f0f61b7",
     "cold_mcp_session_per_trial": true,
     "cold_browser_session_per_trial": true,
     "fresh_unique_player_per_trial": true,
@@ -105,6 +143,60 @@
         "max_hp": 69,
         "xp": 0
       }
+    },
+    "database_source": "canonical_start.CANONICAL_DATABASE_PROJECTION",
+    "database_expected": {
+      "pos": {
+        "x": 328,
+        "y": 892
+      },
+      "hit_points": 69,
+      "inventory": [
+        {
+          "slot": 0,
+          "key": "bronzeaxe",
+          "count": 1
+        },
+        {
+          "slot": 1,
+          "key": "knife",
+          "count": 1
+        },
+        {
+          "slot": 2,
+          "key": "fishingpole",
+          "count": 1
+        },
+        {
+          "slot": 3,
+          "key": "coppersword",
+          "count": 1
+        },
+        {
+          "slot": 4,
+          "key": "woodenbow",
+          "count": 1
+        }
+      ],
+      "equipment": [],
+      "quests": [
+        {
+          "key": "minersquest",
+          "stage": 2,
+          "sub_stage": 0,
+          "completed_sub_stages": []
+        },
+        {
+          "key": "tutorial",
+          "stage": 16,
+          "sub_stage": 0,
+          "completed_sub_stages": []
+        }
+      ],
+      "achievements": [],
+      "skills": [],
+      "statistics": {},
+      "abilities": []
     },
     "precondition": "Every arm must match the complete registered projection before treatment or the candidate is not invoked."
   },

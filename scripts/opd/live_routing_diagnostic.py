@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 """Validate the frozen zero-cost live routing diagnostic registration.
 
-Live execution is intentionally not hidden in this validator.  A result-bearing
-launcher must first provide cold-session isolation and complete persistence
-receipts; until then this script freezes and checks the design without starting
-MongoDB, a game server, a browser, a model, or a remote endpoint.
+This validator is side-effect free in both design and live-ready states: it
+never starts MongoDB, a game server, a browser, a model, or a remote endpoint.
 """
 
 from __future__ import annotations
@@ -19,7 +17,10 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from canonical_start import CANONICAL_INITIAL_STATE  # noqa: E402
+from canonical_start import (  # noqa: E402
+    CANONICAL_DATABASE_PROJECTION,
+    CANONICAL_INITIAL_STATE,
+)
 from scripts.opd.response_router import route_content_tool_call  # noqa: E402
 from tool_surface import (  # noqa: E402
     MODEL_VISIBLE_TOOL_EFFECT_CLASSES,
@@ -56,14 +57,36 @@ PROHIBITED_CLAIMS = [
 ]
 DESIGN_SOURCE_PATHS = (
     "canonical_start.py",
+    "mcp_game_server.py",
+    "mcp_server/__init__.py",
+    "mcp_server/js/buy_packet.js",
+    "mcp_server/js/inventory_snapshot.js",
+    "mcp_server/js/nudge_store.js",
     "mcp_server/js/observe.js",
+    "mcp_server/js/shop_ui_state.js",
     "mcp_server/core.py",
+    "mcp_server/helpers.py",
+    "mcp_server/js/__init__.py",
     "mcp_server/login.py",
+    "mcp_server/mob_stats.py",
+    "mcp_server/resource_gates.py",
+    "mcp_server/state_heartbeat.py",
+    "mcp_server/tools/__init__.py",
+    "mcp_server/tools/combat.py",
+    "mcp_server/tools/crafting.py",
+    "mcp_server/tools/gathering.py",
+    "mcp_server/tools/inventory.py",
     "mcp_server/tools/navigation.py",
+    "mcp_server/tools/npc.py",
+    "mcp_server/tools/observe.py",
+    "mcp_server/tools/quest.py",
+    "mcp_server/tools/shop.py",
     "mcp_server/tools/test_lane.py",
+    "mcp_server/utils.py",
     "play_qwen.py",
     "scripts/opd/execution_evidence.py",
     "scripts/opd/live_routing_analyzer.py",
+    "scripts/opd/canonicalize.py",
     "scripts/opd/live_routing_diagnostic.py",
     "scripts/opd/live_routing_prelaunch.py",
     "scripts/opd/live_routing_result_verify.py",
@@ -75,6 +98,8 @@ DESIGN_SOURCE_PATHS = (
 )
 LIVE_READY_ADDITIONAL_SOURCE_PATHS = (
     "scripts/opd/live_routing_launcher.py",
+    "scripts/opd/live_routing_orchestrator.py",
+    "scripts/opd/live_routing_services.py",
 )
 SOURCE_PATHS = DESIGN_SOURCE_PATHS
 MEASUREMENT_STAGES = [
@@ -384,12 +409,29 @@ def validate_registration(
         errors.append("treatment/reconnect session identity overlap")
 
     fixture = _object(registration.get("state_fixture"))
-    if not _has_exact_keys(fixture, {"source", "expected", "precondition"}):
+    if not _has_exact_keys(
+        fixture,
+        {
+            "source",
+            "expected",
+            "database_source",
+            "database_expected",
+            "precondition",
+        },
+    ):
         errors.append("state fixture key set drift")
     if fixture.get("source") != "canonical_start.CANONICAL_INITIAL_STATE":
         errors.append("canonical state fixture source drift")
     if not _json_equal(fixture.get("expected"), CANONICAL_INITIAL_STATE):
         errors.append("canonical state fixture drift")
+    if fixture.get("database_source") != (
+        "canonical_start.CANONICAL_DATABASE_PROJECTION"
+    ):
+        errors.append("canonical database fixture source drift")
+    if not _json_equal(
+        fixture.get("database_expected"), CANONICAL_DATABASE_PROJECTION
+    ):
+        errors.append("canonical database fixture drift")
     if fixture.get("precondition") != (
         "Every arm must match the complete registered projection before "
         "treatment or the candidate is not invoked."
@@ -401,7 +443,20 @@ def validate_registration(
         {
             "game_revision",
             "game_bundle_sha256",
+            "client_dist_inventory_sha256",
             "tool_schema_sha256",
+            "python_version",
+            "python_executable_sha256",
+            "mcp_version",
+            "playwright_version",
+            "pymongo_version",
+            "node_version",
+            "node_executable_sha256",
+            "docker_client_version",
+            "docker_executable_sha256",
+            "browser_name",
+            "browser_version",
+            "browser_executable_sha256",
             "cold_mcp_session_per_trial",
             "cold_browser_session_per_trial",
             "fresh_unique_player_per_trial",
@@ -411,12 +466,42 @@ def validate_registration(
         },
     ):
         errors.append("live contract key set drift")
-    if live.get("game_revision") != "7a3d722e8e200ca44fd959099386b42a5fbe0cb5":
+    if live.get("game_revision") != "bec730773dd03b3f172b66e75f46b253dd801056":
         errors.append("game revision drift")
     if live.get("game_bundle_sha256") != (
-        "b0f9e42b0da63dc7bb1f9172136cd8a1361f762e683b72011172db286c256916"
+        "b88ac739d546b698b3b70c8c748c319bf688e0f71d5a8ec852447d48e516aec8"
     ):
         errors.append("game bundle digest drift")
+    client_inventory_sha = live.get("client_dist_inventory_sha256")
+    if not isinstance(client_inventory_sha, str) or len(client_inventory_sha) != 64 or any(
+        character not in "0123456789abcdef" for character in client_inventory_sha
+    ):
+        errors.append("client build inventory digest is invalid")
+    runtime_environment = {
+        "python_version": "3.12.13",
+        "python_executable_sha256": (
+            "eb9d74b9c7cfdfb2c9b91614edb2c3607360ba46c5aa7fc4557b3a4a23e97cff"
+        ),
+        "mcp_version": "1.28.1",
+        "playwright_version": "1.61.0",
+        "pymongo_version": "4.17.0",
+        "node_version": "v20.20.2",
+        "node_executable_sha256": (
+            "edc0c98fee8947a04913cb45cf80e7341653b0ea9e907ff3dc50d7fdaedda1d2"
+        ),
+        "docker_client_version": "Docker version 29.2.1, build a5c7197",
+        "docker_executable_sha256": (
+            "aeb0c9beb933a73723f1653d54f91636ef4033621543eef4c2c67d45aa467eba"
+        ),
+        "browser_name": "chromium",
+        "browser_version": "149.0.7827.55",
+        "browser_executable_sha256": (
+            "b1b9e2dd063115031f08eadc10ed381ca0fa05b2284baff8f721d87f5f0f61b7"
+        ),
+    }
+    for key, expected_value in runtime_environment.items():
+        if live.get(key) != expected_value:
+            errors.append(f"runtime environment drift: {key}")
     if live.get("tool_schema_sha256") != MODEL_VISIBLE_TOOL_SCHEMA_SHA256:
         errors.append("frozen tool-schema digest drift")
     for gate in (
@@ -597,9 +682,14 @@ def main(argv: list[str] | None = None) -> int:
     except RegistrationError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    status = registration.get("status")
+    if status not in {STATUS, "registered_before_live_execution"}:
+        print(f"unrecognized registration status: {status!r}", file=sys.stderr)
+        return 1
     errors = validate_registration(
         registration,
         repo_root=REPO_ROOT if args.verify_source else None,
+        expected_status=status,
     )
     if errors:
         print("live routing diagnostic registration INVALID", file=sys.stderr)
@@ -609,7 +699,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"registration valid: {args.registration}")
     print("scheduled_trials: 9")
     print("model_calls: 0")
-    print("live execution: blocked until result-bearing launcher and create-only prelaunch receipt exist")
+    print(f"execution_status: {status}")
     return 0
 
 

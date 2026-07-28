@@ -23,6 +23,29 @@ def _observe_payload() -> dict:
     }
 
 
+def test_database_documents_are_pure_and_normalize_to_frozen_projection() -> None:
+    documents = canonical_start.canonical_database_documents("lr_local001_01")
+    assert set(documents) == {
+        "player_info",
+        "player_inventory",
+        "player_bank",
+        "player_equipment",
+        "player_quests",
+        "player_achievements",
+        "player_skills",
+        "player_statistics",
+        "player_abilities",
+    }
+    assert canonical_start.database_state_projection(
+        {"documents": documents}
+    ) == canonical_start.CANONICAL_DATABASE_PROJECTION
+
+
+def test_database_projection_refuses_incomplete_raw_snapshot() -> None:
+    with pytest.raises(TypeError, match="database document"):
+        canonical_start.database_state_projection({"documents": {}})
+
+
 def test_seed_uses_exact_historical_canonical_start(monkeypatch) -> None:
     captured = {}
 

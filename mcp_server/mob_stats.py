@@ -18,12 +18,24 @@ from pathlib import Path
 _DEFAULT_DATA_DIR = Path.home() / "projects" / "Kaetram-Open" / "packages" / "server" / "data"
 
 
+def _diagnostic_lane() -> bool:
+    return os.environ.get("KAETRAM_DIAGNOSTIC_LANE", "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
 def _load_mobs() -> dict:
     """Build {display_name_lower: {level, max_hp, aggressive}}.
 
     Returns {} if the data file isn't present — callers treat absence as
     "we don't know" rather than blowing up.
     """
+    # The routing diagnostic projects only persistent player state. Optional
+    # mob enrichment must not introduce an unregistered local data dependency.
+    if _diagnostic_lane():
+        return {}
     data_dir = Path(os.environ.get("KAETRAM_DATA_DIR", _DEFAULT_DATA_DIR))
     path = data_dir / "mobs.json"
     if not path.is_file():

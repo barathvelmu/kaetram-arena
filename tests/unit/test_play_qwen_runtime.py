@@ -4,6 +4,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -125,3 +126,69 @@ def test_runtime_sends_schema_valid_call_once() -> None:
     )
     assert (result, invoked, reason) == ("ok", True, "valid")
     assert mcp.calls == [("navigate", {"x": 10, "y": 20})]
+
+
+def test_detailed_mcp_result_preserves_protocol_error_bit() -> None:
+    class _Session:
+        async def call_tool(self, name, arguments):
+            assert (name, arguments) == ("navigate", {"x": 10, "y": 20})
+            return SimpleNamespace(
+                isError=True,
+                content=[SimpleNamespace(text="path rejected")],
+            )
+
+    client = play_qwen.MCPClient("python", "server.py", {})
+    client._session = _Session()
+    detailed = asyncio.run(
+        client.call_tool_detailed("navigate", {"x": 10, "y": 20})
+    )
+    assert detailed.text == "path rejected"
+    assert detailed.is_error is True
+    assert asyncio.run(client.call_tool("navigate", {"x": 10, "y": 20})) == (
+        "path rejected"
+    )
+
+
+def test_runtime_receipt_distinguishes_mcp_error_from_transport_exception() -> None:
+    class _DetailedMCP:
+        async def call_tool_detailed(self, name, arguments):
+            return play_qwen.TransportResult("application rejected", is_error=True)
+
+    receipt = asyncio.run(
+        play_qwen.execute_schema_validated_tool(
+            _DetailedMCP(), "navigate", {"x": 10, "y": 20}
+        )
+    )
+    assert receipt["frozen_schema"]["valid"] is True
+    assert receipt["mcp"]["attempted"] is True
+    assert receipt["mcp"]["protocol_success"] is False
+    assert receipt["mcp"]["is_error"] is True
+    assert receipt["mcp"]["exception"] is None
+
+
+def test_execution_evidence_log_is_separate_and_deduplicated() -> None:
+    class _Logger:
+        def __init__(self):
+            self.records = []
+
+        def emit(self, record):
+            self.records.append(record)
+
+    logger = _Logger()
+    evidence = {
+        "mcp": {
+            "result_text": "observe: large raw state",
+            "result_sha256": "digest",
+        },
+        "observation": {"before": None, "after": None, "delta": None},
+    }
+    play_qwen.log_tool_execution_evidence(logger, 2, "call-1", evidence)
+    assert len(logger.records) == 1
+    record = logger.records[0]
+    assert record["type"] == "tool_execution_evidence"
+    assert record["tool_use_id"] == "call-1"
+    assert "message" not in record
+    assert "result_text" not in record["evidence"]["mcp"]
+    assert record["evidence_sha256"] == play_qwen.evidence_sha256(
+        record["evidence"]
+    )

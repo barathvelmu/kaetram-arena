@@ -1,0 +1,221 @@
+{
+  "schema_version": "kaetram.live-routing-diagnostic-registration.v1",
+  "study_id": "local-live-routing-diagnostic-v1",
+  "status": "design_scaffolding_not_live_ready",
+  "claim_boundary": {
+    "confirmatory": false,
+    "permitted_claim": "Preliminary exact-route behavior for one frozen local warp fixture on the registered build; active-route operability and recovery-off non-routing are reported separately.",
+    "prohibited_claims": [
+      "model quality or superiority",
+      "causal recovery benefit",
+      "quest-performance improvement",
+      "checkpoint or training superiority",
+      "faithful execution of archived V2 states",
+      "generalization across tools, states, models, renderers, or environments"
+    ]
+  },
+  "zero_cost_contract": {
+    "model_calls": 0,
+    "remote_endpoints": "forbidden",
+    "metered_services": "forbidden",
+    "network_scope": "loopback_only",
+    "game_port": 9191,
+    "mongo_port": 27017,
+    "mongo_database": "kaetram_e2e"
+  },
+  "source_contract": {
+    "source_commit": "sealed_in_create_only_prelaunch_receipt",
+    "clean_worktree_required": true,
+    "files": {
+      "canonical_start.py": "acfe896250e5be3f725a4c3430609c3619b8c268da31df68d513075fa3270486",
+      "mcp_server/js/observe.js": "20c4d1151b0939eae60d89191c01e7b21c72a7f4445bfc697a4e1f70aa4c3020",
+      "mcp_server/tools/navigation.py": "d9a2638f0685698352d94d48311a1835f380fd8175bf9ffd06aa02f74595716a",
+      "mcp_server/tools/test_lane.py": "4a0c8aa725ed52efab15f310eea341db3dd65a3db3f0d40b0ac9c7107ec27fc4",
+      "play_qwen.py": "d15208bf3198a26a8397b72a3c089e0e16b057a11bd442855aac905d5498c557",
+      "scripts/opd/execution_evidence.py": "3bb6a9618596742f8559fedf7472dcda8c7b1d1305d30638202929a5a1d0bd7f",
+      "scripts/opd/live_routing_diagnostic.py": "c57a669be8ac9aeff4f157bda2a445914422c20fc6cd983d8b6d90a34ea19d9a",
+      "scripts/opd/response_router.py": "0da3488c2663a12d8f9364c753581125a41bf9e88df56b30d04cfdca1f9f7873",
+      "state_extractor.js": "25aa4283fdfe5219c58c6db60fe815e4b0fe5ca12696b7282757dbe9801346e7",
+      "tests/e2e/helpers/mcp_client.py": "c4ba56262dcd723b8f71bd2d2cc0a2f64609e73726906bb8c4851dfb0e9ff9c6",
+      "tests/e2e/helpers/seed.py": "5e1c65c35239dbf9e5b38549b1b1c86ec8455a9ff0786ee7baa234a7e89eb585",
+      "tool_surface.py": "8d30dae10cddc24c15426df57e7f5eeea5ba53d9185941cd2f5c1586cdd2b9b4"
+    }
+  },
+  "live_contract": {
+    "game_revision": "7a3d722e8e200ca44fd959099386b42a5fbe0cb5",
+    "game_bundle_sha256": "b0f9e42b0da63dc7bb1f9172136cd8a1361f762e683b72011172db286c256916",
+    "tool_schema_sha256": "770c9a44b1e656c3798577627ddf08928a5787036e22a5e3358bf78ff6432cfe",
+    "cold_mcp_session_per_trial": true,
+    "cold_browser_session_per_trial": true,
+    "fresh_unique_player_per_trial": true,
+    "unique_username_count": 9,
+    "mongo_database_explicit_every_operation": "kaetram_e2e",
+    "runtime_receipts_required": true
+  },
+  "state_fixture": {
+    "source": "canonical_start.CANONICAL_INITIAL_STATE",
+    "expected": {
+      "active_quests": [],
+      "equipment": {},
+      "finished_quests": [
+        "Miner's Quest"
+      ],
+      "indoors": false,
+      "inventory": [
+        {
+          "count": 1,
+          "key": "bronzeaxe",
+          "slot": 0
+        },
+        {
+          "count": 1,
+          "key": "knife",
+          "slot": 1
+        },
+        {
+          "count": 1,
+          "key": "fishingpole",
+          "slot": 2
+        },
+        {
+          "count": 1,
+          "key": "coppersword",
+          "slot": 3
+        },
+        {
+          "count": 1,
+          "key": "woodenbow",
+          "slot": 4
+        }
+      ],
+      "is_dead": false,
+      "pos": {
+        "x": 328,
+        "y": 892
+      },
+      "skills": {},
+      "stats": {
+        "hp": 69,
+        "level": 1,
+        "max_hp": 69,
+        "xp": 0
+      }
+    },
+    "precondition": "Every arm must match the complete registered projection before treatment or the candidate is not invoked."
+  },
+  "candidate": {
+    "name": "warp",
+    "arguments": {
+      "location": "mudwich"
+    },
+    "canonical_json": "{\"arguments\":{\"location\":\"mudwich\"},\"name\":\"warp\"}",
+    "sha256": "4a6268e304c29bed1d5122d30bd9d1a655d524e2e4855de45ffcc99c811f5676",
+    "content_envelope": "<tool_call><function=warp><parameter=location>mudwich</parameter></function></tool_call>",
+    "content_envelope_sha256": "d0f7273e796c09ae64d2bbeb307ec319e3d5243ec0bd2137871f5f68ce1ad05b"
+  },
+  "arms": [
+    {
+      "arm": "structured_direct",
+      "route": "structured",
+      "recovery": false,
+      "expected_candidate_invocations": 1,
+      "required_application_predicate": "measurement.warp_application_acceptance"
+    },
+    {
+      "arm": "content_recovery_on",
+      "route": "ordinary_content",
+      "recovery": true,
+      "required_router_status": "promoted",
+      "expected_candidate_invocations": 1,
+      "required_application_predicate": "measurement.warp_application_acceptance"
+    },
+    {
+      "arm": "content_recovery_off",
+      "route": "ordinary_content",
+      "recovery": false,
+      "expected_candidate_invocations": 0,
+      "required_state_predicate": "registered_baseline_at_immediate_delayed_reconnect_and_database"
+    }
+  ],
+  "schedule": [
+    {
+      "repeat": 1,
+      "arm_order": [
+        "structured_direct",
+        "content_recovery_on",
+        "content_recovery_off"
+      ]
+    },
+    {
+      "repeat": 2,
+      "arm_order": [
+        "content_recovery_on",
+        "content_recovery_off",
+        "structured_direct"
+      ]
+    },
+    {
+      "repeat": 3,
+      "arm_order": [
+        "content_recovery_off",
+        "structured_direct",
+        "content_recovery_on"
+      ]
+    }
+  ],
+  "measurement": {
+    "candidate_retry_count": 0,
+    "delayed_observation_seconds": 5,
+    "mudwich_success_region": {
+      "x_min": 180,
+      "x_max": 200,
+      "y_min": 150,
+      "y_max": 170
+    },
+    "warp_application_acceptance": {
+      "protocol_success": true,
+      "tool_reported_error": null,
+      "result_json_required": {
+        "warping": true,
+        "warp_id": 0
+      }
+    },
+    "stages": [
+      "router decision",
+      "frozen-schema verdict",
+      "client dispatch attempt",
+      "candidate delivery confirmation",
+      "MCP protocol result",
+      "tool-reported application error",
+      "frozen warp application predicate",
+      "immediate normalized observation",
+      "delayed normalized observation",
+      "post-reconnect observation",
+      "read-only database projection after close"
+    ]
+  },
+  "failure_policy": {
+    "outcome_based_exclusions": "forbidden",
+    "invalid_precondition": "retain failure receipt and do not invoke candidate",
+    "treatment_retry": "forbidden",
+    "transport_exception": "delivery unknown; retain receipt and invalidate trial",
+    "incomplete_pair": "retain all receipts and withhold paired verdict",
+    "release_rule": "Release the full-grid descriptive verdict only if all nine trials and all three repeats are valid."
+  },
+  "reporting": {
+    "scheduled_trials": 9,
+    "technical_repeats": 3,
+    "independent_sample_claim": false,
+    "p_values": "forbidden",
+    "confidence_intervals": "forbidden",
+    "equivalence_language": "forbidden",
+    "raw_and_hashed_receipts_required": true
+  },
+  "verdict_algorithm": {
+    "valid_trial": "precondition matches; router/schema behavior matches arm; delivery is confirmed by a result for active arms or not attempted for off; all registered observation and persistence receipts are present",
+    "active_arm_pass": "exactly one candidate result; protocol_success true; no tool_reported_error; warp result predicate true; immediate, delayed, and reconnect positions satisfy Mudwich region",
+    "off_arm_pass": "candidate delivery_status not_attempted; immediate, delayed, reconnect, and database projections equal the registered baseline",
+    "repeat_pass": "all three arms valid and pass",
+    "full_grid_release": "all three repeats pass; otherwise release incompleteness receipts only"
+  }
+}

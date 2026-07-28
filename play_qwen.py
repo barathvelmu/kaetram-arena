@@ -47,11 +47,17 @@ from tool_surface import (
     MODEL_VISIBLE_TOOL_DEFINITIONS,
     MODEL_VISIBLE_TOOL_NAMES,
     validate_live_tool_compatibility,
-    validate_tool_call_arguments,
 )
 from scripts.isolated_python_entry import (
     isolated_contract_active,
     isolated_python_command,
+)
+from scripts.opd.execution_evidence import (
+    ToolNotAttemptedError,
+    TransportResult,
+    compact_evidence_record,
+    evidence_sha256,
+    execute_tool_call_with_evidence,
 )
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "scripts" / "opd"))
@@ -70,16 +76,42 @@ _FORMAT_NOTE = (
 )
 
 
-async def call_schema_validated_tool(mcp, name: str, arguments) -> tuple[str, bool, str]:
-    """Invoke MCP only after the call passes the frozen model-visible schema."""
+async def execute_schema_validated_tool(mcp, name: str, arguments) -> dict:
+    """Return typed stage evidence while preserving at-most-once execution."""
 
-    valid, reason = validate_tool_call_arguments(name, arguments)
-    if not valid:
-        return f"Error: tool call rejected by frozen schema ({reason})", False, reason
-    try:
-        return await mcp.call_tool(name, arguments), True, "valid"
-    except Exception as exc:
-        return f"Error: {exc}", True, "valid"
+    if hasattr(mcp, "call_tool_detailed"):
+        call_tool = mcp.call_tool_detailed
+    else:
+        async def call_tool(tool_name, tool_arguments):
+            return TransportResult(
+                text=await mcp.call_tool(tool_name, tool_arguments),
+                is_error=False,
+            )
+    return await execute_tool_call_with_evidence(call_tool, name, arguments)
+
+
+def tool_result_from_evidence(receipt: dict) -> str:
+    """Map typed evidence back to the historical model-visible result string."""
+
+    schema = receipt["frozen_schema"]
+    if not schema["valid"]:
+        return f"Error: tool call rejected by frozen schema ({schema['reason']})"
+    mcp = receipt["mcp"]
+    if mcp["exception"]:
+        return f"Error: {mcp['exception']['message']}"
+    return mcp["result_text"] or ""
+
+
+async def call_schema_validated_tool(mcp, name: str, arguments) -> tuple[str, bool, str]:
+    """Compatibility adapter for callers that only consume result text."""
+
+    receipt = await execute_schema_validated_tool(mcp, name, arguments)
+    schema = receipt["frozen_schema"]
+    return (
+        tool_result_from_evidence(receipt),
+        receipt["mcp"]["attempted"],
+        schema["reason"],
+    )
 
 
 def resolve_mcp_python() -> str:
@@ -169,10 +201,10 @@ class MCPClient:
             }
         return list(self._tools.keys())
 
-    async def call_tool(self, name: str, arguments: dict) -> str:
-        """Call an MCP tool and return the text result."""
+    async def call_tool_detailed(self, name: str, arguments: dict) -> TransportResult:
+        """Call an MCP tool without discarding its protocol error bit."""
         if not self._session:
-            raise RuntimeError("MCP client not connected")
+            raise ToolNotAttemptedError("MCP client not connected")
         result = await self._session.call_tool(name, arguments)
         # Concatenate text content from result
         parts = []
@@ -181,7 +213,15 @@ class MCPClient:
                 parts.append(block.text)
             else:
                 parts.append(str(block))
-        return "\n".join(parts)
+        return TransportResult(
+            text="\n".join(parts),
+            is_error=bool(getattr(result, "isError", False)),
+        )
+
+    async def call_tool(self, name: str, arguments: dict) -> str:
+        """Compatibility adapter returning the historical text-only result."""
+
+        return (await self.call_tool_detailed(name, arguments)).text
 
     async def close(self):
         if self._session:
@@ -454,6 +494,25 @@ def log_tool_result(
             }],
         },
         "tool_name": name,
+    })
+
+
+def log_tool_execution_evidence(
+    logger: SessionLogger,
+    turn: int,
+    tool_use_id: str,
+    record: dict,
+) -> None:
+    """Emit audit evidence separately from model-visible tool history."""
+
+    compact = compact_evidence_record(record)
+    logger.emit({
+        "type": "tool_execution_evidence",
+        "turn": turn,
+        "timestamp": datetime.now().isoformat(),
+        "tool_use_id": tool_use_id,
+        "evidence_sha256": evidence_sha256(compact),
+        "evidence": compact,
     })
 
 
@@ -769,12 +828,16 @@ async def _run_inner_loop(
                 fn_name = parsed["name"]
                 fn_args = parsed["args"]
                 info(f"  [{turn}] → {fn_name}({fn_args})")
-                result, invoked, schema_reason = await call_schema_validated_tool(
-                    mcp, fn_name, fn_args
-                )
+                receipt = await execute_schema_validated_tool(mcp, fn_name, fn_args)
+                result = tool_result_from_evidence(receipt)
+                invoked = receipt["mcp"]["attempted"]
+                schema_reason = receipt["frozen_schema"]["reason"]
                 if not invoked:
                     info(f"  [{turn}] REJECTED {fn_name}: {schema_reason}")
                 info(f"  [{turn}] ← {result[:120]}...")
+                log_tool_execution_evidence(
+                    logger, turn, parsed["id"], receipt
+                )
 
                 # Native role=tool — matches build_tool_result_message in
                 # convert_to_qwen.py. SGLang renders as <tool_response>.
@@ -818,15 +881,21 @@ async def _run_inner_loop(
             info(f"  [{turn}] RECOVERED {len(recovered)} malformed call(s): "
                  f"{[(p['name'], p['args']) for p in parsed_calls]}")
             for parsed in parsed_calls:
-                result, invoked, schema_reason = await call_schema_validated_tool(
+                receipt = await execute_schema_validated_tool(
                     mcp, parsed["name"], parsed["args"]
                 )
+                raw_result = tool_result_from_evidence(receipt)
+                invoked = receipt["mcp"]["attempted"]
+                schema_reason = receipt["frozen_schema"]["reason"]
                 if not invoked:
                     info(
                         f"  [{turn}] RECOVERY REJECTED {parsed['name']}: "
                         f"{schema_reason}"
                     )
-                result = f"{_FORMAT_NOTE}\n\n{result}"
+                log_tool_execution_evidence(
+                    logger, turn, parsed["id"], receipt
+                )
+                result = f"{_FORMAT_NOTE}\n\n{raw_result}"
                 messages.append({
                     "role": "tool", "content": result,
                     "tool_call_id": parsed["id"], "name": parsed["name"],

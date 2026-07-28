@@ -32,6 +32,41 @@ MODEL_VISIBLE_TOOL_NAMES = (
     "craft_item",
 )
 
+# Versioned execution-effect classes for evidence collection.  These labels do
+# not assert that a potentially mutating call will succeed or persist; they
+# only determine which measurements are scientifically applicable.
+TOOL_EFFECT_CLASS_VERSION = "kaetram-tool-effect-class.v1"
+MODEL_VISIBLE_TOOL_EFFECT_CLASSES = {
+    "observe": "observation",
+    "query_quest": "read_only",
+    "attack": "potentially_mutating",
+    "navigate": "potentially_mutating",
+    "warp": "potentially_mutating",
+    "interact_npc": "potentially_mutating",
+    "eat_food": "potentially_mutating",
+    "buy_item": "potentially_mutating",
+    "equip_item": "potentially_mutating",
+    "drop_item": "potentially_mutating",
+    "set_attack_style": "potentially_mutating",
+    "cancel_nav": "potentially_mutating",
+    "stuck_reset": "potentially_mutating",
+    "gather": "potentially_mutating",
+    "loot": "potentially_mutating",
+    "respawn": "potentially_mutating",
+    "craft_item": "potentially_mutating",
+}
+if set(MODEL_VISIBLE_TOOL_EFFECT_CLASSES) != set(MODEL_VISIBLE_TOOL_NAMES):
+    missing = sorted(
+        set(MODEL_VISIBLE_TOOL_NAMES) - set(MODEL_VISIBLE_TOOL_EFFECT_CLASSES)
+    )
+    extra = sorted(
+        set(MODEL_VISIBLE_TOOL_EFFECT_CLASSES) - set(MODEL_VISIBLE_TOOL_NAMES)
+    )
+    raise RuntimeError(
+        "tool effect-class registry does not cover the frozen surface: "
+        f"missing={missing}, extra={extra}"
+    )
+
 MODEL_VISIBLE_TOOL_DEFINITIONS = [
     {
         "type": "function",

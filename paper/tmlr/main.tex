@@ -41,18 +41,21 @@ interfaces, and runtime recovery had changed together. We therefore moved from
 long-horizon scores to prospectively frozen manipulation checks. An 18-cell
 weights-by-recovery diagnostic produced no recovery-eligible output in 958
 generations, so the recovery intervention never engaged. A fixed-state V1
-study then found that presenting a registered tool schema increased recoverable
-calls stranded in text by 15--30 percentage points across three checkpoints,
+study then found that passing a registered schema through the endpoint's native
+tools parameter increased the rate of recoverable calls stranded in text by
+15--30 percentage points across three checkpoints,
 but a post-outcome audit found that its five nominal seeds were ineffective.
 We repaired the sampling path and prospectively froze V2 on 20 outcome-unseen
 states before endpoint access.
 All 1,200 requests succeeded; all 240 state--condition groups contained five
-distinct semantic responses, and 126 groups varied in the primary outcome.
+distinct normalized response payloads, and 126 groups varied in the primary
+outcome.
 The native-schema contrast was positive at Base, round 2, and round 3
 (+23, +13, and +10 points), satisfying the registered directional criterion.
 A clearly labeled post-hoc analysis also found that schema-invalid structured
-envelopes occurred less often per request when the native schema was present.
-Because schema exposure also changed routing, this comparison is descriptive.
+envelopes occurred less often and that valid candidates through either route
+rose from 61 to 135, 79 to 112, and 83 to 121 per 200 requests. Because schema
+exposure also changed routing, this comparison is descriptive.
 The contribution is an
 artifact-centered audit of where actions are lost between model and
 environment, not a checkpoint ranking, recovery benefit, or established
@@ -92,7 +95,7 @@ was eligible. Third, a registered fixed-state grid isolated two model-visible
 interface factors and exposed recoverable calls that were printed in text rather
 than delivered through the structured channel. Fourth, an audit discovered
 that nominal request seeds had not changed sampling. We repaired the seed path
-and prospectively froze an outcome-unseen replication instead of retrospectively
+and prospectively froze an outcome-unseen confirmation instead of retrospectively
 upgrading the first study.
 
 Our contributions are:
@@ -102,12 +105,12 @@ Our contributions are:
   and define auditable outcomes that distinguish a structured envelope, an
   recoverable call stranded in text, a malformed surface form, and no recoverable
   call.
-  \item We report a registered outcome-unseen finite-grid replication across
+  \item We report a registered outcome-unseen finite-grid confirmation across
   three fixed checkpoints. Native schema exposure increased content-only
   recoverable-call incidence by 10--23 percentage points at every checkpoint,
   satisfying the prospectively frozen directional criterion.
   \item We provide a failure-aware evidence sequence: content-bound historical
-  recovery, a failed manipulation check, explicit discovery/replication
+  recovery, a failed manipulation check, explicit discovery/confirmation
   separation, model-level seed validation, and independently recomputable raw
   artifacts.
 \end{enumerate}
@@ -231,7 +234,7 @@ Fixed-panel discovery; nominal seeds ineffective \\
 V1 seed audit & Semantic duplicates recomputed post hoc &
 Collapse to 20 outputs per cell; no sampling claim \\
 V2 interface grid & 1,200/1,200; outcome-unseen panel; effective gates &
-Registered finite-grid directional replication \\
+Registered finite-grid directional confirmation \\
 Structured validity & Recomputed after V2 outcomes &
 Post-hoc routing diagnostic, not a new primary outcome \\
 One-action execution check & 9/9 valid model-free technical trials &
@@ -322,7 +325,7 @@ interfaces naturally produce content that the recovery layer could act on.
 
 V1 crossed the three checkpoints, four interfaces, 20 historical decision
 states, and five nominal request seeds. All 1,200 requests completed. After
-outcomes, an independent diversity audit found one semantic response in every
+outcomes, an independent diversity audit found one normalized response payload in every
 five-seed state--condition group: the serving thread accepted the request seed
 but did not change its sampling stream. We therefore collapse V1 to one output
 per state--condition group, or 20 outputs per cell. No stochastic-sampling
@@ -331,10 +334,10 @@ uncertainty is claimed.
 On that collapsed discovery panel, native schema exposure increased
 content-only recoverable-call incidence by 30, 22.5, and 15 percentage points
 for Base, round 2, and round 3. Documentation effects were mixed. These values
-motivated a directional replication criterion, but the ineffective seeds and
-outcome-seen state panel prevent V1 from serving as that replication.
+motivated a directional confirmation criterion, but the ineffective seeds and
+outcome-seen state panel prevent V1 from serving as that confirmation.
 
-\subsection{V2 prospectively frozen outcome-unseen replication}
+\subsection{V2 prospectively frozen outcome-unseen confirmation}
 
 V2 was frozen before any selected state was sent to an endpoint. It selected 20
 different source logs from the same historical Base run, explicitly excluding
@@ -343,29 +346,39 @@ rules rather than interface outcomes. The design remained
 $3\times4\times20\times5=1{,}200$ requests.
 
 Before a checkpoint could create an outcome directory, an unrelated
-plain-English seed gate required five seeds to produce at least three semantic
-responses, while an exact repeat of the third seed had to reproduce exactly.
+plain-English seed gate required five seeds to produce at least three distinct
+normalized response payloads, while an exact repeat of the third seed had to
+reproduce exactly.
 Base, round 2, and round 3 all passed. The registered directional criterion was
 strict: the native-schema contrast had to be positive at all three checkpoints
 on the complete grid. Documentation and interaction contrasts had no directional
 success rule. Failures would remain in the artifact, and no verdict would be
 emitted unless every scheduled request succeeded.
 
+Each request used temperature 1.0, top-$p$ 0.95, top-$k$ 20, presence penalty
+1.5, and at most 400 generated tokens, with concurrency four. For each
+state--sample block, the four registered conditions were deterministically
+rotated to balance order; this was not random assignment. A normalized payload
+is exact response JSON after removing generated tool-call identifiers, not a
+semantic-equivalence judgment. The 20 states were the fourth reconstructable
+decision turns from registered, deterministically strided eligible logs, with
+at most 28 history messages.
+
 The primary contrast averages schema-present minus schema-absent incidence over
 the two documentation conditions within each checkpoint. Documentation and
 interaction contrasts are computed analogously. We also report, for each
-paired state, whether the effect is positive, negative, or zero, plus semantic
-and primary-outcome heterogeneity across the five seeds.
+paired state, whether the effect is positive, negative, or zero, plus
+normalized-payload and primary-outcome heterogeneity across the five seeds.
 
 \subsection{V2 results}
 
 All 1,200 requests succeeded. Every one of the 240
-checkpoint--condition--state groups contained five distinct semantic responses,
-showing that the repaired seed path changed generation on the study prompts as
-well as on the gate. The primary recovery-opportunity label varied across seeds
-in 126 of 240 groups. V2 therefore supplies non-identical within-state
-responses rather than deterministic replay; it does not make them independent
-draws from a deployment population.
+checkpoint--condition--state groups contained five distinct normalized response
+payloads, showing that the repaired seed path changed generation on the study
+prompts as well as on the gate. The primary recovery-opportunity label varied
+across seeds in 126 of 240 groups. V2 therefore supplies non-identical
+within-state responses rather than deterministic replay; it does not make them
+independent draws from a deployment population.
 
 % The generated result uses table* for compatibility with the ACL working
 % draft. TMLR is single-column, so keep the unchanged generated table at this
@@ -384,50 +397,57 @@ effects ($-3$, $+1$, and $-5$ points); the interactions were $+2$, $+4$, and
 $0$ points. We do not pool checkpoints or attach population uncertainty to the
 twenty states.
 
-\subsection{Post-hoc schema validity of structured envelopes}
+\subsection{Post-hoc route and schema decomposition}
 
 The prospectively frozen primary outcome asks whether a recoverable candidate was
 stranded in text; it treats any nonempty structured field as ``structured.''
-After V2, we asked a different question: do structured envelopes name a
-registered tool and satisfy its argument schema? Table~\ref{tab:validity}
-reports this explicitly post-hoc analysis. Counts pool the two documentation
-conditions within a checkpoint and show invalid structured envelopes per 200
-requests, without conditioning on whether a structured envelope was emitted.
+After V2, we asked a different question: does either response route contain a
+registered tool with schema-valid arguments? Table~\ref{tab:validity} reports
+this explicitly post-hoc, mutually exclusive decomposition. Counts pool the two
+documentation conditions within a checkpoint. The invalid category combines
+invalid structured and invalid recoverable-text candidates; none means neither
+route contained a candidate.
 
 \begin{table}[H]
-\caption{Post-hoc counts of schema-invalid structured envelopes per 200
-requests. This descriptive analysis does not redefine the registered primary
-outcome.}
+\caption{Post-hoc route decomposition per 200 requests. VS is a valid
+structured candidate; VT is a valid recoverable-text candidate. Categories are
+mutually exclusive and do not redefine the registered primary outcome.}
 \label{tab:validity}
 \centering
 \small
-\begin{tabular}{lrr}
+\begin{tabular}{llrrrrr}
 \toprule
-Weights & Schema absent & Schema present \\
+Weights & Native schema & VS & VT & Invalid & None & Valid any \\
 \midrule
-Base & 34 & 1 \\
-Round 2 & 24 & 6 \\
-Round 3 & 18 & 3 \\
+Base & Absent  & 31 & 30 & 34 & 105 & 61 \\
+Base & Present & 59 & 76 &  1 &  64 & 135 \\
+Round 2 & Absent  & 49 & 30 & 25 & 96 & 79 \\
+Round 2 & Present & 55 & 57 &  6 & 82 & 112 \\
+Round 3 & Absent  & 39 & 44 & 21 & 96 & 83 \\
+Round 3 & Present & 54 & 67 &  3 & 76 & 121 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-In this post-hoc descriptive analysis, schema-invalid structured envelopes
-occurred less often per 200 requests when the native schema was present, even
-while recoverable calls stranded in text became more common. Because schema
-exposure also changed whether responses reached the structured channel,
-comparisons conditional on producing a structured envelope are
-selection-sensitive and are not interpreted causally. The registered study does
-not determine whether recovering and executing stranded calls improves
-environment state, nor does the post-hoc table define a net-utility metric.
+Valid candidates through either route rose from 61 to 135 (Base), 79 to 112
+(round 2), and 83 to 121 (round 3) when the endpoint received the native tools
+parameter: $+37$, $+16.5$, and $+19$ percentage points. All 15
+checkpoint-by-sample-index contrasts were positive. A frozen strict-router
+replay preserved 373 structured rows, promoted 303 recoverable-text rows,
+quarantined five, and left 519 no-candidate rows unchanged. These are candidate
+actions, not evidence of semantic appropriateness or utility. Because schema
+exposure also changed routing, conditional route comparisons are
+selection-sensitive; the registered study does not determine whether executing
+the recovered calls improves environment state.
 
 \subsection{One-action local routing diagnostic}
 
 To test the next boundary without a model call, we prospectively froze one
 schema-valid \texttt{warp} candidate and routed it through structured input,
-strict content recovery, and a recovery-off control. All nine trials passed the
-frozen validity checks. Structured input and content recovery each passed all
-three technical repeats: exactly one candidate was delivered, the application
+strict content recovery, and a recovery-off control. All nine trials were
+protocol-valid; the sealed verdict was \texttt{complete\_with\_failures}.
+Structured input and content recovery each passed all three technical repeats:
+exactly one candidate was delivered, the application
 predicate passed, and the immediate, delayed, and reconnect client projections
 were in Mudwich.
 
@@ -490,8 +510,8 @@ evidence that the warp executed; it shows why client-visible state, candidate
 delivery, and exact persistence equality must be reported separately.
 
 \paragraph{Request parameters are not effective randomization by inspection.}
-V1 stored five distinct seed values, yet they produced identical semantic
-outputs. V2 required model-level diversity plus exact repeatability before
+V1 stored five distinct seed values, yet they produced identical normalized
+response payloads. V2 required model-level diversity plus exact repeatability before
 outcome collection and audited heterogeneity after completion.
 
 \paragraph{Artifact integrity does not create experimental independence.}
@@ -519,6 +539,19 @@ multiple environments and interfaces \citep{paglieri2025balrog,park2025orak}.
 Our study is narrower: it traces one action through a renderer, response
 channel, schema checker, parser, and recovery layer. It does not propose MCP or
 typed tools as novel infrastructure.
+
+The interface distinctions themselves are also established. CONFETTI compares
+native API and directly prompted function-calling modes
+\citep{alkhouli2025confetti}; EASYTOOL transforms heterogeneous documentation
+into standardized concise instructions \citep{yuan2025easytool}. ActionStudio
+makes action fields explicit in a unified trajectory format
+\citep{zhang2025actionstudio}, while APIGen verifies format, execution, and
+semantic correctness in separate stages \citep{liu2024apigen}. ToolSandbox
+scores calls, execution, and state milestones in a stateful environment
+\citep{lu2025toolsandbox}. We do not claim those components as new. Our narrower
+contribution is a matched, prospectively frozen audit that retains both response
+channels and measures a silent routing failure under one fixed renderer and
+checkpoint family.
 
 Recovery can also be learned or implemented at different layers.
 Fission-GRPO learns from execution errors \citep{zhang2026fission}; our recovery
@@ -567,7 +600,7 @@ not establish safety, appropriateness, quest utility, or recovery benefit.
 
 V1's five nominal seeds were ineffective and were collapsed after a
 post-outcome audit. V2 repairs this specific failure: all 240 groups have five
-unique semantic responses, and 126 vary in the primary label. That does not
+unique normalized response payloads, and 126 vary in the primary label. That does not
 make the five samples independent draws from a stable deployment distribution,
 and no p-values or confidence intervals are reported.
 
@@ -683,7 +716,7 @@ Recovery factorial & The registered cells completed, but recovery never
 engaged; no recovery effect is identified. \\
 V1 trigger incidence & Native schema exposure had a positive contrast on the
 V1 fixed panel; nominal seeds were ineffective and duplicates are collapsed. \\
-V2 directional replication & On the complete outcome-unseen grid, native
+V2 directional confirmation & On the complete outcome-unseen grid, native
 schema effects were +23, +13, and +10 points and the registered criterion
 passed. This is conditional on the fixed checkpoints, renderer, and panel. \\
 Structured validity & Invalid structured envelopes occurred less often per 200

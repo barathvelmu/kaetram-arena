@@ -36,7 +36,7 @@ RESULTS = ROOT / "research" / "results" / "local-trigger-incidence-v2"
 PAPER = ROOT / "output" / "pdf" / "kaetram-tool-routing-tmlr-draft.pdf"
 OUTPUT = ROOT / "output" / "supplement" / "kaetram-tmlr-anonymous-supplement.zip"
 REVIEW_SCHEMA = "kaetram.local-trigger-incidence-review-artifact.v1"
-PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v3"
+PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v4"
 VERIFICATION_CODE = (
     "scripts/opd/analyze_structured_call_validity.py",
     "scripts/opd/audit_trigger_incidence_artifact.py",

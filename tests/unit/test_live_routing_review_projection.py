@@ -52,7 +52,20 @@ def _default_expansion() -> dict:
         ],
         "achievements": [{"key": "default", "stage": 0}],
         "skills": [{"type": 0, "experience": 0}],
-        "statistics": {"loginCount": 2},
+        "statistics": {
+            "averageTimePlayed": 1.0,
+            "cheater": False,
+            "creationTime": 10,
+            "drops": {},
+            "lastLogin": 11,
+            "loginCount": 2,
+            "mobExamines": [],
+            "mobKills": {},
+            "pvpDeaths": 0,
+            "pvpKills": 0,
+            "resources": {},
+            "totalTimePlayed": 1.0,
+        },
     }
 
 
@@ -159,7 +172,7 @@ def test_projection_rekeys_and_retains_only_narrow_completed_result() -> None:
     assert off["candidate_not_invoked"] == 3
     assert off["client_baseline_preserved"] == 3
     assert off["strict_database_baseline_preserved"] == 0
-    assert off["default_database_rows_materialized"] == 3
+    assert off["database_defaults_and_session_bookkeeping_materialized"] == 3
     serialized = json.dumps(result, sort_keys=True)
     for forbidden in (
         "private-id",
@@ -284,6 +297,14 @@ def test_parity_check_rejects_valid_but_different_projection(
 def test_default_expansion_classifier_rejects_nondefault_change() -> None:
     actual = _default_expansion()
     actual["skills"][0]["experience"] = 1
-    assert not projection._default_database_rows_materialized_only(
+    assert not projection._database_defaults_and_session_bookkeeping_materialized_only(
+        actual, _fixture()
+    )
+
+
+def test_materialization_classifier_rejects_unregistered_statistic() -> None:
+    actual = _default_expansion()
+    actual["statistics"]["questProgress"] = 1
+    assert not projection._database_defaults_and_session_bookkeeping_materialized_only(
         actual, _fixture()
     )

@@ -20,6 +20,12 @@ ALLOWED_PDF_URLS = {
     "https://doi.org/10.18653/v1/2026.acl-long.1880",
     "https://aclanthology.org/2026.acl-long.855/",
     "https://aclanthology.org/2024.emnlp-main.1083/",
+    "https://aclanthology.org/2025.acl-long.394/",
+    "https://aclanthology.org/2025.findings-naacl.65/",
+    "https://aclanthology.org/2025.emnlp-main.1090/",
+    "https://aclanthology.org/2025.naacl-long.44/",
+    "https://proceedings.neurips.cc/paper_files/paper/2024/hash/"
+    "61cce86d180b1184949e58939c4f983d-Abstract-Datasets_and_Benchmarks_Track.html",
 }
 
 _BIBTEX_ENTRY_TYPES = {

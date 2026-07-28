@@ -1,13 +1,14 @@
-# Seeded outcome-unseen interface replication (v2)
+# Seeded outcome-unseen interface confirmation (v2)
 
 Status: complete, prospectively frozen directional criterion passed.
 
-This is the v2 replication, not the earlier v1 discovery study. It uses 20
+This is the v2 confirmation panel, not the earlier v1 discovery study. It uses 20
 outcome-unseen states, four interface conditions, three fixed checkpoints, and
 five effective request seeds per state/condition cell: 1,200 requests total.
 All 1,200 requests succeeded. All three model-level diversity/repeatability
 gates passed, and every one of the 240 state/condition groups contained five
-distinct semantic responses.
+distinct normalized response payloads after generated tool-call identifiers
+were removed. This is exact-payload diversity, not semantic equivalence.
 
 The registered native-schema contrast in recoverable content-only call rate was
 positive at every checkpoint: Base +0.23, R2 +0.13, and R3 +0.10. The registered

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECTION_SCHEMA = "kaetram.live-routing-anonymous-review-projection.v1"
+PROJECTION_SCHEMA = "kaetram.live-routing-anonymous-review-projection.v2"
 ROOT_KEYS = {
     "schema_version",
     "scope",
@@ -40,7 +40,7 @@ TRIAL_KEYS = {
     "database_target_reached",
     "client_baseline_preserved",
     "strict_database_baseline_preserved",
-    "default_database_rows_materialized",
+    "database_defaults_and_session_bookkeeping_materialized",
 }
 SUMMARY_KEYS = {
     "scheduled_trials",
@@ -56,7 +56,7 @@ ARM_SUMMARY_KEYS = {
     "candidate_not_invoked",
     "client_baseline_preserved",
     "strict_database_baseline_preserved",
-    "default_database_rows_materialized",
+    "database_defaults_and_session_bookkeeping_materialized",
 }
 SCOPE = "single_fixture_descriptive_routing_check_no_model_calls"
 ARM_ORDER = (
@@ -78,6 +78,20 @@ COMPLETED_SCHEDULE = (
 TARGET_ARMS = {"structured_direct", "content_recovery_on"}
 ALLOWED_DELIVERY = {"confirmed", "not_attempted", "failed", "unknown"}
 SHA256 = re.compile(r"[0-9a-f]{64}")
+MATERIALIZED_STATISTICS_KEYS = {
+    "averageTimePlayed",
+    "cheater",
+    "creationTime",
+    "drops",
+    "lastLogin",
+    "loginCount",
+    "mobExamines",
+    "mobKills",
+    "pvpDeaths",
+    "pvpKills",
+    "resources",
+    "totalTimePlayed",
+}
 
 
 class ProjectionError(ValueError):
@@ -185,10 +199,10 @@ def _contains_records(actual: Any, expected: Any) -> bool:
     return all(canonical_json_bytes(item) in actual_tokens for item in expected)
 
 
-def _default_database_rows_materialized_only(
+def _database_defaults_and_session_bookkeeping_materialized_only(
     actual: Any, expected: Any
 ) -> bool:
-    """Recognize the observed server-default expansion without exporting it.
+    """Recognize the observed default expansion and session bookkeeping.
 
     The run's strict database predicate fails because the game server expands
     empty/default collections on login.  We prove that narrow characterization
@@ -234,7 +248,31 @@ def _default_database_rows_materialized_only(
         for row in actual["skills"]
     ):
         return False
-    if not isinstance(actual["statistics"], dict) or not actual["statistics"]:
+    statistics = actual["statistics"]
+    if not isinstance(statistics, dict) or set(statistics) != MATERIALIZED_STATISTICS_KEYS:
+        return False
+    if any(
+        statistics[key] != value
+        for key, value in {
+            "cheater": False,
+            "drops": {},
+            "mobExamines": [],
+            "mobKills": {},
+            "pvpDeaths": 0,
+            "pvpKills": 0,
+            "resources": {},
+        }.items()
+    ):
+        return False
+    for key in ("averageTimePlayed", "totalTimePlayed"):
+        value = statistics[key]
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            return False
+    for key in ("creationTime", "lastLogin", "loginCount"):
+        value = statistics[key]
+        if type(value) is not int or value < 1:
+            return False
+    if statistics["lastLogin"] < statistics["creationTime"]:
         return False
     expected_quest_tokens = {canonical_json_bytes(row) for row in expected["quests"]}
     for row in actual["quests"]:
@@ -330,8 +368,8 @@ def _project_rows(
                 "strict_database_baseline_preserved": (
                     _json_equal(database, database_fixture) if off_arm else None
                 ),
-                "default_database_rows_materialized": (
-                    _default_database_rows_materialized_only(
+                "database_defaults_and_session_bookkeeping_materialized": (
+                    _database_defaults_and_session_bookkeeping_materialized_only(
                         database, database_fixture
                     )
                     if off_arm
@@ -362,8 +400,11 @@ def _summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 row["strict_database_baseline_preserved"] is True
                 for row in selected
             ),
-            "default_database_rows_materialized": sum(
-                row["default_database_rows_materialized"] is True
+            "database_defaults_and_session_bookkeeping_materialized": sum(
+                row[
+                    "database_defaults_and_session_bookkeeping_materialized"
+                ]
+                is True
                 for row in selected
             ),
         }
@@ -460,10 +501,15 @@ def validate_review_projection(projection: dict[str, Any]) -> None:
                 target_arm and row[key] is not None
             ):
                 raise ProjectionError(f"trial applicability drift: {key}")
-        if type(row["default_database_rows_materialized"]) is not bool:
-            raise ProjectionError("default-row indicator is not boolean")
-        if target_arm and row["default_database_rows_materialized"]:
-            raise ProjectionError("default-row indicator is inapplicable to active arms")
+        materialized = row[
+            "database_defaults_and_session_bookkeeping_materialized"
+        ]
+        if type(materialized) is not bool:
+            raise ProjectionError("database-materialization indicator is not boolean")
+        if target_arm and materialized:
+            raise ProjectionError(
+                "database-materialization indicator is inapplicable to active arms"
+            )
     summary = projection.get("summary")
     if not isinstance(summary, dict) or set(summary) != SUMMARY_KEYS:
         raise ProjectionError("projection summary key set drift")
@@ -489,7 +535,7 @@ def validate_review_projection(projection: dict[str, Any]) -> None:
                 "database_target_reached": True,
                 "client_baseline_preserved": None,
                 "strict_database_baseline_preserved": None,
-                "default_database_rows_materialized": False,
+                "database_defaults_and_session_bookkeeping_materialized": False,
             }
         else:
             expected = {
@@ -503,7 +549,7 @@ def validate_review_projection(projection: dict[str, Any]) -> None:
                 "database_target_reached": None,
                 "client_baseline_preserved": True,
                 "strict_database_baseline_preserved": False,
-                "default_database_rows_materialized": True,
+                "database_defaults_and_session_bookkeeping_materialized": True,
             }
         if any(row.get(key) != value for key, value in expected.items()):
             raise ProjectionError("trial row differs from completed-result claim boundary")

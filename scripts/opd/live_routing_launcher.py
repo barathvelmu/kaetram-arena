@@ -341,8 +341,16 @@ def validate_runtime_attestation(
         or page.fragment
     ):
         raise LauncherError("runtime attestation page escaped the loopback lane")
+    observed_username = attestation.get("player_username")
+    # Kaetram lower-cases the authenticated account on the server, while the
+    # browser-facing player name is display-formatted with an initial capital.
+    # Bind the same account after that documented presentation transform.
+    if (
+        not isinstance(observed_username, str)
+        or observed_username.casefold() != spec.username.casefold()
+    ):
+        raise LauncherError("runtime attestation player identity mismatch")
     expected_values = {
-        "player_username": spec.username,
         "configured_client_url": "http://127.0.0.1:9000",
         "configured_game_port": "9191",
         "require_existing_account": True,
@@ -350,7 +358,7 @@ def validate_runtime_attestation(
         "loopback_only": True,
     }
     if any(attestation.get(key) != value for key, value in expected_values.items()):
-        raise LauncherError("runtime attestation lane or player identity mismatch")
+        raise LauncherError("runtime attestation lane identity mismatch")
 
 
 def validate_runtime_attestation_set(

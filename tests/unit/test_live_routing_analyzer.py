@@ -301,6 +301,27 @@ def _runtime_attestation(plan: dict, phase: str, live_contract: dict) -> dict:
     }
 
 
+def _set_display_case_username(row: dict) -> None:
+    for phase in ("treatment", "reconnect"):
+        record = row["execution_evidence"]["runtime_attestations"][phase]
+        parsed = dict(record["parsed"])
+        parsed["player_username"] = parsed["player_username"].capitalize()
+        raw = "__diagnostic_runtime_attestation: " + json.dumps(
+            parsed,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        record.update(
+            {
+                "raw_text": raw,
+                "raw_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+                "parsed": parsed,
+            }
+        )
+
+
 def _owner_envelope(parsed: dict, role: str) -> dict:
     if role == "mcp":
         owner = {
@@ -548,6 +569,17 @@ def test_all_nine_pass_releases_descriptive_grid() -> None:
     assert analysis["verdict"] == "complete_all_pass"
     assert analysis["paired_aggregate"]["status"] == "released_descriptive_only"
     assert all(row["outcome"] == "pass" for row in analysis["trials"])
+
+
+def test_kaetram_display_case_username_remains_the_same_player() -> None:
+    registration, prelaunch, receipts = _complete()
+    _set_display_case_username(receipts[0])
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert analysis["trials"][0]["validity"] == "valid"
+    assert analysis["trials"][0]["outcome"] == "pass"
 
 
 @pytest.mark.parametrize(

@@ -360,11 +360,16 @@ def _runtime_attestation_valid(
         parsed.get("mcp_instance_nonce"),
         parsed.get("browser_launch_nonce"),
     )
+    observed_username = parsed.get("player_username")
+    exact_player = (
+        isinstance(observed_username, str)
+        and observed_username.casefold() == expected_username.casefold()
+    )
     return (
         parsed.get("schema_version")
         == "kaetram.diagnostic-runtime-attestation.v1"
         and parsed.get("session_id") == expected_session_id
-        and parsed.get("player_username") == expected_username
+        and exact_player
         and type(parsed.get("mcp_pid")) is int
         and parsed["mcp_pid"] > 0
         and type(parsed.get("mcp_process_group")) is int

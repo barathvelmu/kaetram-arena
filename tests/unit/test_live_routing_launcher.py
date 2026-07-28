@@ -210,6 +210,29 @@ def test_runtime_attestation_binds_exact_cold_session_and_lane() -> None:
     )
 
 
+def test_runtime_attestation_accepts_kaetram_display_case() -> None:
+    attestation = _runtime_attestation()
+    attestation["player_username"] = "Lr_local001_01"
+    validate_runtime_attestation(
+        attestation,
+        _session_spec(),
+        worker_pid=12344,
+        worker_process_group=12344,
+    )
+
+
+def test_runtime_attestation_rejects_different_player_after_casefold() -> None:
+    attestation = _runtime_attestation()
+    attestation["player_username"] = "Lr_local001_02"
+    with pytest.raises(LauncherError, match="player identity"):
+        validate_runtime_attestation(
+            attestation,
+            _session_spec(),
+            worker_pid=12344,
+            worker_process_group=12344,
+        )
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
@@ -220,8 +243,8 @@ def test_runtime_attestation_binds_exact_cold_session_and_lane() -> None:
         ("browser_nonce_echo", "4" * 32, "nonce echo"),
         ("browser_executable_sha256", None, "browser identity"),
         ("page_url", "https://example.invalid/", "loopback lane"),
-        ("configured_game_port", "9001", "lane or player identity"),
-        ("loopback_only", False, "lane or player identity"),
+        ("configured_game_port", "9001", "lane identity"),
+        ("loopback_only", False, "lane identity"),
     ],
 )
 def test_runtime_attestation_rejects_identity_or_lane_drift(

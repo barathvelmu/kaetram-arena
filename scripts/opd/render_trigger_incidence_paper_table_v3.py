@@ -135,10 +135,14 @@ def render(summary: dict) -> tuple[str, str]:
                 str(row.get(key))
                 for key in ("states_positive", "states_negative", "states_zero")
             )
-            values.append(f"{effect} ({triple})")
+            values.append(f"{effect} pp ({triple})")
         label = SNAPSHOT_LABELS[snapshot]
-        md.append(f"| {label} | " + " | ".join(f"{value} pp" for value in values) + " |")
-        contrast_tex_rows.append(f"{label} & " + " & ".join(values) + r" \\")
+        md.append(f"| {label} | " + " | ".join(values) + " |")
+        contrast_tex_rows.append(
+            f"{label} & "
+            + " & ".join(value.replace(" pp ", " ") for value in values)
+            + r" \\"
+        )
     md.extend(
         [
             "",

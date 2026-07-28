@@ -25,7 +25,7 @@ def test_renderer_emits_complete_nonconfirmatory_tables() -> None:
     markdown, latex = render(_complete_summary())
 
     assert "Different-panel V3" in markdown
-    assert "+23.0 (14/1/5) pp" in markdown
+    assert "+23.0 pp (14/1/5)" in markdown
     assert "non-confirmatory finite-grid" in markdown
     assert r"\label{tab:trigger-incidence-v3}" in latex
     assert "126/240 state--condition groups" in latex

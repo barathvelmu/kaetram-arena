@@ -95,4 +95,5 @@ def test_ci_uses_the_same_bootstrap_with_immutable_action_pins() -> None:
     assert "scripts/bootstrap_unit_tests.py bootstrap --python python" in workflow
     assert "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" in workflow
     assert "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405" in workflow
+    assert "fetch-depth: 0" in workflow
     assert "permissions:\n  contents: read" in workflow

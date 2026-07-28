@@ -1,0 +1,23 @@
+{
+  "design_sha256": "cdc5c5afd4073ae7a51aa3742eff34d4ea59fcff7b9de47cbd19c9b30a250207",
+  "dirty_paths": [],
+  "effective_registration_sha256": "9eb49dc3a9bf6390edd93e101c8e2214489a6fc104a278b8d31ea786f03cda51",
+  "execution_authorized": false,
+  "next_gate": "Commit and push this complete design package, then run the independent V3 verifier with --require-execution-ready before issuing requests.",
+  "outcomes_inspected_for_selection": false,
+  "schema_version": "kaetram.local-trigger-incidence-v3-preparation.v1",
+  "selected_source_tree_sha256": "5ef6978d1df833edcd13f42ac3bf7609baf71eea96ce092e443507a4e84f5eba",
+  "source_audit": {
+    "eligible_source_log_count": 370,
+    "eligible_source_logs_sha256": "5cd84414b2c79504a45bf4248586fd2fe9d02b8a26ad45b4a2698123aaf528ba",
+    "matched_source_log_count": 1154,
+    "matched_source_logs_sha256": "6de532eb7c09f82369d85103857fe31b1d77346239a5edf504e8c7a52c2860c8",
+    "matched_source_metadata_sha256": "c1047fcf9ad60ba6d4ee8d9277f95dcd310b7f2e685b46eb9b61f4aaf68fcbed",
+    "reconstructable_decision_state_count": 367,
+    "source_run_id": "run_20260613_112422"
+  },
+  "source_git_commit": "6f9135c9e933c442c533ae84f660b8693bcdf762",
+  "study_id": "local-trigger-incidence-seeded-v3",
+  "v2_overlap_count": 0,
+  "v3_registration_sha256": "05b0cf71c9ae4d9ee19757ec2caa10da9620162a40a753b2e717fd4f0ac1f524"
+}

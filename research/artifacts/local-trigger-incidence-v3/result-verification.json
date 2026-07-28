@@ -1,0 +1,25 @@
+{
+  "analysis_artifact_index_sha256": "ffa4ed6330e6eaeb401153c9ca9c22469ac2b6fb99aadf3dcc41687d2de348d6",
+  "analysis_status": "complete",
+  "claim_boundary_sha256": "26a8fc68be2073cc5fccc614016f6f9ce331df35b36152a74de4ed958b092102",
+  "design_sha256": "cdc5c5afd4073ae7a51aa3742eff34d4ea59fcff7b9de47cbd19c9b30a250207",
+  "execution_commit": "be44d9ae8bfcb813244551345cb0c52e2bf91a03",
+  "expected_request_grid_sha256": "c21c2f98758fa7cbd5883db3caa0d1f872dd789118e153050078e414f01e1a7c",
+  "failed_requests": 0,
+  "independent_recomputation": true,
+  "run_artifact_indexes": {
+    "base_2b": "7d230915d7bff1fb61eff4afe90ae9ce1c563c151be21bf43791bb11cc59d563",
+    "opd_r2_2b": "e72f94d0997298546cfdd3c31076ade1848f7265c4a1db8b5972b517ba18db7b",
+    "opd_r3_2b": "dfa7a72cefec36dea29c665024b847799d4f146cc43fef458be27329d0f73dc7"
+  },
+  "scheduled_requests": 1200,
+  "schema_version": "kaetram.local-trigger-incidence-v3-result-verification.v1",
+  "seed_gate_artifact_indexes": {
+    "base_2b": "c448ea87a271d871763a958555a9471d38ced08bc16dfdc6cc06740e565de22b",
+    "opd_r2_2b": "d99b81cc53aa5fc5e03830caa1edf7710a087d340c186fb530aa5cc93b2925f3",
+    "opd_r3_2b": "45c04ac40826aa768826a9a1d5a2aba8891ff5bdc1ba252abc8f4ec3d433af66"
+  },
+  "study_id": "local-trigger-incidence-seeded-v3",
+  "successful_requests": 1200,
+  "verification_script_sha256": "7db93894abff756554470a57b30facd531ab4a14eab05f20e3f3b5ddba234895"
+}

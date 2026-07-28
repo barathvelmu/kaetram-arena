@@ -1,0 +1,12 @@
+{
+  "endpoint_identity_stable": true,
+  "minimum_unique_semantic_responses": 3,
+  "passed": true,
+  "repeated_seed_reproducible": true,
+  "scheduled_requests": 6,
+  "schema_version": "kaetram.local-trigger-incidence-seed-gate.v1.completed",
+  "snapshot": "opd_r2_2b",
+  "study_id": "local-trigger-incidence-seeded-v3",
+  "successful_requests": 6,
+  "unique_semantic_responses": 5
+}

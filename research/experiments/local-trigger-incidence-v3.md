@@ -6,6 +6,15 @@ five paired request seeds, renderer hashes, sampling contract, outcomes, and
 finite-grid analysis are inherited byte-for-byte from the registered V2
 protocol.
 
+The study is now complete: 1,200/1,200 requests succeeded, all 240
+state--condition groups contained five distinct normalized payloads, and
+103/240 varied in the primary outcome. The native-schema contrasts were
++13.0, +5.5, and +9.0 percentage points at Base, round 2, and round 3, so the
+inherited all-checkpoint directional criterion passed. See
+[`../results/local-trigger-incidence-v3/README.md`](../results/local-trigger-incidence-v3/README.md)
+and the independently audited raw artifact under
+`research/artifacts/local-trigger-incidence-v3/`.
+
 The source is the completionist lane of historical run
 `run_20260613_112422`, an evaluation rollout of the already-frozen
 `2b-opd-r3` checkpoint. It is not the V2 Base-source run
@@ -24,7 +33,7 @@ broad generalization or independence from all development choices.
 
 ## Two-stage freeze
 
-Execution is currently prohibited. The preparation command deliberately fails
+Execution remained prohibited until both freeze stages passed. The preparation command deliberately fails
 unless the registration and preparation code are in a clean commit that equals
 the branch's pushed upstream:
 
@@ -133,7 +142,8 @@ historical provenance.
 
 ## Claim boundary
 
-If executed later, V3 can test whether V2's positive native-schema direction
-persists on this finite different state pool. It cannot show recovery benefit,
-action appropriateness, execution utility, checkpoint superiority, quest
-improvement, or generalization beyond the frozen lineages and retained panels.
+V3 shows that V2's positive native-schema direction persists on this finite
+different retained state pool. It does not show independent replication,
+recovery benefit, action appropriateness, execution utility, checkpoint
+superiority, quest improvement, or generalization beyond the frozen lineages
+and retained panels.

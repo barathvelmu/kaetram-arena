@@ -1,0 +1,10 @@
+snapshot,contrast,finite_grid_states,effect_rate_difference,states_positive,states_negative,states_zero,state_effect_min,state_effect_max
+base_2b,native_tools_main,20,0.13,11,2,7,-0.2,0.6
+base_2b,canonical_docs_main,20,0.03,6,6,8,-0.4,0.4
+base_2b,interaction,20,-0.04,4,7,9,-1.0,0.6
+opd_r2_2b,native_tools_main,20,0.055,7,5,8,-0.4,0.5
+opd_r2_2b,canonical_docs_main,20,0.015,5,5,10,-0.2,0.4
+opd_r2_2b,interaction,20,-0.05,4,7,9,-0.6,0.4
+opd_r3_2b,native_tools_main,20,0.09,9,1,10,-0.2,0.6
+opd_r3_2b,canonical_docs_main,20,-0.03,4,7,9,-0.4,0.2
+opd_r3_2b,interaction,20,-0.06,3,7,10,-0.6,0.4

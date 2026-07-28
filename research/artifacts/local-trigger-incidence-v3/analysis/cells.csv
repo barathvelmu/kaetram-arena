@@ -1,0 +1,13 @@
+snapshot,condition_id,documentation,native_tool_schema,requests,successful_requests,failures,recovery_opportunities,opportunity_rate,malformed_emissions,structured_tool_responses,no_structured_tool_call_responses
+base_2b,python-docs_no-tools,python_docs,absent,100,100,0,24,0.24,4,43,57
+base_2b,python-docs_native-tools,python_docs,present,100,100,0,39,0.39,0,38,62
+base_2b,canonical-docs_no-tools,canonical_docs,absent,100,100,0,29,0.29,1,43,57
+base_2b,canonical-docs_native-tools,canonical_docs,present,100,100,0,40,0.4,0,34,66
+opd_r2_2b,python-docs_no-tools,python_docs,absent,100,100,0,25,0.25,2,37,63
+opd_r2_2b,python-docs_native-tools,python_docs,present,100,100,0,33,0.33,4,44,56
+opd_r2_2b,canonical-docs_no-tools,canonical_docs,absent,100,100,0,29,0.29,2,39,61
+opd_r2_2b,canonical-docs_native-tools,canonical_docs,present,100,100,0,32,0.32,1,45,55
+opd_r3_2b,python-docs_no-tools,python_docs,absent,100,100,0,31,0.31,2,45,55
+opd_r3_2b,python-docs_native-tools,python_docs,present,100,100,0,43,0.43,1,41,59
+opd_r3_2b,canonical-docs_no-tools,canonical_docs,absent,100,100,0,31,0.31,1,44,56
+opd_r3_2b,canonical-docs_native-tools,canonical_docs,present,100,100,0,37,0.37,0,42,58

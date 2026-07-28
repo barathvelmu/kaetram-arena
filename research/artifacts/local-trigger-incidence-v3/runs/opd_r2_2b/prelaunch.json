@@ -1,0 +1,57 @@
+{
+  "design_sha256": "cdc5c5afd4073ae7a51aa3742eff34d4ea59fcff7b9de47cbd19c9b30a250207",
+  "dirty_paths": [],
+  "endpoint_health": {
+    "attestation": {
+      "api_model": "2b-opd-r2",
+      "chat_template_sha256": "562a0a6f72bf5722612866d9f5d7e947be4b08a429e407f8e522e70137db5e1e",
+      "checkpoint_sha256": "636aa92a16ee63965d5211625ba32c0524eb90da87f6b4727ee1f057e0486104",
+      "deployment_id": "local-mlx-lm-0.31.3-opd_r2_2b-2b51ca6d3186-bc1597c47e5e",
+      "fix_mistral_regex": false,
+      "render_contract_sha256": "bc1597c47e5efbe533e52bb43335114426210bb29f868ef4fb2e7f86ca5b28ed",
+      "runtime_environment_receipt_sha256": "82303a1044f75e61f35d7768a3f7c96db6232677aa4ef00afa1a3ae7549e17e5",
+      "sampling_contract_sha256": "506e4d3ae39e53793ceaef6a39b31dabce13a72b9345af5b43d96de2b46ff5d3",
+      "snapshot_lock_sha256": "8117a75f24b50625469ffff26384584ad99526bf687a79a8b11ad7612cf62a32",
+      "snapshot_tree_sha256": "0ad86369dec284477ccee1a2f2cf7dbf776e7fdbf59f346fc2946f85178a1388",
+      "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+      "tokenizer_source_revision": "15852e8c16360a2fea060d615a32b45270f8a8fc"
+    },
+    "status": "ok"
+  },
+  "registration_sha256": "9eb49dc3a9bf6390edd93e101c8e2214489a6fc104a278b8d31ea786f03cda51",
+  "sampling": {
+    "attempts": 3,
+    "base_seed": 830001,
+    "concurrency": 4,
+    "condition_order": "For each state-sample block, rotate the registered condition order by block_index modulo four. This balances deterministic order; it is not random assignment.",
+    "grid_rationale": "Twenty outcome-unseen states times five effective paired seeds preserves the 100-requests-per-cell v1 scale. The fixed panel tests directional replication and seed heterogeneity; it is not a power calculation or population sample.",
+    "max_tokens": 400,
+    "paired_seed_formula": "base_seed + 100 * zero_based_state_index + zero_based_sample_index",
+    "presence_penalty": 1.5,
+    "request_timeout_seconds": 360,
+    "samples_per_state_condition": 5,
+    "temperature": 1.0,
+    "top_k": 20,
+    "top_p": 0.95
+  },
+  "schema_version": "kaetram.local-trigger-incidence-run.v1.prelaunch",
+  "seed_gate_artifact_index_sha256": "d99b81cc53aa5fc5e03830caa1edf7710a087d340c186fb530aa5cc93b2925f3",
+  "seed_gate_tree_sha256": "74b6ffd6c51cd3b7551f3be565135719d684aa4b842d55786cd2085221ab01e8",
+  "snapshot": "opd_r2_2b",
+  "source_git_commit": "be44d9ae8bfcb813244551345cb0c52e2bf91a03",
+  "study_id": "local-trigger-incidence-seeded-v3",
+  "v3_runtime_binding": {
+    "claim_boundary_sha256": "26a8fc68be2073cc5fccc614016f6f9ce331df35b36152a74de4ed958b092102",
+    "design_sha256": "cdc5c5afd4073ae7a51aa3742eff34d4ea59fcff7b9de47cbd19c9b30a250207",
+    "design_source_git_commit": "6f9135c9e933c442c533ae84f660b8693bcdf762",
+    "effective_registration_sha256": "9eb49dc3a9bf6390edd93e101c8e2214489a6fc104a278b8d31ea786f03cda51",
+    "execution_commit": "be44d9ae8bfcb813244551345cb0c52e2bf91a03",
+    "execution_verification_sha256": "fc67f17df5427d2f90cdff18dec8a3253abe334b8b38d17aa224a2b9d21407ee",
+    "execution_verifier_sha256": "c2fce0aa6c3590ad72b76c74db6725d65cad7b0fb74155ae9cbf3f8b39472f15",
+    "expected_request_count": 1200,
+    "expected_request_grid_sha256": "c21c2f98758fa7cbd5883db3caa0d1f872dd789118e153050078e414f01e1a7c",
+    "schema_version": "kaetram.local-trigger-incidence-v3-runtime-binding.v1",
+    "study_id": "local-trigger-incidence-seeded-v3",
+    "v3_registration_sha256": "05b0cf71c9ae4d9ee19757ec2caa10da9620162a40a753b2e717fd4f0ac1f524"
+  }
+}

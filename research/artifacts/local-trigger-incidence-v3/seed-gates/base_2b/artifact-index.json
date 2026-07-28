@@ -1,0 +1,28 @@
+{
+  "files": [
+    {
+      "path": "preflight.json",
+      "sha256": "f90e6d18c3e5a79435f13e56950bccec3c8c7409eacd2c4836442ef25ae0bd7a",
+      "size_bytes": 3359
+    },
+    {
+      "path": "results.jsonl",
+      "sha256": "1fb555712c724c8846249a4d347c9aa63c4846eabb9f0a1d67aeafc6770ee6ea",
+      "size_bytes": 6058
+    },
+    {
+      "path": "postflight.json",
+      "sha256": "dcd57cfe20c9e92102f5bd96be5b20d7e4b4a13eec3dfbf106670f0319ca7daa",
+      "size_bytes": 1305
+    },
+    {
+      "path": "completed.json",
+      "sha256": "bbb103f4d384ab08d448399cee314bb1c6e05cacd9a93109e758cc800cb30b61",
+      "size_bytes": 380
+    }
+  ],
+  "schema_version": "kaetram.local-trigger-incidence-seed-gate.v1.artifacts",
+  "snapshot": "base_2b",
+  "study_id": "local-trigger-incidence-seeded-v3",
+  "tree_sha256": "b79db08d4d4a7df68bf45072815c4b02165fb987a392083e1328baf66ee1e539"
+}

@@ -1,0 +1,106 @@
+{
+  "schema_version": "kaetram.local-trigger-incidence-v3-registration.v1",
+  "study_id": "local-trigger-incidence-seeded-v3",
+  "status": "registered_execution_prohibited",
+  "purpose": "Repeat the audited V2 three-checkpoint, four-condition, five-seed request grid on 20 deterministically selected fourth-decision states from a different retained historical evaluation rollout, changing only the state pool.",
+  "excluded_v2_source_run_id": "run_20260608_185339",
+  "frozen_v2_protocol": {
+    "path": "research/experiments/local-trigger-incidence-v2.json",
+    "sha256": "dc2aaaf6f25b45e0d2c5a522284b5023d7bb21c59d24add43218277901e0cb4e",
+    "inherit_exactly": [
+      "snapshots",
+      "endpoint_contract",
+      "seed_gate",
+      "factors",
+      "conditions",
+      "sampling",
+      "outcomes"
+    ],
+    "overridden_before_materialization": [
+      "study_id",
+      "status",
+      "purpose",
+      "claim_boundary",
+      "state_pool",
+      "analysis.directional_replication_criterion",
+      "analysis.estimand_unit",
+      "analysis.reporting",
+      "provenance.source_identity",
+      "provenance.execution_gate"
+    ]
+  },
+  "state_pool": {
+    "source_run_id": "run_20260613_112422",
+    "source_role": "post_checkpoint_evaluation_rollout",
+    "training_input_status": "This retained rollout was generated while evaluating the already-frozen 2b-opd-r3 checkpoint. It is not known to have been training input; V3 does not claim independence from all development decisions or other historical data.",
+    "source_glob": "dataset/raw/agent_*/runs/run_20260613_112422/session_*.log",
+    "personality": "completionist",
+    "state_count": 20,
+    "decision_turn": 4,
+    "max_history_messages": 28,
+    "matched_source_log_count": 1154,
+    "matched_source_logs_sha256": "6de532eb7c09f82369d85103857fe31b1d77346239a5edf504e8c7a52c2860c8",
+    "matched_source_metadata_count": 1154,
+    "matched_source_metadata_sha256": "c1047fcf9ad60ba6d4ee8d9277f95dcd310b7f2e685b46eb9b61f4aaf68fcbed",
+    "eligible_source_log_count": 370,
+    "eligible_source_logs_sha256": "5cd84414b2c79504a45bf4248586fd2fe9d02b8a26ad45b4a2698123aaf528ba",
+    "reconstructable_decision_state_count": 367,
+    "archive_sha256sums_sha256": "e954237243b9928a6d8096fbabb279b52bc93f0adc977e300e76e7eea40ae85d",
+    "archive_inventory_sha256": "2e75e8929e4ca2ff69d3637bccb566a4e4f2fb8d4d2a2d17ef37a3990d8f7a52",
+    "run_identity_files": [
+      {
+        "path": "dataset/raw/agent_0/runs/run_20260613_112422/run.meta.json",
+        "sha256": "90744c327248d3399f48f776620eb42b2fefaad90ba4ea445c6d8ff7e6d56998"
+      },
+      {
+        "path": "dataset/raw/agent_0/runs/run_20260613_112422/harness_meta_template.json",
+        "sha256": "94f087d401b8535c1df3f88b1ea987d4500c189ebc7821f1b97bb7f2c9e71046"
+      },
+      {
+        "path": "dataset/raw/agent_1/runs/run_20260613_112422/run.meta.json",
+        "sha256": "d43231938fb9fc1d34ca70101300a1ec75097dc2879c40a25f271c042c64dfc5"
+      },
+      {
+        "path": "dataset/raw/agent_1/runs/run_20260613_112422/harness_meta_template.json",
+        "sha256": "8602a98c136de4c2e8ed360a495c1c5c8c6f905659136cfe0c98a8cd999ed4f5"
+      },
+      {
+        "path": "dataset/raw/agent_2/runs/run_20260613_112422/run.meta.json",
+        "sha256": "0737185c7fbca8937fff14adfb79046554a85ee29bdbec52e2f5f3d399f5cc19"
+      },
+      {
+        "path": "dataset/raw/agent_2/runs/run_20260613_112422/harness_meta_template.json",
+        "sha256": "e43f2e244505f6433bfbf335e1002ed1835e81dbd6ee82a9196f8ef962a3068f"
+      }
+    ],
+    "excluded_design": "research/artifacts/local-trigger-incidence-v2/design/design.json",
+    "excluded_design_sha256": "1ec80622d8a2e3ed3221d2e70e6f1c4f1dffe87ccd057d58396ba3b6b8d65cb9",
+    "selection": "Verify the complete matched-log and completionist-log path-plus-SHA closures. Sort the registered source paths relative to the supplied historical root, keep logs whose sidecar metadata says personality=completionist, scan every floor(eligible_source_count/(2*state_count))-th path with a minimum stride of one, retain the fourth reconstructable decision state, and stop after 20 states. Parseability is the only content-dependent gate; no generated V3 response exists or is inspected during selection.",
+    "outcome_independence": "The source run differs from V2's Base-source run, and selected paths must have zero overlap with the exact V2 design. Selection is fixed by path order, metadata, parseability, and registered SHA closures before V3 requests. The rollout remains from the same project, model lineage, renderer lineage, and historical evaluation regime."
+  },
+  "claim_boundary": {
+    "confirmatory": false,
+    "permitted": [
+      "checkpoint-conditional trigger incidence under the frozen V2 interfaces on a different retained historical state pool",
+      "paired inference-time interface contrasts on the finite V3 request grid",
+      "whether the positive V2 native-schema contrast has the same direction at each fixed checkpoint",
+      "within-state normalized-response and primary-outcome heterogeneity across effective request seeds"
+    ],
+    "prohibited": [
+      "checkpoint or training-method superiority",
+      "a recovery benefit, action appropriateness, or execution utility",
+      "a learned self-correction policy or quest-performance improvement",
+      "independence of states within the historical rollout",
+      "a new model family, renderer, environment, or truly independent experimental run",
+      "proof that the rollout was isolated from every development decision",
+      "generalization beyond the fixed checkpoints, renderer, and two retained state panels"
+    ]
+  },
+  "execution_gate": {
+    "require_registration_and_builder_pushed": true,
+    "require_design_committed_and_pushed_before_requests": true,
+    "outcome_inspection_during_selection": false,
+    "required_verifier_command": "python scripts/opd/verify_trigger_incidence_v3.py --historical-root HISTORICAL_ROOT --design-dir research/experiments/local-trigger-incidence-v3-design --require-execution-ready",
+    "current_authorization": "prohibited_until_gate_passes"
+  }
+}

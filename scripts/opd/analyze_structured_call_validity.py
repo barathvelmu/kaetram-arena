@@ -158,12 +158,32 @@ def analyze_run(path: Path) -> dict:
     }
 
 
+def analyze_runs(paths: list[Path]) -> dict:
+    cells = []
+    snapshots = set()
+    for path in paths:
+        result = analyze_run(path)
+        current = {cell["snapshot"] for cell in result["cells"]}
+        if snapshots.intersection(current):
+            raise DiagnosticError("duplicate snapshot across input runs")
+        snapshots.update(current)
+        cells.extend(result["cells"])
+    return {
+        "schema_version": "kaetram.structured-call-validity-diagnostic.v1",
+        "status": "post_hoc",
+        "registered_primary_unchanged": True,
+        "cells": sorted(
+            cells, key=lambda cell: (cell["snapshot"], cell["native_tool_schema"])
+        ),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--results", type=Path, required=True)
+    parser.add_argument("--results", type=Path, action="append", required=True)
     parser.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
-    result = analyze_run(args.results)
+    result = analyze_runs(args.results)
     rendered = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.out:
         if args.out.exists():

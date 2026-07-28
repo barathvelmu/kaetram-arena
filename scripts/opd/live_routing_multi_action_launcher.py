@@ -19,6 +19,10 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+REPO = Path(__file__).resolve().parents[2]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
 from canonical_start import initial_state_projection
 from scripts.opd.live_routing_launcher import (
     LOCK_COLLECTION,

@@ -8,8 +8,13 @@ import hashlib
 import json
 import os
 import stat
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+REPO = Path(__file__).resolve().parents[2]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 
 from scripts.opd.live_routing_multi_action_analyzer import analyze_run
 from scripts.opd.live_routing_multi_action_diagnostic import (

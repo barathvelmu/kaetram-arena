@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+import subprocess
+import sys
 
 from scripts.opd.live_routing_multi_action_diagnostic import (
     ACTIONS,
@@ -17,6 +19,24 @@ from scripts.opd.live_routing_multi_action_diagnostic import (
 
 
 REGISTRATION = Path("research/experiments/local-live-routing-multi-action-v2.json")
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_documented_cli_entrypoints_import_from_a_clean_shell() -> None:
+    for relative in (
+        "scripts/opd/live_routing_multi_action_launcher.py",
+        "scripts/opd/live_routing_multi_action_orchestrator.py",
+        "scripts/opd/live_routing_multi_action_prelaunch.py",
+        "scripts/opd/live_routing_multi_action_result_verify.py",
+    ):
+        result = subprocess.run(
+            [sys.executable, str(ROOT / relative), "--help"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, (relative, result.stderr)
 
 
 def test_checked_in_registration_is_exact_and_offline_valid() -> None:

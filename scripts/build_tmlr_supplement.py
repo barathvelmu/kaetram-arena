@@ -12,29 +12,38 @@ root.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.opd.live_routing_review_projection import load_review_projection
+
+
 ARTIFACT = ROOT / "research" / "artifacts" / "local-trigger-incidence-v2"
 RESULTS = ROOT / "research" / "results" / "local-trigger-incidence-v2"
 PAPER = ROOT / "output" / "pdf" / "kaetram-tool-routing-tmlr-draft.pdf"
 OUTPUT = ROOT / "output" / "supplement" / "kaetram-tmlr-anonymous-supplement.zip"
 REVIEW_SCHEMA = "kaetram.local-trigger-incidence-review-artifact.v1"
-PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v2"
+PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v3"
 VERIFICATION_CODE = (
     "scripts/opd/analyze_structured_call_validity.py",
     "scripts/opd/audit_trigger_incidence_artifact.py",
     "scripts/opd/canonicalize.py",
+    "scripts/opd/live_routing_review_projection.py",
     "scripts/opd/response_router.py",
+    "scripts/opd/verify_live_routing_review_projection.py",
     "scripts/opd/verify_trigger_incidence_review_bundle.py",
     "tool_surface.py",
 )
@@ -239,6 +248,18 @@ def audit_review_tree(root: Path) -> None:
             raise SystemExit(f"40-hex source-control fingerprint in supplement: {path}")
 
 
+def add_live_routing_projection(stage: Path, source: Path) -> Path:
+    """Validate and copy the anonymous one-action projection into the ZIP stage."""
+
+    projection, raw = load_review_projection(source)
+    if projection["scope"] != "single_fixture_descriptive_routing_check_no_model_calls":
+        raise SystemExit("live-routing projection scope drift")
+    destination = stage / "results" / "local-routing-diagnostic-review.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(raw)
+    return destination
+
+
 def require_local_untracked_output() -> None:
     """Refuse to build a double-blind ZIP into the public Git index."""
 
@@ -269,7 +290,14 @@ def require_local_untracked_output() -> None:
         )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--live-routing-projection",
+        type=Path,
+        help="validated anonymous projection of the completed local routing diagnostic",
+    )
+    args = parser.parse_args(argv)
     if not ARTIFACT.is_dir() or not PAPER.is_file():
         raise SystemExit("build the sealed artifact and TMLR PDF first")
     require_local_untracked_output()
@@ -283,6 +311,8 @@ def main() -> int:
             "structured-call-validity-posthoc.json",
         ):
             copy_file(RESULTS / name, stage / "results" / name)
+        if args.live_routing_projection is not None:
+            add_live_routing_projection(stage, args.live_routing_projection)
         write_json(
             stage / "results" / "review-artifact-trust-root.json",
             {
@@ -300,6 +330,28 @@ def main() -> int:
             "a copy of this software and associated documentation files to deal in "
             "the Software without restriction, subject to preservation of this notice.\n"
         )
+        routing_note = ""
+        if args.live_routing_projection is not None:
+            routing_note = """
+
+The file results/local-routing-diagnostic-review.json is a validated anonymous
+projection of a separate, model-free, one-action routing diagnostic. It retains
+the nine neutral trial rows and descriptive arm totals only. The private source
+package, runtime identities, and source-history authentication are deliberately
+deferred until deanonymization. Its three repeats per arm are technical repeats,
+not independent samples, and the recovery-off registered predicate failed in
+all three repeats because exact database equality did not survive login/save
+materialization even though no candidate was invoked and client state remained
+at baseline.
+
+Validate that projection's canonical encoding, self-hash, nine-row schedule,
+recomputed arm totals, and narrow completed-result claim boundary with:
+
+```bash
+python3 scripts/opd/verify_live_routing_review_projection.py \\
+  --projection results/local-routing-diagnostic-review.json
+```
+"""
         readme = f"""# Anonymous TMLR review supplement
 
 This package contains the review manuscript and a review-only projection of the
@@ -322,6 +374,7 @@ the primary parser-recoverable outcome from raw response messages, and
 recomputes all registered contrasts, the directional verdict, and response
 heterogeneity. The review trust root authenticates this projection only; it is
 not a public timestamp and it does not authenticate the deferred provenance.
+{routing_note}
 """
         (stage / "README.md").write_text(readme)
         records = _inventory(stage)

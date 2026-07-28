@@ -25,6 +25,18 @@ scripts/build_tmlr_submission.sh
 The build is isolated under `tmp/pdfs/tmlr-build` and writes the reviewed PDF
 to `output/pdf/kaetram-tool-routing-tmlr-draft.pdf`.
 
+After producing and privately validating the anonymous one-action routing
+projection, build the local review supplement with:
+
+```bash
+python3 scripts/build_tmlr_supplement.py \
+  --live-routing-projection /path/to/live-routing-review-projection.json
+```
+
+The generated ZIP remains ignored and local. It contains only the validated,
+identity-free projection; never copy the private live-run package into the
+anonymous supplement.
+
 The review-mode style suppresses the placeholder author block. Do not add author
 names, affiliations, repository URLs, local paths, endpoint addresses, or other
 identity-bearing material to the review package.

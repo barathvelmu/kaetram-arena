@@ -36,12 +36,17 @@ class _FakeProcess:
         self.pid = pid
         self.label = label
         self.alive = True
+        self.reaped = False
 
     def poll(self):
-        return None if self.alive else 0
+        if self.alive:
+            return None
+        self.reaped = True
+        return 0
 
     def wait(self, timeout=None):
         self.alive = False
+        self.reaped = True
         return 0
 
 
@@ -96,6 +101,11 @@ class _FakeRuntime:
                 return _Completed(stderr="Docker daemon unavailable", returncode=2)
             if outcome == "present":
                 return _Completed(f"/{command[-1]}\n")
+            if outcome == "absent_docker29":
+                return _Completed(
+                    stderr=f"Error response from daemon: No such container: {command[-1]}",
+                    returncode=1,
+                )
             return _Completed(
                 stderr=f"Error: No such object: {command[-1]}", returncode=1
             )
@@ -140,6 +150,8 @@ class _FakeRuntime:
 
     def group_exists(self, process_group: int) -> bool:
         process = self.processes.get(process_group)
+        if process and not process.alive and not process.reaped:
+            raise PermissionError("unreaped process group is ambiguous")
         return bool(process and process.alive)
 
     def kill_group(self, process_group: int, sent_signal: int) -> None:
@@ -337,6 +349,20 @@ def test_processes_receive_sanitized_environment_and_new_sessions(tmp_path: Path
     assert "OPENAI_API_KEY" not in environment
 
 
+def test_process_that_exits_before_teardown_is_reaped_before_group_probe(
+    tmp_path: Path,
+) -> None:
+    runtime = _FakeRuntime()
+    config, dependencies, run_root = _fixture(tmp_path, runtime)
+
+    with LiveRoutingServices(config, **dependencies):
+        # Mirrors the docker CLI exiting when its --rm container is stopped.
+        runtime.processes[4100].alive = False
+
+    assert runtime.processes[4100].reaped is True
+    assert not run_root.exists()
+
+
 def test_one_teardown_failure_does_not_skip_other_owned_resources(
     tmp_path: Path,
 ) -> None:
@@ -432,6 +458,28 @@ def test_container_cleanup_retries_until_exact_inspect_proves_eventual_absence(
         "--format",
         "{{.Name}}",
     ]
+    assert not run_root.exists()
+
+
+def test_docker29_no_such_container_response_is_exact_absence_proof(
+    tmp_path: Path,
+) -> None:
+    runtime = _FakeRuntime()
+    runtime.inspect_results = ["absent_docker29"]
+    config, dependencies, run_root = _fixture(tmp_path, runtime)
+    services = LiveRoutingServices(config, **dependencies)
+
+    with services:
+        pass
+
+    report = services.cleanup_report
+    assert report is not None
+    assert report["absence_proven"] is True
+    assert report["attempts"][-1] == {
+        "action": "inspect",
+        "outcome": "absent",
+        "returncode": 1,
+    }
     assert not run_root.exists()
 
 

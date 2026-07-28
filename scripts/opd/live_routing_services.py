@@ -372,7 +372,13 @@ class LiveRoutingServices:
         if self._run_root is not None:
             raise ServiceError("owned services cannot be started twice")
         game, image_attestation, binary_attestation = self._preflight()
-        self._run_root = Path(self._make_temp(prefix="kaetram-live-services-"))
+        # macOS exposes the temporary directory through both ``/var`` and its
+        # canonical ``/private/var`` spelling.  Resolve once so the command and
+        # the durable-evidence alias use the same path spelling; otherwise the
+        # privacy guard correctly refuses the unaliased bind-mount source.
+        self._run_root = Path(
+            self._make_temp(prefix="kaetram-live-services-")
+        ).resolve()
         (self._run_root / "mongo-data").mkdir(mode=0o700)
         suffix = self._run_root.name.removeprefix("kaetram-live-services-")
         if re.fullmatch(r"[A-Za-z0-9_-]+", suffix) is None:
@@ -519,23 +525,38 @@ class LiveRoutingServices:
 
     def _terminate_group(self, label: str, first_signal: int) -> None:
         process_group = self._process_groups.get(label)
+        process = self._processes.get(label)
+        # Reap a leader that exited on its own (notably ``docker run`` after
+        # the exact container removal) before the first group probe.  macOS
+        # otherwise reports the unreaped group as EPERM rather than ESRCH.
+        if process is not None:
+            process.poll()
         if process_group is None or not self._group_exists(process_group):
             return
         try:
             self._kill_group(process_group, first_signal)
         except ProcessLookupError:
             return
-        deadline = self._monotonic() + self.config.shutdown_timeout_seconds
-        while self._group_exists(process_group) and self._monotonic() < deadline:
-            self._sleep(self.config.poll_interval_seconds)
+        # Reap the owned group leader before probing the group again.  On
+        # macOS, killpg(pgid, 0) reports EPERM for an exited but unreaped group
+        # leader, which is ambiguous with a genuinely inaccessible process.
+        if process is not None:
+            try:
+                process.wait(timeout=self.config.shutdown_timeout_seconds)
+            except subprocess.TimeoutExpired:
+                pass
         if self._group_exists(process_group):
             try:
                 self._kill_group(process_group, signal.SIGKILL)
             except ProcessLookupError:
                 return
+            if process is not None:
+                try:
+                    process.wait(timeout=self.config.shutdown_timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    pass
         if self._group_exists(process_group):
             raise ServiceError(f"owned {label} process group survived teardown")
-        process = self._processes.get(label)
         if process is not None:
             try:
                 process.wait(timeout=0)
@@ -607,6 +628,8 @@ class LiveRoutingServices:
         absent_messages = {
             f"Error: No such object: {self._container_name}",
             f"Error: No such container: {self._container_name}",
+            f"Error response from daemon: No such object: {self._container_name}",
+            f"Error response from daemon: No such container: {self._container_name}",
         }
         if result.returncode == 1 and error in absent_messages:
             report["attempts"][-1]["outcome"] = "absent"

@@ -63,7 +63,7 @@
       "scripts/opd/live_routing_orchestrator.py": "f454c785cf9ba4ce8be2080297400fdbf939db744dbf2f8cd773f944e7ddf792",
       "scripts/opd/live_routing_prelaunch.py": "8c5898994d45b5d3494eb3efa4070dcbc7039d937cafcd2fff9e21e678d5842e",
       "scripts/opd/live_routing_result_verify.py": "91fb2eba39cd6b2cee593c3edf692668d33cfb884e37350523bb509d00aa7105",
-      "scripts/opd/live_routing_services.py": "38de361a6066020f616f270a92796ed7ad7d2157c78dabfa673bf83597159f61",
+      "scripts/opd/live_routing_services.py": "bf8cd9f43af39e87b738a38c9e231b7706bd41de10b39266907b8e57e21bea28",
       "scripts/opd/response_router.py": "0da3488c2663a12d8f9364c753581125a41bf9e88df56b30d04cfdca1f9f7873",
       "state_extractor.js": "25aa4283fdfe5219c58c6db60fe815e4b0fe5ca12696b7282757dbe9801346e7",
       "tests/e2e/helpers/mcp_client.py": "30e08d4e36658775b63ffb54f20f59926b03534cac9fc01b42c028d477f15cb0",

@@ -37,7 +37,10 @@ from scripts.opd.live_routing_orchestrator import (
 from scripts.opd.live_routing_launcher import PartialSeedError
 from scripts.opd.live_routing_prelaunch import EXPECTED_LANE, build_prelaunch_payload
 from scripts.opd.live_routing_result_verify import verify_package_or_raise
-from tests.unit.test_live_routing_analyzer import _unsigned_receipt
+from tests.unit.test_live_routing_analyzer import (
+    _process_lifecycle as _fixture_process_lifecycle,
+    _unsigned_receipt,
+)
 from tests.unit.test_live_routing_prelaunch import _ready_repo
 from tests.unit.test_live_routing_result_verify import _services_evidence
 
@@ -97,8 +100,10 @@ def _runtime(spec, number: int) -> dict:
         "schema_version": "kaetram.diagnostic-runtime-attestation.v1",
         "session_id": spec.session_id,
         "mcp_pid": 20_000 + number,
-        "mcp_process_group": 10_000 + number,
+        "mcp_process_group": 20_000 + number,
         "mcp_instance_nonce": f"{number:032x}",
+        "browser_pid": 30_000 + number,
+        "browser_process_group": 30_000 + number,
         "browser_launch_nonce": f"{number + 100:032x}",
         "browser_nonce_echo": f"{number + 100:032x}",
         "browser_name": "chromium",
@@ -216,6 +221,9 @@ def _execution_from_valid_receipt(receipt: dict) -> TrialExecution:
         "runtime_attestation": copy.deepcopy(
             evidence["runtime_attestations"]["treatment"]
         ),
+        "process_lifecycle": copy.deepcopy(
+            evidence["process_lifecycles"]["treatment"]
+        ),
         "precondition": copy.deepcopy(receipt["precondition"]),
         "routing": copy.deepcopy(receipt["routing"]),
         "candidate_call_ledger": copy.deepcopy(evidence["candidate_call_ledger"]),
@@ -228,6 +236,9 @@ def _execution_from_valid_receipt(receipt: dict) -> TrialExecution:
     reconnect = {
         "runtime_attestation": copy.deepcopy(
             evidence["runtime_attestations"]["reconnect"]
+        ),
+        "process_lifecycle": copy.deepcopy(
+            evidence["process_lifecycles"]["reconnect"]
         ),
         "reconnect": copy.deepcopy(receipt["measurements"]["reconnect"]),
     }
@@ -296,10 +307,12 @@ def test_exact_parent_sequence_runs_18_cold_workers_and_cleans_after_snapshot() 
         if spec.phase == "reconnect":
             return {
                 "runtime_attestation": runtime,
+                "process_lifecycle": _fixture_process_lifecycle(runtime["parsed"]),
                 "reconnect": _measure("reconnect"),
             }
         return {
             "runtime_attestation": runtime,
+            "process_lifecycle": _fixture_process_lifecycle(runtime["parsed"]),
             "precondition": _measure("precondition"),
             "routing": {},
             "candidate_call_ledger": [],
@@ -385,6 +398,9 @@ def test_incomplete_owned_cleanup_is_retained_and_later_trials_continue() -> Non
             "runtime_attestation": _runtime(spec, counter),
             "reconnect": _measure("reconnect"),
         }
+        result["process_lifecycle"] = _fixture_process_lifecycle(
+            result["runtime_attestation"]["parsed"]
+        )
         if spec.phase == "treatment":
             result.update(
                 precondition=_measure("precondition"),

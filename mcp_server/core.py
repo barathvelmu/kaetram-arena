@@ -7,7 +7,9 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import secrets
+import subprocess
 import sys
 import time as _time
 from contextlib import asynccontextmanager
@@ -21,6 +23,9 @@ _MCP_START = _time.time()
 _MCP_TOOL_COUNTS: dict[str, int] = {}
 _MCP_ERROR_COUNTS: dict[str, int] = {}
 _MCP_LOG_FILE = None
+_DIAGNOSTIC_OWNER_FILENAME = "diagnostic-mcp-owner.json"
+_DIAGNOSTIC_BROWSER_OWNER_FILENAME = "diagnostic-browser-owner.json"
+_DIAGNOSTIC_SESSION_RE = re.compile(r"[a-z0-9-]{8,80}")
 
 
 def _init_log_file():
@@ -105,6 +110,182 @@ def log_stats():
     log(f"[stats] {total} total calls, {errors} errors | top: {top5_str}{err_str}")
 
 
+def _publish_canonical_create_only(
+    state_dir: str, filename: str, raw: bytes, *, label: str
+) -> None:
+    """Atomically link a fully synced private temp file into its final name."""
+
+    final_path = os.path.join(state_dir, filename)
+    temp_path = os.path.join(
+        state_dir,
+        f".{filename}.tmp-{os.getpid()}-{secrets.token_hex(8)}",
+    )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(temp_path, flags, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.link(temp_path, final_path, follow_symlinks=False)
+        directory_fd = os.open(state_dir, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError as exc:
+        raise RuntimeError(f"{label} ownership receipt creation failed") from exc
+    finally:
+        try:
+            os.unlink(temp_path)
+        except FileNotFoundError:
+            pass
+
+
+def _publish_diagnostic_owner(state: dict) -> None:
+    """Publish the exact detached MCP group before any browser can launch."""
+
+    if os.environ.get("KAETRAM_DIAGNOSTIC_LANE") != "1":
+        return
+    state_dir = os.environ.get("KAETRAM_STATE_DIR")
+    session_id = os.environ.get("KAETRAM_DIAGNOSTIC_SESSION_ID")
+    pid = state.get("mcp_pid")
+    process_group = state.get("mcp_process_group")
+    nonce = state.get("mcp_instance_nonce")
+    if (
+        not isinstance(state_dir, str)
+        or not os.path.isabs(state_dir)
+        or os.path.islink(state_dir)
+        or not os.path.isdir(state_dir)
+        or not isinstance(session_id, str)
+        or _DIAGNOSTIC_SESSION_RE.fullmatch(session_id) is None
+        or type(pid) is not int
+        or pid <= 0
+        or process_group != pid
+        or not isinstance(nonce, str)
+        or re.fullmatch(r"[0-9a-f]{32}", nonce) is None
+    ):
+        raise RuntimeError("diagnostic MCP ownership identity is unsafe")
+    payload = {
+        "schema_version": "kaetram.diagnostic-mcp-owner.v1",
+        "session_id": session_id,
+        "mcp_pid": pid,
+        "mcp_process_group": process_group,
+        "mcp_instance_nonce": nonce,
+    }
+    raw = (
+        json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
+    _publish_canonical_create_only(
+        state_dir,
+        _DIAGNOSTIC_OWNER_FILENAME,
+        raw,
+        label="diagnostic MCP",
+    )
+
+
+def _diagnostic_browser_process_identity(session_id: str) -> tuple[int, int]:
+    """Resolve the one detached Chromium leader carrying our unique launch tag."""
+
+    token = f"--kaetram-diagnostic-session={session_id}"
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,pgid=,command="],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("diagnostic browser process discovery failed") from exc
+    rows: list[tuple[int, int]] = []
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(maxsplit=2)
+        if len(fields) != 3 or token not in fields[2].split():
+            continue
+        try:
+            pid, process_group = int(fields[0]), int(fields[1])
+        except ValueError:
+            continue
+        if pid <= 0 or process_group <= 0:
+            raise RuntimeError("diagnostic browser process identity is unsafe")
+        rows.append((pid, process_group))
+    groups = {process_group for _, process_group in rows}
+    if len(groups) != 1:
+        raise RuntimeError("diagnostic browser process group is not unique")
+    process_group = next(iter(groups))
+    if not any(pid == process_group for pid, _ in rows):
+        raise RuntimeError("diagnostic browser group leader is not observable")
+    return process_group, process_group
+
+
+def _publish_diagnostic_browser_owner(state: dict) -> None:
+    """Publish the browser group bound to the launch nonce and MCP owner."""
+
+    if os.environ.get("KAETRAM_DIAGNOSTIC_LANE") != "1":
+        return
+    state_dir = os.environ.get("KAETRAM_STATE_DIR")
+    session_id = os.environ.get("KAETRAM_DIAGNOSTIC_SESSION_ID")
+    payload = {
+        "schema_version": "kaetram.diagnostic-browser-owner.v1",
+        "session_id": session_id,
+        "mcp_pid": state.get("mcp_pid"),
+        "mcp_process_group": state.get("mcp_process_group"),
+        "mcp_instance_nonce": state.get("mcp_instance_nonce"),
+        "browser_pid": state.get("browser_pid"),
+        "browser_process_group": state.get("browser_process_group"),
+        "browser_launch_nonce": state.get("browser_launch_nonce"),
+        "browser_executable_sha256": state.get("browser_executable_sha256"),
+    }
+    if (
+        not isinstance(state_dir, str)
+        or not os.path.isabs(state_dir)
+        or os.path.islink(state_dir)
+        or not os.path.isdir(state_dir)
+        or not isinstance(session_id, str)
+        or _DIAGNOSTIC_SESSION_RE.fullmatch(session_id) is None
+        or type(payload["mcp_pid"]) is not int
+        or payload["mcp_pid"] <= 0
+        or payload["mcp_process_group"] != payload["mcp_pid"]
+        or not isinstance(payload["mcp_instance_nonce"], str)
+        or re.fullmatch(r"[0-9a-f]{32}", payload["mcp_instance_nonce"]) is None
+        or type(payload["browser_pid"]) is not int
+        or payload["browser_pid"] <= 0
+        or payload["browser_process_group"] != payload["browser_pid"]
+        or not isinstance(payload["browser_launch_nonce"], str)
+        or re.fullmatch(r"[0-9a-f]{32}", payload["browser_launch_nonce"]) is None
+        or not isinstance(payload["browser_executable_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", payload["browser_executable_sha256"])
+        is None
+    ):
+        raise RuntimeError("diagnostic browser ownership identity is unsafe")
+    raw = (
+        json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        + b"\n"
+    )
+    _publish_canonical_create_only(
+        state_dir,
+        _DIAGNOSTIC_BROWSER_OWNER_FILENAME,
+        raw,
+        label="diagnostic browser",
+    )
+
+
 # Initialize log file on import
 _init_log_file()
 
@@ -121,10 +302,13 @@ async def game_lifespan(server: FastMCP):
         "mcp_instance_nonce": secrets.token_hex(16),
         "mcp_pid": os.getpid(),
         "mcp_process_group": os.getpgrp(),
+        "browser_pid": None,
+        "browser_process_group": None,
         "browser_launch_nonce": None,
         "browser_executable_sha256": None,
         "browser_version": None,
     }
+    _publish_diagnostic_owner(state)
     log("[mcp] Server ready (browser will launch on first tool call)")
     try:
         yield state
@@ -183,10 +367,16 @@ async def _ensure_browser(state: dict):
             "--hide-scrollbars",
         ]
         if diagnostic_loopback_only:
+            diagnostic_session_id = os.environ.get(
+                "KAETRAM_DIAGNOSTIC_SESSION_ID", ""
+            )
+            if _DIAGNOSTIC_SESSION_RE.fullmatch(diagnostic_session_id) is None:
+                raise RuntimeError("diagnostic browser session identity is unsafe")
             chrome_args.extend(
                 [
                     "--disable-background-networking",
                     "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+                    f"--kaetram-diagnostic-session={diagnostic_session_id}",
                 ]
             )
         # Pass DISPLAY through so headed Chromium can attach to the per-agent
@@ -200,6 +390,8 @@ async def _ensure_browser(state: dict):
             args=chrome_args,
             env=launch_env,
         )
+        state["browser"] = browser
+        state["pw"] = pw
         browser_launch_nonce = secrets.token_hex(16)
         executable_path = pw.chromium.executable_path
         executable_sha256 = None
@@ -214,6 +406,13 @@ async def _ensure_browser(state: dict):
         state["browser_launch_nonce"] = browser_launch_nonce
         state["browser_executable_sha256"] = executable_sha256
         state["browser_version"] = browser.version
+        if diagnostic_loopback_only:
+            browser_pid, browser_group = _diagnostic_browser_process_identity(
+                diagnostic_session_id
+            )
+            state["browser_pid"] = browser_pid
+            state["browser_process_group"] = browser_group
+            _publish_diagnostic_browser_owner(state)
         context_options = {"viewport": {"width": 1280, "height": 720}}
         if diagnostic_loopback_only:
             context_options["service_workers"] = "block"
@@ -309,8 +508,6 @@ async def _ensure_browser(state: dict):
         page.on("close", lambda: log("[mcp] PAGE CLOSED — browser tab was closed"))
 
         state["page"] = page
-        state["browser"] = browser
-        state["pw"] = pw
 
         # Start the dashboard heartbeats once. They run for the lifetime of
         # the MCP server and are best-effort — never crash the agent.

@@ -270,8 +270,10 @@ def _runtime_attestation(plan: dict, phase: str, live_contract: dict) -> dict:
         "schema_version": "kaetram.diagnostic-runtime-attestation.v1",
         "session_id": plan[f"{phase}_session_id"],
         "mcp_pid": 1000 + index * 10 + phase_offset,
-        "mcp_process_group": 2000 + index * 10 + phase_offset,
+        "mcp_process_group": 1000 + index * 10 + phase_offset,
         "mcp_instance_nonce": f"{token_base:032x}",
+        "browser_pid": 3000 + index * 10 + phase_offset,
+        "browser_process_group": 3000 + index * 10 + phase_offset,
         "browser_launch_nonce": f"{token_base + 2:032x}",
         "browser_nonce_echo": f"{token_base + 2:032x}",
         "browser_name": live_contract["browser_name"],
@@ -296,6 +298,75 @@ def _runtime_attestation(plan: dict, phase: str, live_contract: dict) -> dict:
         "raw_text": raw,
         "raw_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
         "parsed": parsed,
+    }
+
+
+def _owner_envelope(parsed: dict, role: str) -> dict:
+    if role == "mcp":
+        owner = {
+            "schema_version": "kaetram.diagnostic-mcp-owner.v1",
+            "session_id": parsed["session_id"],
+            "mcp_pid": parsed["mcp_pid"],
+            "mcp_process_group": parsed["mcp_process_group"],
+            "mcp_instance_nonce": parsed["mcp_instance_nonce"],
+        }
+    else:
+        owner = {
+            "schema_version": "kaetram.diagnostic-browser-owner.v1",
+            "session_id": parsed["session_id"],
+            "mcp_pid": parsed["mcp_pid"],
+            "mcp_process_group": parsed["mcp_process_group"],
+            "mcp_instance_nonce": parsed["mcp_instance_nonce"],
+            "browser_pid": parsed["browser_pid"],
+            "browser_process_group": parsed["browser_process_group"],
+            "browser_launch_nonce": parsed["browser_launch_nonce"],
+            "browser_executable_sha256": parsed["browser_executable_sha256"],
+        }
+    raw = json.dumps(owner, separators=(",", ":"), sort_keys=True) + "\n"
+    return {
+        "raw_text": raw,
+        "raw_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+        "parsed": owner,
+    }
+
+
+def _process_lifecycle(parsed: dict) -> dict:
+    worker_pid = parsed["browser_pid"] + 20_000
+    absent = {
+        "found_alive": False,
+        "sigkill_required": False,
+        "still_alive": False,
+    }
+    return {
+        "schema_version": "kaetram.session-lifecycle-cleanup.v1",
+        "session_id": parsed["session_id"],
+        "owner_receipts": {
+            "mcp": _owner_envelope(parsed, "mcp"),
+            "browser": _owner_envelope(parsed, "browser"),
+        },
+        "groups": {
+            "worker": {
+                "pid": worker_pid,
+                "process_group": worker_pid,
+                "identity_source": "spawned_worker",
+                **absent,
+            },
+            "mcp": {
+                "pid": parsed["mcp_pid"],
+                "process_group": parsed["mcp_process_group"],
+                "identity_source": "mcp_owner_receipt",
+                **absent,
+            },
+            "browser": {
+                "pid": parsed["browser_pid"],
+                "process_group": parsed["browser_process_group"],
+                "identity_source": "browser_owner_receipt",
+                **absent,
+            },
+        },
+        "cleanup_order": ["browser", "mcp", "worker"],
+        "unexpected_process_groups": [],
+        "closure_proven": True,
     }
 
 
@@ -331,6 +402,8 @@ def _execution_evidence(
         if active
         else []
     )
+    treatment_runtime = _runtime_attestation(plan, "treatment", live_contract)
+    reconnect_runtime = _runtime_attestation(plan, "reconnect", live_contract)
     return {
         "absence": {
             "database": "kaetram_e2e",
@@ -347,8 +420,12 @@ def _execution_evidence(
             "player_info_inserted_last": True,
         },
         "runtime_attestations": {
-            "treatment": _runtime_attestation(plan, "treatment", live_contract),
-            "reconnect": _runtime_attestation(plan, "reconnect", live_contract),
+            "treatment": treatment_runtime,
+            "reconnect": reconnect_runtime,
+        },
+        "process_lifecycles": {
+            "treatment": _process_lifecycle(treatment_runtime["parsed"]),
+            "reconnect": _process_lifecycle(reconnect_runtime["parsed"]),
         },
         "parent_event_ledger": [
             {"event": event, "monotonic_seconds": base + offset}
@@ -648,6 +725,61 @@ def test_duplicate_runtime_identity_invalidates_every_affected_trial(
         "invalid",
         "invalid",
     ]
+    assert analysis["paired_aggregate"]["status"] == "withheld_invalid_trials"
+
+
+def test_rehashed_runtime_with_nonleader_process_group_is_invalid() -> None:
+    registration, prelaunch, receipts = _complete()
+    treatment = receipts[0]["execution_evidence"]["runtime_attestations"][
+        "treatment"
+    ]
+    _set_attestation_field(
+        treatment,
+        "mcp_process_group",
+        treatment["parsed"]["mcp_pid"] + 1,
+    )
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert analysis["trials"][0]["validity"] == "invalid"
+    assert "cold_session_unconfirmed" in analysis["trials"][0]["invalid_reasons"]
+    assert analysis["paired_aggregate"]["status"] == "withheld_invalid_trials"
+
+
+def test_rehashed_false_process_closure_withholds_aggregate() -> None:
+    registration, prelaunch, receipts = _complete()
+    lifecycle = receipts[0]["execution_evidence"]["process_lifecycles"][
+        "treatment"
+    ]
+    lifecycle["closure_proven"] = False
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert analysis["trials"][0]["validity"] == "invalid"
+    assert "cold_session_unconfirmed" in analysis["trials"][0]["invalid_reasons"]
+    assert "session_order_or_settle_violation" in analysis["trials"][0][
+        "invalid_reasons"
+    ]
+    assert analysis["paired_aggregate"]["status"] == "withheld_invalid_trials"
+
+
+def test_rehashed_wrong_owner_session_withholds_aggregate() -> None:
+    registration, prelaunch, receipts = _complete()
+    owner = receipts[0]["execution_evidence"]["process_lifecycles"]["treatment"][
+        "owner_receipts"
+    ]["mcp"]
+    owner["parsed"]["session_id"] = "llrd-wrong-session"
+    raw = json.dumps(owner["parsed"], separators=(",", ":"), sort_keys=True) + "\n"
+    owner["raw_text"] = raw
+    owner["raw_sha256"] = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    _resign(receipts, prelaunch)
+    analysis = analyze_run(
+        registration, prelaunch, receipts, manifest_payload_sha256=MANIFEST_SHA
+    )
+    assert analysis["trials"][0]["validity"] == "invalid"
+    assert "cold_session_unconfirmed" in analysis["trials"][0]["invalid_reasons"]
     assert analysis["paired_aggregate"]["status"] == "withheld_invalid_trials"
 
 

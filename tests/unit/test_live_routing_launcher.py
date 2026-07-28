@@ -21,7 +21,11 @@ from scripts.opd.live_routing_launcher import (
     PartialSeedError,
     SessionSpec,
     _client_dist_inventory,
+    _descendant_process_groups,
+    _diagnostic_browser_process_groups,
+    _direct_child_process_groups,
     _parse_tool_json,
+    _suspend_owned_process_group,
     _terminate_owned_process_group,
     attest_game_checkout,
     canonical_documents,
@@ -178,8 +182,10 @@ def _runtime_attestation() -> dict:
         "schema_version": "kaetram.diagnostic-runtime-attestation.v1",
         "session_id": "llrd-local001-t01-treatment",
         "mcp_pid": 12346,
-        "mcp_process_group": 12345,
+        "mcp_process_group": 12346,
         "mcp_instance_nonce": "1" * 32,
+        "browser_pid": 12347,
+        "browser_process_group": 12347,
         "browser_launch_nonce": "2" * 32,
         "browser_nonce_echo": "2" * 32,
         "browser_name": "chromium",
@@ -200,7 +206,7 @@ def test_runtime_attestation_binds_exact_cold_session_and_lane() -> None:
         _runtime_attestation(),
         _session_spec(),
         worker_pid=12344,
-        worker_process_group=12345,
+        worker_process_group=12344,
     )
 
 
@@ -226,6 +232,16 @@ def test_runtime_attestation_rejects_identity_or_lane_drift(
     with pytest.raises(LauncherError, match=message):
         validate_runtime_attestation(
             attestation,
+            _session_spec(),
+            worker_pid=12344,
+            worker_process_group=12344,
+        )
+
+
+def test_runtime_attestation_rejects_worker_outside_own_session() -> None:
+    with pytest.raises(LauncherError, match="worker identity"):
+        validate_runtime_attestation(
+            _runtime_attestation(),
             _session_spec(),
             worker_pid=12344,
             worker_process_group=12345,
@@ -257,8 +273,10 @@ def _runtime_attestation_rows() -> list[tuple[SessionSpec, dict]]:
                     "session_id": spec.session_id,
                     "player_username": spec.username,
                     "mcp_pid": 20_000 + index,
-                    "mcp_process_group": 10_000 + index,
+                    "mcp_process_group": 20_000 + index,
                     "mcp_instance_nonce": f"{index:032x}",
+                    "browser_pid": 30_000 + index,
+                    "browser_process_group": 30_000 + index,
                     "browser_launch_nonce": f"{index + 100:032x}",
                     "browser_nonce_echo": f"{index + 100:032x}",
                 }
@@ -379,11 +397,15 @@ def _run_fake_worker(
         arm=arm,
     )
     attestation = _runtime_attestation()
+    fake_mcp_pid = os.getpid() + 100_000
+    fake_browser_pid = fake_mcp_pid + 1
     attestation.update(
         {
             "session_id": session_id,
-            "mcp_pid": os.getpid() + 100_000,
-            "mcp_process_group": os.getpgrp(),
+            "mcp_pid": fake_mcp_pid,
+            "mcp_process_group": fake_mcp_pid,
+            "browser_pid": fake_browser_pid,
+            "browser_process_group": fake_browser_pid,
         }
     )
     attestation_raw = "__diagnostic_runtime_attestation: " + json.dumps(
@@ -414,6 +436,8 @@ def _run_fake_worker(
         },
         "runtime_parameters": {"minimum_delayed_observation_seconds": 0},
     }
+    worker_pid = os.getpid()
+    monkeypatch.setattr(os, "getpgrp", lambda: worker_pid)
     monkeypatch.setenv("KAETRAM_STATE_DIR", str(tmp_path / "state"))
     phase_record = asyncio.run(
         session_worker(
@@ -546,6 +570,60 @@ class _WorkerProcess:
         return self.stdout, self.stderr
 
 
+def _write_mcp_owner(state_dir: Path, attestation: dict) -> None:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": "kaetram.diagnostic-mcp-owner.v1",
+        "session_id": attestation["session_id"],
+        "mcp_pid": attestation["mcp_pid"],
+        "mcp_process_group": attestation["mcp_process_group"],
+        "mcp_instance_nonce": attestation["mcp_instance_nonce"],
+    }
+    path = state_dir / "diagnostic-mcp-owner.json"
+    path.write_text(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"
+    )
+    path.chmod(0o600)
+
+
+def _write_browser_owner(state_dir: Path, attestation: dict) -> None:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": "kaetram.diagnostic-browser-owner.v1",
+        "session_id": attestation["session_id"],
+        "mcp_pid": attestation["mcp_pid"],
+        "mcp_process_group": attestation["mcp_process_group"],
+        "mcp_instance_nonce": attestation["mcp_instance_nonce"],
+        "browser_pid": attestation["browser_pid"],
+        "browser_process_group": attestation["browser_process_group"],
+        "browser_launch_nonce": attestation["browser_launch_nonce"],
+        "browser_executable_sha256": attestation["browser_executable_sha256"],
+    }
+    path = state_dir / "diagnostic-browser-owner.json"
+    path.write_text(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"
+    )
+    path.chmod(0o600)
+
+
+def _mock_no_live_groups(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_exact_process_group",
+        lambda group, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._diagnostic_browser_process_groups",
+        lambda session_id: ([], True),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._descendant_process_groups",
+        lambda roots: (set(), True),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._process_group_exists", lambda group: False
+    )
+
+
 def test_worker_preserves_virtual_environment_entrypoint(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -572,15 +650,147 @@ def test_worker_preserves_virtual_environment_entrypoint(
         },
     )
 
-    assert run_session_worker(
-        _session_spec(),
-        tmp_path / "registration.json",
-        python_executable=venv_python,
-        state_dir=tmp_path / "state",
-        timeout_seconds=1,
-    ) == {"ok": True}
+    _mock_no_live_groups(monkeypatch)
+    with pytest.raises(LauncherError, match="omitted runtime attestation"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=venv_python,
+            state_dir=tmp_path / "state",
+            timeout_seconds=1,
+        )
     assert calls[0][0][0] == str(venv_python.absolute())
     assert calls[0][0][0] != str(venv_python.resolve())
+
+
+def test_success_proves_attested_detached_mcp_group_is_gone(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_dir = tmp_path / "state"
+    attestation = _runtime_attestation()
+    _write_mcp_owner(state_dir, attestation)
+    _write_browser_owner(state_dir, attestation)
+    _mock_no_live_groups(monkeypatch)
+    phase = {"runtime_attestation": {"parsed": attestation}}
+    process = _WorkerProcess(json.dumps(phase))
+    cleanup_calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": False, "sigkill_required": False, "still_alive": False},
+    )
+    result = run_session_worker(
+        _session_spec(),
+        tmp_path / "registration.json",
+        python_executable=Path("/usr/bin/python3"),
+        state_dir=state_dir,
+        timeout_seconds=1,
+    )
+    assert result["runtime_attestation"] == phase["runtime_attestation"]
+    assert result["process_lifecycle"]["closure_proven"] is True
+    assert cleanup_calls == [
+        attestation["browser_process_group"],
+        attestation["mcp_process_group"],
+        4321,
+    ]
+
+
+def test_exited_failure_still_reaps_mcp_group_from_owner_receipt(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_dir = tmp_path / "state"
+    attestation = _runtime_attestation()
+    _write_mcp_owner(state_dir, attestation)
+    _write_browser_owner(state_dir, attestation)
+    _mock_no_live_groups(monkeypatch)
+    process = _WorkerProcess("", stderr="failed", returncode=2)
+    cleanup_calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": False, "sigkill_required": False, "still_alive": False},
+    )
+    with pytest.raises(LauncherError, match="cold session worker failed"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=state_dir,
+            timeout_seconds=1,
+        )
+    assert cleanup_calls == [
+        attestation["browser_process_group"],
+        attestation["mcp_process_group"],
+        4321,
+    ]
+
+
+def test_malformed_returned_attestation_cannot_skip_any_cleanup(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_dir = tmp_path / "state"
+    attestation = _runtime_attestation()
+    _write_mcp_owner(state_dir, attestation)
+    _write_browser_owner(state_dir, attestation)
+    _mock_no_live_groups(monkeypatch)
+    process = _WorkerProcess(json.dumps({"runtime_attestation": {"parsed": {}}}))
+    cleanup_calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": False, "sigkill_required": False, "still_alive": False},
+    )
+    with pytest.raises(LauncherError, match="key set drift"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=state_dir,
+            timeout_seconds=1,
+        )
+    assert cleanup_calls == [
+        attestation["browser_process_group"],
+        attestation["mcp_process_group"],
+        4321,
+    ]
+
+
+def test_success_refuses_mcp_group_that_required_forced_cleanup(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_dir = tmp_path / "state"
+    attestation = _runtime_attestation()
+    _write_mcp_owner(state_dir, attestation)
+    _write_browser_owner(state_dir, attestation)
+    _mock_no_live_groups(monkeypatch)
+    phase = {"runtime_attestation": {"parsed": attestation}}
+    process = _WorkerProcess(json.dumps(phase))
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._process_group_exists", lambda group: False
+    )
+
+    def cleanup(owned):
+        return {
+            "found_alive": owned.pid == attestation["mcp_process_group"],
+            "sigkill_required": False,
+            "still_alive": False,
+        }
+
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group", cleanup
+    )
+    with pytest.raises(LauncherError, match="MCP process group survived"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=state_dir,
+            timeout_seconds=1,
+        )
 
 
 @pytest.mark.parametrize(
@@ -594,6 +804,7 @@ def test_worker_failure_paths_always_check_owned_process_group(
     tmp_path: Path, monkeypatch, process: _WorkerProcess, exception: type[BaseException]
 ) -> None:
     cleanup_calls = []
+    _mock_no_live_groups(monkeypatch)
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(
         "scripts.opd.live_routing_launcher._terminate_owned_process_group",
@@ -630,7 +841,16 @@ def test_worker_interrupt_or_timeout_always_checks_owned_process_group(
             raise raised
 
     cleanup_calls = []
+    _mock_no_live_groups(monkeypatch)
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: _InterruptedProcess())
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_owned_process_group",
+        lambda process: True,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._direct_child_process_groups",
+        lambda parent_pid: [],
+    )
     monkeypatch.setattr(
         "scripts.opd.live_routing_launcher._terminate_owned_process_group",
         lambda owned: cleanup_calls.append(owned.pid)
@@ -647,10 +867,353 @@ def test_worker_interrupt_or_timeout_always_checks_owned_process_group(
     assert cleanup_calls == [4321]
 
 
+def test_worker_timeout_terminates_discovered_detached_child_group(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class _TimedOutProcess:
+        pid = 4321
+        returncode = None
+
+        @staticmethod
+        def communicate(timeout=None):
+            raise subprocess.TimeoutExpired(cmd="worker", timeout=timeout)
+
+    cleanup_calls = []
+    _mock_no_live_groups(monkeypatch)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: _TimedOutProcess())
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_owned_process_group",
+        lambda process: True,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._direct_child_process_groups",
+        lambda parent_pid: [5001],
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": True, "sigkill_required": False, "still_alive": False},
+    )
+
+    with pytest.raises(LauncherError, match="exceeded registered timeout"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=tmp_path / "state",
+            timeout_seconds=1,
+        )
+    assert cleanup_calls == [5001, 4321]
+
+
+def test_worker_cleanup_still_runs_when_child_discovery_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class _TimedOutProcess:
+        pid = 4321
+        returncode = None
+
+        @staticmethod
+        def communicate(timeout=None):
+            raise subprocess.TimeoutExpired(cmd="worker", timeout=timeout)
+
+    cleanup_calls = []
+    _mock_no_live_groups(monkeypatch)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: _TimedOutProcess())
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_owned_process_group",
+        lambda process: True,
+    )
+
+    def fail_discovery(parent_pid):
+        raise LauncherError("discovery failed")
+
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._direct_child_process_groups",
+        fail_discovery,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": True, "sigkill_required": False, "still_alive": False},
+    )
+
+    with pytest.raises(LauncherError, match="discovery failed") as raised:
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=tmp_path / "state",
+            timeout_seconds=1,
+        )
+    assert isinstance(raised.value.__cause__, LauncherError)
+    assert "exceeded registered timeout" in str(raised.value.__cause__)
+    assert cleanup_calls == [4321]
+
+
+def test_worker_cleanup_still_runs_when_detached_cleanup_raises(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class _TimedOutProcess:
+        pid = 4321
+        returncode = None
+
+        @staticmethod
+        def communicate(timeout=None):
+            raise subprocess.TimeoutExpired(cmd="worker", timeout=timeout)
+
+    cleanup_calls = []
+    _mock_no_live_groups(monkeypatch)
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: _TimedOutProcess())
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_owned_process_group",
+        lambda process: True,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._direct_child_process_groups",
+        lambda parent_pid: [5001],
+    )
+
+    def cleanup(owned):
+        cleanup_calls.append(owned.pid)
+        if owned.pid == 5001:
+            raise LauncherError("detached cleanup failed")
+        return {"found_alive": True, "sigkill_required": False, "still_alive": False}
+
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group", cleanup
+    )
+    with pytest.raises(LauncherError, match="detached cleanup failed"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=tmp_path / "state",
+            timeout_seconds=1,
+        )
+    assert cleanup_calls == [5001, 4321]
+
+
+def test_direct_child_group_discovery_is_parent_exact(monkeypatch) -> None:
+    completed = types.SimpleNamespace(
+        stdout="10 1 10\n20 4321 20\n21 9999 20\n30 9999 30\n"
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+    assert _direct_child_process_groups(4321) == [20]
+
+
+def test_direct_child_group_discovery_rejects_foreign_group(monkeypatch) -> None:
+    completed = types.SimpleNamespace(stdout="21 4321 20\n")
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+    with pytest.raises(LauncherError, match="identity is unsafe"):
+        _direct_child_process_groups(4321)
+
+
+def test_browser_discovery_preserves_group_when_leader_is_missing(monkeypatch) -> None:
+    session_id = "llrd-local001-t01-treatment"
+    completed = types.SimpleNamespace(
+        stdout=(
+            f"7002 7001 /browser-helper --kaetram-diagnostic-session={session_id}\n"
+        )
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+    assert _diagnostic_browser_process_groups(session_id) == ([7001], False)
+
+
+def test_missing_browser_leader_group_is_still_terminated(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class _TimedOutProcess:
+        pid = 4321
+        returncode = None
+
+        @staticmethod
+        def communicate(timeout=None):
+            raise subprocess.TimeoutExpired(cmd="worker", timeout=timeout)
+
+    cleanup_calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: _TimedOutProcess())
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_owned_process_group",
+        lambda process: True,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._direct_child_process_groups",
+        lambda parent_pid: [],
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._diagnostic_browser_process_groups",
+        lambda session_id: ([7001], False),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._descendant_process_groups",
+        lambda roots: (set(), True),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_exact_process_group",
+        lambda group, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._process_group_exists", lambda group: False
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": False, "sigkill_required": False, "still_alive": False},
+    )
+    with pytest.raises(LauncherError, match="leader is not observable"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=tmp_path / "state",
+            timeout_seconds=1,
+        )
+    assert cleanup_calls == [7001, 4321]
+
+
+def test_descendant_discovery_preserves_group_when_leader_is_missing(
+    monkeypatch,
+) -> None:
+    completed = types.SimpleNamespace(stdout="5001 4001 5001\n5002 5001 7001\n")
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: completed)
+    assert _descendant_process_groups({5001}) == ({7001}, False)
+
+
+def test_unexpected_descendant_is_cleaned_and_rejects_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_dir = tmp_path / "state"
+    attestation = _runtime_attestation()
+    _write_mcp_owner(state_dir, attestation)
+    _write_browser_owner(state_dir, attestation)
+    phase = {"runtime_attestation": {"parsed": attestation}}
+    process = _WorkerProcess(json.dumps(phase))
+    cleanup_calls = []
+    snapshots = iter([({7001}, True), (set(), True)])
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._diagnostic_browser_process_groups",
+        lambda session_id: ([], True),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._descendant_process_groups",
+        lambda roots: next(snapshots),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_exact_process_group",
+        lambda group, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._process_group_exists", lambda group: False
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": False, "sigkill_required": False, "still_alive": False},
+    )
+    with pytest.raises(LauncherError, match="unexpected detached descendant"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=state_dir,
+            timeout_seconds=1,
+        )
+    assert cleanup_calls == [
+        7001,
+        attestation["browser_process_group"],
+        attestation["mcp_process_group"],
+        4321,
+    ]
+
+
+def test_final_post_freeze_descendants_are_also_cleaned(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_dir = tmp_path / "state"
+    attestation = _runtime_attestation()
+    _write_mcp_owner(state_dir, attestation)
+    _write_browser_owner(state_dir, attestation)
+    process = _WorkerProcess(
+        json.dumps({"runtime_attestation": {"parsed": attestation}})
+    )
+    snapshots = iter(
+        [
+            ({7001}, True),
+            ({7002}, True),
+            ({7003}, True),
+            ({7004}, True),
+            ({8001}, True),
+            ({9001}, True),
+        ]
+    )
+    cleanup_calls = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._diagnostic_browser_process_groups",
+        lambda session_id: ([], True),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._descendant_process_groups",
+        lambda roots: next(snapshots),
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._suspend_exact_process_group",
+        lambda group, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._process_group_exists", lambda group: False
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._terminate_owned_process_group",
+        lambda owned: cleanup_calls.append(owned.pid)
+        or {"found_alive": False, "sigkill_required": False, "still_alive": False},
+    )
+    with pytest.raises(LauncherError, match="did not stabilize"):
+        run_session_worker(
+            _session_spec(),
+            tmp_path / "registration.json",
+            python_executable=Path("/usr/bin/python3"),
+            state_dir=state_dir,
+            timeout_seconds=1,
+        )
+    assert set(range(7001, 7005)) | {8001, 9001} <= set(cleanup_calls)
+
+
+def test_worker_group_is_frozen_before_child_discovery(monkeypatch) -> None:
+    process = types.SimpleNamespace(pid=4321)
+    signals = []
+    monkeypatch.setattr(os, "getpgid", lambda pid: 4321)
+    monkeypatch.setattr(
+        os, "killpg", lambda group, sent_signal: signals.append((group, sent_signal))
+    )
+    monkeypatch.setattr(
+        "scripts.opd.live_routing_launcher._process_group_stop_state",
+        lambda group: "stopped",
+    )
+    assert _suspend_owned_process_group(process) is True
+    assert signals == [(4321, signal.SIGSTOP)]
+
+
+def test_worker_group_freeze_rejects_unowned_group(monkeypatch) -> None:
+    process = types.SimpleNamespace(pid=4321)
+    monkeypatch.setattr(os, "getpgid", lambda pid: 9999)
+    with pytest.raises(LauncherError, match="does not own"):
+        _suspend_owned_process_group(process)
+
+
 def test_surviving_process_group_is_killed_and_refuses_success(
     tmp_path: Path, monkeypatch
 ) -> None:
-    process = _WorkerProcess('{"ok":true}')
+    state_dir = tmp_path / "state"
+    attestation = _runtime_attestation()
+    _write_mcp_owner(state_dir, attestation)
+    _write_browser_owner(state_dir, attestation)
+    _mock_no_live_groups(monkeypatch)
+    process = _WorkerProcess(
+        json.dumps({"runtime_attestation": {"parsed": attestation}})
+    )
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
     monkeypatch.setattr(
         "scripts.opd.live_routing_launcher._terminate_owned_process_group",
@@ -665,7 +1228,7 @@ def test_surviving_process_group_is_killed_and_refuses_success(
             _session_spec(),
             tmp_path / "registration.json",
             python_executable=Path("/usr/bin/python3"),
-            state_dir=tmp_path / "state",
+            state_dir=state_dir,
             timeout_seconds=1,
         )
 
@@ -693,7 +1256,11 @@ def test_process_group_teardown_escalates_to_kill(monkeypatch) -> None:
 
     monkeypatch.setattr("scripts.opd.live_routing_launcher.os.killpg", killpg)
     result = _terminate_owned_process_group(_Process(), grace_seconds=0)
-    assert signals == [(9876, signal.SIGTERM), (9876, signal.SIGKILL)]
+    assert signals == [
+        (9876, signal.SIGTERM),
+        (9876, signal.SIGCONT),
+        (9876, signal.SIGKILL),
+    ]
     assert result == {
         "found_alive": True,
         "sigkill_required": True,

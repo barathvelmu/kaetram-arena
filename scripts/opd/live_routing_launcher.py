@@ -65,6 +65,26 @@ MONGO_COLLECTIONS = (
 LOCK_COLLECTION = "live_routing_diagnostic_locks"
 USERNAME_RE = re.compile(r"[a-z0-9_]{1,16}")
 SESSION_RE = re.compile(r"[a-z0-9-]{8,80}")
+DIAGNOSTIC_OWNER_FILENAME = "diagnostic-mcp-owner.json"
+DIAGNOSTIC_BROWSER_OWNER_FILENAME = "diagnostic-browser-owner.json"
+DIAGNOSTIC_OWNER_KEYS = {
+    "schema_version",
+    "session_id",
+    "mcp_pid",
+    "mcp_process_group",
+    "mcp_instance_nonce",
+}
+DIAGNOSTIC_BROWSER_OWNER_KEYS = {
+    "schema_version",
+    "session_id",
+    "mcp_pid",
+    "mcp_process_group",
+    "mcp_instance_nonce",
+    "browser_pid",
+    "browser_process_group",
+    "browser_launch_nonce",
+    "browser_executable_sha256",
+}
 FORBIDDEN_ENV_RE = re.compile(
     r"(API[_-]?KEY|TOKEN|SECRET|ENDPOINT|MODAL|OPENAI|ANTHROPIC|WANDB|COMET)",
     re.IGNORECASE,
@@ -165,6 +185,8 @@ RUNTIME_ATTESTATION_KEYS = {
     "mcp_pid",
     "mcp_process_group",
     "mcp_instance_nonce",
+    "browser_pid",
+    "browser_process_group",
     "browser_launch_nonce",
     "browser_nonce_echo",
     "browser_name",
@@ -177,6 +199,24 @@ RUNTIME_ATTESTATION_KEYS = {
     "require_existing_account",
     "heartbeats_disabled",
     "loopback_only",
+}
+PROCESS_LIFECYCLE_KEYS = {
+    "schema_version",
+    "session_id",
+    "owner_receipts",
+    "groups",
+    "cleanup_order",
+    "unexpected_process_groups",
+    "closure_proven",
+}
+OWNER_ENVELOPE_KEYS = {"raw_text", "raw_sha256", "parsed"}
+PROCESS_GROUP_KEYS = {
+    "pid",
+    "process_group",
+    "identity_source",
+    "found_alive",
+    "sigkill_required",
+    "still_alive",
 }
 RAW_ATTESTATION_KEYS = {"raw_text", "raw_sha256", "parsed"}
 
@@ -233,18 +273,37 @@ def validate_runtime_attestation(
         raise LauncherError("runtime attestation schema drift")
     if attestation.get("session_id") != spec.session_id:
         raise LauncherError("runtime attestation session identity mismatch")
-    expected_worker_pid = os.getpid() if worker_pid is None else worker_pid
-    expected_group = os.getpgrp() if worker_process_group is None else worker_process_group
     mcp_pid = attestation.get("mcp_pid")
     mcp_group = attestation.get("mcp_process_group")
+    browser_pid = attestation.get("browser_pid")
+    browser_group = attestation.get("browser_process_group")
     if (
         type(mcp_pid) is not int
         or mcp_pid <= 0
-        or mcp_pid == expected_worker_pid
         or type(mcp_group) is not int
-        or mcp_group != expected_group
+        or mcp_group != mcp_pid
     ):
         raise LauncherError("runtime attestation MCP process identity mismatch")
+    if (
+        type(browser_pid) is not int
+        or browser_pid <= 0
+        or type(browser_group) is not int
+        or browser_group != browser_pid
+        or browser_group == mcp_group
+    ):
+        raise LauncherError("runtime attestation browser process identity mismatch")
+    if (worker_pid is None) != (worker_process_group is None):
+        raise LauncherError("runtime attestation worker identity is incomplete")
+    if worker_pid is not None:
+        if (
+            type(worker_pid) is not int
+            or worker_pid <= 0
+            or type(worker_process_group) is not int
+            or worker_process_group != worker_pid
+        ):
+            raise LauncherError("runtime attestation worker identity mismatch")
+        if mcp_pid == worker_pid or mcp_group == worker_process_group:
+            raise LauncherError("runtime attestation MCP process identity mismatch")
     nonces = (
         attestation.get("mcp_instance_nonce"),
         attestation.get("browser_launch_nonce"),
@@ -309,12 +368,9 @@ def validate_runtime_attestation_set(
     for spec, raw_attestation in rows:
         attestation = _unwrap_runtime_attestation(raw_attestation)
         parsed_rows.append((spec, attestation))
-        mcp_group = attestation.get("mcp_process_group")
         validate_runtime_attestation(
             attestation,
             spec,
-            worker_pid=mcp_group,
-            worker_process_group=mcp_group,
         )
         by_trial.setdefault(spec.trial_id, []).append(spec)
     if len(by_trial) != 9 or any(
@@ -329,12 +385,147 @@ def validate_runtime_attestation_set(
         "mcp_pid",
         "mcp_process_group",
         "mcp_instance_nonce",
+        "browser_pid",
+        "browser_process_group",
         "browser_launch_nonce",
     )
     for field in unique_fields:
         values = [attestation[field] for _, attestation in parsed_rows]
         if len(set(values)) != 18:
             raise LauncherError(f"runtime attestation cold identity reused: {field}")
+
+
+def validate_process_lifecycle(
+    lifecycle: Any,
+    spec: SessionSpec,
+    runtime_attestation: Mapping[str, Any],
+) -> None:
+    """Validate parent-authored owner receipts and proven normal closure."""
+
+    if not isinstance(lifecycle, dict) or set(lifecycle) != PROCESS_LIFECYCLE_KEYS:
+        raise LauncherError("session process lifecycle key set drift")
+    if (
+        lifecycle.get("schema_version")
+        != "kaetram.session-lifecycle-cleanup.v1"
+        or lifecycle.get("session_id") != spec.session_id
+        or lifecycle.get("cleanup_order") != ["browser", "mcp", "worker"]
+        or lifecycle.get("unexpected_process_groups") != []
+        or lifecycle.get("closure_proven") is not True
+    ):
+        raise LauncherError("session process lifecycle contract mismatch")
+    owners = lifecycle.get("owner_receipts")
+    groups = lifecycle.get("groups")
+    if not isinstance(owners, dict) or set(owners) != {"mcp", "browser"}:
+        raise LauncherError("session process owner receipt set drift")
+    if not isinstance(groups, dict) or set(groups) != {"worker", "mcp", "browser"}:
+        raise LauncherError("session process group set drift")
+    parsed_owners: dict[str, dict[str, Any]] = {}
+    for role, expected_keys in (
+        ("mcp", DIAGNOSTIC_OWNER_KEYS),
+        ("browser", DIAGNOSTIC_BROWSER_OWNER_KEYS),
+    ):
+        envelope = owners[role]
+        if not isinstance(envelope, dict) or set(envelope) != OWNER_ENVELOPE_KEYS:
+            raise LauncherError(f"{role} owner envelope key set drift")
+        raw = envelope.get("raw_text")
+        if not isinstance(raw, str) or envelope.get("raw_sha256") != hashlib.sha256(
+            raw.encode("utf-8")
+        ).hexdigest():
+            raise LauncherError(f"{role} owner envelope digest mismatch")
+        try:
+            parsed = json.loads(
+                raw,
+                object_pairs_hook=_unique_json_object,
+                parse_constant=_reject_json_constant,
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise LauncherError(f"{role} owner envelope is invalid JSON") from exc
+        if (
+            not isinstance(parsed, dict)
+            or set(parsed) != expected_keys
+            or parsed != envelope.get("parsed")
+        ):
+            raise LauncherError(f"{role} owner envelope differs from parsed identity")
+        canonical = json.dumps(
+            parsed,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8") + b"\n"
+        expected_schema = (
+            "kaetram.diagnostic-mcp-owner.v1"
+            if role == "mcp"
+            else "kaetram.diagnostic-browser-owner.v1"
+        )
+        if (
+            raw.encode("utf-8") != canonical
+            or parsed.get("schema_version") != expected_schema
+            or parsed.get("session_id") != spec.session_id
+            or type(parsed.get("mcp_pid")) is not int
+            or parsed["mcp_pid"] <= 0
+            or parsed.get("mcp_process_group") != parsed["mcp_pid"]
+            or not isinstance(parsed.get("mcp_instance_nonce"), str)
+            or re.fullmatch(r"[0-9a-f]{32}", parsed["mcp_instance_nonce"]) is None
+        ):
+            raise LauncherError(f"{role} owner envelope identity is invalid")
+        if role == "browser" and (
+            type(parsed.get("browser_pid")) is not int
+            or parsed["browser_pid"] <= 0
+            or parsed.get("browser_process_group") != parsed["browser_pid"]
+            or parsed["browser_process_group"] == parsed["mcp_process_group"]
+            or not isinstance(parsed.get("browser_launch_nonce"), str)
+            or re.fullmatch(r"[0-9a-f]{32}", parsed["browser_launch_nonce"])
+            is None
+            or not isinstance(parsed.get("browser_executable_sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", parsed["browser_executable_sha256"])
+            is None
+        ):
+            raise LauncherError("browser owner envelope identity is invalid")
+        parsed_owners[role] = parsed
+    identities: list[int] = []
+    expected_sources = {
+        "worker": "spawned_worker",
+        "mcp": "mcp_owner_receipt",
+        "browser": "browser_owner_receipt",
+    }
+    for role, row in groups.items():
+        if (
+            not isinstance(row, dict)
+            or set(row) != PROCESS_GROUP_KEYS
+            or type(row.get("pid")) is not int
+            or row["pid"] <= 0
+            or row.get("process_group") != row["pid"]
+            or row.get("identity_source") != expected_sources[role]
+            or row.get("found_alive") is not False
+            or row.get("sigkill_required") is not False
+            or row.get("still_alive") is not False
+        ):
+            raise LauncherError(f"{role} process lifecycle group is invalid")
+        identities.append(row["pid"])
+    if len(set(identities)) != 3:
+        raise LauncherError("session process lifecycle groups are not distinct")
+    mcp_owner = parsed_owners["mcp"]
+    browser_owner = parsed_owners["browser"]
+    if any(
+        runtime_attestation.get(field) != mcp_owner.get(field)
+        or runtime_attestation.get(field) != browser_owner.get(field)
+        for field in ("mcp_pid", "mcp_process_group", "mcp_instance_nonce")
+    ) or any(
+        runtime_attestation.get(field) != browser_owner.get(field)
+        for field in (
+            "browser_pid",
+            "browser_process_group",
+            "browser_launch_nonce",
+            "browser_executable_sha256",
+        )
+    ):
+        raise LauncherError("session lifecycle owner differs from runtime attestation")
+    if (
+        groups["mcp"]["pid"] != mcp_owner["mcp_pid"]
+        or groups["browser"]["pid"] != browser_owner["browser_pid"]
+    ):
+        raise LauncherError("session lifecycle group differs from owner receipt")
 
 
 async def session_worker(
@@ -394,7 +585,12 @@ async def session_worker(
         )
         if attestation is None:
             raise LauncherError("runtime attestation was unavailable")
-        validate_runtime_attestation(attestation, spec)
+        validate_runtime_attestation(
+            attestation,
+            spec,
+            worker_pid=os.getpid(),
+            worker_process_group=os.getpgrp(),
+        )
         attestation_raw_text = attestation_result.text
         phase["runtime_attestation"] = {
             "raw_text": attestation_raw_text,
@@ -598,15 +794,321 @@ def run_session_worker(
     except BaseException as exc:
         failure = exc
         failure_traceback = exc.__traceback__
-    cleanup = _terminate_owned_process_group(process)
-    if cleanup["still_alive"]:
-        raise LauncherError("cold session process group could not be terminated")
+    # MCP's stdio client deliberately creates its server in a second process
+    # group.  Freeze a live worker before discovery so it cannot spawn across
+    # the snapshot, then combine that snapshot with the create-only ownership
+    # receipt published by MCP before its browser can launch.  Always attempt
+    # worker cleanup even if any detached-group check itself fails.
+    cleanup_failures: list[BaseException] = []
+    discovered_mcp_groups: set[int] = set()
+    mcp_groups: set[int] = set()
+    discovered_browser_groups: set[int] = set()
+    browser_groups: set[int] = set()
+    mcp_cleanups: dict[int, dict[str, bool]] = {}
+    browser_cleanups: dict[int, dict[str, bool]] = {}
+    if process.returncode is None:
+        try:
+            _suspend_owned_process_group(process)
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+        try:
+            discovered_mcp_groups.update(_direct_child_process_groups(process.pid))
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+    mcp_owner: dict[str, Any] | None = None
+    try:
+        mcp_owner = _load_mcp_ownership_sidecar(state_dir, spec)
+    except BaseException as exc:
+        cleanup_failures.append(exc)
+    mcp_groups.update(discovered_mcp_groups)
+    mcp_identity = mcp_owner.get("parsed") if mcp_owner is not None else None
+    if isinstance(mcp_identity, dict):
+        mcp_groups.add(mcp_identity["mcp_process_group"])
+    # Freeze MCP before inspecting the browser tag.  Otherwise Playwright can
+    # create its detached Chromium group between the parent snapshots.
+    for group in sorted(mcp_groups):
+        try:
+            _suspend_exact_process_group(group, label="MCP")
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+    browser_owner: dict[str, Any] | None = None
+    try:
+        browser_owner = _load_browser_ownership_sidecar(state_dir, spec)
+    except BaseException as exc:
+        cleanup_failures.append(exc)
+    try:
+        browser_snapshot, browser_leaders_observed = (
+            _diagnostic_browser_process_groups(spec.session_id)
+        )
+        discovered_browser_groups.update(browser_snapshot)
+        if not browser_leaders_observed:
+            cleanup_failures.append(
+                LauncherError("diagnostic browser group leader is not observable")
+            )
+    except BaseException as exc:
+        cleanup_failures.append(exc)
+    browser_groups.update(discovered_browser_groups)
+    browser_identity = (
+        browser_owner.get("parsed") if browser_owner is not None else None
+    )
+    if isinstance(browser_identity, dict):
+        browser_groups.add(browser_identity["browser_process_group"])
+    for group in sorted(browser_groups):
+        try:
+            _suspend_exact_process_group(group, label="browser")
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+    unexpected_groups: set[int] = set()
+    descendant_snapshot_stable = False
+    for _ in range(4):
+        try:
+            snapshot, leaders_observed = _descendant_process_groups(
+                mcp_groups | browser_groups | unexpected_groups
+            )
+            if not leaders_observed:
+                cleanup_failures.append(
+                    LauncherError(
+                        "detached descendant group leader is not observable"
+                    )
+                )
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+            break
+        new_groups = snapshot - mcp_groups - browser_groups - unexpected_groups
+        if not new_groups:
+            descendant_snapshot_stable = True
+            break
+        unexpected_groups.update(new_groups)
+        for group in sorted(new_groups):
+            try:
+                _suspend_exact_process_group(group, label="unexpected descendant")
+            except BaseException as exc:
+                cleanup_failures.append(exc)
+    if not descendant_snapshot_stable:
+        cleanup_failures.append(
+            LauncherError("detached descendant process snapshot did not stabilize")
+        )
+        # Take one final snapshot after every accumulated root has been
+        # stopped. Preserve and clean any last group even though the phase is
+        # already invalid and cannot produce a lifecycle receipt.
+        try:
+            final_snapshot, final_leaders_observed = _descendant_process_groups(
+                mcp_groups | browser_groups | unexpected_groups
+            )
+            if not final_leaders_observed:
+                cleanup_failures.append(
+                    LauncherError(
+                        "final detached descendant leader is not observable"
+                    )
+                )
+            final_groups = (
+                final_snapshot - mcp_groups - browser_groups - unexpected_groups
+            )
+            unexpected_groups.update(final_groups)
+            for group in sorted(final_groups):
+                try:
+                    _suspend_exact_process_group(
+                        group, label="final unexpected descendant"
+                    )
+                except BaseException as exc:
+                    cleanup_failures.append(exc)
+            post_freeze_snapshot, post_freeze_leaders = _descendant_process_groups(
+                mcp_groups | browser_groups | unexpected_groups
+            )
+            if not post_freeze_leaders:
+                cleanup_failures.append(
+                    LauncherError(
+                        "post-freeze detached descendant leader is not observable"
+                    )
+                )
+            post_freeze_groups = (
+                post_freeze_snapshot
+                - mcp_groups
+                - browser_groups
+                - unexpected_groups
+            )
+            unexpected_groups.update(post_freeze_groups)
+            for group in sorted(post_freeze_groups):
+                try:
+                    _suspend_exact_process_group(
+                        group, label="post-freeze unexpected descendant"
+                    )
+                except BaseException as exc:
+                    cleanup_failures.append(exc)
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+    worker_attestation: dict[str, Any] | None = None
+    try:
+        worker_attestation = _worker_runtime_attestation(value)
+        if worker_attestation is None and failure is None:
+            raise LauncherError("successful cold session omitted runtime attestation")
+        if worker_attestation is not None:
+            validate_runtime_attestation(worker_attestation, spec)
+        if worker_attestation is not None and mcp_owner is None:
+            raise LauncherError("successful cold session omitted MCP ownership receipt")
+        if worker_attestation is not None and browser_owner is None:
+            raise LauncherError(
+                "successful cold session omitted browser ownership receipt"
+            )
+        if worker_attestation is not None and any(
+            worker_attestation[field] != mcp_identity[field]
+            for field in ("mcp_pid", "mcp_process_group", "mcp_instance_nonce")
+        ):
+            raise LauncherError("MCP ownership receipt differs from runtime attestation")
+        if worker_attestation is not None and (any(
+            worker_attestation[field] != browser_identity[field]
+            for field in (
+                "browser_pid",
+                "browser_process_group",
+                "browser_launch_nonce",
+                "browser_executable_sha256",
+            )
+        ) or any(
+            worker_attestation[field] != browser_identity[field]
+            for field in (
+                "mcp_pid",
+                "mcp_process_group",
+                "mcp_instance_nonce",
+            )
+        )):
+            raise LauncherError(
+                "browser ownership receipt differs from runtime attestation"
+            )
+    except BaseException as exc:
+        cleanup_failures.append(exc)
+    if isinstance(mcp_identity, dict) and mcp_groups - {
+        mcp_identity["mcp_process_group"]
+    }:
+        cleanup_failures.append(
+            LauncherError("discovered detached process group differs from MCP owner")
+        )
+    if isinstance(browser_identity, dict) and browser_groups - {
+        browser_identity["browser_process_group"]
+    }:
+        cleanup_failures.append(
+            LauncherError("discovered browser process group differs from browser owner")
+        )
+    if unexpected_groups:
+        cleanup_failures.append(
+            LauncherError("unexpected detached descendant process group discovered")
+        )
+    unexpected_cleanups: dict[int, dict[str, bool]] = {}
+    for group in sorted(unexpected_groups):
+        try:
+            unexpected_cleanups[group] = _terminate_owned_process_group(
+                _DetachedProcessGroup(group)
+            )
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+    for group in sorted(browser_groups):
+        try:
+            browser_cleanups[group] = _terminate_owned_process_group(
+                _DetachedProcessGroup(group)
+            )
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+    for group in sorted(mcp_groups):
+        try:
+            mcp_cleanups[group] = _terminate_owned_process_group(
+                _DetachedProcessGroup(group)
+            )
+        except BaseException as exc:
+            cleanup_failures.append(exc)
+    cleanup: dict[str, bool] | None = None
+    try:
+        cleanup = _terminate_owned_process_group(process)
+    except BaseException as exc:
+        cleanup_failures.append(exc)
+    if cleanup is not None and cleanup["still_alive"]:
+        cleanup_failures.append(
+            LauncherError("cold session worker process group could not be terminated")
+        )
+    for label, cleanups in (
+        ("unexpected descendant", unexpected_cleanups),
+        ("browser", browser_cleanups),
+        ("MCP", mcp_cleanups),
+    ):
+        if any(
+            row["still_alive"] and _process_group_exists(group)
+            for group, row in cleanups.items()
+        ):
+            cleanup_failures.append(
+                LauncherError(
+                    f"cold session {label} process group could not be terminated"
+                )
+            )
+        if failure is None and any(row["found_alive"] for row in cleanups.values()):
+            cleanup_failures.append(
+                LauncherError(
+                    f"cold session {label} process group survived worker exit"
+                )
+            )
+    all_owned_groups_absent = False
+    try:
+        all_owned_groups_absent = not any(
+            _process_group_exists(group)
+            for group in (
+                {process.pid} | mcp_groups | browser_groups | unexpected_groups
+            )
+        )
+    except BaseException as exc:
+        cleanup_failures.append(exc)
+    if not all_owned_groups_absent:
+        cleanup_failures.append(
+            LauncherError("cold session owned process-group absence is unproven")
+        )
+    if cleanup_failures:
+        cleanup_failure = cleanup_failures[0]
+        if failure is not None:
+            raise cleanup_failure from failure
+        raise cleanup_failure
     if failure is not None:
         raise failure.with_traceback(failure_traceback)
+    if cleanup is None:
+        raise LauncherError("cold session worker cleanup produced no result")
     if cleanup["found_alive"] and not timed_out:
         raise LauncherError("cold session process group survived worker exit")
     if value is None:
         raise LauncherError("cold session worker produced no result")
+    if mcp_owner is None or browser_owner is None or worker_attestation is None:
+        raise LauncherError("cold session lifecycle ownership is incomplete")
+    mcp_cleanup = mcp_cleanups.get(mcp_identity["mcp_process_group"])
+    browser_cleanup = browser_cleanups.get(
+        browser_identity["browser_process_group"]
+    )
+    if mcp_cleanup is None or browser_cleanup is None:
+        raise LauncherError("cold session detached cleanup evidence is incomplete")
+    value["process_lifecycle"] = {
+        "schema_version": "kaetram.session-lifecycle-cleanup.v1",
+        "session_id": spec.session_id,
+        "owner_receipts": {"mcp": mcp_owner, "browser": browser_owner},
+        "groups": {
+            "worker": {
+                "pid": process.pid,
+                "process_group": process.pid,
+                "identity_source": "spawned_worker",
+                **cleanup,
+            },
+            "mcp": {
+                "pid": mcp_identity["mcp_pid"],
+                "process_group": mcp_identity["mcp_process_group"],
+                "identity_source": "mcp_owner_receipt",
+                **mcp_cleanup,
+            },
+            "browser": {
+                "pid": browser_identity["browser_pid"],
+                "process_group": browser_identity["browser_process_group"],
+                "identity_source": "browser_owner_receipt",
+                **browser_cleanup,
+            },
+        },
+        "cleanup_order": ["browser", "mcp", "worker"],
+        "unexpected_process_groups": [],
+        "closure_proven": True,
+    }
+    validate_process_lifecycle(
+        value["process_lifecycle"], spec, worker_attestation
+    )
     return value
 
 
@@ -631,6 +1133,337 @@ def _process_group_exists(process_group: int) -> bool:
     return True
 
 
+class _DetachedProcessGroup:
+    """Minimal handle for an exact child group discovered before worker teardown."""
+
+    def __init__(self, process_group: int) -> None:
+        self.pid = process_group
+
+    @staticmethod
+    def poll() -> int:
+        return 0
+
+    @staticmethod
+    def wait(timeout: float | None = None) -> int:
+        return 0
+
+
+def _suspend_owned_process_group(process: subprocess.Popen) -> bool:
+    """Freeze the exact worker group before enumerating detached children."""
+
+    if type(process.pid) is not int or process.pid <= 0:
+        raise LauncherError("worker PID is invalid for suspension")
+    try:
+        process_group = os.getpgid(process.pid)
+    except ProcessLookupError:
+        return False
+    except OSError as exc:
+        raise LauncherError("cold worker process-group lookup failed") from exc
+    if process_group != process.pid:
+        raise LauncherError("cold worker does not own its process group")
+    return _suspend_exact_process_group(process_group, label="worker")
+
+
+def _suspend_exact_process_group(process_group: int, *, label: str) -> bool:
+    if type(process_group) is not int or process_group <= 0:
+        raise LauncherError(f"{label} process group is invalid for suspension")
+    try:
+        observed_group = os.getpgid(process_group)
+    except ProcessLookupError:
+        return False
+    except OSError as exc:
+        raise LauncherError(f"{label} process-group lookup failed") from exc
+    if observed_group != process_group:
+        raise LauncherError(f"{label} process group leader is not exact")
+    try:
+        os.killpg(process_group, signal.SIGSTOP)
+    except ProcessLookupError:
+        return False
+    except OSError as exc:
+        raise LauncherError(f"{label} process-group suspension failed") from exc
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        state = _process_group_stop_state(process_group)
+        if state == "absent":
+            return False
+        if state == "stopped":
+            return True
+        time.sleep(0.01)
+    raise LauncherError(f"{label} process group did not confirm suspension")
+
+
+def _process_group_stop_state(process_group: int) -> str:
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pgid=,state="],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LauncherError("process-group stop-state discovery failed") from exc
+    states: list[str] = []
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            continue
+        try:
+            observed_group = int(fields[0])
+        except ValueError:
+            continue
+        if observed_group == process_group:
+            states.append(fields[1])
+    if not states:
+        return "absent"
+    return "stopped" if all(state.startswith("T") for state in states) else "running"
+
+
+def _load_mcp_ownership_sidecar(
+    state_dir: Path, spec: SessionSpec
+) -> dict[str, Any] | None:
+    """Read and strictly authenticate MCP's create-only local ownership record."""
+
+    path = state_dir / DIAGNOSTIC_OWNER_FILENAME
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise LauncherError("MCP ownership receipt metadata is unavailable") from exc
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+        or metadata.st_size <= 0
+        or metadata.st_size > 2048
+    ):
+        raise LauncherError("MCP ownership receipt file is unsafe")
+    try:
+        raw = path.read_bytes()
+        value = json.loads(
+            raw,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise LauncherError("MCP ownership receipt is invalid JSON") from exc
+    if (
+        not isinstance(value, dict)
+        or set(value) != DIAGNOSTIC_OWNER_KEYS
+        or value.get("schema_version") != "kaetram.diagnostic-mcp-owner.v1"
+        or value.get("session_id") != spec.session_id
+        or type(value.get("mcp_pid")) is not int
+        or value["mcp_pid"] <= 0
+        or value.get("mcp_process_group") != value["mcp_pid"]
+        or value.get("mcp_process_group") != value["mcp_pid"]
+        or not isinstance(value.get("mcp_instance_nonce"), str)
+        or re.fullmatch(r"[0-9a-f]{32}", value["mcp_instance_nonce"]) is None
+    ):
+        raise LauncherError("MCP ownership receipt identity mismatch")
+    canonical = json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8") + b"\n"
+    if raw != canonical:
+        raise LauncherError("MCP ownership receipt is not canonical")
+    return {
+        "raw_text": raw.decode("utf-8"),
+        "raw_sha256": hashlib.sha256(raw).hexdigest(),
+        "parsed": value,
+    }
+
+
+def _load_browser_ownership_sidecar(
+    state_dir: Path, spec: SessionSpec
+) -> dict[str, Any] | None:
+    path = state_dir / DIAGNOSTIC_BROWSER_OWNER_FILENAME
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise LauncherError("browser ownership receipt metadata is unavailable") from exc
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+        or metadata.st_size <= 0
+        or metadata.st_size > 4096
+    ):
+        raise LauncherError("browser ownership receipt file is unsafe")
+    try:
+        raw = path.read_bytes()
+        value = json.loads(
+            raw,
+            object_pairs_hook=_unique_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise LauncherError("browser ownership receipt is invalid JSON") from exc
+    if (
+        not isinstance(value, dict)
+        or set(value) != DIAGNOSTIC_BROWSER_OWNER_KEYS
+        or value.get("schema_version") != "kaetram.diagnostic-browser-owner.v1"
+        or value.get("session_id") != spec.session_id
+        or type(value.get("mcp_pid")) is not int
+        or value["mcp_pid"] <= 0
+        or not isinstance(value.get("mcp_instance_nonce"), str)
+        or re.fullmatch(r"[0-9a-f]{32}", value["mcp_instance_nonce"]) is None
+        or type(value.get("browser_pid")) is not int
+        or value["browser_pid"] <= 0
+        or value.get("browser_process_group") != value["browser_pid"]
+        or not isinstance(value.get("browser_launch_nonce"), str)
+        or re.fullmatch(r"[0-9a-f]{32}", value["browser_launch_nonce"]) is None
+        or not isinstance(value.get("browser_executable_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", value["browser_executable_sha256"])
+        is None
+    ):
+        raise LauncherError("browser ownership receipt identity mismatch")
+    canonical = json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8") + b"\n"
+    if raw != canonical:
+        raise LauncherError("browser ownership receipt is not canonical")
+    return {
+        "raw_text": raw.decode("utf-8"),
+        "raw_sha256": hashlib.sha256(raw).hexdigest(),
+        "parsed": value,
+    }
+
+
+def _diagnostic_browser_process_groups(session_id: str) -> tuple[list[int], bool]:
+    """Find every process group carrying the exact per-session browser tag."""
+
+    if SESSION_RE.fullmatch(session_id) is None:
+        raise LauncherError("browser process discovery session is malformed")
+    token = f"--kaetram-diagnostic-session={session_id}"
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,pgid=,command="],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LauncherError("diagnostic browser process discovery failed") from exc
+    rows: list[tuple[int, int]] = []
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(maxsplit=2)
+        if len(fields) != 3 or token not in fields[2].split():
+            continue
+        try:
+            pid, process_group = int(fields[0]), int(fields[1])
+        except ValueError:
+            continue
+        if pid <= 0 or process_group <= 0:
+            raise LauncherError("diagnostic browser process identity is unsafe")
+        rows.append((pid, process_group))
+    groups = {process_group for _, process_group in rows}
+    leaders_observed = all(
+        any(pid == group and observed == group for pid, observed in rows)
+        for group in groups
+    )
+    return sorted(groups), leaders_observed
+
+
+def _descendant_process_groups(root_pids: set[int]) -> tuple[set[int], bool]:
+    """Snapshot detached groups below frozen owned roots."""
+
+    if any(type(pid) is not int or pid <= 0 for pid in root_pids):
+        raise LauncherError("descendant discovery root identity is unsafe")
+    if not root_pids:
+        return set(), True
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,pgid="],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LauncherError("descendant process-group discovery failed") from exc
+    rows: list[tuple[int, int, int]] = []
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 3:
+            continue
+        try:
+            row = tuple(int(value) for value in fields)
+        except ValueError:
+            continue
+        if any(value <= 0 for value in row):
+            continue
+        rows.append(row)
+    descendants = set(root_pids)
+    changed = True
+    while changed:
+        changed = False
+        for pid, parent_pid, _ in rows:
+            if parent_pid in descendants and pid not in descendants:
+                descendants.add(pid)
+                changed = True
+    descendant_rows = [row for row in rows if row[0] in descendants]
+    groups = {group for _, _, group in descendant_rows if group not in root_pids}
+    leaders_observed = all(
+        any(pid == group for pid, _, _ in descendant_rows) for group in groups
+    )
+    return groups, leaders_observed
+
+
+def _worker_runtime_attestation(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if "runtime_attestation" not in value:
+        return None
+    record = value.get("runtime_attestation")
+    if not isinstance(record, dict):
+        raise LauncherError("cold session runtime attestation record is not an object")
+    parsed = record.get("parsed")
+    if not isinstance(parsed, dict):
+        raise LauncherError("cold session runtime attestation is not an object")
+    return parsed
+
+
+def _direct_child_process_groups(parent_pid: int) -> list[int]:
+    """Discover exact direct-child groups before terminating a timed-out worker."""
+
+    if type(parent_pid) is not int or parent_pid <= 0:
+        raise LauncherError("worker PID is invalid for child discovery")
+    try:
+        result = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,pgid="],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise LauncherError("cold worker child process discovery failed") from exc
+    groups: set[int] = set()
+    for line in result.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 3:
+            continue
+        try:
+            pid, ppid, process_group = (int(value) for value in fields)
+        except ValueError:
+            continue
+        if ppid != parent_pid:
+            continue
+        if pid <= 0 or process_group != pid or process_group == parent_pid:
+            raise LauncherError("cold worker child process identity is unsafe")
+        groups.add(process_group)
+    return sorted(groups)
+
+
 def _terminate_owned_process_group(
     process: subprocess.Popen,
     *,
@@ -645,6 +1478,13 @@ def _terminate_owned_process_group(
 
     try:
         os.killpg(process_group, signal.SIGTERM)
+    except ProcessLookupError:
+        return {"found_alive": True, "sigkill_required": False, "still_alive": False}
+
+    # A timed-out worker is SIGSTOPped before child discovery.  Let it consume
+    # TERM and unwind after the process tree is frozen and known.
+    try:
+        os.killpg(process_group, signal.SIGCONT)
     except ProcessLookupError:
         return {"found_alive": True, "sigkill_required": False, "still_alive": False}
 

@@ -37,6 +37,7 @@ from scripts.opd.live_routing_launcher import (  # noqa: E402
     attest_game_checkout,
     run_session_worker,
     session_spec_from_plan,
+    validate_process_lifecycle,
     validate_runtime_attestation,
     validate_runtime_attestation_set,
 )
@@ -333,14 +334,14 @@ def _runtime_evidence(
         raw.encode("utf-8")
     ).hexdigest():
         raise OrchestrationError("runtime attestation raw evidence digest mismatch")
-    process_group = evidence["parsed"].get("mcp_process_group")
-    validate_runtime_attestation(
-        evidence["parsed"],
-        spec,
-        worker_pid=process_group,
-        worker_process_group=process_group,
-    )
+    # The live worker already proves that the MCP server is in a distinct,
+    # newly created session.  The persisted phase intentionally contains only
+    # the MCP identity, so revalidate its inherent own-group invariant here.
+    validate_runtime_attestation(evidence["parsed"], spec)
     validate_registered_browser_runtime(evidence["parsed"], live_contract)
+    validate_process_lifecycle(
+        phase.get("process_lifecycle"), spec, evidence["parsed"]
+    )
     return evidence
 
 
@@ -559,6 +560,10 @@ def _execution_evidence(execution: TrialExecution) -> dict[str, Any]:
         "runtime_attestations": {
             "treatment": execution.treatment["runtime_attestation"],
             "reconnect": execution.reconnect["runtime_attestation"],
+        },
+        "process_lifecycles": {
+            "treatment": execution.treatment["process_lifecycle"],
+            "reconnect": execution.reconnect["process_lifecycle"],
         },
         "parent_event_ledger": execution.parent_event_ledger,
         "candidate_call_ledger": candidate_ledger,

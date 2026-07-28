@@ -90,6 +90,7 @@ EXECUTION_EVIDENCE_KEYS = {
     "absence",
     "seed",
     "runtime_attestations",
+    "process_lifecycles",
     "parent_event_ledger",
     "candidate_call_ledger",
     "database_snapshot_ownership",
@@ -122,6 +123,7 @@ SEED_KEYS = {
     "player_info_inserted_last",
 }
 RUNTIME_ATTESTATIONS_KEYS = {"treatment", "reconnect"}
+PROCESS_LIFECYCLES_KEYS = {"treatment", "reconnect"}
 RAW_ATTESTATION_KEYS = {"raw_text", "raw_sha256", "parsed"}
 RUNTIME_ATTESTATION_KEYS = {
     "schema_version",
@@ -129,6 +131,8 @@ RUNTIME_ATTESTATION_KEYS = {
     "mcp_pid",
     "mcp_process_group",
     "mcp_instance_nonce",
+    "browser_pid",
+    "browser_process_group",
     "browser_launch_nonce",
     "browser_nonce_echo",
     "browser_name",
@@ -141,6 +145,41 @@ RUNTIME_ATTESTATION_KEYS = {
     "require_existing_account",
     "heartbeats_disabled",
     "loopback_only",
+}
+PROCESS_LIFECYCLE_KEYS = {
+    "schema_version",
+    "session_id",
+    "owner_receipts",
+    "groups",
+    "cleanup_order",
+    "unexpected_process_groups",
+    "closure_proven",
+}
+PROCESS_GROUP_KEYS = {
+    "pid",
+    "process_group",
+    "identity_source",
+    "found_alive",
+    "sigkill_required",
+    "still_alive",
+}
+MCP_OWNER_KEYS = {
+    "schema_version",
+    "session_id",
+    "mcp_pid",
+    "mcp_process_group",
+    "mcp_instance_nonce",
+}
+BROWSER_OWNER_KEYS = {
+    "schema_version",
+    "session_id",
+    "mcp_pid",
+    "mcp_process_group",
+    "mcp_instance_nonce",
+    "browser_pid",
+    "browser_process_group",
+    "browser_launch_nonce",
+    "browser_executable_sha256",
 }
 EVENT_KEYS = {"event", "monotonic_seconds"}
 EVENT_ORDER = (
@@ -178,6 +217,15 @@ CLEANUP_KEYS = {
 
 class AnalysisError(ValueError):
     """The artifact envelope is malformed; no scientific analysis is safe."""
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON key: {key}")
+        value[key] = item
+    return value
 
 
 def canonical_json_bytes(value: Any) -> bytes:
@@ -320,7 +368,12 @@ def _runtime_attestation_valid(
         and type(parsed.get("mcp_pid")) is int
         and parsed["mcp_pid"] > 0
         and type(parsed.get("mcp_process_group")) is int
-        and parsed["mcp_process_group"] > 0
+        and parsed["mcp_process_group"] == parsed["mcp_pid"]
+        and type(parsed.get("browser_pid")) is int
+        and parsed["browser_pid"] > 0
+        and type(parsed.get("browser_process_group")) is int
+        and parsed["browser_process_group"] == parsed["browser_pid"]
+        and parsed["browser_process_group"] != parsed["mcp_process_group"]
         and all(
             isinstance(value, str) and re.fullmatch(r"[0-9a-f]{32}", value)
             for value in nonce_values
@@ -338,6 +391,136 @@ def _runtime_attestation_valid(
         and parsed.get("require_existing_account") is True
         and parsed.get("heartbeats_disabled") is True
         and parsed.get("loopback_only") is True
+    )
+
+
+def _owner_envelope_parsed(record: Any, expected_keys: set[str]) -> dict | None:
+    if not isinstance(record, dict) or set(record) != RAW_ATTESTATION_KEYS:
+        return None
+    raw = record.get("raw_text")
+    if not isinstance(raw, str) or record.get("raw_sha256") != hashlib.sha256(
+        raw.encode("utf-8")
+    ).hexdigest():
+        return None
+    try:
+        parsed = json.loads(
+            raw,
+            object_pairs_hook=lambda pairs: _unique_object(pairs),
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"non-finite constant: {value}")
+            ),
+        )
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(parsed, dict)
+        or set(parsed) != expected_keys
+        or not json_equal(parsed, record.get("parsed"))
+        or raw.encode("utf-8") != canonical_json_bytes(parsed) + b"\n"
+    ):
+        return None
+    return parsed
+
+
+def _process_lifecycle_valid(
+    record: Any,
+    *,
+    expected_session_id: str,
+    runtime_attestation: dict[str, Any],
+) -> bool:
+    if not isinstance(record, dict) or set(record) != PROCESS_LIFECYCLE_KEYS:
+        return False
+    owners = record.get("owner_receipts")
+    groups = record.get("groups")
+    if (
+        record.get("schema_version")
+        != "kaetram.session-lifecycle-cleanup.v1"
+        or record.get("session_id") != expected_session_id
+        or record.get("cleanup_order") != ["browser", "mcp", "worker"]
+        or record.get("unexpected_process_groups") != []
+        or record.get("closure_proven") is not True
+        or not isinstance(owners, dict)
+        or set(owners) != {"mcp", "browser"}
+        or not isinstance(groups, dict)
+        or set(groups) != {"worker", "mcp", "browser"}
+    ):
+        return False
+    mcp_owner = _owner_envelope_parsed(owners["mcp"], MCP_OWNER_KEYS)
+    browser_owner = _owner_envelope_parsed(
+        owners["browser"], BROWSER_OWNER_KEYS
+    )
+    if mcp_owner is None or browser_owner is None:
+        return False
+    if (
+        mcp_owner.get("schema_version") != "kaetram.diagnostic-mcp-owner.v1"
+        or browser_owner.get("schema_version")
+        != "kaetram.diagnostic-browser-owner.v1"
+        or mcp_owner.get("session_id") != expected_session_id
+        or browser_owner.get("session_id") != expected_session_id
+        or type(mcp_owner.get("mcp_pid")) is not int
+        or mcp_owner["mcp_pid"] <= 0
+        or mcp_owner.get("mcp_process_group") != mcp_owner["mcp_pid"]
+        or not isinstance(mcp_owner.get("mcp_instance_nonce"), str)
+        or re.fullmatch(r"[0-9a-f]{32}", mcp_owner["mcp_instance_nonce"])
+        is None
+        or type(browser_owner.get("browser_pid")) is not int
+        or browser_owner["browser_pid"] <= 0
+        or browser_owner.get("browser_process_group")
+        != browser_owner["browser_pid"]
+        or browser_owner["browser_process_group"]
+        == browser_owner.get("mcp_process_group")
+        or not isinstance(browser_owner.get("browser_launch_nonce"), str)
+        or re.fullmatch(r"[0-9a-f]{32}", browser_owner["browser_launch_nonce"])
+        is None
+        or not isinstance(browser_owner.get("browser_executable_sha256"), str)
+        or re.fullmatch(
+            r"[0-9a-f]{64}", browser_owner["browser_executable_sha256"]
+        )
+        is None
+        or any(
+            browser_owner.get(field) != mcp_owner.get(field)
+            for field in ("mcp_pid", "mcp_process_group", "mcp_instance_nonce")
+        )
+    ):
+        return False
+    expected_sources = {
+        "worker": "spawned_worker",
+        "mcp": "mcp_owner_receipt",
+        "browser": "browser_owner_receipt",
+    }
+    identities: list[int] = []
+    for role, row in groups.items():
+        if (
+            not isinstance(row, dict)
+            or set(row) != PROCESS_GROUP_KEYS
+            or type(row.get("pid")) is not int
+            or row["pid"] <= 0
+            or row.get("process_group") != row["pid"]
+            or row.get("identity_source") != expected_sources[role]
+            or row.get("found_alive") is not False
+            or row.get("sigkill_required") is not False
+            or row.get("still_alive") is not False
+        ):
+            return False
+        identities.append(row["pid"])
+    return bool(
+        len(set(identities)) == 3
+        and groups["mcp"]["pid"] == mcp_owner["mcp_pid"]
+        and groups["browser"]["pid"] == browser_owner["browser_pid"]
+        and all(
+            runtime_attestation.get(field) == mcp_owner.get(field)
+            and runtime_attestation.get(field) == browser_owner.get(field)
+            for field in ("mcp_pid", "mcp_process_group", "mcp_instance_nonce")
+        )
+        and all(
+            runtime_attestation.get(field) == browser_owner.get(field)
+            for field in (
+                "browser_pid",
+                "browser_process_group",
+                "browser_launch_nonce",
+                "browser_executable_sha256",
+            )
+        )
     )
 
 
@@ -439,6 +622,17 @@ def validate_trial_envelope(receipt: dict[str, Any]) -> None:
     )
     for phase in ("treatment", "reconnect"):
         _exact_object(runtime.get(phase), RAW_ATTESTATION_KEYS, f"{phase} attestation")
+    lifecycles = _exact_object(
+        evidence.get("process_lifecycles"),
+        PROCESS_LIFECYCLES_KEYS,
+        "process lifecycles",
+    )
+    for phase in ("treatment", "reconnect"):
+        _exact_object(
+            lifecycles.get(phase),
+            PROCESS_LIFECYCLE_KEYS,
+            f"{phase} process lifecycle",
+        )
     ledger = evidence.get("parent_event_ledger")
     if not isinstance(ledger, list):
         raise AnalysisError("parent event ledger is not a list")
@@ -538,8 +732,27 @@ def classify_trial(
         and isinstance(treatment_attestation, dict)
         and isinstance(reconnect_attestation, dict)
     )
+    process_lifecycles = execution["process_lifecycles"]
+    treatment_lifecycle_valid = bool(
+        both_attestations
+        and _process_lifecycle_valid(
+            process_lifecycles["treatment"],
+            expected_session_id=planned_trial.get("treatment_session_id"),
+            runtime_attestation=treatment_attestation,
+        )
+    )
+    reconnect_lifecycle_valid = bool(
+        both_attestations
+        and _process_lifecycle_valid(
+            process_lifecycles["reconnect"],
+            expected_session_id=planned_trial.get("reconnect_session_id"),
+            runtime_attestation=reconnect_attestation,
+        )
+    )
     cold_mcp_process = bool(
         both_attestations
+        and treatment_lifecycle_valid
+        and reconnect_lifecycle_valid
         and treatment_attestation["mcp_pid"] != reconnect_attestation["mcp_pid"]
         and treatment_attestation["mcp_process_group"]
         != reconnect_attestation["mcp_process_group"]
@@ -548,6 +761,12 @@ def classify_trial(
     )
     cold_browser_profile = bool(
         both_attestations
+        and treatment_lifecycle_valid
+        and reconnect_lifecycle_valid
+        and treatment_attestation["browser_pid"]
+        != reconnect_attestation["browser_pid"]
+        and treatment_attestation["browser_process_group"]
+        != reconnect_attestation["browser_process_group"]
         and treatment_attestation["browser_launch_nonce"]
         != reconnect_attestation["browser_launch_nonce"]
     )
@@ -557,12 +776,14 @@ def classify_trial(
     ]
     treatment_settled = bool(
         event_times
+        and treatment_lifecycle_valid
         and event_times["treatment_settle_finished"]
         - event_times["treatment_finished"]
         >= minimum_settle
     )
     reconnect_settled = bool(
         event_times
+        and reconnect_lifecycle_valid
         and event_times["reconnect_settle_finished"]
         - event_times["reconnect_finished"]
         >= minimum_settle
@@ -918,6 +1139,8 @@ def analyze_run(
         "mcp_pid",
         "mcp_process_group",
         "mcp_instance_nonce",
+        "browser_pid",
+        "browser_process_group",
         "browser_launch_nonce",
     ):
         owners: dict[bytes, list[int]] = {}

@@ -105,6 +105,8 @@ if os.environ.get("KAETRAM_DIAGNOSTIC_LANE") == "1":
             "mcp_pid": state.get("mcp_pid"),
             "mcp_process_group": state.get("mcp_process_group"),
             "mcp_instance_nonce": state.get("mcp_instance_nonce"),
+            "browser_pid": state.get("browser_pid"),
+            "browser_process_group": state.get("browser_process_group"),
             "browser_launch_nonce": state.get("browser_launch_nonce"),
             "browser_nonce_echo": nonce_echo,
             "browser_name": "chromium",

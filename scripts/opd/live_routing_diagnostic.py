@@ -257,9 +257,10 @@ def validate_registration(
         errors.append("measurement stages drift")
     if registration.get("verdict_algorithm") != {
         "valid_trial": (
-            "precondition matches; router/schema behavior matches arm; delivery "
-            "is confirmed by a result for active arms or not attempted for off; "
-            "all registered observation and persistence receipts are present"
+            "trial identity, isolation, and precondition match; every applicable "
+            "stage has a complete receipt; delivery is not unknown; router, "
+            "schema, protocol, application, invocation-count, and state-predicate "
+            "deviations remain valid failure outcomes"
         ),
         "active_arm_pass": (
             "exactly one candidate result; protocol_success true; no "
@@ -271,7 +272,12 @@ def validate_registration(
             "reconnect, and database projections equal the registered baseline"
         ),
         "repeat_pass": "all three arms valid and pass",
-        "full_grid_release": "all three repeats pass; otherwise release incompleteness receipts only",
+        "full_grid_release": (
+            "release the full descriptive grid whenever all nine trials are "
+            "valid, regardless of pass, fail, or mixed outcomes; if any trial "
+            "is invalid, release every trial receipt but withhold only the "
+            "paired aggregate"
+        ),
     }:
         errors.append("verdict algorithm drift")
     expected_failure = {

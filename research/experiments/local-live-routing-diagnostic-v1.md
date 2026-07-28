@@ -72,13 +72,18 @@ at the immediate, delayed, reconnect, and database stages.
 
 ## Release rule and claim boundary
 
-An active arm passes only when exactly one result is received, the registered
-application predicate passes, and immediate, delayed, and reconnect positions
-fall in the Mudwich region. The off arm passes only when candidate delivery is
-not attempted and all four state projections remain at baseline. A repeat
-passes only when all three arms pass. The full-grid descriptive verdict is
-released only if all three repeats pass; otherwise only incompleteness receipts
-are released. No result is silently excluded.
+A trial is valid when its identity, isolation, and precondition match, every
+applicable stage is recorded, and delivery is not unknown. Unexpected router,
+schema, protocol, application, invocation-count, or state outcomes are valid
+failures, not exclusions. An active arm passes only when exactly one result is
+received, the registered application predicate passes, and immediate, delayed,
+and reconnect positions fall in the Mudwich region. The off arm passes only
+when candidate delivery is not attempted and all four state projections remain
+at baseline. A repeat passes only when all three arms pass. The full descriptive
+grid is released whenever all nine trials are valid, whether the outcomes pass,
+fail, or are mixed. If any trial is invalid, every trial receipt is still
+released, but only the paired aggregate is withheld. No result is silently
+excluded.
 
 Even a perfect diagnostic is only a preliminary one-fixture operability check
 before the broader fresh-state paired panel described in the paper. It supports

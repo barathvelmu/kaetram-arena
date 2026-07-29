@@ -1,0 +1,32 @@
+{
+  "completed_requests": 340,
+  "duration_seconds": 7148.189558,
+  "endpoint_health": {
+    "attestation": {
+      "api_model": "2b-opd-r3",
+      "chat_template_sha256": "562a0a6f72bf5722612866d9f5d7e947be4b08a429e407f8e522e70137db5e1e",
+      "checkpoint_sha256": "c4df1ea2fda9253d595ff4a2068c72dd4de173241ab93cc1ee0d5dc42e302873",
+      "deployment_id": "local-mlx-lm-0.31.3-opd_r3_2b-c26ae0691bd1-31a820c88425",
+      "fix_mistral_regex": false,
+      "render_contract_sha256": "31a820c88425ad0039aa335ef54db47434be22aa61bf4371e31cf215241a280f",
+      "runtime_environment_receipt_sha256": "5f34e239cb815593b4bcba35ce25ad49edb7309715aa2329f8e14e4850fe95b2",
+      "sampling_contract_sha256": "506e4d3ae39e53793ceaef6a39b31dabce13a72b9345af5b43d96de2b46ff5d3",
+      "snapshot_lock_sha256": "8117a75f24b50625469ffff26384584ad99526bf687a79a8b11ad7612cf62a32",
+      "snapshot_tree_sha256": "76f449074cc548d6bc4411215dcd2f9b4ae09eac73256b2f26d487ce7baef007",
+      "thinking_mode": "disabled",
+      "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+      "tokenizer_source_revision": "15852e8c16360a2fea060d615a32b45270f8a8fc"
+    },
+    "status": "ok"
+  },
+  "endpoint_identity_stable": true,
+  "failed_requests": 0,
+  "finish_reason_counts": {
+    "length": 31,
+    "stop": 3,
+    "tool_calls": 306
+  },
+  "schema_version": "kaetram.local-serving-regime-parity-run.v1.postflight",
+  "snapshot": "opd_r3_2b",
+  "study_id": "local-serving-regime-parity-v1"
+}

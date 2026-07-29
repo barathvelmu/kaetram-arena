@@ -1,0 +1,23 @@
+{
+  "files": [
+    {
+      "path": "prelaunch.json",
+      "sha256": "1e9d6796cf74da6e436b7a29ad56610380cf15db1074a063cd1a262b17e570a6",
+      "size_bytes": 1592
+    },
+    {
+      "path": "results.jsonl",
+      "sha256": "c2f84c827dc8a53e9ea2e9d639d8362917f9d88fc22a4327578d977d36dbee72",
+      "size_bytes": 480226
+    },
+    {
+      "path": "postflight.json",
+      "sha256": "250fc537e5fc3bdf8a87b94ee0c5bd21183771c7bf0de2589971f947980b94d2",
+      "size_bytes": 1494
+    }
+  ],
+  "schema_version": "kaetram.local-serving-regime-parity-run.v1.artifacts",
+  "snapshot": "base_2b",
+  "study_id": "local-serving-regime-parity-v1",
+  "tree_sha256": "00c041e0d2f95f385d12c3de9f2d4eb8635a2e12af59dca87d8c1c575bbeb636"
+}

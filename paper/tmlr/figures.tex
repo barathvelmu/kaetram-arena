@@ -20,8 +20,8 @@
   \node[box,minimum width=2.3cm] (model) at (0.8,0) {model response};
   \node[box,minimum width=2.6cm,fill=routeblue!8] (structured) at (4.0,0.65)
     {structured tool field};
-  \node[box,minimum width=2.6cm,fill=routeorange!10] (content) at (4.0,-0.65)
-    {ordinary content};
+  \node[box,minimum width=2.6cm,fill=routeorange!10,align=center] (content) at (4.0,-0.65)
+    {response body\\{\tiny(reasoning span + any trailing content)}};
   \node[box,minimum width=2.3cm] (schema) at (7.1,0.65) {schema check};
   \node[box,minimum width=2.3cm] (parser) at (7.1,-0.65) {recovery parser};
   \node[box,minimum width=2.35cm,fill=routegreen!10] (candidate) at (10.2,0)
@@ -39,8 +39,8 @@
     (2.45,-1.18) rectangle (11.55,1.18);
   \node[routered,fill=white,inner sep=1.5pt,anchor=south] at (7.0,1.15)
     {interface study: where recoverable calls are routed};
-  \node[routeorange,align=center,anchor=north] at (4.0,-1.05)
-    {a valid-looking call can be stranded here};
+  \node[routeorange,align=center,anchor=north] at (4.0,-1.13)
+    {all \SpanInsideReasoning{}/\SpanRecoveredCalls{} recovered calls\\were stranded inside the reasoning span};
 
   \node[font=\sffamily\bfseries\small,anchor=west] at (-0.3,-2.05)
     {(b) The audit advances only after each failure is localized};

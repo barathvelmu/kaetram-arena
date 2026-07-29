@@ -51,8 +51,8 @@ Official sources:
 |---|---|---|
 | Official style assets | Pass | Pinned template provenance and byte hashes are checked in. |
 | PDF format | Pass on current draft | US Letter; embedded fonts; automated build and layout-warning gate. |
-| Anonymous manuscript | Pass on current draft | Source, PDF text, metadata, and embedded URLs are scanned. |
-| Main-body length | Pass | Main narrative ends on page 10; references begin on page 11; total PDF is 15 pages including references and appendix. |
+| Anonymous manuscript | Pass on current draft | Source, PDF text, metadata, and embedded URLs are scanned. The review and archival builds now seed distinct `\pdftrailerid` strings; a single shared string previously gave both PDFs an identical trailer `/ID`, which linked them directly. |
+| Main-body length | Pass | References begin on page 12; total PDF is 17 pages including references and appendix. Main body stays within the 12-page short-review guidance. |
 | V2 trigger evidence | Pass | Anonymous 1,200-row projection independently recomputes. |
 | V3 trigger evidence | Pass | Different-panel run completed 1,200/1,200 requests; public and anonymous verifiers recompute the registered result and post-hoc routing decomposition. |
 | Multi-action evidence | Pass | V2 remains failed; fresh V3 is separately reported 9/9 under the prospective amendment. |

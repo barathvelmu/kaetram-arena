@@ -54,6 +54,7 @@ OUTPUT = ROOT / "output" / "supplement" / "kaetram-tmlr-anonymous-supplement.zip
 REVIEW_SCHEMA = "kaetram.local-trigger-incidence-review-artifact.v1"
 PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v5"
 VERIFICATION_CODE = (
+    "scripts/opd/analyze_reasoning_span_localization.py",
     "scripts/opd/analyze_structured_call_validity.py",
     "scripts/opd/audit_trigger_incidence_artifact.py",
     "scripts/opd/canonicalize.py",

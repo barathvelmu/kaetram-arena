@@ -1,0 +1,18 @@
+{
+  "recovered_call_text_in_reasoning_field": 308,
+  "recovered_inside_reasoning_span": 308,
+  "recovered_outside_reasoning_span": 0,
+  "recovered_rows": 308,
+  "recovered_rows_by_native_schema": {
+    "absent": 108,
+    "present": 200
+  },
+  "recovered_without_call_marker": 0,
+  "registered_primary_unchanged": true,
+  "rows": 1200,
+  "rows_with_call_marker_after_reasoning_span": 0,
+  "rows_with_text_after_reasoning_span": 11,
+  "schema_version": "kaetram.reasoning-span-localization.v1",
+  "status": "post_hoc",
+  "study_id": "local-trigger-incidence-v2"
+}

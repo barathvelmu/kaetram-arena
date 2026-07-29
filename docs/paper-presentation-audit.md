@@ -47,6 +47,11 @@ versions, used only to calibrate information density.
    V3 correction without relabelling the old result.
 5. Bind every displayed number to released JSON. `figure-data.tex` is generated
    by `scripts/opd/render_tmlr_figures.py`; both paper builds fail if it is stale.
+6. State where recovered calls sit, not only which channel they reached. A
+   post-outcome localization found that all 701 recovered calls on both panels
+   lie inside the model's reasoning span, so the figure and caption now say so
+   and the normative recommendation is inverted. The generator fails closed if
+   that ever stops being true.
 
 ## Guardrails
 

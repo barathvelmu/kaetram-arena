@@ -11,6 +11,7 @@
   "registered_primary_unchanged": true,
   "rows": 1200,
   "rows_with_call_marker_after_reasoning_span": 0,
+  "rows_with_one_balanced_leading_span": 1200,
   "rows_with_text_after_reasoning_span": 5,
   "schema_version": "kaetram.reasoning-span-localization.v1",
   "status": "post_hoc",

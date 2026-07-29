@@ -23,7 +23,7 @@
   \node[box,minimum width=3.35cm,fill=routeorange!10,align=center,inner sep=3pt] (content) at (4.0,-0.65)
     {response body\\[-1pt]{\fontsize{5.2}{6}\selectfont reasoning span $+$ trailing content}};
   \node[box,minimum width=2.3cm] (schema) at (7.1,0.65) {schema check};
-  \node[box,minimum width=2.3cm] (parser) at (7.1,-0.65) {recovery parser};
+  \node[box,minimum width=2.3cm,draw=routeorange!80,dashed] (parser) at (7.1,-0.65) {recovery parser};
   \node[box,minimum width=2.35cm,fill=routegreen!10] (candidate) at (10.2,0)
     {candidate action};
   \node[box,minimum width=2.65cm] (executor) at (13.4,0)
@@ -31,9 +31,9 @@
   \draw[line] (model.east) -- (structured.west);
   \draw[line] (model.east) -- (content.west);
   \draw[line] (structured) -- (schema);
-  \draw[line] (content) -- (parser);
+  \draw[line,routeorange,dashed] (content) -- (parser);
   \draw[line] (schema.east) -- (candidate.west);
-  \draw[line] (parser.east) -- (candidate.west);
+  \draw[line,routeorange,dashed] (parser.east) -- (candidate.west);
   \draw[line] (candidate) -- (executor);
   \draw[routered,dashed,rounded corners=3pt,thick]
     (2.30,-1.30) rectangle (11.55,1.18);
@@ -84,7 +84,7 @@
     at={(8.1cm,0)},anchor=south west,
     width=7.4cm,height=4.35cm,
     title style={font=\sffamily\bfseries\small,align=center,yshift=3.2ex},
-    title={(b) Post-hoc valid candidate\\through either route},
+    title={(b) Post-hoc valid candidate\\either route (pools an unexecutable one)},
     xmin=0,xmax=40,xtick={0,10,20,30,40},
     xlabel={schema-present $-$ schema-absent (pp)},
     ytick={1,2,3},yticklabels={Round 3,Round 2,Base},

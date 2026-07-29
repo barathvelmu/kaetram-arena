@@ -135,8 +135,8 @@ def build_tex_data() -> str:
         _command("RecoveryEligibleGenerations", recovery["recovery_opportunities"]),
         _command("VOneSeedGroups", v1_seed["state_condition_groups"]),
         _command("VOneDiverseSeedGroups", v1_seed["groups_with_multiple_semantic_responses"]),
-        _command("VTwoSuccessfulRequests", v2["successful_requests"]),
-        _command("VThreeSuccessfulRequests", v3["successful_requests"]),
+        _command("VTwoSuccessfulRequests", _thousands(v2["successful_requests"])),
+        _command("VThreeSuccessfulRequests", _thousands(v3["successful_requests"])),
         _command("RoutingVTwoProtocolValid", routing_v2["registered_outcome"]["protocol_valid"]),
         _command("RoutingVTwoFullPass", routing_v2["registered_outcome"]["full_predicate_pass"]),
         _command("RoutingVThreeProtocolValid", routing_v3["outcome"]["protocol_valid"]),
@@ -150,6 +150,8 @@ def build_tex_data() -> str:
         _command("SpanVThreeRecovered", span_v3["recovered_rows"]),
         _command("SpanVTwoTrailingText", span_v2["rows_with_text_after_reasoning_span"]),
         _command("SpanVThreeTrailingText", span_v3["rows_with_text_after_reasoning_span"]),
+        _command("SpanVTwoBalanced", _thousands(span_v2["rows_with_one_balanced_leading_span"])),
+        _command("SpanVTwoRows", _thousands(span_v2["rows"])),
     ]
 
     for version_name, analysis, posthoc in (

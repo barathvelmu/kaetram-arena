@@ -38,7 +38,11 @@ def _first_call_offset(content: str) -> int | None:
 
 
 def _inside_reasoning_span(content: str, offset: int) -> bool:
-    """True when the offset sits inside an unclosed reasoning span."""
+    """True when the offset falls inside a reasoning span that has not yet closed.
+
+    The span is normally closed later in the string; what this tests is whether
+    the call was written before that closing tag, not whether the tag is absent.
+    """
     prefix = content[:offset]
     return prefix.count(OPEN_TAG) > prefix.count(CLOSE_TAG)
 
@@ -100,6 +104,16 @@ def analyze(artifact: Path) -> dict:
         key = str(row.get("native_tool_schema"))
         by_schema[key] = by_schema.get(key, 0) + 1
 
+    balanced_single_span = 0
+    for row in rows:
+        content = (row.get("response_message") or {}).get("content") or ""
+        if (
+            content.startswith(OPEN_TAG)
+            and content.count(OPEN_TAG) == 1
+            and content.count(CLOSE_TAG) == 1
+        ):
+            balanced_single_span += 1
+
     return {
         "schema_version": "kaetram.reasoning-span-localization.v1",
         "status": "post_hoc",
@@ -114,6 +128,7 @@ def analyze(artifact: Path) -> dict:
         "recovered_rows_by_native_schema": dict(sorted(by_schema.items())),
         "rows_with_text_after_reasoning_span": residual_any,
         "rows_with_call_marker_after_reasoning_span": residual_call,
+        "rows_with_one_balanced_leading_span": balanced_single_span,
     }
 
 

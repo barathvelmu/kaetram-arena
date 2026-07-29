@@ -15,10 +15,12 @@ ALLOWED_GITHUB_URLS = {
 ALLOWED_PDF_URLS = {
     *ALLOWED_GITHUB_URLS,
     "https://huggingface.co/collections/Qwen/qwen35",
+    "https://huggingface.co/Qwen/Qwen3.5-2B",
     "https://arxiv.org/abs/2506.03610",
     "https://doi.org/10.65109/OLHJ8062",
     "https://doi.org/10.18653/v1/2026.acl-long.1880",
     "https://aclanthology.org/2026.acl-long.855/",
+    "https://aclanthology.org/2026.acl-industry.88/",
     "https://aclanthology.org/2024.emnlp-main.1083/",
     "https://aclanthology.org/2025.acl-long.394/",
     "https://aclanthology.org/2025.findings-naacl.65/",
@@ -26,6 +28,7 @@ ALLOWED_PDF_URLS = {
     "https://aclanthology.org/2025.naacl-long.44/",
     "https://proceedings.neurips.cc/paper_files/paper/2024/hash/"
     "61cce86d180b1184949e58939c4f983d-Abstract-Datasets_and_Benchmarks_Track.html",
+    "https://openreview.net/forum?id=Zy4uFzMviZ",
 }
 
 _BIBTEX_ENTRY_TYPES = {

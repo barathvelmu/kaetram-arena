@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 from scripts.build_tmlr_supplement import (
     V3_ARTIFACT,
     V3_RESULTS,
+    build_parity_review_artifact,
     build_review_artifact,
 )
 
@@ -32,10 +33,14 @@ def main() -> int:
             results=V3_RESULTS,
             registration_relative=Path("design/effective-registration.json"),
         )
+        parity = build_parity_review_artifact(
+            root / "artifact-serving-regime-parity"
+        )
     payload = (
         "% Generated locally; do not commit or submit outside the anonymous PDF.\n"
         f"\\def\\VTwoReviewIndex{{{v2}}}\n"
         f"\\def\\VThreeReviewIndex{{{v3}}}\n"
+        f"\\def\\ParityReviewIndex{{{parity}}}\n"
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary_output = args.output.with_suffix(args.output.suffix + ".tmp")

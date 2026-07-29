@@ -63,37 +63,33 @@ retains full responsibility for the work.}}
 \maketitle
 
 \begin{abstract}
-A tool-using language-model agent can write a well-formed action that the
-serving stack never routes, because the action lands in a response field the
-executor does not read. We audit this failure in a 2B agent controlling a
-persistent game through 17 typed tools, and find that the failure is a property
-of the serving configuration rather than of the agent. Historical scores could not identify a training effect because
-weights, states, interfaces, and runtime recovery changed together. A
-prospective 18-cell test then found that recovery was never eligible to act
-in 958 generations. We therefore isolated the model-visible interface. A
+A language-model agent can produce a tool-call candidate that never becomes an
+environment action because it surfaces outside the field consumed by the
+executor. We audit this hidden routing step in a 2B agent controlling a
+persistent game through 17 typed tools. Historical scores confounded weights,
+states, interfaces, and runtime repair, while a prospective 18-cell recovery
+test never engaged its treatment in 958 generations. We therefore studied raw
+response routes on fixed decision states.
 
-discovery study revealed that nominal request seeds produced duplicate outputs.
-After repairing sampling, a frozen 1,200-request study evaluated three
-checkpoints on 20 previously unseen decision states with five effective seeds.
-Supplying the 17-tool schema through the endpoint's structured tools field
-increased parser-recoverable calls that were absent from the structured field
-by +23, +13, and +10 percentage points. Repeating the same protocol on a
-different retained state set produced +13, +5.5, and +9 points; no source log or
-rendered model input overlapped the first study. This second panel is a
-robustness check, not independent replication. All \SpanRecoveredCalls{} such
-calls sit in the endpoint's reasoning field rather than its final message,
-which the backend's routing rule largely entails; each contains exactly one
-candidate with no reasoning text after it. The agent is thus not conflating two
-channels but ending generation one token before the call would have been
-routed. Post-hoc analyses on both panels found more schema-valid candidates on
-both routes, though the reasoning-field candidates were never eligible for
-execution. Finally,
-a model-free diagnostic preserved a failed measurement, amended it
-prospectively, and on a fresh run routed all three frozen calls in each of six
-active-route trials while the three disabled-control trials showed no registered
-action effect. The contribution is a reviewer-recomputable audit of where
-actions stop between model and environment---not a checkpoint ranking, recovery
-benefit, broad generalization, or training effect.
+Two thinking-enabled panels found that native schema exposure increased
+body-only parser-candidate incidence at every checkpoint: +23, +13, and +10
+percentage points on a registered outcome-unseen panel, and +13, +5.5, and +9
+points on a same-project robustness panel. Because those studies were
+off-parity with the non-thinking deployment path, we preregistered a matched
+bridge. Across 1,020 new pilot-unseen requests, the registered thinking-off
+minus retained thinking-on contrasts were $-28.2$, $-22.1$, and $-28.8$ points
+for body-only incidence and $+58.8$, $+58.8$, and $+60.0$ points for structured
+incidence. In paired classification, the 269 thinking-on body-only cells aligned
+with 248 structured and 21 no-candidate thinking-off responses. The registered
+all-three-checkpoint criterion passed.
+
+All 701 body-only candidates across the earlier panels were reconstructed from
+the reasoning field, which is largely implied by the routing implementation;
+only 656 passed the frozen tool schema. The contribution is a
+reviewer-recomputable audit documenting large routing contrasts associated with
+model-visible schemas and thinking-mode rendering on these finite local grids.
+It does not rank checkpoints, establish a recovery or training benefit,
+validate action appropriateness, or measure gameplay utility.
 \end{abstract}
 
 \section{Introduction}
@@ -126,9 +122,10 @@ The resulting study follows a sequence useful beyond this game. A prospective
 recovery factorial first checked whether its treatment fired; it did not, in
 958 generations. A fixed-state interface grid then exposed ineffective request
 seeds, so we repaired sampling and froze a new outcome-unseen panel rather than
-upgrade the first result retrospectively. Two thinking-enabled panels showed a
-repeatable schema--routing pattern. Finally, after discovering that this
-serving mode differed from deployment, we preregistered a matched
+upgrade the first result retrospectively. Two thinking-enabled panels showed
+the same-direction schema--routing pattern on two same-project retained panels.
+Finally, after discovering that this serving mode differed from deployment, we
+preregistered a matched
 thinking-enabled versus thinking-disabled comparison on 1,020 pilot-unseen
 request cells.
 
@@ -138,8 +135,8 @@ request cells.
 \caption{The audit separates response routing from downstream execution and
 advances only after each failed check is localized. A call written into the
 response body is not visible to an executor that reads only the structured
-field. In this study every such call sat in the endpoint's reasoning field,
-outside the executor-consumed structured route
+field. Every body-only candidate in the V2/V3 panels was reconstructed from the
+endpoint's reasoning field, outside the executor-consumed structured route
 (Section~\ref{sec:where-calls-sit}). Numbers are regenerated from the released
 public summaries.}
 \label{fig:routing}
@@ -153,7 +150,7 @@ Our contributions are:
   and no candidate. We keep candidate presence separate from schema validity,
   appropriateness, execution, and utility.
   \item We report a preregistered matched comparison of the thinking-mode render
-  intervention across three fixed checkpoints and 1,020 new requests, with
+  contrast across three fixed checkpoints and 1,020 new requests, with
   pilot-seen states excluded and cross-arm identities verified.
   \item Conditional on the thinking-enabled local renderer, native schema
   exposure increased body-only-candidate incidence at every checkpoint on a
@@ -190,7 +187,7 @@ coarse to localize a dropped action. The registered interface studies therefore
 operate on fixed historical decision states and inspect the immediate model
 response.
 
-\subsection{How a recoverable action can disappear}
+\subsection{How a parser candidate can disappear from execution}
 
 Figure~\ref{fig:routing} separates the layers between a model-visible tool and
 an environment transition. The registered ``native schema'' treatment means
@@ -222,8 +219,8 @@ separately, and make no semantic-appropriateness or utility claim.
 \label{sec:reasoning-regime}
 
 The V1--V3 interface grids explicitly launched the local MLX backend with
-\texttt{enable\_thinking=true}. This was a deliberate implementation choice,
-but it was off-parity with the non-thinking historical deployment path and with
+\texttt{enable\_thinking=true}. The setting was explicit in the study launch
+code, but it was off-parity with the non-thinking historical deployment path and with
 the model card's default mode \citep{qwen35modelcards2026}. The pinned chat
 template opens a reasoning span when thinking is enabled; when disabled, it
 inserts an empty closed span before generation. The backend returns reasoning
@@ -397,6 +394,36 @@ receipts differ and are disclosed, so this is not described as a byte-identical
 single-factor experiment. Both arms use the same local backend family; the
 comparison does not isolate provider effects or measure downstream utility.
 
+All 1,020 new requests completed without a retry or failure, and each endpoint
+identity remained stable. The registered criterion passed: thinking-off minus
+thinking-on body-only incidence was $-28.2$, $-22.1$, and $-28.8$ percentage
+points at Base, round 2, and round 3. The corresponding structured-call
+contrasts were $+58.8$, $+58.8$, and $+60.0$ points. In paired classification,
+the 269 thinking-on body-only cells aligned with 248 structured and 21
+no-candidate thinking-off responses. Figure~\ref{fig:thinking-parity}
+shows the full mutually exclusive partition rather than only the registered
+outcome.
+
+\begin{figure}[t]
+\centering
+\ServingRegimeParityFigure
+\caption{Matched comparison of the registered thinking-mode render contrast on
+the fixed local pipeline. Panel (a) shows mutually exclusive response routes for
+the same \ParityRequestsPerCheckpoint{} request cells at each checkpoint: a
+structured call, a parser-recognized call found only in the response body, or
+no parseable call. Each pair compares the retained thinking-on arm with the
+prospectively registered thinking-off arm; stacks show exact counts. Panel (b)
+shows thinking-off minus thinking-on changes for the two call-bearing routes.
+The registered criterion---a negative body-only difference at all three
+checkpoints---\ParityDirectionalVerdict{}. The first
+\ParityExcludedPilotStates{} pilot states are excluded. The separately
+recreated arms match the registered checkpoint, tokenizer, chat-template file,
+sampling, and snapshot identities. This finite-grid result does not prove
+literal single-factor isolation, isolate provider differences, or measure
+gameplay utility.}
+\label{fig:thinking-parity}
+\end{figure}
+
 \subsection{V1 discovery and the ineffective-seed audit}
 
 V1 crossed the three checkpoints, four interfaces, 20 historical decision
@@ -505,7 +532,7 @@ that V2's direction persists on a second finite retained panel under the same
 interface contract. It does not turn either panel into an independent sample
 or establish a population effect.
 
-\subsection{Where the recovered calls actually sit}
+\subsection{Where body-only parser candidates actually sit}
 \label{sec:where-calls-sit}
 
 The registered outcome records that a call was recoverable from the
@@ -523,7 +550,7 @@ message across \SpanTotalRows{} responses. We report this because the frozen
 outcome name does not expose the field boundary; it is a mechanism disclosure,
 not a second empirical confirmation.
 
-Each recovered row contained one parser candidate and no later reasoning text.
+Each body-only row contained one parser candidate and no later reasoning text.
 Only 656 of the 701 candidates passed the frozen tool schema, so we do not call
 all of them valid actions. Moreover, V2 and V3 did not retain the backend's
 finish reason. The traces therefore do not identify why generation ended, a
@@ -536,8 +563,8 @@ separate state-aware evaluation.
 After both registered panels closed, we separately checked whether candidates
 named a registered tool and satisfied its argument schema. Across V2 and V3,
 656 of 701 body-only parser candidates passed that syntactic/schema gate.
-Native schema exposure also reduced invalid structured envelopes in V2 from
-34 to 1, 24 to 6, and 18 to 3 per 200 requests at Base, round 2, and round 3.
+Invalid structured-envelope counts were lower with native schema in V2: 34 to
+1, 24 to 6, and 18 to 3 per 200 requests at Base, round 2, and round 3.
 These post-hoc counts prevent us from equating either route with a valid action;
 they do not establish appropriateness, execution, or utility. The complete
 mutually exclusive decomposition appears in Appendix~\ref{app:validity}.
@@ -640,8 +667,8 @@ semantic correctness in separate stages \citep{liu2024apigen}. ToolSandbox
 scores calls, execution, and state milestones in a stateful environment
 \citep{lu2025toolsandbox}. We do not claim those components as new. Our narrower
 contribution is a matched, prospectively frozen audit that retains both response
-channels and measures a silent routing failure under one fixed renderer and
-checkpoint family.
+channels and measures how a thinking-mode render contrast changes candidate
+routing within one checkpoint family.
 
 Recovery can also be learned or implemented at different layers.
 Fission-GRPO learns from execution errors \citep{zhang2026fission}; our recovery
@@ -742,46 +769,34 @@ before execution or environment change.
 
 \section{Conclusion}
 
-An agent can compose a well-formed action that never becomes an environment
-action, because it never leaves the channel it was written in. In our
-fixed-state study, native schema exposure consistently increased such
-content-only calls across three fixed checkpoints: +23, +13, and +10
-percentage points on a prospectively frozen outcome-unseen panel. All 1,200 requests
-succeeded, effective seed diversity was verified, and the all-checkpoint
-direction criterion passed. On a different retained panel, another 1,200
-requests produced positive contrasts of +13, +5.5, and +9 points under the
-unchanged protocol. That extension is robustness within one project lineage,
-not independent replication. In post-hoc descriptive audits, schema-invalid
-structured envelopes also occurred less often per request when the native schema
-was present (34 to 1, 24 to 6, and 18 to 3 per 200 requests at Base, round 2,
-and round 3); because routing changed too, this is not a conditional causal
-validity effect.
+A tool call is not yet an action: it must surface in a field the next component
+reads, pass the tool schema, reach the executor, and produce an appropriate
+state change. On our matched fixed local panel, thinking-off minus thinking-on
+contrasts were $-22.1$ to $-28.8$ percentage points for body-only
+parser-candidate incidence and $+58.8$ to $+60.0$ points for structured-call
+incidence. In paired classification, the 269 thinking-on body-only cells
+aligned predominantly with structured thinking-off responses.
 
-Localizing those calls then sharpened what the result means. All
-\SpanRecoveredCalls{} of them lay in the endpoint's reasoning field, which its
-routing rule largely entails, so this is a mechanism disclosure rather than a
-second finding. The rows do add the shape of the failure: each holds exactly
-one candidate with nothing after it, so the model composed a single valid call
-and stopped rather than deliberating past it. The defect is a termination
-boundary, not channel confusion, and the remedy therefore belongs upstream of
-any recovery layer.
+The earlier schema result is now properly conditional. Under the
+thinking-enabled renderer, native schema exposure increased body-only incidence
+at every checkpoint on a registered outcome-unseen panel and a same-project
+robustness panel. Localization of all 701 candidates to the reconstructed
+reasoning field explains the measurement path but is largely entailed by the
+routing implementation; it does not reveal model intent or the correct repair.
 
-A separate model-free follow-up then carried three author-fixed calls through
-both active routes under a prospectively repaired measurement, while remaining
-a one-fixture operability check.
-
-These findings do not rank checkpoints or establish a recovery or training
-benefit. They show why tool-agent evaluation must treat weights, rendered
-interface, response channel, position within that channel, parser, and runtime
-repair as distinct components. The broader methodological lesson is simple:
-before attributing a long-horizon score to a model, record where each intended
-action stopped, and do not assume that an action a parser can reach is an
-action an executor should take.
+These findings do not rank checkpoints, identify a training or recovery
+benefit, validate the appropriateness of naturally emitted candidates, or
+establish gameplay utility. They show why agent evaluation must bind the render
+contract and retain each
+response field instead of collapsing model generation, routing, parsing, and
+execution into one score. Before attributing a long-horizon result to model
+weights, record where each proposed action or candidate stopped.
 
 \bibliography{references}
 \bibliographystyle{tmlr}
 
 \appendix
+\raggedbottom
 
 \section{Exact Finite-Grid Results}
 \label{app:exact-grids}
@@ -910,9 +925,15 @@ Claim & Boundary \\
 Historical score replay & Nine July scores are content-bound descriptive
 observations; treatment identities and effects are not established. \\
 Recovery factorial & The registered cells completed, but recovery never
-engaged; no recovery effect is identified. On the deployment stack, 0 of 664
-structureless generations yielded a recoverable call, versus roughly 29\% on
-the local stack used for V1--V3. \\
+engaged; no recovery effect is identified. The unmatched deployment stack had
+0/958 body-only candidates overall and 0/664 among structureless generations;
+V2 and V3 had 701/2,400 overall and 701/1,532 among structureless generations. \\
+Thinking-mode bridge & The registered matched panel completed 1,020 new
+requests. Thinking-off minus thinking-on contrasts were $-28.2$, $-22.1$, and
+$-28.8$ points for body-only incidence and $+58.8$, $+58.8$, and $+60.0$ points
+for structured incidence. The
+arms use separately recreated pinned environments, so literal single-factor
+isolation and provider parity are not claimed. \\
 V1 trigger incidence & Native schema exposure had a positive contrast on the
 V1 fixed panel; nominal seeds were ineffective and duplicates are collapsed. \\
 V2 directional confirmation & On the complete outcome-unseen grid, native
@@ -925,12 +946,12 @@ project/model/renderer lineage, not independent replication. \\
 Structured validity & Invalid structured envelopes occurred less often per 200
 requests with native schema in a post-hoc descriptive analysis. Conditional
 validity fractions are selection-sensitive; this is not the registered primary. \\
-Reasoning-field placement & All \SpanRecoveredCalls{} recovered calls lay in
+Reasoning-field placement & All \SpanRecoveredCalls{} body-only parser candidates lay in
 the endpoint's reasoning field. The backend's routing rule largely entails
 this, so it is a mechanism disclosure, not an independent result. Each row
-holds exactly one candidate with nothing after it, which supports a
-termination-boundary reading rather than channel confusion. Confined to one
-thinking-enabled local stack. \\
+holds one parser candidate and no later reasoning text; only 656 passed the
+tool schema. Finish reasons were not retained, so termination cause, intent,
+and remedy are unidentified. \\
 Local route diagnostic V2 & All 9/9 trials were protocol-valid but 0/9 passed
 the full frozen predicate. The negative result is preserved; a post-outcome
 audit localized two representation-sensitive measurement defects. \\
@@ -956,8 +977,18 @@ strict JSON parsing, reimplement the primary binary parser-recoverability label,
 recompute paired contrasts, check complete expected path sets, and reproduce
 directional and heterogeneity verdicts without calling the producer analyzers.
 The V3 auditor additionally enforces both freeze stages and V2-panel
-separation. Exact recovered-call details use the shared frozen canonicalization
+separation. Exact body-only-candidate details use the shared frozen canonicalization
 code.
+
+The serving-regime parity bundle binds all 1,020 new thinking-off response
+rows, prelaunch and postflight receipts, three run indexes, the analysis index,
+and the preregistration hash. Its fail-closed verifier reclassifies the raw
+responses, authenticates the retained V2 thinking-on artifact before joining
+it, checks all paired cell identities, and recomputes every checkpoint contrast
+and the registered all-three-checkpoint verdict. The anonymous projection keeps
+both arms' semantic response fields and finite-grid labels so the same route
+counts and transitions can be recomputed without exposing source-history or
+endpoint coordinates.
 
 The reviewed PDF records the following trust roots to bind the manuscript to
 the exact supplementary artifacts:
@@ -967,11 +998,14 @@ the exact supplementary artifacts:
 \ifdefined\ARXIVVERSION
 V2 public index & \texttt{\VTwoArtifactIndex} \\
 V3 public index & \texttt{\VThreeArtifactIndex} \\
+Parity public index & \texttt{\ParityArtifactIndex} \\
 V2 public tree & \texttt{\VTwoArtifactTree} \\
 V3 public tree & \texttt{\VThreeArtifactTree} \\
+Parity public tree & \texttt{\ParityArtifactTree} \\
 \else
 V2 review index & \texttt{\VTwoReviewIndex} \\
 V3 review index & \texttt{\VThreeReviewIndex} \\
+Parity review index & \texttt{\ParityReviewIndex} \\
 \fi
 \end{tabular}
 \end{center}
@@ -1001,18 +1035,17 @@ runs.
 
 \section{Next Mechanism Tests}
 
-The most direct next experiment follows from
-Section~\ref{sec:where-calls-sit}: cross the registered interface grid with the
-serving regime, comparing the current non-thinking configuration against a
-thinking-enabled one and against a stop sequence that closes the reasoning span
-before generation continues. That design tests whether these calls can be moved
-out of the span at all, which the present study cannot answer.
+The matched bridge shows a large route contrast between retained thinking-on
+and new thinking-off arms on the fixed MLX grid. A tighter mechanism study
+should recreate both arms concurrently from one source/runtime receipt, retain
+backend finish reasons, and repeat the contrast on the historical deployment
+backend. A separately registered stop-rule arm that closes the reasoning span
+before generation continues would test termination mechanics.
 
 The multi-action executor diagnostic now covers parser acceptance, MCP
 acceptance, and immediate, delayed, reconnect, and persistence projections for
 three frozen candidates. The next study should use an outcome-unseen panel of
-model-emitted candidates that the model has itself promoted out of its
-reasoning span, measure downstream utility, and preregister separate
+model-emitted structured calls, measure downstream utility, and preregister separate
 gameplay-state and persistence projections expected from login and save.
 Replication on a prospectively collected independent state pool, renderer, and
 open model family is required for a general tool-routing claim.

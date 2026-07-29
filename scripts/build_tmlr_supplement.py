@@ -13,6 +13,7 @@ root.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -29,12 +30,24 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.opd.live_routing_review_projection import load_review_projection
+from scripts.opd.verify_serving_regime_parity_bundle import (
+    verify_bundle as verify_serving_regime_parity_bundle,
+)
 
 
 ARTIFACT = ROOT / "research" / "artifacts" / "local-trigger-incidence-v2"
 RESULTS = ROOT / "research" / "results" / "local-trigger-incidence-v2"
 V3_ARTIFACT = ROOT / "research" / "artifacts" / "local-trigger-incidence-v3"
 V3_RESULTS = ROOT / "research" / "results" / "local-trigger-incidence-v3"
+PARITY_RESULTS = (
+    ROOT / "research" / "results" / "local-serving-regime-parity-v1"
+)
+PARITY_REGISTRATION = (
+    ROOT / "research" / "experiments" / "local-serving-regime-parity-v1.json"
+)
+PARITY_BUNDLE_INDEX_SHA256 = (
+    "155428f1a61b32532752ea0bae0a4f550cccc7d107316a3846760dfe04b0e702"
+)
 MULTI_V2_SUMMARY = (
     ROOT
     / "research"
@@ -52,7 +65,10 @@ MULTI_V3_SUMMARY = (
 PAPER = ROOT / "output" / "pdf" / "kaetram-tool-routing-tmlr-draft.pdf"
 OUTPUT = ROOT / "output" / "supplement" / "kaetram-tmlr-anonymous-supplement.zip"
 REVIEW_SCHEMA = "kaetram.local-trigger-incidence-review-artifact.v1"
-PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v5"
+PARITY_REVIEW_SCHEMA = (
+    "kaetram.local-serving-regime-parity-review-artifact.v1"
+)
+PACKAGE_SCHEMA = "kaetram.tmlr-anonymous-supplement.v6"
 VERIFICATION_CODE = (
     "scripts/opd/analyze_reasoning_span_localization.py",
     "scripts/opd/analyze_structured_call_validity.py",
@@ -61,8 +77,13 @@ VERIFICATION_CODE = (
     "scripts/opd/live_routing_review_projection.py",
     "scripts/opd/response_router.py",
     "scripts/opd/verify_live_routing_review_projection.py",
+    "scripts/opd/verify_serving_regime_parity_review_bundle.py",
     "scripts/opd/verify_trigger_incidence_review_bundle.py",
     "tool_surface.py",
+)
+PARITY_VERIFICATION_CODE = (
+    "scripts/opd/canonicalize.py",
+    "scripts/opd/verify_serving_regime_parity_review_bundle.py",
 )
 SHA40 = re.compile(rb"(?i)(?<![0-9a-f])[0-9a-f]{40}(?![0-9a-f])")
 FORBIDDEN = (
@@ -258,6 +279,166 @@ def build_review_artifact(
     return sha256_file(destination / "artifact-index.json")
 
 
+def _parity_review_message(source: dict) -> dict:
+    """Keep model-semantic response fields while dropping generated call IDs."""
+
+    projected = {
+        key: copy.deepcopy(source[key])
+        for key in ("role", "content", "reasoning", "tool_calls")
+        if key in source
+    }
+    calls = projected.get("tool_calls")
+    if isinstance(calls, list):
+        for call in calls:
+            if isinstance(call, dict):
+                call.pop("id", None)
+    return projected
+
+
+def _parity_review_row(source: dict, *, arm: str) -> dict:
+    return {
+        "arm": arm,
+        "snapshot": source["snapshot"],
+        "state_id": source["state_id"],
+        "state_index": source["state_index"],
+        "condition_id": source["condition_id"],
+        "sample_index": source["sample_index"],
+        "seed": source["seed"],
+        "finish_reason": (
+            source.get("finish_reason") if arm == "thinking_disabled" else None
+        ),
+        "attempt_errors": (
+            source.get("attempt_errors", [])
+            if arm == "thinking_disabled"
+            else None
+        ),
+        "response_message": _parity_review_message(source["response_message"]),
+    }
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("xb") as handle:
+        for row in rows:
+            handle.write(canonical_json_bytes(row))
+
+
+def build_parity_review_artifact(destination: Path) -> str:
+    """Project the matched parity study into a self-contained anonymous artifact."""
+
+    verified = verify_serving_regime_parity_bundle(
+        PARITY_RESULTS,
+        PARITY_BUNDLE_INDEX_SHA256,
+    )
+    if (
+        verified.get("new_requests") != 1020
+        or verified.get("registered_directional_criterion_passed") is not True
+    ):
+        raise SystemExit("full serving-regime parity bundle did not verify")
+    registration = json.loads(PARITY_REGISTRATION.read_text())
+    source_registration = json.loads((ARTIFACT / "registration.json").read_text())
+    analysis = json.loads(
+        (PARITY_RESULTS / "analysis" / "analysis-summary.json").read_text()
+    )
+    review_registration = {
+        "schema_version": (
+            "kaetram.local-serving-regime-parity-review-registration.v1"
+        ),
+        "study_id": registration["study_id"],
+        "status": registration["status"],
+        "purpose": registration["purpose"],
+        "snapshots": list(registration["snapshots"]),
+        "pilot_disclosure": {
+            "status": registration["pilot_disclosure"]["status"],
+            "state_indices": registration["pilot_disclosure"]["state_indices"],
+        },
+        "confirmatory_panel": registration["confirmatory_panel"],
+        "conditions": [
+            {
+                "condition_id": condition["condition_id"],
+                "native_tool_schema": condition["native_tool_schema"],
+            }
+            for condition in source_registration["conditions"]
+        ],
+        "sampling": {
+            "base_seed": source_registration["sampling"]["base_seed"],
+            "paired_seed_formula": source_registration["sampling"][
+                "paired_seed_formula"
+            ],
+        },
+        "primary_outcome": registration["primary_outcome"],
+        "secondary_outcomes": registration["secondary_outcomes"],
+        "claim_boundary": registration["claim_boundary"],
+        "review_projection": {
+            "preserved": (
+                "paired cell labels, semantic response messages, registered outcomes"
+            ),
+            "source_history_authentication": "deferred_until_deanonymized",
+            "endpoint_and_runtime_attestation": "deferred_until_deanonymized",
+        },
+    }
+    write_json(destination / "registration.json", review_registration)
+    review_analysis = {
+        "schema_version": "kaetram.local-serving-regime-parity-review-analysis.v1",
+        "study_id": registration["study_id"],
+        "status": analysis["status"],
+        "pilot_states_excluded": analysis["pilot_states_excluded"],
+        "checkpoint_results": analysis["checkpoint_results"],
+        "pooled_descriptive_result": analysis["pooled_descriptive_result"],
+        "registered_directional_criterion_passed": analysis[
+            "registered_directional_criterion_passed"
+        ],
+        "claim_boundary": analysis["claim_boundary"],
+        "interpreted_claim_boundary": analysis["interpreted_claim_boundary"],
+        "review_projection": {
+            "pooled_result_is_presentation_only": True,
+            "provenance_authentication": "deferred_until_deanonymized",
+        },
+    }
+    write_json(destination / "analysis-summary.json", review_analysis)
+    allowed = set(registration["confirmatory_panel"]["state_indices"])
+    for snapshot in registration["snapshots"]:
+        enabled_source = ARTIFACT / "runs" / snapshot / "results.jsonl"
+        disabled_source = PARITY_RESULTS / "runs" / snapshot / "results.jsonl"
+        enabled = [
+            json.loads(line)
+            for line in enabled_source.read_text().splitlines()
+            if line.strip() and json.loads(line).get("state_index") in allowed
+        ]
+        disabled = [
+            json.loads(line)
+            for line in disabled_source.read_text().splitlines()
+            if line.strip()
+        ]
+        _write_jsonl(
+            destination / "runs" / snapshot / "thinking_enabled.jsonl",
+            [_parity_review_row(row, arm="thinking_enabled") for row in enabled],
+        )
+        _write_jsonl(
+            destination / "runs" / snapshot / "thinking_disabled.jsonl",
+            [_parity_review_row(row, arm="thinking_disabled") for row in disabled],
+        )
+    records = _inventory(destination)
+    index = {
+        "schema_version": PARITY_REVIEW_SCHEMA,
+        "study_id": registration["study_id"],
+        "projection_boundary": {
+            "preserved": "paired raw semantic responses and finite-grid outcomes",
+            "deferred": "source history, endpoint coordinates, runtime receipts",
+        },
+        "verification_code": [
+            {"path": name, "sha256": sha256_file(ROOT / name)}
+            for name in PARITY_VERIFICATION_CODE
+        ],
+        "files": records,
+        "tree_sha256": hashlib.sha256(
+            canonical_json_bytes(records).rstrip()
+        ).hexdigest(),
+    }
+    write_json(destination / "artifact-index.json", index)
+    return sha256_file(destination / "artifact-index.json")
+
+
 def audit_review_tree(root: Path) -> None:
     """Reject direct identity locators in every textual review-package member."""
 
@@ -385,6 +566,9 @@ def main(argv: list[str] | None = None) -> int:
             results=V3_RESULTS,
             registration_relative=Path("design/effective-registration.json"),
         )
+        parity_trust_root = build_parity_review_artifact(
+            stage / "artifact-serving-regime-parity"
+        )
         copy_file(PAPER, stage / "paper.pdf")
         for name in (
             "paper-table-public.md",
@@ -408,6 +592,7 @@ def main(argv: list[str] | None = None) -> int:
                 "schema_version": "kaetram.review-artifact-trust-root.v1",
                 "v2_artifact_index_sha256": v2_trust_root,
                 "v3_artifact_index_sha256": v3_trust_root,
+                "serving_regime_parity_artifact_index_sha256": parity_trust_root,
                 "source_history_authentication": "deferred_until_deanonymized",
             },
         )
@@ -460,6 +645,10 @@ python3 scripts/opd/verify_trigger_incidence_review_bundle.py \\
 python3 scripts/opd/verify_trigger_incidence_review_bundle.py \\
   --artifact-dir artifact-v3 \\
   --expected-index-sha256 {v3_trust_root}
+
+python3 scripts/opd/verify_serving_regime_parity_review_bundle.py \\
+  --artifact-dir artifact-serving-regime-parity \\
+  --expected-index-sha256 {parity_trust_root}
 ```
 
 These commands verify every projected artifact byte, reject duplicate or
@@ -468,6 +657,14 @@ the primary parser-recoverable outcome from raw response messages, and
 recomputes all registered contrasts, the directional verdict, and response
 heterogeneity. The review trust roots authenticate these projections only;
 they are not public timestamps and do not authenticate deferred provenance.
+
+The serving-regime parity projection retains the 1,020 matched confirmatory
+cells from the thinking-enabled and thinking-disabled arms after excluding all
+debugging-pilot states. Its standalone verifier reconstructs each routing label
+from the assistant response, checks exact state/condition/seed pairing,
+recomputes checkpoint and native-schema strata, and verifies the registered
+all-three-checkpoints directional criterion. Runtime and source-history
+attestations remain deferred until deanonymization.
 
 The file `results/local-routing-multi-action-review.json` preserves the sealed
 aggregate outcomes from the model-free routing diagnostic without source
@@ -482,6 +679,7 @@ both counts. Its three repeats per arm are dependent technical checks.
             "schema_version": PACKAGE_SCHEMA,
             "v2_review_artifact_index_sha256": v2_trust_root,
             "v3_review_artifact_index_sha256": v3_trust_root,
+            "serving_regime_parity_review_artifact_index_sha256": parity_trust_root,
             "files": records,
             "tree_sha256": hashlib.sha256(canonical_json_bytes(records).rstrip()).hexdigest(),
         }

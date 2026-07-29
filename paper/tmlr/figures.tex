@@ -16,7 +16,7 @@
                 minimum height=1.05cm,fill=routegray!5},
 ]
   \node[font=\sffamily\bfseries\small,anchor=west] at (-0.3,1.72)
-    {(a) One response, two routes to an action};
+    {(a) One response, two observable routes};
   \node[box,minimum width=2.3cm] (model) at (0.8,0) {model response};
   \node[box,minimum width=2.6cm,fill=routeblue!8] (structured) at (4.0,0.65)
     {structured tool field};
@@ -37,7 +37,7 @@
   \draw[routered,dashed,rounded corners=3pt,thick]
     (2.30,-1.30) rectangle (11.85,1.18);
   \node[routered,fill=white,inner sep=1.5pt,anchor=south] at (7.0,1.15)
-    {interface study: where recoverable calls are routed};
+    {interface study: where parser candidates surface};
   \node[routeorange,align=center,anchor=north,font=\sffamily\scriptsize] at (4.0,-1.42)
     {all \SpanInsideReasoning{}/\SpanRecoveredCalls{} body-only candidates came from the\\reasoning field, outside the structured route};
 
@@ -47,7 +47,7 @@
   \node[stage] (s2) at (4.05,-3.62) {recovery test\\\textbf{\RecoveryEligibleGenerations{} / \RecoveryRawGenerations{} eligible}};
   \node[stage] (s3) at (7.15,-3.62) {V1 seed audit\\\textbf{\VOneDiverseSeedGroups{} / \VOneSeedGroups{} diverse}};
   \node[stage,fill=routeblue!8] (s4) at (10.25,-3.62) {two fixed panels\\\textbf{\SpanTotalRows{}/\SpanTotalRows{} complete}};
-  \node[stage,fill=routegreen!9] (s5) at (13.35,-3.62) {fresh route check\\\textbf{\RoutingVThreeFullPass{} / \RoutingVThreeProtocolValid{} pass}};
+  \node[stage,fill=routegreen!9] (s5) at (13.35,-3.62) {thinking-mode bridge\\\textbf{\ParityPooledRequests{}/\ParityPooledRequests{} complete}};
   \draw[line] (s1) -- (s2);
   \draw[line] (s2) -- (s3);
   \draw[line] (s3) -- (s4);
@@ -60,7 +60,7 @@
   \begin{axis}[
     name=parityroutes,
     width=9.15cm,height=6.15cm,
-    title style={font=\sffamily\bfseries\small},
+    title style={font=\sffamily\bfseries\small,align=center,yshift=3.2ex},
     title={(a) Where action candidates surface},
     xbar stacked,
     xmin=0,xmax=\ParityRequestsPerCheckpoint,
@@ -90,7 +90,7 @@
       (\ParityRoundTwoThinkingOnBodyOnlyCount,4)
       (\ParityBaseThinkingOffBodyOnlyCount,5)
       (\ParityBaseThinkingOnBodyOnlyCount,6)};
-    \addlegendentry{body-only call}
+    \addlegendentry{body-only candidate}
     \addplot+[fill=routegray!45,draw=white] coordinates {
       (\ParityRoundThreeThinkingOffNoCandidateCount,1)
       (\ParityRoundThreeThinkingOnNoCandidateCount,2)
@@ -108,7 +108,7 @@
   \begin{axis}[
     at={(9.65cm,0)},anchor=south west,
     width=5.85cm,height=6.15cm,
-    title style={font=\sffamily\bfseries\small},
+    title style={font=\sffamily\bfseries\small,align=center,yshift=3.2ex},
     title={(b) Change when thinking is off},
     xlabel={off $-$ on (percentage points)},
     ytick={1,2,3},yticklabels={Round 3,Round 2,Base},
@@ -120,15 +120,15 @@
     label style={font=\sffamily\scriptsize},
     legend style={draw=none,font=\sffamily\scriptsize,at={(0.5,1.03)},anchor=south,legend columns=2},
   ]
-    \addplot+[draw=none,forget plot] coordinates {(0,1)};
-    \addplot+[dashed,routegray,forget plot] coordinates {(0,.65) (0,3.35)};
+    \addplot+[draw=none,mark=none,forget plot] coordinates {(0,1)};
+    \addplot+[dashed,routegray,mark=none,forget plot] coordinates {(0,.65) (0,3.35)};
     \addplot+[only marks,mark=*,mark size=2.4pt,color=routeorange,
               nodes near coords,point meta=x,
               every node near coord/.append style={font=\sffamily\tiny,anchor=south}]
       coordinates {(\ParityRoundThreeBodyOnlyDeltaPP,1.10)
                    (\ParityRoundTwoBodyOnlyDeltaPP,2.10)
                    (\ParityBaseBodyOnlyDeltaPP,3.10)};
-    \addlegendentry{body-only call}
+    \addlegendentry{body-only candidate}
     \addplot+[only marks,mark=square*,mark size=2.2pt,color=routeblue,
               nodes near coords,point meta=x,
               every node near coord/.append style={font=\sffamily\tiny,anchor=north}]

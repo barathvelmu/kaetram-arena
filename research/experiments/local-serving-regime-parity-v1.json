@@ -1,0 +1,70 @@
+{
+  "schema_version": "kaetram.local-serving-regime-parity-registration.v1",
+  "study_id": "local-serving-regime-parity-v1",
+  "status": "registered_after_pilot_before_confirmatory_outcomes",
+  "purpose": "Test whether the thinking-enabled local serving regime, rather than checkpoint identity or schema exposure alone, explains calls stranded outside the structured tool_calls field.",
+  "pilot_disclosure": {
+    "status": "outcome_seen_excluded_from_confirmation",
+    "state_indices": [0, 1, 2],
+    "requests_per_checkpoint": 60,
+    "description": "A debugging pilot used the first three V2 states, all four interface conditions, and all five seeds. These states are excluded from the confirmatory rerun and all registered contrasts."
+  },
+  "source_panel": {
+    "registration": "research/artifacts/local-trigger-incidence-v2/registration.json",
+    "registration_sha256": "dc2aaaf6f25b45e0d2c5a522284b5023d7bb21c59d24add43218277901e0cb4e",
+    "design": "research/artifacts/local-trigger-incidence-v2/design/design.json",
+    "design_sha256": "1ec80622d8a2e3ed3221d2e70e6f1c4f1dffe87ccd057d58396ba3b6b8d65cb9",
+    "expected_request_grid": "research/artifacts/local-trigger-incidence-v2/design/expected-request-grid.jsonl",
+    "thinking_arm_artifact": "research/artifacts/local-trigger-incidence-v2",
+    "thinking_mode": "enabled"
+  },
+  "confirmatory_panel": {
+    "state_indices": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    "state_count": 17,
+    "conditions": 4,
+    "samples_per_state_condition": 5,
+    "requests_per_checkpoint": 340,
+    "total_new_requests": 1020,
+    "new_thinking_mode": "disabled"
+  },
+  "endpoint_contract": {
+    "thinking_mode": "disabled",
+    "render_contract_sha256": "31a820c88425ad0039aa335ef54db47434be22aa61bf4371e31cf215241a280f",
+    "chat_template_sha256": "562a0a6f72bf5722612866d9f5d7e947be4b08a429e407f8e522e70137db5e1e",
+    "tokenizer_sha256": "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42",
+    "tokenizer_source_revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
+    "fix_mistral_regex": false,
+    "sampling_contract_sha256": "506e4d3ae39e53793ceaef6a39b31dabce13a72b9345af5b43d96de2b46ff5d3",
+    "snapshot_lock_sha256": "8117a75f24b50625469ffff26384584ad99526bf687a79a8b11ad7612cf62a32"
+  },
+  "snapshots": {
+    "base_2b": {
+      "api_model": "2b-base",
+      "checkpoint_sha256": "aa33250c4fc64891ddfaba3a314fd9542ea371843c387178b425fbcc5ed680b1",
+      "snapshot_tree_sha256": "41e0a72b17b4be5ffe4df34821a8e11dcd4076676914f024f061e1862b42bf0b"
+    },
+    "opd_r2_2b": {
+      "api_model": "2b-opd-r2",
+      "checkpoint_sha256": "636aa92a16ee63965d5211625ba32c0524eb90da87f6b4727ee1f057e0486104",
+      "snapshot_tree_sha256": "0ad86369dec284477ccee1a2f2cf7dbf776e7fdbf59f346fc2946f85178a1388"
+    },
+    "opd_r3_2b": {
+      "api_model": "2b-opd-r3",
+      "checkpoint_sha256": "c4df1ea2fda9253d595ff4a2068c72dd4de173241ab93cc1ee0d5dc42e302873",
+      "snapshot_tree_sha256": "76f449074cc548d6bc4411215dcd2f9b4ae09eac73256b2f26d487ce7baef007"
+    }
+  },
+  "primary_outcome": {
+    "name": "recovery_opportunity",
+    "estimand": "For each checkpoint on the fixed finite grid, disabled-mode rate minus the retained enabled-mode rate over paired request cells.",
+    "directional_criterion": "The difference is negative at all three checkpoints.",
+    "inference_boundary": "Finite-grid paired description; states, seeds, checkpoints, and prompts are not treated as population-random samples."
+  },
+  "secondary_outcomes": [
+    "structured_tool_call_rate",
+    "no_candidate_rate",
+    "finish_reason_counts",
+    "schema-stratified routing counts"
+  ],
+  "claim_boundary": "A passed result identifies the serving regime as a cause of routing differences on this fixed local stack. It does not isolate MLX from Modal, establish gameplay utility, justify promoting reasoning-field calls, or generalize beyond the retained model lineage and states."
+}

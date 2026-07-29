@@ -20,8 +20,8 @@
   \node[box,minimum width=2.3cm] (model) at (0.8,0) {model response};
   \node[box,minimum width=2.6cm,fill=routeblue!8] (structured) at (4.0,0.65)
     {structured tool field};
-  \node[box,minimum width=2.6cm,fill=routeorange!10,align=center] (content) at (4.0,-0.65)
-    {response body\\{\tiny(reasoning span + any trailing content)}};
+  \node[box,minimum width=3.35cm,fill=routeorange!10,align=center,inner sep=3pt] (content) at (4.0,-0.65)
+    {response body\\[-1pt]{\fontsize{5.2}{6}\selectfont reasoning span $+$ trailing content}};
   \node[box,minimum width=2.3cm] (schema) at (7.1,0.65) {schema check};
   \node[box,minimum width=2.3cm] (parser) at (7.1,-0.65) {recovery parser};
   \node[box,minimum width=2.35cm,fill=routegreen!10] (candidate) at (10.2,0)
@@ -36,19 +36,19 @@
   \draw[line] (parser.east) -- (candidate.west);
   \draw[line] (candidate) -- (executor);
   \draw[routered,dashed,rounded corners=3pt,thick]
-    (2.45,-1.18) rectangle (11.55,1.18);
+    (2.30,-1.30) rectangle (11.55,1.18);
   \node[routered,fill=white,inner sep=1.5pt,anchor=south] at (7.0,1.15)
     {interface study: where recoverable calls are routed};
-  \node[routeorange,align=center,anchor=north] at (4.0,-1.13)
-    {all \SpanInsideReasoning{}/\SpanRecoveredCalls{} recovered calls\\were stranded inside the reasoning span};
+  \node[routeorange,align=center,anchor=north,font=\sffamily\scriptsize] at (4.0,-1.42)
+    {all \SpanInsideReasoning{}/\SpanRecoveredCalls{} recovered calls sat\\inside the reasoning span, not after it};
 
-  \node[font=\sffamily\bfseries\small,anchor=west] at (-0.3,-2.05)
+  \node[font=\sffamily\bfseries\small,anchor=west] at (-0.3,-2.62)
     {(b) The audit advances only after each failure is localized};
-  \node[stage] (s1) at (0.95,-3.05) {historical scores\\\textbf{confounded}};
-  \node[stage] (s2) at (4.05,-3.05) {recovery test\\\textbf{\RecoveryEligibleGenerations{} / \RecoveryRawGenerations{} eligible}};
-  \node[stage] (s3) at (7.15,-3.05) {V1 seed audit\\\textbf{\VOneDiverseSeedGroups{} / \VOneSeedGroups{} diverse}};
-  \node[stage,fill=routeblue!8] (s4) at (10.25,-3.05) {two fixed panels\\\textbf{2,400/2,400 complete}};
-  \node[stage,fill=routegreen!9] (s5) at (13.35,-3.05) {fresh route check\\\textbf{\RoutingVThreeFullPass{} / \RoutingVThreeProtocolValid{} pass}};
+  \node[stage] (s1) at (0.95,-3.62) {historical scores\\\textbf{confounded}};
+  \node[stage] (s2) at (4.05,-3.62) {recovery test\\\textbf{\RecoveryEligibleGenerations{} / \RecoveryRawGenerations{} eligible}};
+  \node[stage] (s3) at (7.15,-3.62) {V1 seed audit\\\textbf{\VOneDiverseSeedGroups{} / \VOneSeedGroups{} diverse}};
+  \node[stage,fill=routeblue!8] (s4) at (10.25,-3.62) {two fixed panels\\\textbf{\SpanTotalRows{}/\SpanTotalRows{} complete}};
+  \node[stage,fill=routegreen!9] (s5) at (13.35,-3.62) {fresh route check\\\textbf{\RoutingVThreeFullPass{} / \RoutingVThreeProtocolValid{} pass}};
   \draw[line] (s1) -- (s2);
   \draw[line] (s2) -- (s3);
   \draw[line] (s3) -- (s4);
@@ -62,7 +62,7 @@
     name=primary,
     width=7.4cm,height=4.35cm,
     title style={font=\sffamily\bfseries\small,align=center,yshift=3.2ex},
-    title={(a) Registered primary\\content-only recoverable calls},
+    title={(a) Registered primary\\recoverable calls, all inside the reasoning span},
     xmin=0,xmax=40,xtick={0,10,20,30,40},
     xlabel={schema-present $-$ schema-absent (pp)},
     ytick={1,2,3},yticklabels={Round 3,Round 2,Base},
@@ -103,7 +103,7 @@
   \end{axis}
 
   \begin{axis}[
-    at={(0,-5.15cm)},anchor=north west,
+    at={(0,-1.75cm)},anchor=north west,
     width=15.5cm,height=5.0cm,
     title style={font=\sffamily\bfseries\small},
     title={(c) Direction of the registered schema effect across the 20 fixed states},

@@ -68,6 +68,11 @@ def _command(name: str, value: object) -> str:
     return f"\\newcommand{{\\{name}}}{{{value}}}"
 
 
+def _thousands(value: int) -> str:
+    """Render an integer with a LaTeX-safe thousands separator."""
+    return f"{value:,}".replace(",", "{,}")
+
+
 def build_tex_data() -> str:
     recovery = _read("research/results/local-weight-recovery-30m-v1/public-summary.json")
     v1_seed = _read("research/results/local-trigger-incidence-v1/seed-diversity-audit.json")
@@ -138,7 +143,7 @@ def build_tex_data() -> str:
         _command("RoutingVThreeFullPass", routing_v3["outcome"]["full_predicate_pass"]),
         _command("SpanRecoveredCalls", span_recovered),
         _command("SpanInsideReasoning", span_inside),
-        _command("SpanTotalRows", span_rows),
+        _command("SpanTotalRows", _thousands(span_rows)),
         _command("SpanRowsWithTrailingText", span_residual),
         _command("SpanRowsWithTrailingCall", span_residual_calls),
         _command("SpanVTwoRecovered", span_v2["recovered_rows"]),

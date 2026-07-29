@@ -63,10 +63,11 @@ and retain full responsibility for the work.}}
 \maketitle
 
 \begin{abstract}
-A tool-using language-model agent can write a well-formed action and still
-change nothing, because the action never leaves the channel it was written in.
-We audit this failure in a 2B agent controlling a persistent game through 17
-typed tools. Historical scores could not identify a training effect because
+A tool-using language-model agent can write a well-formed action that the
+serving stack never routes, because the action lands in a response field the
+executor does not read. We audit this failure in a 2B agent controlling a
+persistent game through 17 typed tools, and find that the failure is a property
+of the serving configuration rather than of the agent. Historical scores could not identify a training effect because
 weights, states, interfaces, and runtime recovery changed together. A
 prospective 18-cell test then found that recovery was never eligible to act
 in 958 generations. We therefore isolated the model-visible interface. A
@@ -79,14 +80,14 @@ increased parser-recoverable calls that were absent from the structured field
 by +23, +13, and +10 percentage points. Repeating the same protocol on a
 different retained state set produced +13, +5.5, and +9 points; no source log or
 rendered model input overlapped the first study. This second panel is a
-robustness check, not independent replication. Crucially, a post-outcome
-localization shows that all \SpanRecoveredCalls{} such calls across both panels
-sit inside the model's reasoning span, and that only
-\SpanRowsWithTrailingText{} of \SpanTotalRows{} responses carry any
-post-reasoning content at all. The agent is therefore not losing actions to a careless executor: it is
-writing them where a correct executor should decline to read. Post-hoc analyses
-on both panels found more schema-valid candidates on both routes, but the
-text-route candidates are exactly the ones an executor should not act on. Finally,
+robustness check, not independent replication. All \SpanRecoveredCalls{} such
+calls sit in the endpoint's reasoning field rather than its final message,
+which the backend's routing rule largely entails; each contains exactly one
+candidate with no reasoning text after it. The agent is thus not conflating two
+channels but ending generation one token before the call would have been
+routed. Post-hoc analyses on both panels found more schema-valid candidates on
+both routes, though the reasoning-field candidates were never eligible for
+execution. Finally,
 a model-free diagnostic preserved a failed measurement, amended it
 prospectively, and on a fresh run routed all three frozen calls in each of six
 active-route trials while the three disabled-control trials showed no registered
@@ -141,10 +142,10 @@ execution boundary with a prospectively repaired measure.
 \caption{The audit separates response routing from downstream execution and
 advances only after each failed check is localized. A call written into the
 response body is not visible to an executor that reads only the structured
-field; Section~\ref{sec:where-calls-sit} shows that in this study every such
-call was written inside the model's reasoning span, where a correct executor
-should decline to read it. Numbers are regenerated from the released public
-summaries.}
+field. In this study every such call sat in the endpoint's reasoning field,
+which its routing rule declines to lift
+(Section~\ref{sec:where-calls-sit}). Numbers are regenerated from the released
+public summaries.}
 \label{fig:routing}
 \end{figure}
 
@@ -160,13 +161,13 @@ Our contributions are:
   retained panel. Native schema exposure increased content-only
   recoverable-call incidence at every checkpoint on both panels, with effects
   of 10--23 and 5.5--13 percentage points.
-  \item We localize where those calls actually sit. All \SpanRecoveredCalls{}
-  recovered calls across both panels lie inside the model's reasoning span, and
-  only \SpanRowsWithTrailingText{} of \SpanTotalRows{}
-  responses carry any content outside that span. The failure is therefore
-  not a permissive parser meeting a strict executor; it is a model that never
-  exits its reasoning channel to emit the action. This reframes recovery from a
-  missed opportunity into a hazard.
+  \item We localize where those calls sit and characterize the failure. All
+  \SpanRecoveredCalls{} recovered calls lie in the endpoint's reasoning field,
+  which its routing rule largely entails and which we therefore report as a
+  mechanism disclosure rather than a finding. What the rows do add is the
+  shape: every recovered row holds exactly one candidate with no reasoning text
+  after it, so the model is not confusing channels but terminating one token
+  before the call would have been routed.
   \item We provide a failure-aware, reviewer-recomputable evidence sequence that
   preserves failed manipulation, effective-seed, and measurement checks. After
   prospective measurement repair, three author-fixed calls produced their
@@ -243,26 +244,32 @@ argument schema; it does not redefine the primary outcome.
 \subsection{The serving regime and its reasoning span}
 \label{sec:reasoning-regime}
 
-One property of the deployment is load-bearing for every result below. The
-Qwen3.5 chat template emits a reasoning span, and the serving stack runs in a
-non-thinking configuration in which the generation prompt supplies a
-closed-empty reasoning block. The served model nonetheless opens its own
-reasoning span and closes it at the end of generation: in \SpanVTwoBalanced{}
-of the \SpanVTwoRows{} V2 responses the returned \texttt{content} string begins
-with an opening reasoning tag and contains exactly one opening and one closing
-tag. This regime is held
-constant across all three checkpoints and is identical to the one under which
-the historical training data was rendered, which is why it was chosen; it is
-not a defect introduced for this study.
+Two properties of the request path are load-bearing for every result below, and
+neither is visible in the registered outcome. We state both because they
+determine what that outcome can mean.
 
-So the \texttt{content} field is not user-facing prose: it is a reasoning span,
-optionally followed by post-reasoning content. The endpoint also exposes that
-same reasoning text in a separate \texttt{reasoning} field without removing it
-from \texttt{content}, and the prospectively frozen parser reads the whole
-\texttt{content} string. It therefore reaches text the endpoint had already
-classified as reasoning. Any claim about ``text'' here must say which part of
-the response body it means; the registered outcome does not, so we measure it
-in Section~\ref{sec:where-calls-sit} rather than assume it.
+First, these studies were served by a local MLX backend launched with
+thinking enabled, not by the non-thinking Modal configuration used for the
+historical training corpus. The backend returns the model's reasoning and its
+final message as \emph{separate} fields. It lifts a well-formed call into the
+structured \texttt{tool\_calls} field only when that call appears in the final
+message; a call appearing in the reasoning field is left where it is. The
+studies are therefore off-parity with the training regime in this respect, and
+we do not claim otherwise.
+
+Second, the gateway in front of that backend reconstructs a single
+\texttt{content} string by wrapping the reasoning in reasoning tags and
+concatenating the final message. The tags in \texttt{content} are written by
+the gateway, not emitted by the model; every released row is byte-consistent
+with that construction. Any statistic computed over those tags describes the
+gateway's formatting, so we report none.
+
+The consequence for measurement is direct. The prospectively frozen parser
+reads the reconstructed \texttt{content} string, so it reaches text the backend
+had already classified as reasoning and had deliberately declined to route. A
+claim about ``text'' in this setting must therefore say which field it means.
+The registered outcome does not, so we make the relationship explicit in
+Section~\ref{sec:where-calls-sit}.
 
 \subsection{Interface factors and fixed checkpoints}
 
@@ -312,9 +319,8 @@ V3 interface grid & 1,200/1,200; different retained panel; effective gates &
 Non-confirmatory same-direction finite-grid extension \\
 Structured validity & Recomputed after V2 and V3 outcomes &
 Post-hoc routing diagnostic, not a new primary outcome \\
-Reasoning-span placement & Classified after both panels closed; frozen labels
-unchanged & Post-hoc localization; reframes but does not restate the primary
-outcome \\
+Reasoning-field placement & Classified after both panels closed; frozen labels
+unchanged & Mechanism disclosure largely entailed by the backend routing rule \\
 Multi-action execution V2 & 9/9 protocol-valid; 0/9 full predicate &
 Transport worked, but two frozen measurement predicates were defective \\
 Multi-action execution V3 & Fresh post-amendment run; 9/9 full predicate &
@@ -390,6 +396,20 @@ This null trigger count changed the next question. Instead of extending a
 factorial whose treatment did not engage, we asked which model-visible
 interfaces change where in the response a syntactically valid call gets
 written.
+
+That pivot also changed the serving stack, and the resulting discrepancy is the
+most important boundary in this paper. This factorial ran on the deployment's
+non-thinking hosted configuration and produced no recoverable call in any of
+the 664 generations that lacked a structured call. The interface studies ran on
+a thinking-enabled local stack and produced recovered calls in roughly 29\% of
+requests. The deployment lane sends the tool schema uniformly, so it
+corresponds to the schema-present condition, which is the highest-rate
+condition in the studies. The phenomenon the interface studies measure is
+therefore not observed in the deployment lane at all, and the most economical
+explanation is the serving configuration rather than the model: when the final
+message carries the call, the backend routes it. We report the interface
+results as an audit of a routing contract that can be configured into
+existence, not as a measurement of this agent's deployed behaviour.
 
 \subsection{V1 discovery and the ineffective-seed audit}
 
@@ -503,47 +523,47 @@ or establish a population effect.
 \subsection{Where the recovered calls actually sit}
 \label{sec:where-calls-sit}
 
-The registered outcome establishes that a call was recoverable from the
-response body while the structured field was empty. It does not say which part
-of the body held it. Because Section~\ref{sec:reasoning-regime} makes that
-distinction consequential, we measured it after both panels closed, using a
-separate analyzer that classifies rows the frozen analysis had already
-labelled. It recomputes nothing and changes no primary outcome.
+The registered outcome records that a call was recoverable from the
+reconstructed response body while the structured field was empty. We now state
+what that means mechanically, because the two are closer than the outcome's
+name suggests.
 
-The result is unambiguous and identical on both panels. Of the
+Given the routing rule in Section~\ref{sec:reasoning-regime}, the primary
+outcome and the reasoning-field placement are very nearly the same event. The
+backend lifts a well-formed call into the structured field exactly when it
+appears in the final message. A recovered call is therefore almost by
+construction a call that appeared in the reasoning field instead: a
+counterexample would require a call the frozen parser accepts but the backend
+does not. We report the localization because readers cannot infer it from the
+outcome's name, not as an independent confirmation of it. Of the
 \SpanRecoveredCalls{} recovered calls---\SpanVTwoRecovered{} in V2 and
-\SpanVThreeRecovered{} in V3---all \SpanInsideReasoning{} were written before
-the reasoning span closed, and in every case the endpoint's own parse placed
-the call text in the \texttt{reasoning} field rather than in post-reasoning
-content. Across
-all \SpanTotalRows{} responses in both panels, only
-\SpanRowsWithTrailingText{} carry any content outside the reasoning span as the
-endpoint parsed it, and \SpanRowsWithTrailingCall{} carry a tool-call marker
-there. The split holds under both interface conditions, so it is a property of
-the serving regime rather than of the treatment.
+\SpanVThreeRecovered{} in V3---all \SpanInsideReasoning{} sit in the reasoning
+field, with \SpanRowsWithTrailingCall{} tool-call markers anywhere in the final
+message across all \SpanTotalRows{} responses. The absence of counterexamples
+is consistent with the routing rule rather than evidence beyond it.
 
-This changes the reading of the headline contrast, and we prefer the revised
-reading. The failure is not a permissive model meeting an unreasonably strict
-executor: an executor that ignores calls written inside a reasoning span is
-behaving correctly under most current conventions, since a call appearing
-mid-deliberation may be one the model then rejects. What the measurements show
-is a model that composes its action and never exits the channel it was
-deliberating in. The intervention's meaning sharpens accordingly. Supplying the
-native schema does not merely move calls between two peer channels; it raises
-the rate at which the model writes a syntactically valid call that it never
-promotes out of reasoning, which is a more specific defect than ``the call was
-in the wrong field.'' The normative implication then inverts. Treating such a
-call as a recovery \emph{opportunity} implies a harness should parse and
-execute it; given where these calls sit, such a harness would be executing
-deliberation. We recommend the opposite default---do not promote calls out of a
-reasoning span, and report span placement alongside channel placement---and
-retain the registered label only because it is frozen in the released
-artifacts.
+What the rows do add is the shape of the failure, and it is narrower than a
+channel-confusion story. Every one of the \SpanRecoveredCalls{} recovered rows
+contains exactly one candidate, and none contains any reasoning text after that
+candidate. The model reasons, emits a single well-formed call, and terminates.
+It does not deliberate past the call, propose alternatives, or retract. So the
+defect is not that the model conflated two channels; it is that generation
+ended without the token that would have moved the call into the final message.
 
-This localization is post-outcome and descriptive. It does not establish that
-the model would emit a correct call under a thinking-enabled regime, that
-another renderer would relocate these calls, or that promoting them would help
-or harm task performance.
+That distinction matters for the remedy, and it cuts against reading a
+recovered call as a recovery \emph{opportunity}. A harness that promotes these
+calls is overriding a routing decision the backend made deliberately, on the
+basis of a field the model does not control, and it would do so uniformly
+rather than case by case. We therefore do not recommend adding a recovery layer
+here; the defect is upstream, in the generation-termination path, and the
+registered label is retained only because it is frozen in the released
+artifacts. We stop short of the stronger claim that promotion is unsafe because
+the model might retract: these rows contain no retraction, so that argument has
+no support here.
+
+This localization is post-outcome and descriptive. It does not establish what a
+different template, renderer, or termination rule would produce, or whether
+promoting these calls would help or harm task performance.
 
 \subsection{Post-hoc route and schema decomposition}
 
@@ -588,9 +608,8 @@ checkpoint-by-sample-index contrasts were positive. The VT component consists
 entirely of calls written inside the reasoning span
 (Section~\ref{sec:where-calls-sit}), so a rise in the pooled count is not a rise
 in executable actions. A frozen strict-router replay would have preserved 373
-structured rows and promoted 303 recoverable-text rows out of that span---the
-operation we recommend against---while quarantining five and leaving 519
-no-candidate rows unchanged. These are candidate actions, not evidence of
+structured rows and promoted 303 recoverable-text rows out of the reasoning
+field, quarantining five and leaving 519 no-candidate rows unchanged. These are candidate actions, not evidence of
 semantic appropriateness or utility. Because schema exposure also changed
 routing, conditional route comparisons are selection-sensitive.
 
@@ -657,14 +676,14 @@ structured channel. A schema-parity test that only hashes the tool list does not
 establish parser alignment; raw response fields and parser outcomes must also be
 retained.
 
-\paragraph{``Recoverable'' says nothing about whether recovery is desirable.}
+\paragraph{An outcome can be named for a symptom and measured as a mechanism.}
 The registered outcome asked whether a parser could find a call in the response
-body. It could, in \SpanRecoveredCalls{} cases. But every one of those calls sat
-inside the model's reasoning span, which means a harness acting on them would be
-executing deliberation rather than a committed decision. Channel-level
-recoverability and execution-worthiness are different properties, and an audit
-that measures only the first can recommend exactly the wrong repair. Report
-where in the response body a candidate was found, not merely that it was found.
+body. It could, in \SpanRecoveredCalls{} cases. But the backend's routing rule
+means that question was very nearly the question of whether the call landed in
+the reasoning field, so the outcome measured a known routing boundary under a
+name that suggests a discovered one. An audit should state the routing rule
+alongside the outcome, and report where in the response a candidate was found
+rather than only that it was found.
 
 \paragraph{A structured envelope is not automatically executable.}
 The post-hoc audit found unknown functions, unknown or missing arguments, and
@@ -773,14 +792,17 @@ one renderer, and one deterministic recovery parser. A prospectively collected
 independent state pool, second model family, renderer, parser, and environment
 are needed before a broad interface claim.
 
-All requests use a single non-thinking serving regime, held constant across
-checkpoints for train/serve parity with the historical corpus. That regime is
-why the response body is dominated by a reasoning span, so it bounds the
-localization in Section~\ref{sec:where-calls-sit} as well as the primary
-outcome. We ran no thinking-enabled arm, since that would break parity with the
-regime under which the checkpoints were trained and would confound the
-registered interface contrast. Whether another template, a thinking-enabled
-regime, or a stop-sequence change would relocate these calls is untested.
+All requests use a single thinking-enabled local serving stack, held constant
+across checkpoints but off-parity with the non-thinking configuration under
+which the historical corpus was rendered. That stack's routing rule is why
+recovered calls sit in the reasoning field, so it bounds both the primary
+outcome and the localization in Section~\ref{sec:where-calls-sit}. We ran no
+non-thinking arm and no second stack, so we cannot separate the interface
+contrast from the serving configuration, and we do not know whether a different
+template or termination rule would relocate these calls. A prospective design
+should cross the interface grid with the serving configuration and record the
+chat-template arguments in the render attestation, which the present contract
+does not.
 
 The V2 primary outcome stops at parser recoverability. A separate model-free
 diagnostic follows three author-fixed calls through MCP and state projections,
@@ -835,13 +857,14 @@ was present (34 to 1, 24 to 6, and 18 to 3 per 200 requests at Base, round 2,
 and round 3); because routing changed too, this is not a conditional causal
 validity effect.
 
-Localizing those calls then changed what the result means. All
-\SpanRecoveredCalls{} of them lay inside the model's reasoning span, and almost
-no response carried any content after that span closed. The agent was not being
-failed by a strict executor; it was writing actions in a place a correct
-executor should refuse to act on. Recovering such calls is therefore a hazard
-to be designed against, not an opportunity to be captured---the opposite of
-what a channel-only reading of the same measurement would suggest.
+Localizing those calls then sharpened what the result means. All
+\SpanRecoveredCalls{} of them lay in the endpoint's reasoning field, which its
+routing rule largely entails, so this is a mechanism disclosure rather than a
+second finding. The rows do add the shape of the failure: each holds exactly
+one candidate with nothing after it, so the model composed a single valid call
+and stopped rather than deliberating past it. The defect is a termination
+boundary, not channel confusion, and the remedy therefore belongs upstream of
+any recovery layer.
 
 A separate model-free follow-up then carried three author-fixed calls through
 both active routes under a prospectively repaired measurement, while remaining
@@ -941,7 +964,9 @@ Claim & Boundary \\
 Historical score replay & Nine July scores are content-bound descriptive
 observations; treatment identities and effects are not established. \\
 Recovery factorial & The registered cells completed, but recovery never
-engaged; no recovery effect is identified. \\
+engaged; no recovery effect is identified. On the deployment stack, 0 of 664
+structureless generations yielded a recoverable call, versus roughly 29\% on
+the local stack used for V1--V3. \\
 V1 trigger incidence & Native schema exposure had a positive contrast on the
 V1 fixed panel; nominal seeds were ineffective and duplicates are collapsed. \\
 V2 directional confirmation & On the complete outcome-unseen grid, native
@@ -954,11 +979,12 @@ project/model/renderer lineage, not independent replication. \\
 Structured validity & Invalid structured envelopes occurred less often per 200
 requests with native schema in a post-hoc descriptive analysis. Conditional
 validity fractions are selection-sensitive; this is not the registered primary. \\
-Reasoning-span placement & All \SpanRecoveredCalls{} recovered calls on both
-panels lay inside the model's reasoning span, and \SpanRowsWithTrailingCall{}
-appeared after it. This is a descriptive post-outcome localization under one
-serving regime; it does not establish what a thinking-enabled regime, another
-renderer, or promotion of those calls would produce. \\
+Reasoning-field placement & All \SpanRecoveredCalls{} recovered calls lay in
+the endpoint's reasoning field. The backend's routing rule largely entails
+this, so it is a mechanism disclosure, not an independent result. Each row
+holds exactly one candidate with nothing after it, which supports a
+termination-boundary reading rather than channel confusion. Confined to one
+thinking-enabled local stack. \\
 Local route diagnostic V2 & All 9/9 trials were protocol-valid but 0/9 passed
 the full frozen predicate. The negative result is preserved; a post-outcome
 audit localized two representation-sensitive measurement defects. \\

@@ -23,24 +23,23 @@
   \node[box,minimum width=3.35cm,fill=routeorange!10,align=center,inner sep=3pt] (content) at (4.0,-0.65)
     {response body\\[-1pt]{\fontsize{5.2}{6}\selectfont reasoning span $+$ trailing content}};
   \node[box,minimum width=2.3cm] (schema) at (7.1,0.65) {schema check};
-  \node[box,minimum width=2.3cm,draw=routeorange!80,dashed] (parser) at (7.1,-0.65) {recovery parser};
-  \node[box,minimum width=2.35cm,fill=routegreen!10] (candidate) at (10.2,0)
-    {candidate action};
-  \node[box,minimum width=2.65cm] (executor) at (13.4,0)
+  \node[box,minimum width=2.3cm,draw=routeorange!80,dashed] (parser) at (7.1,-0.65) {offline audit parser};
+  \node[box,minimum width=2.75cm,fill=routegreen!10] (executor) at (10.35,0.65)
     {executor $\rightarrow$ environment};
+  \node[box,minimum width=2.75cm,draw=routeorange!80,dashed] (candidate) at (10.35,-0.65)
+    {audit-only candidate};
   \draw[line] (model.east) -- (structured.west);
   \draw[line] (model.east) -- (content.west);
   \draw[line] (structured) -- (schema);
   \draw[line,routeorange,dashed] (content) -- (parser);
-  \draw[line] (schema.east) -- (candidate.west);
-  \draw[line,routeorange,dashed] (parser.east) -- (candidate.west);
-  \draw[line] (candidate) -- (executor);
+  \draw[line] (schema.east) -- (executor.west);
+  \draw[line,routeorange,dashed] (parser.east) -- node[above,font=\sffamily\tiny] {diagnostic only} (candidate.west);
   \draw[routered,dashed,rounded corners=3pt,thick]
-    (2.30,-1.30) rectangle (11.55,1.18);
+    (2.30,-1.30) rectangle (11.85,1.18);
   \node[routered,fill=white,inner sep=1.5pt,anchor=south] at (7.0,1.15)
     {interface study: where recoverable calls are routed};
   \node[routeorange,align=center,anchor=north,font=\sffamily\scriptsize] at (4.0,-1.42)
-    {all \SpanInsideReasoning{}/\SpanRecoveredCalls{} recovered calls sat in the\\reasoning field, which the backend does not route};
+    {all \SpanInsideReasoning{}/\SpanRecoveredCalls{} body-only candidates came from the\\reasoning field, outside the structured route};
 
   \node[font=\sffamily\bfseries\small,anchor=west] at (-0.3,-2.62)
     {(b) The audit advances only after each failure is localized};
@@ -56,13 +55,98 @@
 \end{tikzpicture}%
 }
 
+\newcommand{\ServingRegimeParityFigure}{%
+\begin{tikzpicture}[font=\sffamily\scriptsize]
+  \begin{axis}[
+    name=parityroutes,
+    width=9.15cm,height=6.15cm,
+    title style={font=\sffamily\bfseries\small},
+    title={(a) Where action candidates surface},
+    xbar stacked,
+    xmin=0,xmax=\ParityRequestsPerCheckpoint,
+    xtick={0,\ParityQuarterRequests,\ParityHalfRequests,\ParityThreeQuarterRequests,\ParityRequestsPerCheckpoint},
+    xlabel={matched request cells (each bar totals \ParityRequestsPerCheckpoint)},
+    ytick={1,2,3,4,5,6},
+    yticklabels={Round 3 / off,Round 3 / on,Round 2 / off,Round 2 / on,Base / off,Base / on},
+    bar width=7pt,
+    axis line style={routegray!65},
+    xmajorgrids,grid style={routegray!18},
+    tick label style={font=\sffamily\scriptsize},
+    label style={font=\sffamily\scriptsize},
+    legend style={draw=none,font=\sffamily\scriptsize,at={(0.5,1.03)},anchor=south,legend columns=3},
+  ]
+    \addplot+[fill=routeblue,draw=white] coordinates {
+      (\ParityRoundThreeThinkingOffStructuredCount,1)
+      (\ParityRoundThreeThinkingOnStructuredCount,2)
+      (\ParityRoundTwoThinkingOffStructuredCount,3)
+      (\ParityRoundTwoThinkingOnStructuredCount,4)
+      (\ParityBaseThinkingOffStructuredCount,5)
+      (\ParityBaseThinkingOnStructuredCount,6)};
+    \addlegendentry{structured call}
+    \addplot+[fill=routeorange,draw=white] coordinates {
+      (\ParityRoundThreeThinkingOffBodyOnlyCount,1)
+      (\ParityRoundThreeThinkingOnBodyOnlyCount,2)
+      (\ParityRoundTwoThinkingOffBodyOnlyCount,3)
+      (\ParityRoundTwoThinkingOnBodyOnlyCount,4)
+      (\ParityBaseThinkingOffBodyOnlyCount,5)
+      (\ParityBaseThinkingOnBodyOnlyCount,6)};
+    \addlegendentry{body-only call}
+    \addplot+[fill=routegray!45,draw=white] coordinates {
+      (\ParityRoundThreeThinkingOffNoCandidateCount,1)
+      (\ParityRoundThreeThinkingOnNoCandidateCount,2)
+      (\ParityRoundTwoThinkingOffNoCandidateCount,3)
+      (\ParityRoundTwoThinkingOnNoCandidateCount,4)
+      (\ParityBaseThinkingOffNoCandidateCount,5)
+      (\ParityBaseThinkingOnNoCandidateCount,6)};
+    \addlegendentry{no parseable call}
+    \draw[routegray!55,thin] (axis cs:0,2.5) --
+      (axis cs:\ParityRequestsPerCheckpoint,2.5);
+    \draw[routegray!55,thin] (axis cs:0,4.5) --
+      (axis cs:\ParityRequestsPerCheckpoint,4.5);
+  \end{axis}
+
+  \begin{axis}[
+    at={(9.65cm,0)},anchor=south west,
+    width=5.85cm,height=6.15cm,
+    title style={font=\sffamily\bfseries\small},
+    title={(b) Change when thinking is off},
+    xlabel={off $-$ on (percentage points)},
+    ytick={1,2,3},yticklabels={Round 3,Round 2,Base},
+    ymin=.65,ymax=3.35,
+    xmajorgrids,grid style={routegray!18},
+    axis line style={routegray!65},
+    enlarge x limits=0.18,
+    tick label style={font=\sffamily\scriptsize},
+    label style={font=\sffamily\scriptsize},
+    legend style={draw=none,font=\sffamily\scriptsize,at={(0.5,1.03)},anchor=south,legend columns=2},
+  ]
+    \addplot+[draw=none,forget plot] coordinates {(0,1)};
+    \addplot+[dashed,routegray,forget plot] coordinates {(0,.65) (0,3.35)};
+    \addplot+[only marks,mark=*,mark size=2.4pt,color=routeorange,
+              nodes near coords,point meta=x,
+              every node near coord/.append style={font=\sffamily\tiny,anchor=south}]
+      coordinates {(\ParityRoundThreeBodyOnlyDeltaPP,1.10)
+                   (\ParityRoundTwoBodyOnlyDeltaPP,2.10)
+                   (\ParityBaseBodyOnlyDeltaPP,3.10)};
+    \addlegendentry{body-only call}
+    \addplot+[only marks,mark=square*,mark size=2.2pt,color=routeblue,
+              nodes near coords,point meta=x,
+              every node near coord/.append style={font=\sffamily\tiny,anchor=north}]
+      coordinates {(\ParityRoundThreeStructuredDeltaPP,.90)
+                   (\ParityRoundTwoStructuredDeltaPP,1.90)
+                   (\ParityBaseStructuredDeltaPP,2.90)};
+    \addlegendentry{structured call}
+  \end{axis}
+\end{tikzpicture}%
+}
+
 \newcommand{\PrimaryResultsFigure}{%
 \begin{tikzpicture}[font=\sffamily\scriptsize]
   \begin{axis}[
     name=primary,
     width=7.4cm,height=4.35cm,
     title style={font=\sffamily\bfseries\small,align=center,yshift=3.2ex},
-    title={(a) Registered primary\\recoverable calls, all inside the reasoning span},
+    title={(a) Thinking-enabled grid\\body-only parser candidates},
     xmin=0,xmax=40,xtick={0,10,20,30,40},
     xlabel={schema-present $-$ schema-absent (pp)},
     ytick={1,2,3},yticklabels={Round 3,Round 2,Base},
@@ -84,7 +168,7 @@
     at={(8.1cm,0)},anchor=south west,
     width=7.4cm,height=4.35cm,
     title style={font=\sffamily\bfseries\small,align=center,yshift=3.2ex},
-    title={(b) Post-hoc valid candidate\\either route (pools an unexecutable one)},
+    title={(b) Schema-valid candidate\\through either route (post-hoc)},
     xmin=0,xmax=40,xtick={0,10,20,30,40},
     xlabel={schema-present $-$ schema-absent (pp)},
     ytick={1,2,3},yticklabels={Round 3,Round 2,Base},
@@ -157,9 +241,9 @@
   \node[cell,minimum width=3.0cm] at (1.6,-2.75) {V3 / fresh run};
   \node[cell,minimum width=3.3cm] at (5.15,-2.75) {structured route};
   \node[good,minimum width=2.5cm] at (8.35,-2.75) {effects \textbf{3/3}\\full \textbf{3/3}};
-  \node[cell,minimum width=3.3cm] at (5.15,-3.70) {recovery on};
+  \node[cell,minimum width=3.3cm] at (5.15,-3.70) {fixture recovery on};
   \node[good,minimum width=2.5cm] at (8.35,-3.70) {effects \textbf{3/3}\\full \textbf{3/3}};
-  \node[cell,minimum width=3.3cm] at (5.15,-4.65) {recovery off};
+  \node[cell,minimum width=3.3cm] at (5.15,-4.65) {fixture recovery off};
   \node[good,minimum width=2.5cm] at (8.35,-4.65) {no effect \textbf{3/3}\\full \textbf{3/3}};
   \node[align=left,anchor=west,text=routeink] at (10.0,-3.70)
     {three author-fixed calls\\one fixture and build\\technical repeats, not independent samples};

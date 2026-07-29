@@ -3,9 +3,10 @@
 
 The registered primary outcome records that a call was recovered from the
 response ``content`` field while the structured field was empty.  It does not
-record *where* inside that field the call was written.  Under the non-thinking
-Qwen3.5 serving regime the content field is dominated by the reasoning span, so
-that distinction changes how the result should be read.
+record *where* inside that field the call was written. Under the
+thinking-enabled local Qwen3.5 serving regime, the content field is dominated
+by the reasoning span, so that distinction changes how the result should be
+read.
 
 This analyzer is explicitly post-outcome.  It does not recompute, redefine, or
 relabel the frozen primary outcome; it only classifies rows the frozen analysis

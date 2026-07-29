@@ -36,11 +36,11 @@
   \hypersetup{hidelinks}
 \fi
 
-\title{Stranded in Reasoning: Auditing Where Tool Calls Stop in a Persistent
-Language-Model Agent\thanks{Large language models materially assisted literature
+\title{A Tool Call Is Not Yet an Action: Auditing the Routing Contract of a
+Persistent Language-Model Agent\thanks{Large language models materially assisted literature
 search, code review, experimental-design critique, and manuscript drafting.
-The human authors verified the evidence, analyses, citations, and final claims
-and retain full responsibility for the work.}}
+The author verified the evidence, analyses, citations, and final claims and
+retains full responsibility for the work.}}
 
 \ifdefined\ARXIVVERSION
   \author{\ArchiveAuthorBlock}
@@ -122,19 +122,15 @@ model-visible prompt, or random seed for every run. Rather than treat those
 scores as causal evidence, we used them to identify a mechanism that could be
 tested directly.
 
-The resulting study follows a sequence that is useful beyond this game. First,
-we tied every historical claim to retained evidence and marked the comparisons
-that could not identify an effect. Second, we ran a prospective recovery
-factorial and checked
-whether the intervention actually fired. It did not: none of 958 generations
-was eligible. Third, a registered fixed-state grid isolated two model-visible
-interface factors and exposed recoverable calls that the model wrote inside its
-reasoning span instead of emitting through the structured field. Fourth, an audit discovered
-that nominal request seeds had not changed sampling. We repaired the seed path
-and prospectively froze an outcome-unseen confirmation instead of retrospectively
-upgrading the first study. Finally, we repeated the unchanged grid on a
-different retained state panel and followed three frozen calls across the next
-execution boundary with a prospectively repaired measure.
+The resulting study follows a sequence useful beyond this game. A prospective
+recovery factorial first checked whether its treatment fired; it did not, in
+958 generations. A fixed-state interface grid then exposed ineffective request
+seeds, so we repaired sampling and froze a new outcome-unseen panel rather than
+upgrade the first result retrospectively. Two thinking-enabled panels showed a
+repeatable schema--routing pattern. Finally, after discovering that this
+serving mode differed from deployment, we preregistered a matched
+thinking-enabled versus thinking-disabled comparison on 1,020 pilot-unseen
+request cells.
 
 \begin{figure}[t]
 \centering
@@ -143,7 +139,7 @@ execution boundary with a prospectively repaired measure.
 advances only after each failed check is localized. A call written into the
 response body is not visible to an executor that reads only the structured
 field. In this study every such call sat in the endpoint's reasoning field,
-which its routing rule declines to lift
+outside the executor-consumed structured route
 (Section~\ref{sec:where-calls-sit}). Numbers are regenerated from the released
 public summaries.}
 \label{fig:routing}
@@ -153,33 +149,26 @@ Our contributions are:
 
 \begin{enumerate}
   \item We decompose tool execution into a model-to-environment routing contract
-  and define auditable outcomes that distinguish a structured envelope, a
-  parser-recoverable call in the response body, a malformed surface form, and no
-  recoverable call.
-  \item We report a registered outcome-unseen finite-grid confirmation across
-  three fixed checkpoints and a non-confirmatory extension on a different
-  retained panel. Native schema exposure increased content-only
-  recoverable-call incidence at every checkpoint on both panels, with effects
-  of 10--23 and 5.5--13 percentage points.
-  \item We localize where those calls sit and characterize the failure. All
-  \SpanRecoveredCalls{} recovered calls lie in the endpoint's reasoning field,
-  which its routing rule largely entails and which we therefore report as a
-  mechanism disclosure rather than a finding. What the rows do add is the
-  shape: every recovered row holds exactly one candidate with no reasoning text
-  after it, so the model is not confusing channels but terminating one token
-  before the call would have been routed.
-  \item We provide a failure-aware, reviewer-recomputable evidence sequence that
-  preserves failed manipulation, effective-seed, and measurement checks. After
-  prospective measurement repair, three author-fixed calls produced their
-  registered fixture effects in all six active-route trials, while the disabled
-  arm showed no registered action effect in 3/3.
+  with auditable outcomes for a structured call, a body-only parser candidate,
+  and no candidate. We keep candidate presence separate from schema validity,
+  appropriateness, execution, and utility.
+  \item We report a preregistered matched comparison of the thinking-mode render
+  intervention across three fixed checkpoints and 1,020 new requests, with
+  pilot-seen states excluded and cross-arm identities verified.
+  \item Conditional on the thinking-enabled local renderer, native schema
+  exposure increased body-only-candidate incidence at every checkpoint on a
+  registered outcome-unseen panel and a same-project robustness panel.
+  \item We release raw response channels, immutable run inventories, strict
+  verifiers, and a failure-aware evidence sequence that preserves null
+  manipulation, ineffective-seed, and failed-measurement results.
 \end{enumerate}
 
 The bounded conclusion is about this action-routing contract. The three
-checkpoints form one model lineage, both state panels come from the same project
-and evaluation regime, and the renderer is fixed. We do not treat checkpoints
-as training replicates, call the two panels independent replications, infer a
-recovery benefit, or claim improved quest performance.
+checkpoints form one model lineage, the state panels come from the same project,
+and both matched thinking-mode arms use separately recreated local environments.
+We do not treat checkpoints as training replicates, call the two panels
+independent replications, infer a recovery or training benefit, or claim
+improved quest performance.
 
 \section{Setting and Action-Routing Contract}
 
@@ -209,67 +198,46 @@ that a hash-bound 17-tool schema is supplied through the model endpoint's
 native \texttt{tools} field. It is not claimed to be byte-identical to every
 historical production schema.
 
-For example, a response may contain a canonical function block naming
-\texttt{navigate} with valid JSON-like arguments, while its structured
-\texttt{tool\_calls} field is empty. The harness sees only response body text
-unless an explicit recovery layer parses that block;
-Section~\ref{sec:where-calls-sit} shows why, in this regime, adding such a
-layer is the wrong repair. We use the following taxonomy:
+For example, a response body may contain a function block naming
+\texttt{navigate} while its structured \texttt{tool\_calls} field is empty.
+An executor that reads only the structured field never sees that candidate.
+We distinguish three mutually exclusive response routes:
 
 \begin{description}
-  \item[Structured envelope.] The endpoint returns at least one call in the
-  structured field. Schema validity is a separate question.
-  \item[Content-only recoverable call.] The structured field is empty, but the
-  prospectively frozen deterministic parser recovers at least one candidate from the
-  response content. This is the primary outcome, also called a recovery
-  opportunity. ``Content'' here names the response \texttt{content} field as the
-  endpoint returns it. Section~\ref{sec:reasoning-regime} shows that in this
-  serving regime that field is dominated by the model's reasoning span, and
-  Section~\ref{sec:where-calls-sit} shows that every recovered call in this study
-  lies inside it. We retain the registered label because it is frozen in the
-  released artifacts, but it should not be read as ``ordinary prose addressed to
-  the user.''
-  \item[No recoverable call.] Neither route yields a candidate.
-  \item[Malformed surface form.] A secondary detector identifies a registered
-  syntax family. This label is not synonymous with content-only: most recovered
-  V1 calls were well-formed canonical function blocks written inside the
-  reasoning span rather than emitted through the structured field.
+  \item[Structured call.] The endpoint returns at least one call in the
+  structured field.
+  \item[Body-only parser candidate.] The structured field is empty, but the
+  frozen deterministic parser recognizes at least one call-like candidate in
+  the response body. The preregistration calls this a \emph{recovery
+  opportunity}; we retain that term in artifact tables.
+  \item[No parser candidate.] Neither route contains a recognized candidate.
 \end{description}
 
-The first three categories are mutually exclusive for the primary analysis.
-The malformed-family label is secondary. A later post-hoc analysis additionally
-checks whether structured envelopes name a registered function and satisfy its
-argument schema; it does not redefine the primary outcome.
+Candidate presence is only the first gate. A candidate may fail the tool
+schema, be inappropriate for the state, never reach the executor, or produce no
+useful environment change. We measure routing first, check syntax and schema
+separately, and make no semantic-appropriateness or utility claim.
 
 \subsection{The serving regime and its reasoning span}
 \label{sec:reasoning-regime}
 
-Two properties of the request path are load-bearing for every result below, and
-neither is visible in the registered outcome. We state both because they
-determine what that outcome can mean.
+The V1--V3 interface grids explicitly launched the local MLX backend with
+\texttt{enable\_thinking=true}. This was a deliberate implementation choice,
+but it was off-parity with the non-thinking historical deployment path and with
+the model card's default mode \citep{qwen35modelcards2026}. The pinned chat
+template opens a reasoning span when thinking is enabled; when disabled, it
+inserts an empty closed span before generation. The backend returns reasoning
+and final-message text separately and constructs structured
+\texttt{tool\_calls} from the final-message field.
 
-First, these studies were served by a local MLX backend launched with
-thinking enabled, not by the non-thinking Modal configuration used for the
-historical training corpus. The backend returns the model's reasoning and its
-final message as \emph{separate} fields. It lifts a well-formed call into the
-structured \texttt{tool\_calls} field only when that call appears in the final
-message; a call appearing in the reasoning field is left where it is. The
-studies are therefore off-parity with the training regime in this respect, and
-we do not claim otherwise.
-
-Second, the gateway in front of that backend reconstructs a single
-\texttt{content} string by wrapping the reasoning in reasoning tags and
-concatenating the final message. The tags in \texttt{content} are written by
-the gateway, not emitted by the model; every released row is byte-consistent
-with that construction. Any statistic computed over those tags describes the
-gateway's formatting, so we report none.
-
-The consequence for measurement is direct. The prospectively frozen parser
-reads the reconstructed \texttt{content} string, so it reaches text the backend
-had already classified as reasoning and had deliberately declined to route. A
-claim about ``text'' in this setting must therefore say which field it means.
-The registered outcome does not, so we make the relationship explicit in
-Section~\ref{sec:where-calls-sit}.
+The gateway then reconstructs one response-body string by adding reasoning
+tags around the reasoning field and appending the final message. Those tags are
+gateway output, not model tokens. The frozen offline parser reads this combined
+body, so it can recognize a candidate that was never present in the
+executor-consumed structured field. This plumbing makes the later 701/701
+reasoning-field localization mostly a disclosure of the measurement path, not
+an independent discovery. It also motivates the preregistered matched
+thinking-mode comparison in Section~\ref{sec:thinking-parity}.
 
 \subsection{Interface factors and fixed checkpoints}
 
@@ -317,14 +285,14 @@ V2 interface grid & 1,200/1,200; outcome-unseen panel; effective gates &
 Registered finite-grid directional confirmation \\
 V3 interface grid & 1,200/1,200; different retained panel; effective gates &
 Non-confirmatory same-direction finite-grid extension \\
+Thinking-mode bridge & 1,020/1,020 new requests paired to retained V2 cells;
+pilot states excluded & Matched finite-grid render-regime contrast; separately
+recreated environments \\
 Structured validity & Recomputed after V2 and V3 outcomes &
 Post-hoc routing diagnostic, not a new primary outcome \\
 Reasoning-field placement & Classified after both panels closed; frozen labels
-unchanged & Mechanism disclosure largely entailed by the backend routing rule \\
-Multi-action execution V2 & 9/9 protocol-valid; 0/9 full predicate &
-Transport worked, but two frozen measurement predicates were defective \\
-Multi-action execution V3 & Fresh post-amendment run; 9/9 full predicate &
-Three author-fixed calls traverse both active routes on one local build \\
+unchanged & Mechanism disclosure largely entailed by reconstruction and routing
+mechanics \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -394,22 +362,40 @@ cells cannot be called recovery effects.
 
 This null trigger count changed the next question. Instead of extending a
 factorial whose treatment did not engage, we asked which model-visible
-interfaces change where in the response a syntactically valid call gets
-written.
+interfaces change where in the response a parser-recognized call appears.
 
-That pivot also changed the serving stack, and the resulting discrepancy is the
-most important boundary in this paper. This factorial ran on the deployment's
-non-thinking hosted configuration and produced no recoverable call in any of
-the 664 generations that lacked a structured call. The interface studies ran on
-a thinking-enabled local stack and produced recovered calls in roughly 29\% of
-requests. The deployment lane sends the tool schema uniformly, so it
-corresponds to the schema-present condition, which is the highest-rate
-condition in the studies. The phenomenon the interface studies measure is
-therefore not observed in the deployment lane at all, and the most economical
-explanation is the serving configuration rather than the model: when the final
-message carries the call, the backend routes it. We report the interface
-results as an audit of a routing contract that can be configured into
-existence, not as a measurement of this agent's deployed behaviour.
+That pivot also changed the serving stack. The non-thinking deployment lane
+contained zero body-only parser candidates in 958 generations overall and in
+all 664 generations without a structured call. By contrast, the two
+thinking-enabled interface panels contained 701 such candidates in 2,400
+requests overall and in 701 of 1,532 requests without a structured call. This
+large cross-stack discrepancy is an unmatched boundary observation: states,
+prompts, runtime, and provider also differ, so it is not a causal comparison.
+
+\subsection{A preregistered matched bridge across thinking modes}
+\label{sec:thinking-parity}
+
+We therefore varied thinking mode on the fixed local MLX pipeline. A debugging
+pilot inspected V2 state indices 0--2 before registration; all three states are
+excluded from confirmation. Base and round-2 pilot aggregates were observed,
+while the round-3 pilot output and raw pilot rows were not retained. We make no
+pilot claim.
+
+The confirmatory panel pairs the retained thinking-enabled V2 response with a
+new thinking-disabled response for each of 17 remaining states, four interfaces,
+and five effective seeds at each checkpoint: 340 paired cells per checkpoint
+and 1,020 new requests. The preregistered criterion is a strictly negative
+thinking-off minus thinking-on difference in body-only-candidate rate at all
+three checkpoints. Checkpoints are strata, not replicates, and pooled counts
+are presentation only.
+
+The arms use separately recreated pinned environments. We verify the same
+checkpoint, tokenizer, chat-template file, sampling contract, request payload,
+and state snapshot for every pair; the render argument changes from
+\texttt{enable\_thinking=true} to \texttt{false}. Source commits and runtime
+receipts differ and are disclosed, so this is not described as a byte-identical
+single-factor experiment. Both arms use the same local backend family; the
+comparison does not isolate provider effects or measure downstream utility.
 
 \subsection{V1 discovery and the ineffective-seed audit}
 
@@ -473,12 +459,11 @@ independent draws from a deployment population.
 \begin{figure}[t]
 \centering
 \PrimaryResultsFigure
-\caption{Native-schema contrasts on both complete finite grids. Panels (a)
-and (c) show the registered primary outcome: a parser-recoverable call absent
-from the structured field, which Section~\ref{sec:where-calls-sit} shows was in
-every case written inside the model's reasoning span. Panel (b) is explicitly
-post-hoc and asks whether either
-route contains a schema-valid candidate. Points are whole-grid rate differences;
+\caption{Native-schema contrasts on two complete, thinking-enabled finite
+grids. Panels (a) and (c) show the registered body-only parser-candidate
+outcome. Panel (b) is explicitly post-hoc and asks whether either recorded
+route contains a schema-valid candidate; it does not assess whether that
+candidate is appropriate or useful. Points are whole-grid rate differences;
 the stacked bars count the 20 paired state effects and are not population
 uncertainty intervals. V3 is a different retained panel under the same project
 lineage, not an independent replication. Exact cell tables appear in
@@ -528,140 +513,48 @@ reconstructed response body while the structured field was empty. We now state
 what that means mechanically, because the two are closer than the outcome's
 name suggests.
 
-Given the routing rule in Section~\ref{sec:reasoning-regime}, the primary
-outcome and the reasoning-field placement are very nearly the same event. The
-backend lifts a well-formed call into the structured field exactly when it
-appears in the final message. A recovered call is therefore almost by
-construction a call that appeared in the reasoning field instead: a
-counterexample would require a call the frozen parser accepts but the backend
-does not. We report the localization because readers cannot infer it from the
-outcome's name, not as an independent confirmation of it. Of the
-\SpanRecoveredCalls{} recovered calls---\SpanVTwoRecovered{} in V2 and
-\SpanVThreeRecovered{} in V3---all \SpanInsideReasoning{} sit in the reasoning
-field, with \SpanRowsWithTrailingCall{} tool-call markers anywhere in the final
-message across all \SpanTotalRows{} responses. The absence of counterexamples
-is consistent with the routing rule rather than evidence beyond it.
+Given the routing and reconstruction rules in
+Section~\ref{sec:reasoning-regime}, the registered body-only outcome and
+reasoning-field placement are nearly the same event. Of the
+\SpanRecoveredCalls{} parser candidates---\SpanVTwoRecovered{} in V2 and
+\SpanVThreeRecovered{} in V3---all \SpanInsideReasoning{} were reconstructed
+from the reasoning field, and no tool-call marker appeared later in the final
+message across \SpanTotalRows{} responses. We report this because the frozen
+outcome name does not expose the field boundary; it is a mechanism disclosure,
+not a second empirical confirmation.
 
-What the rows do add is the shape of the failure, and it is narrower than a
-channel-confusion story. Every one of the \SpanRecoveredCalls{} recovered rows
-contains exactly one candidate, and none contains any reasoning text after that
-candidate. The model reasons, emits a single well-formed call, and terminates.
-It does not deliberate past the call, propose alternatives, or retract. So the
-defect is not that the model conflated two channels; it is that generation
-ended without the token that would have moved the call into the final message.
-
-That distinction matters for the remedy, and it cuts against reading a
-recovered call as a recovery \emph{opportunity}. A harness that promotes these
-calls is overriding a routing decision the backend made deliberately, on the
-basis of a field the model does not control, and it would do so uniformly
-rather than case by case. We therefore do not recommend adding a recovery layer
-here; the defect is upstream, in the generation-termination path, and the
-registered label is retained only because it is frozen in the released
-artifacts. We stop short of the stronger claim that promotion is unsafe because
-the model might retract: these rows contain no retraction, so that argument has
-no support here.
-
-This localization is post-outcome and descriptive. It does not establish what a
-different template, renderer, or termination rule would produce, or whether
-promoting these calls would help or harm task performance.
+Each recovered row contained one parser candidate and no later reasoning text.
+Only 656 of the 701 candidates passed the frozen tool schema, so we do not call
+all of them valid actions. Moreover, V2 and V3 did not retain the backend's
+finish reason. The traces therefore do not identify why generation ended, a
+one-token boundary, model intent, retraction behavior, or the correct remedy.
+Whether promoting any candidate is appropriate, safe, or useful requires a
+separate state-aware evaluation.
 
 \subsection{Post-hoc route and schema decomposition}
 
-The prospectively frozen primary outcome asks whether a recoverable candidate was
-absent from the structured field; it treats any nonempty structured field as
-``structured.''
-After V2, we asked a different question: does either response route contain a
-registered tool with schema-valid arguments? Table~\ref{tab:validity} reports
-this explicitly post-hoc, mutually exclusive decomposition. Counts pool the two
-documentation conditions within a checkpoint. The invalid category combines
-invalid structured and invalid recoverable-text candidates; none means neither
-route contained a candidate.
-
-\begin{table}[H]
-\caption{Post-hoc route decomposition per 200 requests. VS is a valid
-structured candidate; VT is a valid recoverable-text candidate. Invalid pools
-invalid structured and invalid recoverable-text candidates; the structured-only
-component is 34, 24, and 18 without the native schema and 1, 6, and 3 with it.
-Categories are mutually exclusive and do not redefine the registered primary
-outcome.}
-\label{tab:validity}
-\centering
-\small
-\begin{tabular}{llrrrrr}
-\toprule
-Weights & Native schema & VS & VT & Invalid & None & Valid any \\
-\midrule
-Base & Absent  & 31 & 30 & 34 & 105 & 61 \\
-Base & Present & 59 & 76 &  1 &  64 & 135 \\
-Round 2 & Absent  & 49 & 30 & 25 & 96 & 79 \\
-Round 2 & Present & 55 & 57 &  6 & 82 & 112 \\
-Round 3 & Absent  & 39 & 44 & 21 & 96 & 83 \\
-Round 3 & Present & 54 & 67 &  3 & 76 & 121 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Valid candidates through either route rose from 61 to 135 (Base), 79 to 112
-(round 2), and 83 to 121 (round 3) when the endpoint received the native tools
-parameter: $+37$, $+16.5$, and $+19$ percentage points. All 15
-checkpoint-by-sample-index contrasts were positive. The VT component consists
-entirely of calls written inside the reasoning span
-(Section~\ref{sec:where-calls-sit}), so a rise in the pooled count is not a rise
-in executable actions. A frozen strict-router replay would have preserved 373
-structured rows and promoted 303 recoverable-text rows out of the reasoning
-field, quarantining five and leaving 519 no-candidate rows unchanged. These are candidate actions, not evidence of
-semantic appropriateness or utility. Because schema exposure also changed
-routing, conditional route comparisons are selection-sensitive.
-
-Applying the same explicitly post-hoc decomposition to V3 gave valid-any-route
-counts of 101 versus 149 (Base), 91 versus 141 (round 2), and 89 versus 152
-(round 3) per 200 requests: $+24$, $+25$, and $+31.5$ points. Again all 15
-checkpoint-by-sample-index contrasts were positive. Strict replay would have
-preserved 495 structured rows and promoted 352 recoverable-text rows out of the
-reasoning span, quarantining 41 and leaving 312 without a candidate. These
-counts strengthen the routing diagnosis across the second panel but inherit the
-same post-hoc, selection-sensitive, no-utility boundary.
+After both registered panels closed, we separately checked whether candidates
+named a registered tool and satisfied its argument schema. Across V2 and V3,
+656 of 701 body-only parser candidates passed that syntactic/schema gate.
+Native schema exposure also reduced invalid structured envelopes in V2 from
+34 to 1, 24 to 6, and 18 to 3 per 200 requests at Base, round 2, and round 3.
+These post-hoc counts prevent us from equating either route with a valid action;
+they do not establish appropriateness, execution, or utility. The complete
+mutually exclusive decomposition appears in Appendix~\ref{app:validity}.
 
 \subsection{Prospectively amended multi-action routing diagnostic}
 
 To test the next boundary without a model call, we froze three schema-valid
 calls---\texttt{equip\_item}, \texttt{eat\_food}, and \texttt{warp}---and
-routed them in order through structured input, strict content recovery, and a
-recovery-off control. These fixtures are author-authored and are not written
-inside a reasoning span, so this diagnostic tests transport only; it does not
-endorse promoting model-emitted calls out of that span.
-Figure~\ref{fig:execution-check} summarizes the sequence.
-In V2, all nine technical trials were protocol-valid,
-and the six active-route trials delivered all 18 scheduled calls without a
-schema, delivery, protocol, or tool error. Nevertheless, its sealed verdict
-was \texttt{complete\_with\_failures}: 0/9 trials passed every frozen predicate.
-A post-outcome audit localized the failures to measurement. Client projections
-namespaced the equipped item differently from the database projection, and
-passive health regeneration violated exact whole-state equality in the
-disabled arm despite an empty dispatch ledger.
+routed them through structured input, strict fixture recovery, and a disabled
+control. The frozen V2 measure remained failed at 0/9 full predicates even
+though all calls were delivered; an audit found two representation-sensitive
+measurement defects. We preserved that result, froze a correction, and applied
+it only to a fresh V3 run, which passed all 9/9 technical trials.
 
-We did not relabel V2. Instead, a prospectively frozen V3 amendment
-canonicalized equipment identity and replaced exact disabled-arm equality with
-the absence of the three registered action-specific effects. Applied only to a
-fresh run, V3 was protocol-valid and passed the full predicate in all 9/9
-technical trials.
-
-\begin{figure}[H]
-\centering
-\MeasurementRepairFigure
-\caption{The model-free routing diagnostic preserves V2's failed frozen
-measure, localizes two representation-sensitive defects, and applies the
-amendment only to a fresh V3 run. Counts are technical trials out of three per
-arm, not independent samples. The disabled control's success means absence of
-the three registered action-specific effects.}
-\label{fig:execution-check}
-\end{figure}
-
-These technical repeats share one fixture and build and are not independent
-samples. V3 supplies preliminary within-build evidence that three frozen calls
-can traverse both active routes and produce their action-specific fixture
-effects. It does not estimate a recovery benefit, validate model-selected
-calls, or establish quest utility.
+This is one-fixture transport evidence for author-written calls, not evidence
+that naturally emitted candidates are appropriate or useful. The full failed
+measure, prospective amendment, and routing figure appear in the appendix.
 
 \section{What the Audit Establishes}
 
@@ -757,6 +650,15 @@ learned self-correction. The distinction mirrors the central theme of this
 paper: weights, rendered affordances, parser behavior, and harness intervention
 are separate treatments.
 
+Thinking mode is another serving-time treatment. Ada-RS studies selective
+thinking for tool-calling models as an accuracy--efficiency problem
+\citep{ge2026adars}. We ask a complementary systems question: holding the
+registered request cells fixed, does the thinking-mode render contract change
+which response field contains the candidate? More broadly, calls for rigorous
+agent evaluation emphasize treatment isolation, held-out tasks, cost, and
+reproducibility \citep{kapoor2025agents}; our contribution is an executable
+field-level audit for one persistent agent.
+
 The historical motivation comes from on-policy distillation. GKD trains on
 student-generated sequences \citep{agarwal2024gkd}, and later work changes
 state occupancy through teacher-success prefixes, mixed teacher/student turns,
@@ -792,17 +694,15 @@ one renderer, and one deterministic recovery parser. A prospectively collected
 independent state pool, second model family, renderer, parser, and environment
 are needed before a broad interface claim.
 
-All requests use a single thinking-enabled local serving stack, held constant
-across checkpoints but off-parity with the non-thinking configuration under
-which the historical corpus was rendered. That stack's routing rule is why
-recovered calls sit in the reasoning field, so it bounds both the primary
-outcome and the localization in Section~\ref{sec:where-calls-sit}. We ran no
-non-thinking arm and no second stack, so we cannot separate the interface
-contrast from the serving configuration, and we do not know whether a different
-template or termination rule would relocate these calls. A prospective design
-should cross the interface grid with the serving configuration and record the
-chat-template arguments in the render attestation, which the present contract
-does not.
+The V1--V3 schema grids used one thinking-enabled local stack. We later paired
+their retained V2 rows with a prospectively registered thinking-disabled arm on
+the same request cells. The two arms used separately recreated pinned
+environments and therefore have different source commits and runtime receipts;
+we verify matching checkpoints, tokenizer, chat-template file, sampling
+contract, request payloads, and state snapshots, but cannot claim byte-identical
+single-factor isolation. Both arms use local MLX, so the study also does not
+isolate backend/provider differences or turn the unmatched deployment records
+into a second-stack replication.
 
 The V2 primary outcome stops at parser recoverability. A separate model-free
 diagnostic follows three author-fixed calls through MCP and state projections,
@@ -901,6 +801,52 @@ channel-level label, not a recommendation to recover.
 \endgroup
 
 \input{../../research/results/local-trigger-incidence-v3/paper-table-public.tex}
+
+\section{Post-Hoc Schema-Validity Decomposition}
+\label{app:validity}
+
+\begin{table}[H]
+\caption{V2 route decomposition per 200 thinking-enabled requests. VS is a
+schema-valid structured candidate; VB is a schema-valid body-only candidate.
+Invalid pools invalid candidates through either recorded route. Categories are
+mutually exclusive and do not redefine the registered primary outcome.}
+\label{tab:validity}
+\centering
+\small
+\begin{tabular}{llrrrrr}
+\toprule
+Weights & Native schema & VS & VB & Invalid & None & Valid any \\
+\midrule
+Base & Absent  & 31 & 30 & 34 & 105 & 61 \\
+Base & Present & 59 & 76 &  1 &  64 & 135 \\
+Round 2 & Absent  & 49 & 30 & 25 & 96 & 79 \\
+Round 2 & Present & 55 & 57 &  6 & 82 & 112 \\
+Round 3 & Absent  & 39 & 44 & 21 & 96 & 83 \\
+Round 3 & Present & 54 & 67 &  3 & 76 & 121 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Valid candidates through either route increased by 37, 16.5, and 19
+percentage points in V2 and by 24, 25, and 31.5 points in V3 at Base, round 2,
+and round 3. These are post-hoc, selection-sensitive routing descriptions.
+Strict syntactic/schema replay would preserve 373 structured rows, promote 303
+body-only candidates, quarantine five, and leave 519 no-candidate rows in V2;
+the corresponding V3 counts are 495, 352, 41, and 312. Promotion here is an
+offline counterfactual label, not a recommendation or evidence of utility.
+
+\section{Model-Free Transport Diagnostic}
+
+\begin{figure}[H]
+\centering
+\MeasurementRepairFigure
+\caption{The model-free routing diagnostic preserves V2's failed frozen
+measure, localizes two representation-sensitive defects, and applies the
+amendment only to a fresh V3 run. Counts are technical trials out of three per
+arm, not independent samples. The disabled control's success means absence of
+the three registered action-specific effects.}
+\label{fig:execution-check}
+\end{figure}
 
 \section{Prospective State-Visitation Hypothesis}
 \label{app:opd}

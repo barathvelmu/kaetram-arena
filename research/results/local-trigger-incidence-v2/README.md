@@ -31,8 +31,9 @@ structured-call precedence, exactly one explicit closed `tool_call` envelope,
 exactly one recovered call, and frozen-schema validation. It preserved all 373
 structured rows, promoted 303 content-only rows, quarantined five (four missing
 required arguments and one corrupt outer envelope), and left 519 no-candidate
-rows untouched. This establishes deterministic safe promotion on the archived
-responses; it is not an environment-execution or utility result.
+rows untouched. This establishes deterministic fail-closed promotion under the
+frozen syntactic and schema policy on archived responses; it does not establish
+semantic appropriateness, safety, environment execution, or utility.
 
 Files:
 

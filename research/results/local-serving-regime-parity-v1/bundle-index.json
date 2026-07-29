@@ -1,0 +1,34 @@
+{
+  "analysis_source_git_commit": "51420b9b0df49ec7389b9f6728c0ef08923ee111",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "4af41cc2ee18f9adac1831913dfcfc892bd0621fe1bfc5b610d6c78156542cd6",
+      "size_bytes": 3473
+    },
+    {
+      "path": "runs/base_2b/artifact-index.json",
+      "sha256": "408fa35b262be023429684dbdc8c0f83aed05d19a33dec6539a6508e4b2ed181",
+      "size_bytes": 718
+    },
+    {
+      "path": "runs/opd_r2_2b/artifact-index.json",
+      "sha256": "9c59b4bbbafe526501b5033fbe68de8bef51adb6b4faddeda44438a857578908",
+      "size_bytes": 720
+    },
+    {
+      "path": "runs/opd_r3_2b/artifact-index.json",
+      "sha256": "38892b08e61792aadb30e21e6d861b1bc8dbfd16be31aa8ab95b2bd1ea2ef20d",
+      "size_bytes": 720
+    },
+    {
+      "path": "analysis/artifact-index.json",
+      "sha256": "45cd903b3590d0ca114e1bbe486cf85c5097725b4f03244509f163c0dcd67d5f",
+      "size_bytes": 348
+    }
+  ],
+  "registration_sha256": "2e031c457cce306565599eced6e88bc3407ba5943961ebb612b34818ba8a9b46",
+  "schema_version": "kaetram.local-serving-regime-parity-bundle.v1",
+  "study_id": "local-serving-regime-parity-v1",
+  "tree_sha256": "7c9bf9eeb8a4a4c13203c52e6a6d52f56ae5fa64fae9f1ff310d9b3336282ab1"
+}

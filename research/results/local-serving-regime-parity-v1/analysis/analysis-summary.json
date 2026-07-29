@@ -1,0 +1,400 @@
+{
+  "analysis_code_provenance": {
+    "analysis_script_sha256": "f04ebe49c86265e4828e89baebc0eb02a03cc257e430de8c41aa673e3b5dc84e",
+    "dirty_paths": [],
+    "python_version": "3.14.5",
+    "source_git_commit": "51420b9b0df49ec7389b9f6728c0ef08923ee111"
+  },
+  "checkpoint_results": [
+    {
+      "by_native_schema": {
+        "absent": {
+          "disabled_no_candidate_count": 27,
+          "disabled_no_candidate_rate": 0.1588235294117647,
+          "disabled_recovery_count": 0,
+          "disabled_recovery_rate": 0.0,
+          "disabled_structured_count": 143,
+          "disabled_structured_rate": 0.8411764705882353,
+          "no_candidate_rate_difference_disabled_minus_thinking": -0.36470588235294116,
+          "recovery_rate_difference_disabled_minus_thinking": -0.17058823529411765,
+          "requests": 170,
+          "structured_rate_difference_disabled_minus_thinking": 0.5352941176470588,
+          "thinking_no_candidate_count": 89,
+          "thinking_no_candidate_rate": 0.5235294117647059,
+          "thinking_recovery_count": 29,
+          "thinking_recovery_rate": 0.17058823529411765,
+          "thinking_structured_count": 52,
+          "thinking_structured_rate": 0.3058823529411765
+        },
+        "present": {
+          "disabled_no_candidate_count": 10,
+          "disabled_no_candidate_rate": 0.058823529411764705,
+          "disabled_recovery_count": 0,
+          "disabled_recovery_rate": 0.0,
+          "disabled_structured_count": 160,
+          "disabled_structured_rate": 0.9411764705882353,
+          "no_candidate_rate_difference_disabled_minus_thinking": -0.24705882352941178,
+          "recovery_rate_difference_disabled_minus_thinking": -0.3941176470588235,
+          "requests": 170,
+          "structured_rate_difference_disabled_minus_thinking": 0.6411764705882353,
+          "thinking_no_candidate_count": 52,
+          "thinking_no_candidate_rate": 0.3058823529411765,
+          "thinking_recovery_count": 67,
+          "thinking_recovery_rate": 0.3941176470588235,
+          "thinking_structured_count": 51,
+          "thinking_structured_rate": 0.3
+        }
+      },
+      "disabled_attempt_error_count": 0,
+      "disabled_finish_reason_counts": {
+        "length": 31,
+        "stop": 4,
+        "tool_calls": 305
+      },
+      "disabled_no_candidate_count": 37,
+      "disabled_no_candidate_rate": 0.10882352941176471,
+      "disabled_recovery_count": 0,
+      "disabled_recovery_rate": 0.0,
+      "disabled_retried_request_count": 0,
+      "disabled_structured_count": 303,
+      "disabled_structured_rate": 0.8911764705882353,
+      "no_candidate_rate_difference_disabled_minus_thinking": -0.3058823529411765,
+      "paired_requests": 340,
+      "recovery_rate_difference_disabled_minus_thinking": -0.2823529411764706,
+      "route_transitions": {
+        "no_candidate_to_no_candidate": 24,
+        "no_candidate_to_structured": 117,
+        "reasoning_stranded_to_no_candidate": 9,
+        "reasoning_stranded_to_structured": 87,
+        "structured_to_no_candidate": 4,
+        "structured_to_structured": 99
+      },
+      "snapshot": "base_2b",
+      "structured_rate_difference_disabled_minus_thinking": 0.5882352941176471,
+      "thinking_finish_reason_retained": false,
+      "thinking_no_candidate_count": 141,
+      "thinking_no_candidate_rate": 0.4147058823529412,
+      "thinking_recovery_count": 96,
+      "thinking_recovery_rate": 0.2823529411764706,
+      "thinking_structured_count": 103,
+      "thinking_structured_rate": 0.3029411764705882
+    },
+    {
+      "by_native_schema": {
+        "absent": {
+          "disabled_no_candidate_count": 22,
+          "disabled_no_candidate_rate": 0.12941176470588237,
+          "disabled_recovery_count": 0,
+          "disabled_recovery_rate": 0.0,
+          "disabled_structured_count": 148,
+          "disabled_structured_rate": 0.8705882352941177,
+          "no_candidate_rate_difference_disabled_minus_thinking": -0.38823529411764707,
+          "recovery_rate_difference_disabled_minus_thinking": -0.14705882352941177,
+          "requests": 170,
+          "structured_rate_difference_disabled_minus_thinking": 0.5352941176470588,
+          "thinking_no_candidate_count": 88,
+          "thinking_no_candidate_rate": 0.5176470588235295,
+          "thinking_recovery_count": 25,
+          "thinking_recovery_rate": 0.14705882352941177,
+          "thinking_structured_count": 57,
+          "thinking_structured_rate": 0.3352941176470588
+        },
+        "present": {
+          "disabled_no_candidate_count": 11,
+          "disabled_no_candidate_rate": 0.06470588235294118,
+          "disabled_recovery_count": 0,
+          "disabled_recovery_rate": 0.0,
+          "disabled_structured_count": 159,
+          "disabled_structured_rate": 0.9352941176470588,
+          "no_candidate_rate_difference_disabled_minus_thinking": -0.34705882352941175,
+          "recovery_rate_difference_disabled_minus_thinking": -0.29411764705882354,
+          "requests": 170,
+          "structured_rate_difference_disabled_minus_thinking": 0.6411764705882353,
+          "thinking_no_candidate_count": 70,
+          "thinking_no_candidate_rate": 0.4117647058823529,
+          "thinking_recovery_count": 50,
+          "thinking_recovery_rate": 0.29411764705882354,
+          "thinking_structured_count": 50,
+          "thinking_structured_rate": 0.29411764705882354
+        }
+      },
+      "disabled_attempt_error_count": 0,
+      "disabled_finish_reason_counts": {
+        "length": 27,
+        "tool_calls": 313
+      },
+      "disabled_no_candidate_count": 33,
+      "disabled_no_candidate_rate": 0.09705882352941177,
+      "disabled_recovery_count": 0,
+      "disabled_recovery_rate": 0.0,
+      "disabled_retried_request_count": 0,
+      "disabled_structured_count": 307,
+      "disabled_structured_rate": 0.9029411764705882,
+      "no_candidate_rate_difference_disabled_minus_thinking": -0.36764705882352944,
+      "paired_requests": 340,
+      "recovery_rate_difference_disabled_minus_thinking": -0.22058823529411764,
+      "route_transitions": {
+        "no_candidate_to_no_candidate": 24,
+        "no_candidate_to_structured": 134,
+        "reasoning_stranded_to_no_candidate": 4,
+        "reasoning_stranded_to_structured": 71,
+        "structured_to_no_candidate": 5,
+        "structured_to_structured": 102
+      },
+      "snapshot": "opd_r2_2b",
+      "structured_rate_difference_disabled_minus_thinking": 0.5882352941176471,
+      "thinking_finish_reason_retained": false,
+      "thinking_no_candidate_count": 158,
+      "thinking_no_candidate_rate": 0.4647058823529412,
+      "thinking_recovery_count": 75,
+      "thinking_recovery_rate": 0.22058823529411764,
+      "thinking_structured_count": 107,
+      "thinking_structured_rate": 0.31470588235294117
+    },
+    {
+      "by_native_schema": {
+        "absent": {
+          "disabled_no_candidate_count": 31,
+          "disabled_no_candidate_rate": 0.18235294117647058,
+          "disabled_recovery_count": 0,
+          "disabled_recovery_rate": 0.0,
+          "disabled_structured_count": 139,
+          "disabled_structured_rate": 0.8176470588235294,
+          "no_candidate_rate_difference_disabled_minus_thinking": -0.31176470588235294,
+          "recovery_rate_difference_disabled_minus_thinking": -0.24705882352941178,
+          "requests": 170,
+          "structured_rate_difference_disabled_minus_thinking": 0.5588235294117647,
+          "thinking_no_candidate_count": 84,
+          "thinking_no_candidate_rate": 0.49411764705882355,
+          "thinking_recovery_count": 42,
+          "thinking_recovery_rate": 0.24705882352941178,
+          "thinking_structured_count": 44,
+          "thinking_structured_rate": 0.25882352941176473
+        },
+        "present": {
+          "disabled_no_candidate_count": 14,
+          "disabled_no_candidate_rate": 0.08235294117647059,
+          "disabled_recovery_count": 0,
+          "disabled_recovery_rate": 0.0,
+          "disabled_structured_count": 156,
+          "disabled_structured_rate": 0.9176470588235294,
+          "no_candidate_rate_difference_disabled_minus_thinking": -0.31176470588235294,
+          "recovery_rate_difference_disabled_minus_thinking": -0.32941176470588235,
+          "requests": 170,
+          "structured_rate_difference_disabled_minus_thinking": 0.6411764705882353,
+          "thinking_no_candidate_count": 67,
+          "thinking_no_candidate_rate": 0.3941176470588235,
+          "thinking_recovery_count": 56,
+          "thinking_recovery_rate": 0.32941176470588235,
+          "thinking_structured_count": 47,
+          "thinking_structured_rate": 0.27647058823529413
+        }
+      },
+      "disabled_attempt_error_count": 0,
+      "disabled_finish_reason_counts": {
+        "length": 31,
+        "stop": 3,
+        "tool_calls": 306
+      },
+      "disabled_no_candidate_count": 45,
+      "disabled_no_candidate_rate": 0.1323529411764706,
+      "disabled_recovery_count": 0,
+      "disabled_recovery_rate": 0.0,
+      "disabled_retried_request_count": 0,
+      "disabled_structured_count": 295,
+      "disabled_structured_rate": 0.8676470588235294,
+      "no_candidate_rate_difference_disabled_minus_thinking": -0.31176470588235294,
+      "paired_requests": 340,
+      "recovery_rate_difference_disabled_minus_thinking": -0.28823529411764703,
+      "route_transitions": {
+        "no_candidate_to_no_candidate": 28,
+        "no_candidate_to_structured": 123,
+        "reasoning_stranded_to_no_candidate": 8,
+        "reasoning_stranded_to_structured": 90,
+        "structured_to_no_candidate": 9,
+        "structured_to_structured": 82
+      },
+      "snapshot": "opd_r3_2b",
+      "structured_rate_difference_disabled_minus_thinking": 0.6,
+      "thinking_finish_reason_retained": false,
+      "thinking_no_candidate_count": 151,
+      "thinking_no_candidate_rate": 0.4441176470588235,
+      "thinking_recovery_count": 98,
+      "thinking_recovery_rate": 0.28823529411764703,
+      "thinking_structured_count": 91,
+      "thinking_structured_rate": 0.2676470588235294
+    }
+  ],
+  "claim_boundary": "A passed result identifies the serving regime as a cause of routing differences on this fixed local stack. It does not isolate MLX from Modal, establish gameplay utility, justify promoting reasoning-field calls, or generalize beyond the retained model lineage and states.",
+  "confirmatory_state_indices": [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+  ],
+  "input_identity": {
+    "experiment_time_code_receipts": [
+      {
+        "path": "research/experiments/local-serving-regime-parity-v1.json",
+        "sha256": "2e031c457cce306565599eced6e88bc3407ba5943961ebb612b34818ba8a9b46",
+        "size_bytes": 3962
+      },
+      {
+        "path": "scripts/opd/serving_regime_parity_probe.py",
+        "sha256": "00165ba17b96093dc2e9a179c667ddd25b54b85b1aa33b0a6696bda1eba5e2b4",
+        "size_bytes": 24215
+      },
+      {
+        "path": "scripts/local_mlx_endpoint.py",
+        "sha256": "8ee34f460d337c1e293a87bf38e36d641e093ad37a21eadcb9974979bc91ec3b",
+        "size_bytes": 34787
+      },
+      {
+        "path": "scripts/mlx_seeded_server.py",
+        "sha256": "ee1655c656827749ffee93d9a515d176215579f7f6f1cea7a33b08aca177bfcd",
+        "size_bytes": 5314
+      },
+      {
+        "path": "scripts/opd/trigger_incidence_probe.py",
+        "sha256": "e33104b6d47244b50106c6af44188d5c7a1f45fb7ca0b236bcf7488bb35a9d96",
+        "size_bytes": 42528
+      },
+      {
+        "path": "scripts/opd/canonicalize.py",
+        "sha256": "ca509636bc179e0b2d6efa31f7aee1fecc7f6675ccfee87a9f7b3e1345e16f01",
+        "size_bytes": 11133
+      }
+    ],
+    "runs": {
+      "base_2b": {
+        "thinking_disabled": {
+          "artifact_index_sha256": "408fa35b262be023429684dbdc8c0f83aed05d19a33dec6539a6508e4b2ed181",
+          "runtime_environment_receipt_sha256": "5f34e239cb815593b4bcba35ce25ad49edb7309715aa2329f8e14e4850fe95b2",
+          "source_git_commit": "86c9452c7e205745983385ba29cfc48f714508cd",
+          "tree_sha256": "00c041e0d2f95f385d12c3de9f2d4eb8635a2e12af59dca87d8c1c575bbeb636"
+        },
+        "thinking_enabled": {
+          "artifact_index_sha256": "ffc19c9b55882ea61dca4e5f31c1230bbaaaa466d505de5d1749d56148f83fee",
+          "runtime_environment_receipt_sha256": "1f25567b02fcdc0e6573dad92250c591838dee74378cc45ef65975f3d7833b00",
+          "source_git_commit": "af81627c76bfe9a9febe1864fff43e03dd82e170",
+          "tree_sha256": "965b7bfd75e88913a215771061141bf2f196cf87b1d8f218834087f964112a08"
+        }
+      },
+      "opd_r2_2b": {
+        "thinking_disabled": {
+          "artifact_index_sha256": "9c59b4bbbafe526501b5033fbe68de8bef51adb6b4faddeda44438a857578908",
+          "runtime_environment_receipt_sha256": "5f34e239cb815593b4bcba35ce25ad49edb7309715aa2329f8e14e4850fe95b2",
+          "source_git_commit": "86c9452c7e205745983385ba29cfc48f714508cd",
+          "tree_sha256": "713b252664b7a3818aef40a1ea62b5cdac08a178fe107a644fc5799dea4672f8"
+        },
+        "thinking_enabled": {
+          "artifact_index_sha256": "adab096399b27464f5ce68cceac9cdc538f42af2333f6293831f319a1098aced",
+          "runtime_environment_receipt_sha256": "1f25567b02fcdc0e6573dad92250c591838dee74378cc45ef65975f3d7833b00",
+          "source_git_commit": "af81627c76bfe9a9febe1864fff43e03dd82e170",
+          "tree_sha256": "00be17367fe4fd3f6cc43d9543af4acd25f6f16f6b93656951cca73b0035d790"
+        }
+      },
+      "opd_r3_2b": {
+        "thinking_disabled": {
+          "artifact_index_sha256": "38892b08e61792aadb30e21e6d861b1bc8dbfd16be31aa8ab95b2bd1ea2ef20d",
+          "runtime_environment_receipt_sha256": "5f34e239cb815593b4bcba35ce25ad49edb7309715aa2329f8e14e4850fe95b2",
+          "source_git_commit": "86c9452c7e205745983385ba29cfc48f714508cd",
+          "tree_sha256": "280e4a570eb33a9883f95df099e86b1210b92763f570a24781477aaf851f8a52"
+        },
+        "thinking_enabled": {
+          "artifact_index_sha256": "ad8596bac13440cfd064dbb46af4eb636a5518c18015f86388c2828e30a2839d",
+          "runtime_environment_receipt_sha256": "1f25567b02fcdc0e6573dad92250c591838dee74378cc45ef65975f3d7833b00",
+          "source_git_commit": "af81627c76bfe9a9febe1864fff43e03dd82e170",
+          "tree_sha256": "5ab55e08ea590b188f3cbd9bb67391c69afec9e25dc87a9dc58ab432136cf6ec"
+        }
+      }
+    },
+    "v2_artifact_index_sha256": "04a26f53ce24fa9578c0e49d55b946321347f9de2a1dd81e0739822d57978562",
+    "v2_bundle_verification": {
+      "artifact_index_sha256": "04a26f53ce24fa9578c0e49d55b946321347f9de2a1dd81e0739822d57978562",
+      "directional_replication_passed": true,
+      "failed_requests": 0,
+      "recovery_opportunities": 308,
+      "scheduled_requests": 1200,
+      "schema_version": "kaetram.local-trigger-incidence-public-artifact.v2",
+      "study_id": "local-trigger-incidence-seeded-v2",
+      "successful_requests": 1200,
+      "thinking_enabled_endpoint_source_sha256": "1b0a5872ae070585b4a89346b6ebbcbaacb5f32ade0d81585b0d6624c6b9439f",
+      "thinking_enabled_literals_verified": true,
+      "thinking_enabled_source_git_commit": "af81627c76bfe9a9febe1864fff43e03dd82e170",
+      "tree_sha256": "fede8cb870fe8790c5252fd8594f54cdc0505a81ce801f9baed0d036246ecdba"
+    },
+    "v2_expected_request_grid_sha256": "e620ec9910b7447d0a37681e7257a86cd588766188b7f5135eb961fbb83bf935"
+  },
+  "interpreted_claim_boundary": "The result measures a matched finite-grid contrast under the registered thinking-mode render intervention on separately recreated pinned local MLX environments. The arms used different source commits and runtime receipts; the analysis verifies matching checkpoints, tokenizer, template, schema, sampling, and snapshot identities but does not prove literal single-factor isolation, isolate backend/provider differences, validate recovery, or establish gameplay utility.",
+  "intervention": {
+    "factor": "generation_template_args.enable_thinking",
+    "separately_recreated_pinned_environments": true,
+    "thinking_disabled_render_contract_sha256": "31a820c88425ad0039aa335ef54db47434be22aa61bf4371e31cf215241a280f",
+    "thinking_enabled_render_contract_sha256": "bc1597c47e5efbe533e52bb43335114426210bb29f868ef4fb2e7f86ca5b28ed"
+  },
+  "matched_cross_arm_identities": [
+    "api_model",
+    "chat_template_sha256",
+    "checkpoint_sha256",
+    "fix_mistral_regex",
+    "sampling_contract_sha256",
+    "snapshot_lock_sha256",
+    "snapshot_tree_sha256",
+    "tokenizer_sha256",
+    "tokenizer_source_revision"
+  ],
+  "pilot_states_excluded": [
+    0,
+    1,
+    2
+  ],
+  "pooled_descriptive_result": {
+    "disabled_no_candidate_count": 115,
+    "disabled_no_candidate_rate": 0.11274509803921569,
+    "disabled_recovery_count": 0,
+    "disabled_recovery_rate": 0.0,
+    "disabled_structured_count": 905,
+    "disabled_structured_rate": 0.8872549019607843,
+    "interpretation": "Presentation-only aggregation across the three fixed checkpoints; it does not replace the registered all-three-checkpoint directional criterion.",
+    "no_candidate_rate_difference_disabled_minus_thinking": -0.3284313725490196,
+    "paired_requests": 1020,
+    "recovery_rate_difference_disabled_minus_thinking": -0.26372549019607844,
+    "route_transitions": {
+      "no_candidate_to_no_candidate": 76,
+      "no_candidate_to_structured": 374,
+      "reasoning_stranded_to_no_candidate": 21,
+      "reasoning_stranded_to_structured": 248,
+      "structured_to_no_candidate": 18,
+      "structured_to_structured": 283
+    },
+    "structured_rate_difference_disabled_minus_thinking": 0.592156862745098,
+    "thinking_no_candidate_count": 450,
+    "thinking_no_candidate_rate": 0.4411764705882353,
+    "thinking_recovery_count": 269,
+    "thinking_recovery_rate": 0.26372549019607844,
+    "thinking_structured_count": 301,
+    "thinking_structured_rate": 0.2950980392156863
+  },
+  "registered_directional_criterion_passed": true,
+  "registration_sha256": "2e031c457cce306565599eced6e88bc3407ba5943961ebb612b34818ba8a9b46",
+  "runtime_environment_consistent_across_new_checkpoints": true,
+  "runtime_environment_receipt_equal_across_arms": false,
+  "schema_version": "kaetram.local-serving-regime-parity-analysis.v1",
+  "source_git_commit_equal_across_arms": false,
+  "status": "complete",
+  "study_id": "local-serving-regime-parity-v1"
+}

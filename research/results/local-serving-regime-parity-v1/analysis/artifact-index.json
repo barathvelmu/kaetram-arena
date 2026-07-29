@@ -1,0 +1,11 @@
+{
+  "files": [
+    {
+      "path": "analysis-summary.json",
+      "sha256": "f2f2c216501c15e88d0d2665f8c03a001746fbb6d6943aab953f7e3d2a8f460d",
+      "size_bytes": 18309
+    }
+  ],
+  "schema_version": "kaetram.local-serving-regime-parity-analysis.v1.artifacts",
+  "tree_sha256": "9a13da314e1b297f1da68cdd38db14f7606442faf55efb59f742399e1b3fe671"
+}

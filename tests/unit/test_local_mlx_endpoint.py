@@ -77,6 +77,7 @@ def _render_contract(tmp_path: Path) -> dict:
             "distinct_seed_outputs": 4,
             "execution_thread": "background",
         },
+        thinking_enabled=True,
     )
 
 
@@ -106,6 +107,11 @@ def test_identity_is_derived_only_from_locked_artifacts(tmp_path: Path) -> None:
     assert identity.sampling_contract_sha256 == sha256_json(
         render_contract["seeded_sampling"]
     )
+    assert identity.thinking_mode == "enabled"
+    assert identity.health_payload()["attestation"]["thinking_mode"] == "enabled"
+    assert render_contract["generation_template_args"] == {
+        "enable_thinking": True
+    }
     assert render_contract["seeded_sampling"]["server_script_sha256"] == (
         hashlib.sha256(SEEDED_SERVER_SCRIPT.read_bytes()).hexdigest()
     )
@@ -350,6 +356,7 @@ def test_backend_command_is_pinned_to_local_snapshot(tmp_path: Path) -> None:
         "127.0.0.1",
         8082,
         "patched-template",
+        thinking_enabled=True,
     )
     assert command[0] == "/venv/bin/python"
     assert command[1:4] == ["-I", "-S", "-B"]
@@ -360,6 +367,40 @@ def test_backend_command_is_pinned_to_local_snapshot(tmp_path: Path) -> None:
     assert command[command.index("--port") + 1] == "8082"
     assert command[command.index("--chat-template") + 1] == "patched-template"
     assert '{"enable_thinking":true}' in command
+
+
+def test_backend_command_can_attest_deployment_parity_mode(tmp_path: Path) -> None:
+    command = build_backend_command(
+        "/venv/bin/python",
+        tmp_path / "base_2b",
+        "127.0.0.1",
+        8082,
+        "patched-template",
+        thinking_enabled=False,
+    )
+    assert '{"enable_thinking":false}' in command
+
+
+def test_render_contract_distinguishes_thinking_modes(tmp_path: Path) -> None:
+    enabled = _render_contract(tmp_path)
+    canonical_dir = tmp_path / CANONICAL_TOKENIZER_SNAPSHOT
+    disabled = build_render_contract(
+        _lock(),
+        "patched-template",
+        canonical_dir,
+        {"rendered_text_sha256": "a" * 64},
+        {
+            "schema_version": SEEDED_SAMPLING_CONTRACT_SCHEMA,
+            "mlx_lm_version": PINNED_MLX_LM_VERSION,
+            "distinct_seed_outputs": 4,
+            "execution_thread": "background",
+        },
+        thinking_enabled=False,
+    )
+    assert enabled["generation_template_args"] != disabled[
+        "generation_template_args"
+    ]
+    assert sha256_json(enabled) != sha256_json(disabled)
 
 
 def test_seeded_sampler_runtime_probe_requires_distinct_background_outputs(

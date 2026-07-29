@@ -73,7 +73,11 @@ TOKENIZER_RUNTIME_FILES = frozenset({
     "tokenizer_config.json",
     "vocab.json",
 })
-LOCAL_RENDER_CONTRACT_SCHEMA = "kaetram.local-render-contract.v1"
+LOCAL_RENDER_CONTRACT_SCHEMA = "kaetram.local-render-contract.v2"
+THINKING_MODES = {
+    "enabled": True,
+    "disabled": False,
+}
 RENDER_PROBE_STRINGS = (
     "isOpen",
     "waitForTimeout",
@@ -111,6 +115,7 @@ class EndpointIdentity:
     fix_mistral_regex: bool
     runtime_environment_receipt_sha256: str
     sampling_contract_sha256: str
+    thinking_mode: str
 
     def health_payload(self) -> dict:
         return {
@@ -130,6 +135,7 @@ class EndpointIdentity:
                     self.runtime_environment_receipt_sha256
                 ),
                 "sampling_contract_sha256": self.sampling_contract_sha256,
+                "thinking_mode": self.thinking_mode,
             },
         }
 
@@ -219,6 +225,8 @@ def build_render_contract(
     canonical_tokenizer_dir: Path,
     effective_renderer: dict,
     seeded_sampler_probe: dict,
+    *,
+    thinking_enabled: bool,
 ) -> dict:
     """Describe every model-visible local rendering choice."""
     snapshot = lock["snapshots"][CANONICAL_TOKENIZER_SNAPSHOT]
@@ -240,6 +248,9 @@ def build_render_contract(
         # Mistral when transformers_version is absent. The training and
         # historical serving contract uses Qwen's original regex.
         "fix_mistral_regex": False,
+        "generation_template_args": {
+            "enable_thinking": thinking_enabled,
+        },
         "tool_schema_sha256": tool_schema_record()["sha256"],
         "effective_renderer": effective_renderer,
         "seeded_sampling": {
@@ -302,6 +313,11 @@ def build_identity(
         fix_mistral_regex=render_contract["fix_mistral_regex"],
         runtime_environment_receipt_sha256=runtime_environment_receipt_sha256,
         sampling_contract_sha256=sha256_json(render_contract["seeded_sampling"]),
+        thinking_mode=(
+            "enabled"
+            if render_contract["generation_template_args"]["enable_thinking"]
+            else "disabled"
+        ),
     )
 
 
@@ -357,6 +373,8 @@ def build_runtime_view(
 def verify_effective_renderer(
     runtime_model_dir: Path,
     patched_chat_template: str,
+    *,
+    thinking_enabled: bool,
 ) -> dict:
     """Exercise the exact derived tokenizer on tool history and drift probes."""
     try:
@@ -410,7 +428,7 @@ def verify_effective_renderer(
             tools=MODEL_VISIBLE_TOOL_DEFINITIONS,
             tokenize=False,
             add_generation_prompt=True,
-            enable_thinking=True,
+            enable_thinking=thinking_enabled,
         )
         token_ids = tokenizer.encode(rendered, add_special_tokens=False)
         probe_ids = {
@@ -435,6 +453,8 @@ def build_backend_command(
     host: str,
     port: int,
     patched_chat_template: str,
+    *,
+    thinking_enabled: bool,
 ) -> list[str]:
     require_loopback(host)
     environment = Path(python).absolute().parent.parent
@@ -455,7 +475,10 @@ def build_backend_command(
         "--chat-template",
         patched_chat_template,
         "--chat-template-args",
-        '{"enable_thinking":true}',
+        json.dumps(
+            {"enable_thinking": thinking_enabled},
+            separators=(",", ":"),
+        ),
         "--log-level",
         "INFO",
         ),
@@ -734,6 +757,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--backend-host", default="127.0.0.1")
     parser.add_argument("--backend-port", type=int, required=True)
+    parser.add_argument(
+        "--thinking-mode",
+        choices=sorted(THINKING_MODES),
+        default="enabled",
+        help=(
+            "Explicit Qwen generation regime. The historical local studies used "
+            "enabled; the deployed OPD stack used disabled."
+        ),
+    )
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--startup-timeout-seconds", type=float, default=180.0)
     args = parser.parse_args(argv)
@@ -787,8 +819,11 @@ def main(argv: list[str] | None = None) -> int:
             model_snapshot=model_snapshot,
             canonical_tokenizer_snapshot=canonical_snapshot,
         )
+        thinking_enabled = THINKING_MODES[args.thinking_mode]
         effective_renderer = verify_effective_renderer(
-            runtime_model_dir, patched_chat_template
+            runtime_model_dir,
+            patched_chat_template,
+            thinking_enabled=thinking_enabled,
         )
         seeded_sampler_probe = verify_seeded_sampler_runtime(sys.executable)
         render_contract = build_render_contract(
@@ -797,6 +832,7 @@ def main(argv: list[str] | None = None) -> int:
             canonical_tokenizer_dir,
             effective_renderer,
             seeded_sampler_probe,
+            thinking_enabled=thinking_enabled,
         )
         identity = build_identity(
             lock,
@@ -826,6 +862,7 @@ def main(argv: list[str] | None = None) -> int:
             args.backend_host,
             args.backend_port,
             patched_chat_template,
+            thinking_enabled=thinking_enabled,
         )
         backend = subprocess.Popen(command, start_new_session=True)
         _backend_ready(backend_url, args.startup_timeout_seconds)

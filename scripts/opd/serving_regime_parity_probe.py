@@ -191,8 +191,9 @@ def expected_schedule(registration: dict, snapshot: str) -> list[tuple[dict, dic
 
 
 async def _health(endpoint: str) -> dict:
+    health_root = endpoint.removesuffix("/v1")
     async with httpx.AsyncClient() as client:
-        response = await client.get(f"{endpoint}/health", timeout=10)
+        response = await client.get(f"{health_root}/health", timeout=10)
         response.raise_for_status()
         payload = response.json()
     if not isinstance(payload, dict):
